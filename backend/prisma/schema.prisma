@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum VerificationStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  FAILED
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  BOOKING_REQUEST
+  BOOKING_ACCEPTED
+  BOOKING_DECLINED
+  BOOKING_CANCELLED
+  PAYMENT_RECEIVED
+  PAYOUT_SENT
+  REVIEW_RECEIVED
+  VERIFICATION_APPROVED
+  VERIFICATION_FAILED
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+
+model User {
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  phone               String?
+  avatarUrl           String?
+  bio                 String?
+
+  // Verification
+  verificationStatus  VerificationStatus @default(PENDING)
+  verificationId      String?            // Stripe session ID — populated later
+  verifiedAt          DateTime?
+
+  // ID submission (MVP manual review)
+  idPhotoUrl          String?            // S3 private URL
+  selfieUrl           String?            // S3 private URL
+  idSubmittedAt       DateTime?
+
+  // Expo push notifications
+  expoPushToken       String?
+
+  // Stripe
+  stripeCustomerId    String?
+  stripeAccountId     String?            // For payouts to owners
+
+  // Timestamps
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  // Relations
+  listings            Listing[]
+  bookingsAsRenter    Booking[]          @relation("RenterBookings")
+  bookingsAsOwner     Booking[]          @relation("OwnerBookings")
+  reviewsGiven        Review[]           @relation("ReviewsGiven")
+  reviewsReceived     Review[]           @relation("ReviewsReceived")
+  notifications       Notification[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// LISTING
+// ─────────────────────────────────────────
+
+model Listing {
+  id            String       @id @default(uuid())
+  title         String
+  description   String
+  category      String
+  dailyPrice    Decimal      @db.Decimal(10, 2)
+  isAvailable   Boolean      @default(true)
+
+  // Location
+  latitude      Float
+  longitude     Float
+  city          String
+  address       String?
+
+  // Relations
+  ownerId       String
+  owner         User         @relation(fields: [ownerId], references: [id])
+  images        ListingImage[]
+  bookings      Booking[]
+  reviews       Review[]
+
+  // Timestamps
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("listings")
+}
+
+model ListingImage {
+  id          String   @id @default(uuid())
+  url         String
+  order       Int      @default(0)
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@map("listing_images")
+}
+
+// ─────────────────────────────────────────
+// BOOKING
+// ─────────────────────────────────────────
+
+model Booking {
+  id              String        @id @default(uuid())
+  status          BookingStatus @default(PENDING)
+
+  startDate       DateTime
+  endDate         DateTime
+  totalPrice      Decimal       @db.Decimal(10, 2)
+  message         String?       // Optional message from renter
+
+  // Payment
+  stripePaymentIntentId  String?
+  stripeChargeId         String?
+  paidAt                 DateTime?
+  payoutSentAt           DateTime?
+
+  // Relations
+  renterId        String
+  renter          User          @relation("RenterBookings", fields: [renterId], references: [id])
+  ownerId         String
+  owner           User          @relation("OwnerBookings", fields: [ownerId], references: [id])
+  listingId       String
+  listing         Listing       @relation(fields: [listingId], references: [id])
+  review          Review?
+
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("bookings")
+}
+
+// ─────────────────────────────────────────
+// REVIEW
+// ─────────────────────────────────────────
+
+model Review {
+  id          String   @id @default(uuid())
+  rating      Int      // 1–5
+  comment     String?
+
+  // Relations
+  authorId    String
+  author      User     @relation("ReviewsGiven", fields: [authorId], references: [id])
+  subjectId   String
+  subject     User     @relation("ReviewsReceived", fields: [subjectId], references: [id])
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id])
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+
+  createdAt   DateTime @default(now())
+
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATION
+// ─────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid())
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  data      Json?            // Extra payload (bookingId, listingId etc)
+
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
