@@ -1,6 +1,8 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import authRouter from './routes/auth'
+
 
 dotenv.config()
 
@@ -18,4 +20,7 @@ app.listen(PORT, () => {
   console.log(`Zoink API running on port ${PORT}`)
 })
 
+app.use('/auth', authRouter)
+
 export default app
+
