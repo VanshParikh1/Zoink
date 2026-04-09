@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import * as authService from '../services/authService'
+import * as authService from '../../services/authService'
 
 function handleError(res: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR'

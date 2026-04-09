@@ -159,18 +159,48 @@ export async function resendOTP(userId: string) {
   return { message: 'OTP sent' }
 }
 
-// ── Email (stubbed) ───────────────────────────────────────────────────────────
+// ── Email ────────────────────────────────────────────────────────────────────
+
+import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses'
+
+const sesClient = new SESClient({
+  region: process.env.AWS_REGION!,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+})
 
 async function sendVerificationEmail(email: string, firstName: string, code: string) {
-  // We'll replace this with real SES code later
-  // For now it just logs so we can test the full flow locally
-  console.log(`
-    ┌─────────────────────────────────┐
-    │   Zoink Verification Code       │
-    │                                 │
-    │   Hi ${firstName},                     
-    │   Your code is: ${code}         
-    │   Expires in 15 minutes         │
-    └─────────────────────────────────┘
-  `)
+  const command = new SendEmailCommand({
+    Source: process.env.SES_FROM_EMAIL!,
+    Destination: {
+      ToAddresses: [email],
+    },
+    Message: {
+      Subject: {
+        Data: 'Your Zoink verification code',
+      },
+      Body: {
+        Text: {
+          Data: `Hi ${firstName},\n\nYour Zoink verification code is: ${code}\n\nIt expires in 15 minutes.\n\nIf you didn't request this, ignore this email.`,
+        },
+        Html: {
+          Data: `
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+              <h2 style="color: #1a1a1a;">Your Zoink verification code</h2>
+              <p>Hi ${firstName},</p>
+              <p>Enter this code in the app to verify your student email:</p>
+              <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #4F46E5; margin: 24px 0;">
+                ${code}
+              </div>
+              <p style="color: #666;">Expires in 15 minutes. If you didn't request this, ignore this email.</p>
+            </div>
+          `,
+        },
+      },
+    },
+  })
+
+  await sesClient.send(command)
 }
