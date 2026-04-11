@@ -1,6 +1,8 @@
 import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
 
+
+
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
 
 const api = axios.create({
@@ -9,6 +11,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 })
+
 
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync('zoink_token')
@@ -27,5 +30,7 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+
 
 export default api

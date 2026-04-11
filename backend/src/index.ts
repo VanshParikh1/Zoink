@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import authRouter from './routes/auth'
 
 dotenv.config()
 
@@ -13,6 +14,8 @@ app.use(express.json())
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Zoink API is running' })
 })
+
+app.use('/auth', authRouter)  // moved up
 
 app.listen(PORT, () => {
   console.log(`Zoink API running on port ${PORT}`)
