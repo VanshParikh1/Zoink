@@ -17,8 +17,8 @@ app.get('/health', (req, res) => {
 
 app.use('/auth', authRouter)  // moved up
 
-app.listen(PORT, () => {
-  console.log(`Zoink API running on port ${PORT}`)
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
 })
 
 export default app

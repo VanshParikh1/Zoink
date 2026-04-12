@@ -1,9 +1,31 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
 import api from '../services/api'
 
 const TOKEN_KEY = 'zoink_jwt'
+
+async function setTokenAsync(key: string, value: string) {
+  if (Platform.OS === 'web') {
+    return localStorage.setItem(key, value)
+  }
+  return await SecureStore.setItemAsync(key, value)
+}
+
+async function getTokenAsync(key: string) {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key)
+  }
+  return await SecureStore.getItemAsync(key)
+}
+
+async function deleteTokenAsync(key: string) {
+  if (Platform.OS === 'web') {
+    return localStorage.removeItem(key)
+  }
+  return await SecureStore.deleteItemAsync(key)
+}
 
 type User = {
   id: string
@@ -33,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function loadToken() {
       try {
-        const stored = await SecureStore.getItemAsync(TOKEN_KEY)
+        const stored = await getTokenAsync(TOKEN_KEY)
         if (stored) {
           const payload = parseJWT(stored)
           setToken(stored)
@@ -60,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
-    await SecureStore.deleteItemAsync(TOKEN_KEY)
+    await deleteTokenAsync(TOKEN_KEY)
     delete api.defaults.headers.common['Authorization']
     setToken(null)
     setUser(null)
@@ -71,12 +93,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const payload = parseJWT(newToken)
     setToken(newToken)
     setUser(payload)
-    SecureStore.setItemAsync(TOKEN_KEY, newToken)
+    setTokenAsync(TOKEN_KEY, newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
   }
 
   async function saveSession(newToken: string, newUser: User) {
-    await SecureStore.setItemAsync(TOKEN_KEY, newToken)
+    await setTokenAsync(TOKEN_KEY, newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
     setToken(newToken)
     setUser(newUser)

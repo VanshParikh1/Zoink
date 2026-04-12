@@ -9,12 +9,21 @@ const api = axios.create({
   baseURL: BASE_URL,
   headers: {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
   },
 })
 
 
+import { Platform } from 'react-native'
+
 api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync('zoink_token')
+  let token = null;
+  if (Platform.OS === 'web') {
+    token = localStorage.getItem('zoink_token')
+  } else {
+    token = await SecureStore.getItemAsync('zoink_token')
+  }
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -25,11 +34,17 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      await SecureStore.deleteItemAsync('zoink_token')
+      if (Platform.OS === 'web') {
+        localStorage.removeItem('zoink_token')
+      } else {
+        await SecureStore.deleteItemAsync('zoink_token')
+      }
     }
     return Promise.reject(error)
   }
 )
+
+
 
 
 
