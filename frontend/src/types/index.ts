@@ -30,6 +30,7 @@ export interface Listing {
   latitude: number
   longitude: number
   city: string
+  address?: string
   ownerId: string
   owner: User
   images: ListingImage[]

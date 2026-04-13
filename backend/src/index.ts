@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
+import listingsRouter from './routes/listings'
 
 dotenv.config()
 
@@ -18,6 +19,7 @@ app.get('/health', (req, res) => {
 
 app.use('/auth', authRouter)
 app.use('/users', usersRouter)
+app.use('/listings', listingsRouter)
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)

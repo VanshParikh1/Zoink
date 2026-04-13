@@ -10,6 +10,10 @@ import RegisterScreen from '../screens/RegisterScreen'
 import VerifyEmailScreen from '../screens/VerifyEmailScreen'
 import VerificationGateScreen from '../screens/VerificationGateScreen'
 import HomeScreen from '../screens/HomeScreen'
+import CreateListingScreen from '../screens/CreateListingScreen'
+import ListingDetailScreen from '../screens/ListingDetailScreen'
+import EditListingScreen from '../screens/EditListingScreen'
+import MyListingsScreen from '../screens/MyListingsScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -17,6 +21,10 @@ export type RootStackParamList = {
   VerifyEmail: undefined
   VerificationGate: undefined
   Home: undefined
+  CreateListing: undefined
+  ListingDetail: { listingId: string }
+  EditListing: { listingId: string }
+  MyListings: undefined
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -50,7 +58,13 @@ export default function Navigation() {
           </>
         ) : (
           // Logged in and verified — show the app
-          <Stack.Screen name="Home" component={HomeScreen} />
+          <>
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="CreateListing" component={CreateListingScreen} />
+            <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
+            <Stack.Screen name="EditListing" component={EditListingScreen} />
+            <Stack.Screen name="MyListings" component={MyListingsScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
