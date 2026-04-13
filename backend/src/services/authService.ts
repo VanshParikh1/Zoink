@@ -19,9 +19,9 @@ function generateOTP(): string {
   return crypto.randomInt(100000, 999999).toString()
 }
 
-function signJWT(userId: string, verificationStatus: string): string {
+function signJWT(userId: string, verificationStatus: string, email: string, firstName: string): string {
   return jwt.sign(
-    { userId, verificationStatus },
+    { userId, verificationStatus, email, firstName },
     process.env.JWT_SECRET!,
     { expiresIn: '30d' }
   )
@@ -68,7 +68,7 @@ export async function registerUser(
   await sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
-  const token = signJWT(user.id, user.verificationStatus)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
 }
 
@@ -88,7 +88,7 @@ export async function loginUser(email: string, password: string) {
   }
 
   // 3. Return JWT
-  const token = signJWT(user.id, user.verificationStatus)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
 }
 
@@ -126,7 +126,9 @@ export async function verifyOTP(userId: string, code: string) {
   ])
 
   // Return a fresh JWT with updated verificationStatus
-  const token2 = signJWT(userId, 'VERIFIED')
+  // Re-fetch user to get email + firstName for the new token
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true } })
+  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName)
   return { token: token2 }
 }
 
@@ -202,5 +204,12 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
     },
   })
 
-  await sesClient.send(command)
+  try {
+    await sesClient.send(command)
+  } catch (err: any) {
+    // SES failed (sandbox restrictions, missing config, etc.)
+    // Log the OTP so local dev is never blocked
+    console.warn(`[DEV] SES send failed: ${err?.message ?? err}`)
+    console.warn(`[DEV] OTP for ${email}: ${code}`)
+  }
 }
