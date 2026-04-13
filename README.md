@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Backend and authentication complete.
+> Currently in active development. Backend, authentication, and listing system complete. ✅
 
 ---
 
@@ -180,10 +180,10 @@ Two developers, 10–15 hours/week each. Dev 1 owns the backend, Dev 2 owns the 
 |---|---|---|
 | 1 | Project setup — DB schema, base structure, navigation shell | ✅ Done |
 | 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
-| 3 | Identity verification — university email verification, verified badge, email confirmation flow | 🔨 Up next |
-| 4 | User profiles — avatars, public profiles, verified badges | — |
-| 5 | Listings — create, upload photos, detail page, owner management | — |
-| 6 | Browse, search, and filtering — geo search, categories, price range | — |
+| 3 | Identity verification — university email verification, verified badge, email confirmation flow | ✅ Done |
+| 4 | User profiles — avatars, public profiles, verified badges | 🚧 Backend done, UI needed |
+| 5 | Listings — create, upload photos, detail page, owner management | ✅ Done |
+| 6 | Browse, search, and filtering — geo search, categories, price range | 🔨 Up next |
 | 7 | Booking system — request flow, state machine, history | — |
 | 8 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
 | 9 | Reviews and ratings — post-rental prompts, aggregate scores | — |
