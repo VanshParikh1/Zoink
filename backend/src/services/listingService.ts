@@ -32,6 +32,54 @@ const listingSelect = {
   },
 }
 
+const EARTH_RADIUS_KM = 6371
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function normalizeCategory(category: string) {
+  return category.trim().toLowerCase()
+}
+
+function buildDistanceSql(latitude: number, longitude: number) {
+  return Prisma.sql`
+    ${EARTH_RADIUS_KM} * ACOS(
+      LEAST(
+        1,
+        GREATEST(
+          -1,
+          COS(RADIANS(${latitude})) * COS(RADIANS(l."latitude")) * COS(RADIANS(l."longitude") - RADIANS(${longitude}))
+          + SIN(RADIANS(${latitude})) * SIN(RADIANS(l."latitude"))
+        )
+      )
+    )
+  `
+}
+
+export type BrowseListingsInput = {
+  query?: string
+  category?: string
+  minPrice?: number
+  maxPrice?: number
+  latitude?: number
+  longitude?: number
+  radiusKm?: number
+  city?: string
+  includeUnavailable?: boolean
+  limit?: number
+  offset?: number
+}
+
+type BrowseListingRow = {
+  id: string
+  distanceKm: number | null
+}
+
+type CountRow = {
+  count: bigint | number
+}
+
 // ── Create listing ────────────────────────────────────────────────────────────
 
 export type CreateListingInput = {
@@ -76,6 +124,159 @@ export async function getMyListings(ownerId: string) {
     select: listingSelect,
     orderBy: { createdAt: 'desc' },
   })
+}
+
+// ── Browse/search listings ────────────────────────────────────────────────────
+
+export async function browseListings(input: BrowseListingsInput) {
+  const {
+    query,
+    category,
+    minPrice,
+    maxPrice,
+    latitude,
+    longitude,
+    radiusKm,
+    city,
+    includeUnavailable = false,
+  } = input
+
+  const limit = clamp(input.limit ?? 20, 1, 50)
+  const offset = Math.max(input.offset ?? 0, 0)
+  const hasLocation = latitude != null && longitude != null
+
+  const whereClauses: Prisma.Sql[] = []
+
+  if (!includeUnavailable) {
+    whereClauses.push(Prisma.sql`l."isAvailable" = true`)
+  }
+
+  if (category) {
+    whereClauses.push(Prisma.sql`LOWER(l."category") = ${normalizeCategory(category)}`)
+  }
+
+  if (city) {
+    whereClauses.push(Prisma.sql`LOWER(l."city") = ${city.trim().toLowerCase()}`)
+  }
+
+  if (minPrice != null) {
+    whereClauses.push(Prisma.sql`l."dailyPrice" >= ${minPrice}`)
+  }
+
+  if (maxPrice != null) {
+    whereClauses.push(Prisma.sql`l."dailyPrice" <= ${maxPrice}`)
+  }
+
+  if (query) {
+    const pattern = `%${query.trim()}%`
+    whereClauses.push(
+      Prisma.sql`(
+        l."title" ILIKE ${pattern}
+        OR l."description" ILIKE ${pattern}
+        OR l."category" ILIKE ${pattern}
+        OR l."city" ILIKE ${pattern}
+      )`
+    )
+  }
+
+  const whereSql = whereClauses.length
+    ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`
+    : Prisma.empty
+
+  const distanceSql = hasLocation
+    ? buildDistanceSql(latitude as number, longitude as number)
+    : Prisma.sql`NULL::double precision`
+
+  const radiusFilterSql = hasLocation && radiusKm != null
+    ? Prisma.sql`WHERE filtered."distanceKm" <= ${radiusKm}`
+    : Prisma.empty
+
+  const listingRows = await prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
+    WITH filtered AS (
+      SELECT
+        l."id",
+        l."createdAt",
+        ${distanceSql} AS "distanceKm"
+      FROM "listings" l
+      ${whereSql}
+    )
+    SELECT filtered."id", filtered."distanceKm"
+    FROM filtered
+    ${radiusFilterSql}
+    ORDER BY
+      ${hasLocation ? Prisma.sql`filtered."distanceKm" ASC NULLS LAST,` : Prisma.empty}
+      filtered."createdAt" DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `)
+
+  const countRows = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
+    WITH filtered AS (
+      SELECT
+        l."id",
+        ${distanceSql} AS "distanceKm"
+      FROM "listings" l
+      ${whereSql}
+    )
+    SELECT COUNT(*) AS count
+    FROM filtered
+    ${radiusFilterSql}
+  `)
+
+  const listingIds = listingRows.map((row) => row.id)
+
+  if (listingIds.length === 0) {
+    return {
+      items: [],
+      meta: {
+        total: Number(countRows[0]?.count ?? 0),
+        limit,
+        offset,
+        hasMore: false,
+      },
+    }
+  }
+
+  const listings = await prisma.listing.findMany({
+    where: { id: { in: listingIds } },
+    select: listingSelect,
+  })
+
+  const listingById = new Map(listings.map((listing) => [listing.id, listing]))
+  const distanceById = new Map(listingRows.map((row) => [row.id, row.distanceKm]))
+
+  return {
+    items: listingIds
+      .map((id) => {
+        const listing = listingById.get(id)
+        if (!listing) return null
+
+        return {
+          ...listing,
+          distanceKm: distanceById.get(id) ?? null,
+        }
+      })
+      .filter((listing): listing is NonNullable<typeof listing> => listing !== null),
+    meta: {
+      total: Number(countRows[0]?.count ?? 0),
+      limit,
+      offset,
+      hasMore: offset + listingIds.length < Number(countRows[0]?.count ?? 0),
+    },
+  }
+}
+
+// ── Distinct categories for browse filters ────────────────────────────────────
+
+export async function getListingCategories() {
+  const rows = await prisma.listing.findMany({
+    where: { isAvailable: true },
+    distinct: ['category'],
+    select: { category: true },
+    orderBy: { category: 'asc' },
+  })
+
+  return rows.map((row) => row.category)
 }
 
 // ── Update listing ────────────────────────────────────────────────────────────
