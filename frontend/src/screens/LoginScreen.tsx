@@ -1,12 +1,20 @@
 import React, { useState } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
+import LogoPlaceholder from '../components/LogoPlaceholder'
+import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
@@ -21,14 +29,16 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     setError('')
+
     if (!email || !password) {
       setError('Please fill in all fields.')
       return
     }
+
     setLoading(true)
+
     try {
       await login(email.trim().toLowerCase(), password)
-      // Navigation happens automatically via the navigator when user state updates
     } catch (e: any) {
       setError(e.response?.data?.error || 'Something went wrong.')
     } finally {
@@ -42,14 +52,17 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.inner}>
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>Sign in to your Zoink account</Text>
+        <LogoPlaceholder size="large" style={styles.logo} />
+        <Text style={styles.kicker}>student rentals</Text>
+        <Text style={styles.title}>Welcome back to Zoink</Text>
+        <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TextInput
           style={styles.input}
           placeholder="University email"
+          placeholderTextColor={theme.textFaint}
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
@@ -58,24 +71,20 @@ export default function LoginScreen() {
         <TextInput
           style={styles.input}
           placeholder="Password"
+          placeholderTextColor={theme.textFaint}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
         />
 
-        <TouchableOpacity
-          style={styles.button}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.buttonText}>Sign in</Text>
-          }
+        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+          {loading ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.buttonText}>Sign in</Text>}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-          <Text style={styles.link}>Don't have an account? <Text style={styles.linkBold}>Sign up</Text></Text>
+          <Text style={styles.link}>
+            Do not have an account? <Text style={styles.linkBold}>Sign up</Text>
+          </Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -83,21 +92,45 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: theme.screen },
   inner: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  title: { fontSize: 28, fontWeight: '700', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#666', marginBottom: 32 },
-  error: { color: '#e53e3e', marginBottom: 16, fontSize: 14 },
+  logo: { marginBottom: 22 },
+  kicker: {
+    color: theme.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  title: { fontSize: 32, fontWeight: '900', color: theme.text, marginBottom: 8 },
+  subtitle: { fontSize: 16, color: theme.textMuted, marginBottom: 32, lineHeight: 23 },
+  error: { color: theme.colors.danger, marginBottom: 16, fontSize: 14, fontWeight: '600' },
   input: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 16, marginBottom: 16, backgroundColor: '#fafafa'
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    fontSize: 16,
+    marginBottom: 14,
+    backgroundColor: theme.surface,
+    color: theme.text,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 1,
   },
   button: {
-    backgroundColor: '#6C47FF', borderRadius: 12,
-    paddingVertical: 16, alignItems: 'center', marginBottom: 24
+    backgroundColor: theme.primary,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 24,
   },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { textAlign: 'center', color: '#666', fontSize: 14 },
-  linkBold: { fontWeight: '600', color: '#6C47FF' },
+  buttonText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
+  link: { textAlign: 'center', color: theme.textMuted, fontSize: 14 },
+  linkBold: { fontWeight: '900', color: theme.primary },
 })

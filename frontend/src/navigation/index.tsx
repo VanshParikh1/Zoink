@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { ActivityIndicator, View } from 'react-native'
 import { useAuth } from '../context/AuthContext'
+import { theme } from '../theme/colors'
 
 // Screens
 import LoginScreen from '../screens/LoginScreen'
@@ -35,8 +36,8 @@ export default function Navigation() {
   // Don't render anything until we've checked SecureStore
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen }}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     )
   }
@@ -53,7 +54,7 @@ export default function Navigation() {
         ) : user.verificationStatus !== 'VERIFIED' ? (
           // Logged in but not verified — show verification screens
           <>
-            <Stack.Screen name="VerificationGate" component = {VerificationGateScreen} />
+            <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
             <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
           </>
         ) : (

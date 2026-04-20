@@ -4,6 +4,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
+import LogoPlaceholder from '../components/LogoPlaceholder'
+import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'VerificationGate'>
 
@@ -13,17 +15,15 @@ export default function VerificationGateScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.emoji}>📬</Text>
+      <LogoPlaceholder size="large" style={styles.logo} />
+      <Text style={styles.kicker}>one quick step</Text>
       <Text style={styles.title}>Verify your email</Text>
       <Text style={styles.subtitle}>
         We need to confirm your university email before you can start renting on Zoink.
       </Text>
       <Text style={styles.email}>{user?.email}</Text>
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('VerifyEmail')}
-      >
+      <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('VerifyEmail')}>
         <Text style={styles.buttonText}>Enter verification code</Text>
       </TouchableOpacity>
 
@@ -35,15 +35,33 @@ export default function VerificationGateScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', justifyContent: 'center', paddingHorizontal: 24, alignItems: 'center' },
-  emoji: { fontSize: 64, marginBottom: 24 },
-  title: { fontSize: 26, fontWeight: '700', marginBottom: 12, textAlign: 'center' },
-  subtitle: { fontSize: 16, color: '#666', textAlign: 'center', lineHeight: 24, marginBottom: 16 },
-  email: { fontSize: 15, fontWeight: '600', color: '#6C47FF', marginBottom: 32 },
-  button: {
-    backgroundColor: '#6C47FF', borderRadius: 12, paddingVertical: 16,
-    alignItems: 'center', marginBottom: 16, width: '100%'
+  container: {
+    flex: 1,
+    backgroundColor: theme.screen,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    alignItems: 'center',
   },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#999', fontSize: 14 },
+  logo: { marginBottom: 26 },
+  kicker: {
+    color: theme.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  title: { fontSize: 30, fontWeight: '900', color: theme.text, marginBottom: 12, textAlign: 'center' },
+  subtitle: { fontSize: 16, color: theme.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: 16 },
+  email: { fontSize: 15, fontWeight: '800', color: theme.primary, marginBottom: 32 },
+  button: {
+    backgroundColor: theme.primary,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
+  buttonText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
+  link: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
 })

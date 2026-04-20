@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getMyListings } from '../services/listingsApi'
 import { Listing } from '../types'
+import LogoPlaceholder from '../components/LogoPlaceholder'
+import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -46,35 +48,42 @@ export default function MyListingsScreen() {
     fetchListings()
   }
 
-  const renderItem = ({ item }: { item: Listing }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => nav.navigate('ListingDetail', { listingId: item.id })}
-    >
-      <Image
-        source={
-          item.images.length > 0
-            ? { uri: item.images[0].url }
-            : { uri: 'https://via.placeholder.com/150' }
-        }
-        style={styles.image}
-      />
-      <View style={styles.cardContent}>
-        <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.price}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
-          <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
+  const renderItem = ({ item }: { item: Listing }) => {
+    const imageUrl = item.images[0]?.url
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => nav.navigate('ListingDetail', { listingId: item.id })}
+      >
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.image} />
+        ) : (
+          <View style={[styles.image, styles.imageFallback]}>
+            <LogoPlaceholder size="small" />
+          </View>
+        )}
+
+        <View style={styles.cardContent}>
+          <Text style={styles.title} numberOfLines={1}>
+            {item.title}
+          </Text>
+          <Text style={styles.price}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
+            <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
+          </View>
         </View>
-      </View>
-      <Text style={styles.arrow}>›</Text>
-    </TouchableOpacity>
-  )
+
+        <Text style={styles.arrow}>{'>'}</Text>
+      </TouchableOpacity>
+    )
+  }
 
   if (loading && !refreshing) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#6C47FF" />
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     )
   }
@@ -83,7 +92,7 @@ export default function MyListingsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={styles.backText}>{'< Back'}</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>My Listings</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => nav.navigate('CreateListing')}>
@@ -97,11 +106,12 @@ export default function MyListingsScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C47FF" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>You haven't listed anything yet.</Text>
+            <LogoPlaceholder size="medium" style={styles.emptyLogo} />
+            <Text style={styles.emptyText}>You have not listed anything yet.</Text>
             <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('CreateListing')}>
               <Text style={styles.btnText}>Create your first listing</Text>
             </TouchableOpacity>
@@ -113,8 +123,8 @@ export default function MyListingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D0D14' },
-  center: { flex: 1, backgroundColor: '#0D0D14', justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: theme.screen },
+  center: { flex: 1, backgroundColor: theme.screen, justifyContent: 'center', alignItems: 'center' },
   header: {
     paddingTop: 60,
     paddingBottom: 20,
@@ -123,34 +133,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1A2E',
+    borderBottomColor: theme.border,
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  headerTitle: { fontSize: 20, fontWeight: '900', color: theme.text },
   backBtn: { width: 60 },
-  backText: { color: '#6C47FF', fontSize: 16, fontWeight: '600' },
+  backText: { color: theme.primary, fontSize: 16, fontWeight: '800' },
   addBtn: { width: 60, alignItems: 'flex-end' },
-  addBtnText: { color: '#6C47FF', fontSize: 16, fontWeight: '600' },
+  addBtnText: { color: theme.primary, fontSize: 16, fontWeight: '900' },
   list: { padding: 20 },
   card: {
     flexDirection: 'row',
-    backgroundColor: '#1A1A2E',
+    backgroundColor: theme.surface,
     borderRadius: 16,
     padding: 12,
     marginBottom: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  image: { width: 70, height: 70, borderRadius: 12, backgroundColor: '#333' },
+  image: { width: 70, height: 70, borderRadius: 12, backgroundColor: theme.surfaceSoft },
+  imageFallback: { alignItems: 'center', justifyContent: 'center' },
   cardContent: { flex: 1, marginLeft: 16 },
-  title: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  price: { fontSize: 14, color: '#6C47FF', fontWeight: '600', marginBottom: 6 },
+  title: { fontSize: 16, fontWeight: '900', color: theme.text, marginBottom: 4 },
+  price: { fontSize: 14, color: theme.primary, fontWeight: '900', marginBottom: 6 },
   statusRow: { flexDirection: 'row', alignItems: 'center' },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  availDot: { backgroundColor: '#34D399' },
-  unavailDot: { backgroundColor: '#EF4444' },
-  statusText: { fontSize: 12, color: '#888' },
-  arrow: { fontSize: 24, color: '#333', marginLeft: 8 },
+  availDot: { backgroundColor: theme.primary },
+  unavailDot: { backgroundColor: theme.colors.danger },
+  statusText: { fontSize: 12, color: theme.textMuted },
+  arrow: { fontSize: 24, color: theme.primary, marginLeft: 8 },
   empty: { marginTop: 100, alignItems: 'center' },
-  emptyText: { color: '#888', fontSize: 16, marginBottom: 20 },
-  btn: { backgroundColor: '#6C47FF', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  btnText: { color: '#fff', fontWeight: '700' },
+  emptyLogo: { marginBottom: 18 },
+  emptyText: { color: theme.textMuted, fontSize: 16, marginBottom: 20 },
+  btn: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  btnText: { color: theme.primaryText, fontWeight: '900' },
 })

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import api from '../services/api'
+import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 
 const TOKEN_KEY = 'zoink_jwt'
 
@@ -57,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const stored = await getTokenAsync(TOKEN_KEY)
         if (stored) {
-          const payload = parseJWT(stored)
+          const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : parseJWT(stored)
           setToken(stored)
           setUser(payload)
           api.defaults.headers.common['Authorization'] = `Bearer ${stored}`
@@ -72,11 +73,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function register(email: string, password: string, firstName: string, lastName: string) {
+    if (DEMO_MODE) {
+      await saveSession(DEMO_TOKEN, {
+        ...DEMO_USER,
+        email: email.trim().toLowerCase(),
+        firstName: firstName.trim() || DEMO_USER.firstName,
+      })
+      return
+    }
+
     const res = await api.post('/auth/register', { email, password, firstName, lastName })
     await saveSession(res.data.token, res.data.user)
   }
 
   async function login(email: string, password: string) {
+    if (DEMO_MODE) {
+      await saveSession(DEMO_TOKEN, {
+        ...DEMO_USER,
+        email: email.trim().toLowerCase() || DEMO_USER.email,
+      })
+      return
+    }
+
     const res = await api.post('/auth/login', { email, password })
     await saveSession(res.data.token, res.data.user)
   }
@@ -90,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Called after OTP verification — swaps in the new VERIFIED token
   function setVerified(newToken: string) {
-    const payload = parseJWT(newToken)
+    const payload = DEMO_MODE && newToken === DEMO_TOKEN ? DEMO_USER : parseJWT(newToken)
     setToken(newToken)
     setUser(payload)
     setTokenAsync(TOKEN_KEY, newToken)

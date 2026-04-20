@@ -45,6 +45,28 @@ export type CreateListingInput = {
   address?: string
 }
 
+export type SearchListingsInput = {
+  lat: number
+  lng: number
+  radius: number
+}
+
+export async function searchListings({ lat, lng, radius }: SearchListingsInput) {
+  const listings = await prisma.listing.findMany({
+    where: { isAvailable: true },
+    select: listingSelect,
+    orderBy: { createdAt: 'desc' },
+  })
+
+  return listings
+    .map((listing: any) => ({
+      ...listing,
+      distanceKm: getDistanceKm(lat, lng, listing.latitude, listing.longitude),
+    }))
+    .filter((listing: any) => listing.distanceKm <= radius)
+    .sort((a: any, b: any) => a.distanceKm - b.distanceKm)
+}
+
 export async function createListing(ownerId: string, data: CreateListingInput) {
   const listing = await prisma.listing.create({
     data: {
@@ -55,6 +77,25 @@ export async function createListing(ownerId: string, data: CreateListingInput) {
     select: listingSelect,
   })
   return listing
+}
+
+function getDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const earthRadiusKm = 6371
+  const dLat = toRadians(lat2 - lat1)
+  const dLng = toRadians(lng2 - lng1)
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2)
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180
 }
 
 // ── Get single listing ────────────────────────────────────────────────────────

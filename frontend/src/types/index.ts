@@ -35,6 +35,8 @@ export interface Listing {
   owner: User
   images: ListingImage[]
   createdAt: string
+  updatedAt?: string
+  distanceKm?: number
 }
 
 export interface ListingImage {

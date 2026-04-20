@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import {
   createListing,
+  searchListings,
   getListing,
   getMyListings,
   updateListing,
@@ -30,6 +31,7 @@ const upload = multer({
 
 // ── Own listings (owner dashboard) ───────────────────────────────────────────
 router.get('/me', requireAuth, requireVerified, getMyListings)
+router.get('/', requireAuth, requireVerified, searchListings)
 
 // ── Single listing detail (any verified user) ─────────────────────────────────
 router.get('/:id', requireAuth, requireVerified, getListing)
