@@ -13,6 +13,7 @@ dist/
 build/
 
 # Expo
+.expo/
 frontend/.expo/
 frontend/dist/
 

@@ -32,6 +32,7 @@ const upload = multer({
 
 // ── Own listings (owner dashboard) ───────────────────────────────────────────
 router.get('/me', requireAuth, requireVerified, getMyListings)
+router.get('/', requireAuth, requireVerified, browseListings)
 
 // ── Browse/search listings (any verified user) ───────────────────────────────
 router.get('/', requireAuth, requireVerified, browseListings)

@@ -143,6 +143,32 @@ export async function getListingCategories(_req: Request, res: Response) {
 
 // ── GET /listings/:id ─────────────────────────────────────────────────────────
 
+export async function searchListings(req: Request, res: Response) {
+  const lat = Number(req.query.lat)
+  const lng = Number(req.query.lng)
+  const radius = req.query.radius != null ? Number(req.query.radius) : 25
+
+  if (
+    Number.isNaN(lat) ||
+    Number.isNaN(lng) ||
+    Number.isNaN(radius) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180 ||
+    radius <= 0
+  ) {
+    return res.status(400).json({ error: 'Missing or invalid geo search parameters.' })
+  }
+
+  try {
+    const listings = await listingService.searchListings({ lat, lng, radius })
+    return res.json(listings)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
 export async function getListing(req: Request, res: Response) {
   const id = req.params.id as string
   try {
