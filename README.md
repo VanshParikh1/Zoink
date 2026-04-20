@@ -211,13 +211,22 @@ Two developers, 10–15 hours/week each. Dev 1 owns the backend, Dev 2 owns the 
 | 3 | Identity verification — university email verification, verified badge, email confirmation flow | ✅ Done |
 | 4 | User profiles — avatars, public profiles, verified badges | 🚧 Backend done, UI needed |
 | 5 | Listings — create, upload photos, detail page, owner management | ✅ Done |
-| 6 | Browse, search, and filtering — geo search, categories, price range | 🔨 Up next |
+| 6 | Browse, search, and filtering — geo search, categories, price range | 🚧 Backend done, UI needed |
 | 7 | Booking system — request flow, state machine, history | — |
 | 8 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
 | 9 | Reviews and ratings — post-rental prompts, aggregate scores | — |
 | 10 | Push notifications and polish — loading states, empty states, UI pass | — |
 | 11 | Testing and bug fixing — integration tests, security audit, device testing | — |
 | 12 | Deployment — AWS EC2/RDS, EAS build, TestFlight | — |
+
+### Currently Working On: Week 6 Frontend (UI & Testing)
+The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified. To finish Week 6, the following needs to be built and tested on the frontend:
+
+- **API Integration**: Add Axios frontend helpers for the newly built listings and categories queries.
+- **Browse / Explore Screen**: Implement a feed (infinite-scroll `FlatList`) to map and display listing cards.
+- **Search & Filter Interactions**: Build a search bar and accessible modal or dropdowns to filter `category`, `minPrice`, and `maxPrice`. Validate combined filters are strictly enforced.
+- **Geolocation Testing**: Request device location permissions to populate `latitude` and `longitude` during search. Verify the `distanceKm` displays accurately on listings.
+- **Pagination Verification**: Validate that scrolling triggers `limit` & `offset` offset fetching correctly until `hasMore` equates to false.
 
 ---
 
