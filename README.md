@@ -24,11 +24,12 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 - **User profiles** — avatar, bio, verified badge, listings, and reviews
 - **Listings** — create items with photos, description, category, daily price, and location
 - **Search and filtering** — geo-based nearby search, category, price range, availability
+- **Messaging** — in-app chat between renters and listers before and during a booking
 - **Booking system** — request rentals, accept/decline, strict state machine
 - **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion
 - **Insurance** — optional ~5% coverage fee on listed item value for added protection
 - **Reviews and ratings** — post-rental reviews and aggregate scores
-- **Push notifications** — booking alerts, payment updates, verification approval
+- **Push notifications** — booking alerts, payment updates, message notifications
 
 ---
 
@@ -36,7 +37,7 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 
 ```
 Renter:  Search → Message → Book → Pay → Pick up → Use → Return → Review
-Lister:  Upload → Set price → Approve → Get paid → Rent → Retrieve → Review
+Lister:  Upload → Set price → Message → Approve → Get paid → Rent → Retrieve → Review
 ```
 
 Booking states enforced strictly on the backend:
@@ -70,24 +71,22 @@ Early adopters get zero-commission incentives to kickstart supply.
 
 | Layer | Technology |
 |---|---|
-| Mobile frontend | React Native + Expo + TypeScript |
+| Mobile frontend | React Native + Expo SDK 54 + TypeScript |
 | Backend API | Node.js + Express + TypeScript |
 | Database | PostgreSQL + Prisma ORM |
-| Image storage | Cloudinary (listings), AWS S3 (ID photos) |
+| Image storage | Cloudinary (listings), AWS S3 (profile photos) |
 | Email | AWS SES |
 | Hosting | AWS EC2 + RDS (free tier) |
 | Payments | Stripe |
 | Push notifications | Expo Push Notifications |
 
-> Version note: this README was originally written before implementation started and may describe some technologies generically. The active frontend is Expo SDK 54. The intended backend Prisma setup is Prisma 5.x unless the team explicitly decides otherwise.
-
 ---
 
 ## Current Implementation Notes
 
-- Frontend listings catch-up is implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
+- Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
 - `GET /listings?lat=...&lng=...&radius=...` exists for geo-based nearby listing search and returns `distanceKm`.
-- The app UI now uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
+- The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
 
 ---
@@ -202,31 +201,163 @@ zoink/
 
 ## 12-Week Build Plan
 
-Two developers, 10–15 hours/week each. Dev 1 owns the backend, Dev 2 owns the frontend.
+Two developers, 10–15 hours/week each. Each week delivers a complete vertical slice — backend and frontend together — so the app is always demo-able.
 
 | Week | Focus | Status |
 |---|---|---|
 | 1 | Project setup — DB schema, base structure, navigation shell | ✅ Done |
 | 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
-| 3 | Identity verification — university email verification, verified badge, email confirmation flow | ✅ Done |
-| 4 | User profiles — avatars, public profiles, verified badges | 🚧 Backend done, UI needed |
-| 5 | Listings — create, upload photos, detail page, owner management | ✅ Done |
-| 6 | Browse, search, and filtering — geo search, categories, price range | 🚧 Backend done, UI needed |
-| 7 | Booking system — request flow, state machine, history | — |
-| 8 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
-| 9 | Reviews and ratings — post-rental prompts, aggregate scores | — |
-| 10 | Push notifications and polish — loading states, empty states, UI pass | — |
-| 11 | Testing and bug fixing — integration tests, security audit, device testing | — |
-| 12 | Deployment — AWS EC2/RDS, EAS build, TestFlight | — |
+| 3 | User profiles — avatars, public profiles, verified badge + AWS SES wire-up | — |
+| 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
+| 5 | Browse, search, and filtering — geo search, categories, price range | 🚧 Backend done, UI in progress |
+| 6 | Booking system + messaging — request flow, state machine, in-app chat | — |
+| 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
+| 8 | Reviews and ratings — post-rental prompts, aggregate scores | — |
+| 9 | Push notifications and polish — loading states, empty states, UI pass | — |
+| 10 | Testing and security audit — integration tests, device testing, security review | — |
+| 11–12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
 
-### Currently Working On: Week 6 Frontend (UI & Testing)
-The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified. To finish Week 6, the following needs to be built and tested on the frontend:
+---
 
-- **API Integration**: Add Axios frontend helpers for the newly built listings and categories queries.
-- **Browse / Explore Screen**: Implement a feed (infinite-scroll `FlatList`) to map and display listing cards.
-- **Search & Filter Interactions**: Build a search bar and accessible modal or dropdowns to filter `category`, `minPrice`, and `maxPrice`. Validate combined filters are strictly enforced.
-- **Geolocation Testing**: Request device location permissions to populate `latitude` and `longitude` during search. Verify the `distanceKm` displays accurately on listings.
-- **Pagination Verification**: Validate that scrolling triggers `limit` & `offset` offset fetching correctly until `hasMore` equates to false.
+## Week 5 — Browse, Search, and Filtering
+
+### Currently working on: frontend UI
+
+The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified. The following frontend work is in progress:
+
+**API integration**
+- Add Axios frontend helpers for listings queries and category fetching.
+
+**Browse / Explore screen**
+- Implement an infinite-scroll `FlatList` to display listing cards from the nearby feed.
+- Show `distanceKm` on each card returned by the geo query.
+
+**Search and filter interactions**
+- Build a search bar and accessible filter modal with `category`, `minPrice`, and `maxPrice` controls.
+- Validate that combined filters are strictly enforced on the query.
+
+**Geolocation**
+- Request device location permissions to populate `latitude` and `longitude` on search.
+- Verify `distanceKm` values are accurate against known test locations.
+
+**Pagination**
+- Validate that scrolling triggers `limit` and `offset` fetching correctly until `hasMore` is false.
+
+---
+
+## Week 6 — Booking System + Messaging
+
+Messaging is load-bearing for a peer-to-peer marketplace — renters need a way to ask questions before committing to a booking request. Both features ship together this week as a full vertical slice.
+
+### Booking system
+
+**Backend**
+- `Booking` model: `id`, `listingId`, `renterId`, `ownerId`, `startDate`, `endDate`, `totalPrice`, `depositAmount`, `status`, `createdAt`, `updatedAt`
+- Status enum: `PENDING | ACCEPTED | DECLINED | CANCELLED | ACTIVE | COMPLETED`
+- State machine enforced in middleware — invalid transitions return 400
+- Endpoints:
+  - `POST /bookings` — renter creates a request (status: `PENDING`)
+  - `PATCH /bookings/:id/accept` — owner accepts (→ `ACCEPTED`)
+  - `PATCH /bookings/:id/decline` — owner declines (→ `DECLINED`)
+  - `PATCH /bookings/:id/cancel` — renter or owner cancels (→ `CANCELLED`)
+  - `PATCH /bookings/:id/activate` — mark rental as started (→ `ACTIVE`)
+  - `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
+  - `GET /bookings/me` — renter's booking history
+  - `GET /bookings/requests` — owner's incoming booking requests
+- Block double-booking: query for overlapping `ACCEPTED` or `ACTIVE` bookings before accepting
+- `totalPrice` and `depositAmount` computed server-side, not trusted from client
+
+**Frontend**
+- Book Now button and date picker on listing detail screen
+- Booking request confirmation screen (dates, price breakdown, deposit)
+- Incoming requests screen for owners (approve / decline actions)
+- Booking history screen for renters with status badges
+- Booking detail screen with current status and available actions
+
+### Messaging
+
+**Backend**
+- `Conversation` model: `id`, `listingId`, `renterId`, `ownerId`, `createdAt`
+- `Message` model: `id`, `conversationId`, `senderId`, `body`, `createdAt`
+- One conversation per (renter, listing) pair — enforced with a unique constraint
+- Endpoints:
+  - `POST /conversations` — open or retrieve existing conversation for a listing
+  - `GET /conversations/me` — all conversations for the current user (inbox)
+  - `GET /conversations/:id/messages` — paginated message thread
+  - `POST /conversations/:id/messages` — send a message
+- Poll-based for now (no WebSockets) — `GET /conversations/:id/messages?after=<messageId>` for incremental updates
+- Authorization: only conversation participants can read or write
+
+**Frontend**
+- Message button on listing detail screen (opens or resumes conversation)
+- Inbox screen — list of conversations with last message preview and unread indicator
+- Thread screen — scrollable message history with send input at the bottom
+- Auto-poll on thread screen every 3–5 seconds while focused
+- Unread badge on the inbox tab icon
+
+### Schema additions (Prisma)
+
+```prisma
+model Booking {
+  id            String        @id @default(uuid())
+  listing       Listing       @relation(fields: [listingId], references: [id])
+  listingId     String
+  renter        User          @relation("RenterBookings", fields: [renterId], references: [id])
+  renterId      String
+  owner         User          @relation("OwnerBookings", fields: [ownerId], references: [id])
+  ownerId       String
+  startDate     DateTime
+  endDate       DateTime
+  totalPrice    Float
+  depositAmount Float
+  status        BookingStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  ACTIVE
+  COMPLETED
+}
+
+model Conversation {
+  id        String    @id @default(uuid())
+  listing   Listing   @relation(fields: [listingId], references: [id])
+  listingId String
+  renter    User      @relation("RenterConversations", fields: [renterId], references: [id])
+  renterId  String
+  owner     User      @relation("OwnerConversations", fields: [ownerId], references: [id])
+  ownerId   String
+  messages  Message[]
+  createdAt DateTime  @default(now())
+
+  @@unique([listingId, renterId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String
+  sender         User         @relation(fields: [senderId], references: [id])
+  senderId       String
+  body           String
+  createdAt      DateTime     @default(now())
+}
+```
+
+### Definition of done — week 6
+
+- [ ] All booking state transitions work end-to-end and reject invalid transitions
+- [ ] Double-booking is blocked at the API level
+- [ ] Owner can approve/decline from the requests screen
+- [ ] Renter can view booking history with accurate status
+- [ ] Two users can exchange messages on a listing thread
+- [ ] Inbox shows last message and updates on poll
+- [ ] Conversation is created automatically when renter taps Message
 
 ---
 
@@ -234,11 +365,17 @@ The backend endpoints (`GET /listings`, `GET /listings/categories`) are built an
 
 **Monorepo** — frontend and backend in one repo with shared TypeScript types so API shapes never drift.
 
+**Vertical slice delivery** — each week ships a complete feature end-to-end (backend + frontend). No catch-up UI weeks.
+
 **Verification is a hard gate** — every user must verify with a university email before they can browse, list, or book. Middleware chain: `authenticate → requireVerified → handler`. Government ID integration can be added later with no structural changes.
 
 **Geo search from day one** — listings store `latitude` and `longitude` as floats. Haversine query for nearby search, upgradeable to PostGIS with no schema changes.
 
 **Stripe Payment Intents, not Charges** — card is authorized on booking, captured when rental starts, payout sent after completion.
+
+**Messaging via polling, not WebSockets** — simpler to deploy and sufficient for MVP usage patterns. Upgradeable to WebSockets or a service like Ably post-launch with no schema changes.
+
+**Booking state machine in middleware** — transitions are validated centrally, not scattered across controllers.
 
 ---
 
