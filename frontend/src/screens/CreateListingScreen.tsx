@@ -51,21 +51,25 @@ export default function CreateListingScreen() {
   const [fetchingLocation, setFetchingLocation] = useState(false)
 
   async function handlePickPhoto() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Please allow access to your photo library.')
-      return
-    }
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please allow access to your photo library.')
+        return
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    })
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      })
 
-    if (!result.canceled) {
-      const uris = result.assets.map((asset) => asset.uri)
-      setPhotos((prev) => [...prev, ...uris].slice(0, 8))
+      if (result.canceled || !result.assets[0]) return
+
+      const nextUri = result.assets[0].uri
+      setPhotos((prev) => (prev.includes(nextUri) ? prev : [...prev, nextUri].slice(0, 8)))
+    } catch {
+      Alert.alert('Photo picker error', 'Could not open your photo library right now.')
     }
   }
 
@@ -143,10 +147,7 @@ export default function CreateListingScreen() {
         }
       }
 
-      Alert.alert('Listing created', 'Your item is now live on Zoink.', [
-        { text: 'View it', onPress: () => nav.navigate('ListingDetail', { listingId: listing.id }) },
-        { text: 'My Listings', onPress: () => nav.navigate('MyListings') },
-      ])
+      nav.navigate('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
       const msg = err?.response?.data?.error ?? 'Something went wrong.'
       Alert.alert('Error', msg)

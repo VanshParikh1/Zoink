@@ -15,6 +15,12 @@ import CreateListingScreen from '../screens/CreateListingScreen'
 import ListingDetailScreen from '../screens/ListingDetailScreen'
 import EditListingScreen from '../screens/EditListingScreen'
 import MyListingsScreen from '../screens/MyListingsScreen'
+import BookingRequestScreen from '../screens/BookingRequestScreen'
+import BookingHistoryScreen from '../screens/BookingHistoryScreen'
+import BookingRequestsScreen from '../screens/BookingRequestsScreen'
+import BookingDetailScreen from '../screens/BookingDetailScreen'
+import InboxScreen from '../screens/InboxScreen'
+import ConversationThreadScreen from '../screens/ConversationThreadScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -26,6 +32,12 @@ export type RootStackParamList = {
   ListingDetail: { listingId: string }
   EditListing: { listingId: string }
   MyListings: undefined
+  BookingRequest: { listingId: string }
+  BookingHistory: undefined
+  BookingRequests: undefined
+  BookingDetail: { bookingId: string }
+  Inbox: undefined
+  ConversationThread: { conversationId: string; title?: string }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -65,6 +77,12 @@ export default function Navigation() {
             <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
             <Stack.Screen name="EditListing" component={EditListingScreen} />
             <Stack.Screen name="MyListings" component={MyListingsScreen} />
+            <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
+            <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
+            <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
+            <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
+            <Stack.Screen name="Inbox" component={InboxScreen} />
+            <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
           </>
         )}
       </Stack.Navigator>

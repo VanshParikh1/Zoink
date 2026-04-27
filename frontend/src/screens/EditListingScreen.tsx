@@ -119,26 +119,27 @@ export default function EditListingScreen() {
   }
 
   async function handleAddPhoto() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Please allow access to your photo library.')
-      return
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    })
-
-    if (result.canceled || !result.assets[0]) return
-
-    setUploadingImg(true)
-
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please allow access to your photo library.')
+        return
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      })
+
+      if (result.canceled || !result.assets[0]) return
+
+      setUploadingImg(true)
+
       const image = await uploadListingImage(listingId, result.assets[0].uri)
       setListing((prev) => (prev ? { ...prev, images: [...prev.images, image] } : prev))
     } catch {
-      Alert.alert('Upload failed', 'Could not upload the photo.')
+      Alert.alert('Upload failed', 'Could not open or upload the photo.')
     } finally {
       setUploadingImg(false)
     }

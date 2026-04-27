@@ -80,6 +80,9 @@ model User {
   listings            Listing[]
   bookingsAsRenter    Booking[]          @relation("RenterBookings")
   bookingsAsOwner     Booking[]          @relation("OwnerBookings")
+  renterConversations Conversation[]     @relation("RenterConversations")
+  ownerConversations  Conversation[]     @relation("OwnerConversations")
+  messages            Message[]
   reviewsGiven        Review[]           @relation("ReviewsGiven")
   reviewsReceived     Review[]           @relation("ReviewsReceived")
   notifications       Notification[]
@@ -110,6 +113,7 @@ model Listing {
   owner         User         @relation(fields: [ownerId], references: [id])
   images        ListingImage[]
   bookings      Booking[]
+  conversations Conversation[]
   reviews       Review[]
 
   // Timestamps
@@ -141,6 +145,7 @@ model Booking {
   startDate       DateTime
   endDate         DateTime
   totalPrice      Decimal       @db.Decimal(10, 2)
+  depositAmount   Decimal       @db.Decimal(10, 2) @default(0)
   message         String?       // Optional message from renter
 
   // Payment
@@ -163,6 +168,38 @@ model Booking {
   updatedAt       DateTime      @updatedAt
 
   @@map("bookings")
+}
+
+// ─────────────────────────────────────────
+// CONVERSATION + MESSAGE
+// ─────────────────────────────────────────
+
+model Conversation {
+  id         String    @id @default(uuid())
+  listingId  String
+  listing    Listing   @relation(fields: [listingId], references: [id])
+  renterId   String
+  renter     User      @relation("RenterConversations", fields: [renterId], references: [id])
+  ownerId    String
+  owner      User      @relation("OwnerConversations", fields: [ownerId], references: [id])
+  messages   Message[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([listingId, renterId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  body           String
+  createdAt      DateTime     @default(now())
+
+  @@map("messages")
 }
 
 // ─────────────────────────────────────────
