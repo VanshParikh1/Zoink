@@ -85,7 +85,7 @@ Early adopters get zero-commission incentives to kickstart supply.
 ## Current Implementation Notes
 
 - Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
-- `GET /listings?lat=...&lng=...&radius=...` exists for geo-based nearby listing search and returns `distanceKm`.
+- `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
 - The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
 
@@ -358,7 +358,6 @@ model Message {
 - [ ] Two users can exchange messages on a listing thread
 - [ ] Inbox shows last message and updates on poll
 - [ ] Conversation is created automatically when renter taps Message
-
 ---
 
 ## Key Architecture Decisions

@@ -17,10 +17,9 @@ import {
 
 const router = Router()
 
-// Multer — memory storage, stream straight to Cloudinary
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max per listing photo
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true)
@@ -30,35 +29,16 @@ const upload = multer({
   },
 })
 
-// ── Own listings (owner dashboard) ───────────────────────────────────────────
 router.get('/me', requireAuth, requireVerified, getMyListings)
 router.get('/', requireAuth, requireVerified, browseListings)
-
-// ── Browse/search listings (any verified user) ───────────────────────────────
-router.get('/', requireAuth, requireVerified, browseListings)
-
-// ── Available categories for browse filters ──────────────────────────────────
 router.get('/categories', requireAuth, requireVerified, getListingCategories)
-
-// ── Single listing detail (any verified user) ─────────────────────────────────
 router.get('/:id', requireAuth, requireVerified, getListing)
 
-// ── Create listing ────────────────────────────────────────────────────────────
 router.post('/', requireAuth, requireVerified, createListing)
-
-// ── Update listing fields ─────────────────────────────────────────────────────
 router.patch('/:id', requireAuth, requireVerified, updateListing)
-
-// ── Toggle availability ───────────────────────────────────────────────────────
 router.patch('/:id/availability', requireAuth, requireVerified, toggleAvailability)
-
-// ── Delete listing ────────────────────────────────────────────────────────────
 router.delete('/:id', requireAuth, requireVerified, deleteListing)
-
-// ── Upload a photo to a listing ───────────────────────────────────────────────
 router.post('/:id/images', requireAuth, requireVerified, upload.single('image'), uploadListingImage)
-
-// ── Delete a photo from a listing ────────────────────────────────────────────
 router.delete('/:id/images/:imageId', requireAuth, requireVerified, deleteListingImage)
 
 export default router

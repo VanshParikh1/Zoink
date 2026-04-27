@@ -27,10 +27,10 @@ export async function getNearbyListings({
   if (DEMO_MODE) return mockGetNearbyListings()
 
   const res = await api.get('/listings', {
-    params: { lat, lng, radius },
+    params: { latitude: lat, longitude: lng, radiusKm: radius },
   })
 
-  return res.data
+  return res.data.items ?? res.data
 }
 
 export type CreateListingPayload = {
