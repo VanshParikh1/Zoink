@@ -21,6 +21,7 @@ import BookingRequestsScreen from '../screens/BookingRequestsScreen'
 import BookingDetailScreen from '../screens/BookingDetailScreen'
 import InboxScreen from '../screens/InboxScreen'
 import ConversationThreadScreen from '../screens/ConversationThreadScreen'
+import ReviewPromptScreen from '../screens/ReviewPromptScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -36,6 +37,7 @@ export type RootStackParamList = {
   BookingHistory: undefined
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
+  ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
   ConversationThread: { conversationId: string; title?: string }
 }
@@ -81,6 +83,7 @@ export default function Navigation() {
             <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
             <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
             <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
+            <Stack.Screen name="ReviewPrompt" component={ReviewPromptScreen} />
             <Stack.Screen name="Inbox" component={InboxScreen} />
             <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
           </>

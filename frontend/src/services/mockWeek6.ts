@@ -1,6 +1,7 @@
 import { DEMO_USER } from '../config/demoMode'
-import { Booking, BookingStatus, Conversation, ListingPreview, Message, User } from '../types'
+import { Booking, BookingStatus, Conversation, ListingPreview, Message, PendingReview, SubmittedReviewResult, User } from '../types'
 import { CreateBookingPayload } from './bookingsApi'
+import { SubmitReviewPayload } from './reviewsApi'
 import { mockGetListing } from './mockListings'
 
 const demoUser: User = {
@@ -35,6 +36,7 @@ function toListingPreview(listing: Awaited<ReturnType<typeof mockGetListing>>): 
 }
 
 let bookings: Booking[] = []
+let pendingReviews: PendingReview[] = []
 
 let conversations: Conversation[] = [
   {
@@ -162,7 +164,82 @@ export async function mockActivateBooking(id: string) {
 }
 
 export async function mockCompleteBooking(id: string) {
-  return updateBookingStatus(id, 'COMPLETED')
+  const booking = updateBookingStatus(id, 'COMPLETED')
+  booking.completedAt = new Date().toISOString()
+
+  pendingReviews = [
+    {
+      id: `demo-review-${booking.id}`,
+      bookingId: booking.id,
+      reviewerRole: 'LENDER',
+      status: 'PENDING',
+      scoreLabels: {
+        scoreAKey: 'reliability',
+        scoreBKey: 'care',
+        scoreCKey: 'communication',
+      },
+      createdAt: new Date().toISOString(),
+      reviewee: booking.renter,
+      booking: {
+        id: booking.id,
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        completedAt: booking.completedAt,
+        listing: {
+          id: booking.listing.id,
+          title: booking.listing.title,
+          category: booking.listing.category,
+          images: booking.listing.images,
+        },
+      },
+    },
+    ...pendingReviews.filter((item) => item.bookingId !== booking.id),
+  ]
+
+  booking.pendingReview = pendingReviews[0]
+  return booking
+}
+
+export async function mockGetPendingReviews() {
+  return pendingReviews
+}
+
+export async function mockSubmitReview(data: SubmitReviewPayload): Promise<SubmittedReviewResult> {
+  const review = pendingReviews.find((item) => item.id === data.obligationId)
+  if (!review) {
+    throw new Error('Review prompt not found.')
+  }
+
+  pendingReviews = pendingReviews.filter((item) => item.id !== data.obligationId)
+
+  const booking = bookings.find((item) => item.id === review.bookingId)
+  if (booking?.pendingReview?.id === data.obligationId) {
+    booking.pendingReview = null
+  }
+
+  return {
+    review: {
+      id: `demo-submitted-review-${Date.now()}`,
+      bookingId: review.bookingId,
+      reviewerId: demoUser.id,
+      revieweeId: review.reviewee.id,
+      reviewerRole: review.reviewerRole,
+      scoreA: data.scoreA,
+      scoreB: data.scoreB,
+      scoreC: data.scoreC,
+      comment: data.comment,
+      createdAt: new Date().toISOString(),
+    },
+    pendingRemaining: pendingReviews.length,
+    reviewee: review.reviewee,
+    booking: {
+      id: review.booking.id,
+      listing: {
+        id: review.booking.listing.id,
+        title: review.booking.listing.title,
+      },
+    },
+  }
 }
 
 export async function mockOpenConversation(listingId: string) {

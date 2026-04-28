@@ -39,6 +39,16 @@ enum NotificationType {
   VERIFICATION_FAILED
 }
 
+enum ReviewRole {
+  RENTER
+  LENDER
+}
+
+enum ReviewObligationStatus {
+  PENDING
+  SUBMITTED
+}
+
 // ─────────────────────────────────────────
 // USER
 // ─────────────────────────────────────────
@@ -85,6 +95,8 @@ model User {
   messages            Message[]
   reviewsGiven        Review[]           @relation("ReviewsGiven")
   reviewsReceived     Review[]           @relation("ReviewsReceived")
+  reviewObligations   ReviewObligation[] @relation("ReviewObligations")
+  reputation          UserReputation?
   notifications       Notification[]
 
   @@map("users")
@@ -114,7 +126,6 @@ model Listing {
   images        ListingImage[]
   bookings      Booking[]
   conversations Conversation[]
-  reviews       Review[]
 
   // Timestamps
   createdAt     DateTime     @default(now())
@@ -160,7 +171,9 @@ model Booking {
   owner           User          @relation("OwnerBookings", fields: [ownerId], references: [id])
   listingId       String
   listing         Listing       @relation(fields: [listingId], references: [id])
-  review          Review?
+  completedAt     DateTime?
+  reviews         Review[]
+  reviewObligations ReviewObligation[]
 
   // Timestamps
   createdAt       DateTime      @default(now())
@@ -205,23 +218,65 @@ model Message {
 // ─────────────────────────────────────────
 
 model Review {
-  id          String   @id @default(uuid())
-  rating      Int      // 1–5
-  comment     String?
+  id           String      @id @default(uuid())
+  reviewerRole ReviewRole
+  scoreA       Int
+  scoreB       Int
+  scoreC       Int
+  comment      String?
 
   // Relations
-  authorId    String
-  author      User     @relation("ReviewsGiven", fields: [authorId], references: [id])
-  subjectId   String
-  subject     User     @relation("ReviewsReceived", fields: [subjectId], references: [id])
-  listingId   String
-  listing     Listing  @relation(fields: [listingId], references: [id])
-  bookingId   String   @unique
-  booking     Booking  @relation(fields: [bookingId], references: [id])
+  reviewerId   String
+  reviewer     User        @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  revieweeId   String
+  reviewee     User        @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  bookingId    String
+  booking      Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  obligation   ReviewObligation?
 
-  createdAt   DateTime @default(now())
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([bookingId, reviewerId])
 
   @@map("reviews")
+}
+
+model ReviewObligation {
+  id                String                 @id @default(uuid())
+  bookingId         String
+  booking           Booking                @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                   @relation("ReviewObligations", fields: [userId], references: [id], onDelete: Cascade)
+  targetUserId      String
+  reviewerRole      ReviewRole
+  status            ReviewObligationStatus @default(PENDING)
+  submittedReviewId String?                @unique
+  submittedReview   Review?                @relation(fields: [submittedReviewId], references: [id])
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([bookingId, userId])
+  @@map("review_obligations")
+}
+
+model UserReputation {
+  userId                    String   @id
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewsReceivedCount      Int      @default(0)
+  rentalsCompletedCount     Int      @default(0)
+  overallRenterRating       Decimal? @db.Decimal(4, 2)
+  overallLenderRating       Decimal? @db.Decimal(4, 2)
+  renterReliabilityAvg      Decimal? @db.Decimal(4, 2)
+  renterCareAvg             Decimal? @db.Decimal(4, 2)
+  renterCommunicationAvg    Decimal? @db.Decimal(4, 2)
+  lenderAccuracyAvg         Decimal? @db.Decimal(4, 2)
+  lenderConditionAvg        Decimal? @db.Decimal(4, 2)
+  lenderCommunicationAvg    Decimal? @db.Decimal(4, 2)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@map("user_reputations")
 }
 
 // ─────────────────────────────────────────
