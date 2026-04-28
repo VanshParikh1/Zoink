@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { ActivityIndicator, View } from 'react-native'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
+import { getPendingReviews } from '../services/reviewsApi'
 
 // Screens
 import LoginScreen from '../screens/LoginScreen'
@@ -21,6 +22,7 @@ import BookingRequestsScreen from '../screens/BookingRequestsScreen'
 import BookingDetailScreen from '../screens/BookingDetailScreen'
 import InboxScreen from '../screens/InboxScreen'
 import ConversationThreadScreen from '../screens/ConversationThreadScreen'
+import ReviewPromptScreen from '../screens/ReviewPromptScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -36,11 +38,59 @@ export type RootStackParamList = {
   BookingHistory: undefined
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
+  ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
   ConversationThread: { conversationId: string; title?: string }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
+
+function VerifiedAppStack() {
+  const [initialReview, setInitialReview] = React.useState<import('../types').PendingReview | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    getPendingReviews()
+      .then((reviews) => {
+        if (reviews.length > 0) setInitialReview(reviews[0])
+      })
+      .catch((err) => console.error('Failed to fetch pending reviews', err))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen }}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    )
+  }
+
+  return (
+    <Stack.Navigator 
+      screenOptions={{ headerShown: false }} 
+      initialRouteName={initialReview ? 'ReviewPrompt' : 'Home'}
+    >
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="CreateListing" component={CreateListingScreen} />
+      <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
+      <Stack.Screen name="EditListing" component={EditListingScreen} />
+      <Stack.Screen name="MyListings" component={MyListingsScreen} />
+      <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
+      <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
+      <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
+      <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
+      <Stack.Screen 
+        name="ReviewPrompt" 
+        component={ReviewPromptScreen} 
+        initialParams={initialReview ? { review: initialReview } : undefined} 
+        options={{ gestureEnabled: false }}
+      />
+      <Stack.Screen name="Inbox" component={InboxScreen} />
+      <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
+    </Stack.Navigator>
+  )
+}
 
 export default function Navigation() {
   const { user, isLoading } = useAuth()
@@ -56,36 +106,19 @@ export default function Navigation() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!user ? (
-          // Not logged in — show auth screens
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-          </>
-        ) : user.verificationStatus !== 'VERIFIED' ? (
-          // Logged in but not verified — show verification screens
-          <>
-            <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
-            <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
-          </>
-        ) : (
-          // Logged in and verified — show the app
-          <>
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="CreateListing" component={CreateListingScreen} />
-            <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
-            <Stack.Screen name="EditListing" component={EditListingScreen} />
-            <Stack.Screen name="MyListings" component={MyListingsScreen} />
-            <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
-            <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
-            <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
-            <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
-            <Stack.Screen name="Inbox" component={InboxScreen} />
-            <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
-          </>
-        )}
-      </Stack.Navigator>
+      {!user ? (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+        </Stack.Navigator>
+      ) : user.verificationStatus !== 'VERIFIED' ? (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
+          <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+        </Stack.Navigator>
+      ) : (
+        <VerifiedAppStack />
+      )}
     </NavigationContainer>
   )
 }

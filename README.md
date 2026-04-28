@@ -211,10 +211,10 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 | 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
 | 3 | User profiles — avatars, public profiles, verified badge + AWS SES wire-up | — |
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
-| 5 | Browse, search, and filtering — geo search, categories, price range | 🚧 Backend done, UI in progress |
+| 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
 | 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
 | 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
-| 8 | Reviews and ratings — post-rental prompts, aggregate scores | — |
+| 8 | Reviews and ratings — post-rental prompts, aggregate scores | ✅ Done |
 | 9 | Push notifications and polish — loading states, empty states, UI pass | — |
 | 10 | Testing and security audit — integration tests, device testing, security review | — |
 | 11–12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
@@ -364,14 +364,31 @@ model Message {
 - [x] Inbox shows last message and updates on poll
 - [x] Conversation is created automatically when renter taps Message
 
-- [ ] All booking state transitions work end-to-end and reject invalid transitions
-- [ ] Double-booking is blocked at the API level
-- [ ] Owner can approve/decline from the requests screen
-- [ ] Renter can view booking history with accurate status
-- [ ] Two users can exchange messages on a listing thread
-- [ ] Inbox shows last message and updates on poll
-- [ ] Conversation is created automatically when renter taps Message
 ---
+
+## Week 8 — Reviews and Ratings
+
+To maintain a high-trust peer-to-peer network, Zoink enforces a strict mandatory review system upon the completion of any rental. 
+
+### Status: complete
+
+Week 8 has been implemented. The backend correctly generates review obligations when a rental is marked as completed, and the frontend surfaces a hard-gated review screen that cannot be bypassed until the user clears their review backlog.
+
+### Features
+**Backend**
+- `Review` and `ReviewObligation` models implemented to track pending and completed reviews.
+- `POST /reviews` endpoint that accepts 3 distinct scores and a comment.
+- Role-based score dimensions:
+  - Renters review Owners on: Item Quality, Communication, and Accuracy.
+  - Owners review Renters on: Care of Item, Reliability, and Communication.
+- Reputation re-computation triggered asynchronously after every review submission to keep profile scores up-to-date.
+- Database logic enforces that users can only submit a review for an obligation they own, and only once.
+
+**Frontend**
+- `ReviewPromptScreen` presents a dynamic review form with slider inputs and a text area.
+- "Trust Check" Lock: If a user has a pending review obligation, the navigation stack intercepts them on app launch and forces `ReviewPromptScreen` as the initial route. Swiping back or hardware back buttons are disabled.
+- Booking completion immediately resets the navigation stack to the review prompt, eliminating escape hatches.
+- Users with multiple pending reviews are automatically chained through them sequentially.
 
 ## Key Architecture Decisions
 

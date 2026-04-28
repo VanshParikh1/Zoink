@@ -6,6 +6,7 @@ import usersRouter from './routes/users'
 import listingsRouter from './routes/listings'
 import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
+import reviewsRouter from './routes/reviews'
 
 dotenv.config()
 
@@ -24,6 +25,7 @@ app.use('/users', usersRouter)
 app.use('/listings', listingsRouter)
 app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
+app.use('/reviews', reviewsRouter)
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)

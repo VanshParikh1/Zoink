@@ -50,6 +50,7 @@ export interface Booking {
   status: BookingStatus
   startDate: string
   endDate: string
+  completedAt?: string | null
   totalPrice: number
   depositAmount: number
   message?: string
@@ -60,6 +61,7 @@ export interface Booking {
   listingId: string
   listing: ListingPreview
   createdAt: string
+  pendingReview?: PendingReview | null
 }
 
 export interface ListingPreview {
@@ -105,12 +107,44 @@ export interface Message {
 
 export interface Review {
   id: string
-  rating: number
+  reviewerRole: 'RENTER' | 'LENDER'
+  scoreA: number
+  scoreB: number
+  scoreC: number
   comment?: string
-  authorId: string
-  author: User
-  subjectId: string
-  listingId: string
+  reviewerId: string
+  revieweeId: string
   bookingId: string
   createdAt: string
+}
+
+export interface PendingReview {
+  id: string
+  bookingId: string
+  reviewerRole: 'RENTER' | 'LENDER'
+  status: 'PENDING' | 'SUBMITTED'
+  scoreLabels: {
+    scoreAKey: string
+    scoreBKey: string
+    scoreCKey: string
+  }
+  createdAt: string
+  reviewee: Pick<User, 'id' | 'firstName' | 'lastName' | 'avatarUrl'>
+  booking: {
+    id: string
+    startDate: string
+    endDate: string
+    completedAt?: string | null
+    listing: Pick<ListingPreview, 'id' | 'title' | 'category' | 'images'>
+  }
+}
+
+export interface SubmittedReviewResult {
+  review: Review
+  pendingRemaining: number
+  reviewee: Pick<User, 'id' | 'firstName' | 'lastName' | 'avatarUrl'>
+  booking: {
+    id: string
+    listing: Pick<ListingPreview, 'id' | 'title'>
+  }
 }

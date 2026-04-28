@@ -39,11 +39,12 @@ export default function BookingDetailScreen() {
     }, [loadBooking])
   )
 
-  async function runAction(action: () => Promise<Booking>) {
+  async function runAction(action: () => Promise<Booking>, onSuccess?: (updated: Booking) => void) {
     setBusy(true)
     try {
       const updated = await action()
       setBooking(updated)
+      onSuccess?.(updated)
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not update this booking.')
     } finally {
@@ -119,8 +120,36 @@ export default function BookingDetailScreen() {
         ) : null}
 
         {isOwner && booking.status === 'ACTIVE' ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={() => runAction(() => completeBooking(booking.id))} disabled={busy}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() =>
+              runAction(() => completeBooking(booking.id), (updated) => {
+                if (updated.pendingReview) {
+                  nav.reset({
+                    index: 0,
+                    routes: [{ name: 'ReviewPrompt', params: { review: updated.pendingReview } }],
+                  })
+                }
+              })
+            }
+            disabled={busy}
+          >
             <Text style={styles.primaryText}>{busy ? 'Saving...' : 'Mark as returned'}</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {booking.status === 'COMPLETED' && booking.pendingReview ? (
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() =>
+              nav.reset({
+                index: 0,
+                routes: [{ name: 'ReviewPrompt', params: { review: booking.pendingReview! } }],
+              })
+            }
+            disabled={busy}
+          >
+            <Text style={styles.primaryText}>Leave required review</Text>
           </TouchableOpacity>
         ) : null}
 

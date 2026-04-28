@@ -1,4 +1,4 @@
-import { BookingStatus, Prisma } from '@prisma/client'
+import { BookingStatus, Prisma, ReviewRole } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import {
@@ -8,6 +8,22 @@ import {
   getRentalDays,
   roundCurrency,
 } from './bookingUtils'
+
+function scoreLabelsForRole(role: ReviewRole) {
+  if (role === ReviewRole.RENTER) {
+    return {
+      scoreAKey: 'accuracy',
+      scoreBKey: 'condition',
+      scoreCKey: 'communication',
+    }
+  }
+
+  return {
+    scoreAKey: 'reliability',
+    scoreBKey: 'care',
+    scoreCKey: 'communication',
+  }
+}
 
 const bookingSelect = {
   id: true,
@@ -21,6 +37,7 @@ const bookingSelect = {
   listingId: true,
   createdAt: true,
   updatedAt: true,
+  completedAt: true,
   listing: {
     select: {
       id: true,
@@ -54,6 +71,19 @@ const bookingSelect = {
       verificationStatus: true,
     },
   },
+  reviewObligations: {
+    select: {
+      id: true,
+      userId: true,
+      targetUserId: true,
+      reviewerRole: true,
+      status: true,
+      submittedReviewId: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
 } satisfies Prisma.BookingSelect
 
 export type CreateBookingInput = {
@@ -63,17 +93,55 @@ export type CreateBookingInput = {
   message?: string
 }
 
-function toBookingResponse(booking: any) {
+function mapPendingReviewForUser(booking: any, userId?: string) {
+  if (!userId || !Array.isArray(booking.reviewObligations)) {
+    return null
+  }
+
+  const obligation = booking.reviewObligations.find((item: any) => item.userId === userId && item.status === 'PENDING')
+  if (!obligation) {
+    return null
+  }
+
+  const reviewee = obligation.targetUserId === booking.ownerId ? booking.owner : booking.renter
+
+  return {
+    id: obligation.id,
+    bookingId: booking.id,
+    reviewerRole: obligation.reviewerRole,
+    status: obligation.status,
+    scoreLabels: scoreLabelsForRole(obligation.reviewerRole),
+    createdAt: obligation.createdAt,
+    targetUserId: obligation.targetUserId,
+    listingTitle: booking.listing.title,
+    reviewee: {
+      id: reviewee.id,
+      firstName: reviewee.firstName,
+      lastName: reviewee.lastName,
+      avatarUrl: reviewee.avatarUrl,
+    },
+    booking: {
+      id: booking.id,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      completedAt: booking.completedAt,
+      listing: booking.listing,
+    },
+  }
+}
+
+function toBookingResponse(booking: any, userId?: string) {
   const totalPrice = Number(booking.totalPrice)
   return {
     ...booking,
     totalPrice,
     depositAmount: calculateDepositAmount(totalPrice),
+    pendingReview: mapPendingReviewForUser(booking, userId),
   }
 }
 
 async function getBookingForParticipant(bookingId: string, userId: string) {
-  const booking = await prisma.booking.findUnique({
+  const booking: any = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: bookingSelect as any,
   })
@@ -87,6 +155,26 @@ async function getBookingForParticipant(bookingId: string, userId: string) {
   }
 
   return booking
+}
+
+async function createReviewObligationsForCompletedBooking(tx: Prisma.TransactionClient, booking: { id: string; renterId: string; ownerId: string }) {
+  await tx.reviewObligation.createMany({
+    data: [
+      {
+        bookingId: booking.id,
+        userId: booking.renterId,
+        targetUserId: booking.ownerId,
+        reviewerRole: ReviewRole.RENTER,
+      },
+      {
+        bookingId: booking.id,
+        userId: booking.ownerId,
+        targetUserId: booking.renterId,
+        reviewerRole: ReviewRole.LENDER,
+      },
+    ],
+    skipDuplicates: true,
+  })
 }
 
 async function ensureNoOverlap(listingId: string, bookingId: string) {
@@ -168,31 +256,31 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
 
 export async function getBookingById(bookingId: string, userId: string) {
   const booking = await getBookingForParticipant(bookingId, userId)
-  return toBookingResponse(booking)
+  return toBookingResponse(booking, userId)
 }
 
 export async function getMyBookings(renterId: string) {
-  const bookings = await prisma.booking.findMany({
+  const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
     select: bookingSelect as any,
     orderBy: { createdAt: 'desc' },
   })
 
-  return bookings.map((booking: any) => toBookingResponse(booking))
+  return bookings.map((booking: any) => toBookingResponse(booking, renterId))
 }
 
 export async function getIncomingRequests(ownerId: string) {
-  const bookings = await prisma.booking.findMany({
+  const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
     select: bookingSelect as any,
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
   })
 
-  return bookings.map((booking: any) => toBookingResponse(booking))
+  return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
 }
 
 export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus) {
-  const booking = await prisma.booking.findUnique({
+  const booking: any = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: bookingSelect as any,
   })
@@ -224,11 +312,33 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     await ensureNoOverlap(booking.listingId, booking.id)
   }
 
-  const updated = await prisma.booking.update({
-    where: { id: booking.id },
-    data: { status: nextStatus },
-    select: bookingSelect as any,
+  if (nextStatus !== 'COMPLETED') {
+    const updated: any = await prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: nextStatus },
+      select: bookingSelect as any,
+    })
+
+    return toBookingResponse(updated, actorId)
+  }
+
+  const completed = await prisma.$transaction(async (tx) => {
+    const completedBooking: any = await tx.booking.update({
+      where: { id: booking.id },
+      data: {
+        status: nextStatus,
+        completedAt: new Date(),
+      },
+      select: bookingSelect as any,
+    })
+
+    await createReviewObligationsForCompletedBooking(tx, completedBooking)
+
+    return tx.booking.findUniqueOrThrow({
+      where: { id: booking.id },
+      select: bookingSelect as any,
+    })
   })
 
-  return toBookingResponse(updated)
+  return toBookingResponse(completed, actorId)
 }
