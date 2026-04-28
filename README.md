@@ -87,6 +87,7 @@ Early adopters get zero-commission incentives to kickstart supply.
 - Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
 - Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
 - `GET /listings?latitude=...&longitude=...&radiusKm=...` exists for geo-based nearby listing search and returns `distanceKm`.
+- `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
 - The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
 
@@ -363,6 +364,13 @@ model Message {
 - [x] Inbox shows last message and updates on poll
 - [x] Conversation is created automatically when renter taps Message
 
+- [ ] All booking state transitions work end-to-end and reject invalid transitions
+- [ ] Double-booking is blocked at the API level
+- [ ] Owner can approve/decline from the requests screen
+- [ ] Renter can view booking history with accurate status
+- [ ] Two users can exchange messages on a listing thread
+- [ ] Inbox shows last message and updates on poll
+- [ ] Conversation is created automatically when renter taps Message
 ---
 
 ## Key Architecture Decisions

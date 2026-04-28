@@ -30,7 +30,7 @@ export async function getNearbyListings({
     params: { latitude: lat, longitude: lng, radiusKm: radius },
   })
 
-  return res.data.items
+  return res.data.items ?? res.data
 }
 
 export type CreateListingPayload = {
