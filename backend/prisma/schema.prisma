@@ -145,7 +145,6 @@ model Booking {
   startDate       DateTime
   endDate         DateTime
   totalPrice      Decimal       @db.Decimal(10, 2)
-  depositAmount   Decimal       @db.Decimal(10, 2) @default(0)
   message         String?       // Optional message from renter
 
   // Payment
@@ -184,7 +183,6 @@ model Conversation {
   owner      User      @relation("OwnerConversations", fields: [ownerId], references: [id])
   messages   Message[]
   createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
 
   @@unique([listingId, renterId])
   @@map("conversations")

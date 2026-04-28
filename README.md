@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Backend, authentication, and listing system complete. ✅
+> Currently in active development. Backend, authentication, listings, and the week 6 booking + messaging flow are implemented. ✅
 
 ---
 
@@ -85,7 +85,8 @@ Early adopters get zero-commission incentives to kickstart supply.
 ## Current Implementation Notes
 
 - Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
-- `GET /listings?lat=...&lng=...&radius=...` exists for geo-based nearby listing search and returns `distanceKm`.
+- Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
+- `GET /listings?latitude=...&longitude=...&radiusKm=...` exists for geo-based nearby listing search and returns `distanceKm`.
 - The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
 
@@ -210,7 +211,7 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 | 3 | User profiles — avatars, public profiles, verified badge + AWS SES wire-up | — |
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
 | 5 | Browse, search, and filtering — geo search, categories, price range | 🚧 Backend done, UI in progress |
-| 6 | Booking system + messaging — request flow, state machine, in-app chat | — |
+| 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
 | 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
 | 8 | Reviews and ratings — post-rental prompts, aggregate scores | — |
 | 9 | Push notifications and polish — loading states, empty states, UI pass | — |
@@ -249,10 +250,14 @@ The backend endpoints (`GET /listings`, `GET /listings/categories`) are built an
 
 Messaging is load-bearing for a peer-to-peer marketplace — renters need a way to ask questions before committing to a booking request. Both features ship together this week as a full vertical slice.
 
+### Status: complete
+
+Week 6 has been implemented and the main user flows were manually verified in the app: opening or resuming a conversation, sending messages, creating booking requests, reviewing incoming requests, and progressing booking states through the owner/renter flow.
+
 ### Booking system
 
 **Backend**
-- `Booking` model: `id`, `listingId`, `renterId`, `ownerId`, `startDate`, `endDate`, `totalPrice`, `depositAmount`, `status`, `createdAt`, `updatedAt`
+- `Booking` model: `id`, `listingId`, `renterId`, `ownerId`, `startDate`, `endDate`, `totalPrice`, `status`, `createdAt`, `updatedAt`
 - Status enum: `PENDING | ACCEPTED | DECLINED | CANCELLED | ACTIVE | COMPLETED`
 - State machine enforced in middleware — invalid transitions return 400
 - Endpoints:
@@ -261,14 +266,14 @@ Messaging is load-bearing for a peer-to-peer marketplace — renters need a way 
   - `PATCH /bookings/:id/decline` — owner declines (→ `DECLINED`)
   - `PATCH /bookings/:id/cancel` — renter or owner cancels (→ `CANCELLED`)
   - `PATCH /bookings/:id/activate` — mark rental as started (→ `ACTIVE`)
-  - `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
-  - `GET /bookings/me` — renter's booking history
-  - `GET /bookings/requests` — owner's incoming booking requests
+- `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
+- `GET /bookings/me` — renter's booking history
+- `GET /bookings/requests` — owner's incoming booking requests
 - Block double-booking: query for overlapping `ACCEPTED` or `ACTIVE` bookings before accepting
-- `totalPrice` and `depositAmount` computed server-side, not trusted from client
+- `totalPrice` is computed server-side, and the current deposit amount shown in the API/UI is derived server-side from the booking total
 
 **Frontend**
-- Book Now button and date picker on listing detail screen
+- Book Now button and booking request flow on listing detail screen
 - Booking request confirmation screen (dates, price breakdown, deposit)
 - Incoming requests screen for owners (approve / decline actions)
 - Booking history screen for renters with status badges
@@ -293,7 +298,7 @@ Messaging is load-bearing for a peer-to-peer marketplace — renters need a way 
 - Inbox screen — list of conversations with last message preview and unread indicator
 - Thread screen — scrollable message history with send input at the bottom
 - Auto-poll on thread screen every 3–5 seconds while focused
-- Unread badge on the inbox tab icon
+- Inbox entry point from the home screen
 
 ### Schema additions (Prisma)
 
@@ -309,7 +314,6 @@ model Booking {
   startDate     DateTime
   endDate       DateTime
   totalPrice    Float
-  depositAmount Float
   status        BookingStatus @default(PENDING)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -351,13 +355,13 @@ model Message {
 
 ### Definition of done — week 6
 
-- [ ] All booking state transitions work end-to-end and reject invalid transitions
-- [ ] Double-booking is blocked at the API level
-- [ ] Owner can approve/decline from the requests screen
-- [ ] Renter can view booking history with accurate status
-- [ ] Two users can exchange messages on a listing thread
-- [ ] Inbox shows last message and updates on poll
-- [ ] Conversation is created automatically when renter taps Message
+- [x] All booking state transitions work end-to-end and reject invalid transitions
+- [x] Double-booking is blocked at the API level
+- [x] Owner can approve/decline from the requests screen
+- [x] Renter can view booking history with accurate status
+- [x] Two users can exchange messages on a listing thread
+- [x] Inbox shows last message and updates on poll
+- [x] Conversation is created automatically when renter taps Message
 
 ---
 

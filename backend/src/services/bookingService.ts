@@ -1,8 +1,26 @@
 import { BookingStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
+import {
+  BOOKING_DEPOSIT_RATE,
+  calculateDepositAmount,
+  ensureValidBookingDates,
+  getRentalDays,
+  roundCurrency,
+} from './bookingUtils'
 
-const bookingInclude = {
+const bookingSelect = {
+  id: true,
+  status: true,
+  startDate: true,
+  endDate: true,
+  totalPrice: true,
+  message: true,
+  renterId: true,
+  ownerId: true,
+  listingId: true,
+  createdAt: true,
+  updatedAt: true,
   listing: {
     select: {
       id: true,
@@ -36,9 +54,7 @@ const bookingInclude = {
       verificationStatus: true,
     },
   },
-} satisfies Prisma.BookingInclude
-
-const BOOKING_DEPOSIT_RATE = 0.3
+} satisfies Prisma.BookingSelect
 
 export type CreateBookingInput = {
   listingId: string
@@ -47,40 +63,19 @@ export type CreateBookingInput = {
   message?: string
 }
 
-function roundCurrency(value: number) {
-  return Math.round(value * 100) / 100
-}
-
 function toBookingResponse(booking: any) {
+  const totalPrice = Number(booking.totalPrice)
   return {
     ...booking,
-    totalPrice: Number(booking.totalPrice),
-    depositAmount: Number(booking.depositAmount ?? 0),
-  }
-}
-
-function getRentalDays(startDate: Date, endDate: Date) {
-  const msPerDay = 1000 * 60 * 60 * 24
-  const normalizedStart = Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
-  const normalizedEnd = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
-  const diffDays = Math.round((normalizedEnd - normalizedStart) / msPerDay)
-  return diffDays + 1
-}
-
-function ensureValidBookingDates(startDate: Date, endDate: Date) {
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    throw new Error('BOOKING_INVALID_DATES')
-  }
-
-  if (endDate < startDate) {
-    throw new Error('BOOKING_INVALID_DATES')
+    totalPrice,
+    depositAmount: calculateDepositAmount(totalPrice),
   }
 }
 
 async function getBookingForParticipant(bookingId: string, userId: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: bookingInclude as any,
+    select: bookingSelect as any,
   })
 
   if (!booking) {
@@ -153,7 +148,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
 
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
-  const depositAmount = roundCurrency(totalPrice * BOOKING_DEPOSIT_RATE)
+  const depositAmount = calculateDepositAmount(totalPrice)
 
   const booking = await prisma.booking.create({
     data: {
@@ -163,10 +158,9 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       startDate: input.startDate,
       endDate: input.endDate,
       totalPrice: new Prisma.Decimal(totalPrice),
-      depositAmount: new Prisma.Decimal(depositAmount),
       message: input.message?.trim() || null,
     } as any,
-    include: bookingInclude as any,
+    select: bookingSelect as any,
   })
 
   return toBookingResponse(booking)
@@ -180,7 +174,7 @@ export async function getBookingById(bookingId: string, userId: string) {
 export async function getMyBookings(renterId: string) {
   const bookings = await prisma.booking.findMany({
     where: { renterId },
-    include: bookingInclude as any,
+    select: bookingSelect as any,
     orderBy: { createdAt: 'desc' },
   })
 
@@ -190,7 +184,7 @@ export async function getMyBookings(renterId: string) {
 export async function getIncomingRequests(ownerId: string) {
   const bookings = await prisma.booking.findMany({
     where: { ownerId },
-    include: bookingInclude as any,
+    select: bookingSelect as any,
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
   })
 
@@ -200,7 +194,7 @@ export async function getIncomingRequests(ownerId: string) {
 export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: bookingInclude as any,
+    select: bookingSelect as any,
   })
 
   if (!booking) {
@@ -233,7 +227,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   const updated = await prisma.booking.update({
     where: { id: booking.id },
     data: { status: nextStatus },
-    include: bookingInclude as any,
+    select: bookingSelect as any,
   })
 
   return toBookingResponse(updated)

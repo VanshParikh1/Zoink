@@ -1,7 +1,12 @@
 import { Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 
-const conversationInclude = {
+const conversationSelect = {
+  id: true,
+  listingId: true,
+  renterId: true,
+  ownerId: true,
+  createdAt: true,
   listing: {
     select: {
       id: true,
@@ -42,7 +47,7 @@ const conversationInclude = {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
   },
-} satisfies Prisma.ConversationInclude
+} satisfies Prisma.ConversationSelect
 
 const messageInclude = {
   sender: {
@@ -126,7 +131,7 @@ export async function openConversation(currentUserId: string, listingId: string)
       renterId: currentUserId,
       ownerId: listing.ownerId,
     },
-    include: conversationInclude as any,
+    select: conversationSelect as any,
   })
 
   return toConversationSummary(conversation, currentUserId)
@@ -137,7 +142,7 @@ export async function getMyConversations(currentUserId: string) {
     where: {
       OR: [{ renterId: currentUserId }, { ownerId: currentUserId }],
     },
-    include: conversationInclude as any,
+    select: conversationSelect as any,
     orderBy: { createdAt: 'desc' },
   })
 
@@ -176,16 +181,14 @@ export async function sendMessage(currentUserId: string, conversationId: string,
   }
 
   const message = await prisma.$transaction(async (tx) => {
-      const created = await tx.message.create({
-        data: {
-          conversationId: conversation.id,
-          senderId: currentUserId,
-          body: trimmedBody,
-        },
-        include: messageInclude as any,
-      })
-
-    await tx.conversation.update({ where: { id: conversation.id }, data: {} as any })
+    const created = await tx.message.create({
+      data: {
+        conversationId: conversation.id,
+        senderId: currentUserId,
+        body: trimmedBody,
+      },
+      include: messageInclude as any,
+    })
 
     return created
   })
