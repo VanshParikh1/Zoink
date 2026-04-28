@@ -16,6 +16,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing, setAvailability, deleteListing } from '../services/listingsApi'
+import { openConversation } from '../services/conversationsApi'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
 import LogoPlaceholder from '../components/LogoPlaceholder'
@@ -98,6 +99,20 @@ export default function ListingDetailScreen() {
     await Share.share({
       message: `Check out "${listing.title}" on Zoink - $${listing.dailyPrice}/day in ${listing.city}`,
     })
+  }
+
+  async function handleMessageOwner() {
+    if (!listing) return
+
+    try {
+      const conversation = await openConversation(listing.id)
+      nav.navigate('ConversationThread', {
+        conversationId: conversation.id,
+        title: listing.title,
+      })
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error ?? 'Could not open conversation.')
+    }
   }
 
   if (loading) {
@@ -245,14 +260,21 @@ export default function ListingDetailScreen() {
             <Text style={styles.footerCity}>{listing.city}</Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.rentBtn, !listing.isAvailable && styles.rentBtnDisabled]}
-            disabled={!listing.isAvailable}
-          >
-            <Text style={styles.rentBtnText}>
-              {listing.isAvailable ? 'Request to rent' : 'Unavailable'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.footerActions}>
+            <TouchableOpacity style={styles.messageBtn} onPress={handleMessageOwner}>
+              <Text style={styles.messageBtnText}>Message</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.rentBtn, !listing.isAvailable && styles.rentBtnDisabled]}
+              disabled={!listing.isAvailable}
+              onPress={() => nav.navigate('BookingRequest', { listingId: listing.id })}
+            >
+              <Text style={styles.rentBtnText}>
+                {listing.isAvailable ? 'Request to rent' : 'Unavailable'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </View>
@@ -352,6 +374,17 @@ const styles = StyleSheet.create({
   footerPrice: { fontSize: 20, fontWeight: '900', color: theme.text },
   footerPerDay: { fontSize: 14, fontWeight: '400', color: theme.textMuted },
   footerCity: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
+  footerActions: { gap: 10, minWidth: 170 },
+  messageBtn: {
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center',
+  },
+  messageBtnText: { color: theme.text, fontWeight: '800', fontSize: 14 },
   rentBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
   rentBtnDisabled: { backgroundColor: theme.surfaceSoft },
   rentBtnText: { color: theme.primaryText, fontWeight: '900', fontSize: 15 },

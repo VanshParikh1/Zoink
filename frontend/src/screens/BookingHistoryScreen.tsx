@@ -1,0 +1,107 @@
+import React, { useCallback, useState } from 'react'
+import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { RootStackParamList } from '../navigation'
+import { getMyBookings } from '../services/bookingsApi'
+import { Booking } from '../types'
+import { theme } from '../theme/colors'
+
+type Nav = NativeStackNavigationProp<RootStackParamList>
+
+function formatDateRange(startDate: string, endDate: string) {
+  const start = new Date(startDate).toLocaleDateString()
+  const end = new Date(endDate).toLocaleDateString()
+  return `${start} - ${end}`
+}
+
+export default function BookingHistoryScreen() {
+  const nav = useNavigation<Nav>()
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadBookings = useCallback(async () => {
+    try {
+      const nextBookings = await getMyBookings()
+      setBookings(nextBookings)
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load your bookings.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      loadBookings()
+    }, [loadBookings])
+  )
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={bookings}
+        keyExtractor={(item) => item.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
+          setRefreshing(true)
+          loadBookings()
+        }} tintColor={theme.primary} />}
+        contentContainerStyle={styles.content}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => nav.goBack()}>
+              <Text style={styles.backText}>Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.title}>My bookings</Text>
+            <Text style={styles.subtitle}>Every request you’ve sent, with live status updates.</Text>
+          </View>
+        }
+        ListEmptyComponent={<Text style={styles.emptyText}>No booking requests yet.</Text>}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.card} onPress={() => nav.navigate('BookingDetail', { bookingId: item.id })}>
+            <Text style={styles.cardTitle}>{item.listing.title}</Text>
+            <Text style={styles.cardMeta}>{formatDateRange(item.startDate, item.endDate)}</Text>
+            <View style={styles.cardRow}>
+              <Text style={styles.cardPrice}>${item.totalPrice.toFixed(2)}</Text>
+              <Text style={styles.cardStatus}>{item.status}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.screen },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
+  content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
+  header: { marginBottom: 8 },
+  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
+  emptyText: { color: theme.textMuted, fontSize: 15, marginTop: 24 },
+  card: {
+    backgroundColor: theme.surface,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
+    marginBottom: 14,
+  },
+  cardTitle: { color: theme.text, fontSize: 17, fontWeight: '900', marginBottom: 8 },
+  cardMeta: { color: theme.textMuted, fontSize: 14, marginBottom: 14 },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardPrice: { color: theme.primary, fontSize: 16, fontWeight: '900' },
+  cardStatus: { color: theme.text, fontSize: 13, fontWeight: '800' },
+})

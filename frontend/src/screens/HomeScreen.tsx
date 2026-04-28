@@ -40,25 +40,22 @@ export default function HomeScreen() {
     return `Hi ${user.firstName}, explore nearby rentals`
   }, [user?.firstName])
 
-  const fetchListings = useCallback(
-    async (currentCoords = coords) => {
-      try {
-        setError('')
-        const data = await getNearbyListings({
-          lat: currentCoords.latitude,
-          lng: currentCoords.longitude,
-          radius: DEFAULT_RADIUS_KM,
-        })
-        setListings(data)
-      } catch (err: any) {
-        setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    },
-    [coords]
-  )
+  const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
+    try {
+      setError('')
+      const data = await getNearbyListings({
+        lat: currentCoords.latitude,
+        lng: currentCoords.longitude,
+        radius: DEFAULT_RADIUS_KM,
+      })
+      setListings(data)
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
 
   const loadLocationAndListings = useCallback(async () => {
     setLoading(true)
@@ -94,17 +91,17 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadLocationAndListings()
-  }, [loadLocationAndListings])
+  }, [])
 
   useFocusEffect(
     useCallback(() => {
-      fetchListings()
-    }, [fetchListings])
+      fetchListings(coords)
+    }, [coords, fetchListings])
   )
 
   const onRefresh = () => {
     setRefreshing(true)
-    fetchListings()
+    fetchListings(coords)
   }
 
   const renderListing = ({ item }: { item: Listing }) => {
@@ -191,6 +188,18 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingHistory')}>
+                <Text style={styles.tertiaryButtonText}>My bookings</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingRequests')}>
+                <Text style={styles.tertiaryButtonText}>Requests</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('Inbox')}>
+                <Text style={styles.tertiaryButtonText}>Inbox</Text>
+              </TouchableOpacity>
+            </View>
+
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         }
@@ -273,6 +282,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: { color: theme.primary, fontSize: 15, fontWeight: '900' },
+  tertiaryButton: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.screen,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  tertiaryButtonText: { color: theme.text, fontSize: 13, fontWeight: '800' },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13, lineHeight: 18 },
   card: {
     backgroundColor: theme.surface,
