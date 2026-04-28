@@ -9,6 +9,22 @@ import {
   roundCurrency,
 } from './bookingUtils'
 
+function scoreLabelsForRole(role: ReviewRole) {
+  if (role === ReviewRole.RENTER) {
+    return {
+      scoreAKey: 'accuracy',
+      scoreBKey: 'condition',
+      scoreCKey: 'communication',
+    }
+  }
+
+  return {
+    scoreAKey: 'reliability',
+    scoreBKey: 'care',
+    scoreCKey: 'communication',
+  }
+}
+
 const bookingSelect = {
   id: true,
   status: true,
@@ -94,6 +110,8 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
     bookingId: booking.id,
     reviewerRole: obligation.reviewerRole,
     status: obligation.status,
+    scoreLabels: scoreLabelsForRole(obligation.reviewerRole),
+    createdAt: obligation.createdAt,
     targetUserId: obligation.targetUserId,
     listingTitle: booking.listing.title,
     reviewee: {
@@ -101,6 +119,13 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
       firstName: reviewee.firstName,
       lastName: reviewee.lastName,
       avatarUrl: reviewee.avatarUrl,
+    },
+    booking: {
+      id: booking.id,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      completedAt: booking.completedAt,
+      listing: booking.listing,
     },
   }
 }

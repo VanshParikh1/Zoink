@@ -1,10 +1,9 @@
-import { PrismaClient, VerificationStatus } from '@prisma/client'
+import prisma from '../src/utils/prisma'
+import { VerificationStatus } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import dotenv from 'dotenv'
 
 dotenv.config()
-
-const prisma = new PrismaClient()
 
 async function main() {
   const hashed = await bcrypt.hash('password123', 10)

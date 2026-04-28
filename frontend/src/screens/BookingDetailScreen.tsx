@@ -125,7 +125,10 @@ export default function BookingDetailScreen() {
             onPress={() =>
               runAction(() => completeBooking(booking.id), (updated) => {
                 if (updated.pendingReview) {
-                  nav.replace('ReviewPrompt', { review: updated.pendingReview })
+                  nav.reset({
+                    index: 0,
+                    routes: [{ name: 'ReviewPrompt', params: { review: updated.pendingReview } }],
+                  })
                 }
               })
             }
@@ -138,7 +141,12 @@ export default function BookingDetailScreen() {
         {booking.status === 'COMPLETED' && booking.pendingReview ? (
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => nav.navigate('ReviewPrompt', { review: booking.pendingReview! })}
+            onPress={() =>
+              nav.reset({
+                index: 0,
+                routes: [{ name: 'ReviewPrompt', params: { review: booking.pendingReview! } }],
+              })
+            }
             disabled={busy}
           >
             <Text style={styles.primaryText}>Leave required review</Text>
