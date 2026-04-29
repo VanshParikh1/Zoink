@@ -1,26 +1,11 @@
-import { DEMO_USER } from '../config/demoMode'
 import { Booking, BookingStatus, Conversation, ListingPreview, Message, PendingReview, SubmittedReviewResult, User } from '../types'
 import { CreateBookingPayload } from './bookingsApi'
+import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 import { SubmitReviewPayload } from './reviewsApi'
 import { mockGetListing } from './mockListings'
 
-const demoUser: User = {
-  id: DEMO_USER.id,
-  email: DEMO_USER.email,
-  firstName: DEMO_USER.firstName,
-  lastName: 'Demo',
-  verificationStatus: 'VERIFIED',
-  createdAt: new Date().toISOString(),
-}
-
-const otherUser: User = {
-  id: 'demo-user-2',
-  email: 'avery@zoink.app',
-  firstName: 'Avery',
-  lastName: 'Chen',
-  verificationStatus: 'VERIFIED',
-  createdAt: new Date().toISOString(),
-}
+const demoUser: User = toDemoUser(demoProfile)
+const otherUser: User = toDemoUser(publicProfiles['demo-user-2'])
 
 function toListingPreview(listing: Awaited<ReturnType<typeof mockGetListing>>): ListingPreview {
   return {

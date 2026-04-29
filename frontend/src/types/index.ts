@@ -20,6 +20,45 @@ export interface User {
   createdAt: string
 }
 
+export interface UserReputation {
+  reviewsReceivedCount: number
+  rentalsCompletedCount: number
+  overallRenterRating: number | null
+  overallLenderRating: number | null
+  renterReliabilityAvg: number | null
+  renterCareAvg: number | null
+  renterCommunicationAvg: number | null
+  lenderAccuracyAvg: number | null
+  lenderConditionAvg: number | null
+  lenderCommunicationAvg: number | null
+  updatedAt: string
+}
+
+export interface ProfileReviewHighlight {
+  id: string
+  quote: string
+  label: string
+}
+
+export interface PublicProfile {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl?: string
+  bio?: string
+  verificationStatus: VerificationStatus
+  verifiedAt?: string | null
+  createdAt: string
+  reputation: UserReputation | null
+  spotlightTags?: string[]
+  reviewHighlights?: ProfileReviewHighlight[]
+}
+
+export interface MyProfile extends PublicProfile {
+  email: string
+  phone?: string
+}
+
 export interface Listing {
   id: string
   title: string
