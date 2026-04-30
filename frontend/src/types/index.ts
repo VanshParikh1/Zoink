@@ -84,6 +84,12 @@ export interface ListingImage {
   order: number
 }
 
+export interface BrowseListingsResult {
+  items: Listing[]
+  total: number
+  hasMore: boolean
+}
+
 export interface Booking {
   id: string
   status: BookingStatus

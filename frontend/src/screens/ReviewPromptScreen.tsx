@@ -83,7 +83,7 @@ export default function ReviewPromptScreen() {
 
       nav.reset({
         index: 0,
-        routes: [{ name: 'Home' }],
+        routes: [{ name: 'MainApp' }],
       })
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not submit your review.')

@@ -195,13 +195,13 @@ export default function HomeScreen() {
               <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingRequests')}>
                 <Text style={styles.tertiaryButtonText}>Requests</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('Inbox')}>
+              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
                 <Text style={styles.tertiaryButtonText}>Inbox</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.profileButton} onPress={() => nav.navigate('MyProfile')}>
+              <TouchableOpacity style={styles.profileButton} onPress={() => nav.navigate('MainApp', { tab: 'MyProfile' })}>
                 <Text style={styles.profileButtonText}>Open my profile card</Text>
               </TouchableOpacity>
             </View>
