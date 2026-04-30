@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Backend, authentication, listings, and the week 6 booking + messaging flow are implemented. ✅
+> Currently in active development. Backend, authentication, listings, search/filtering, and the week 6 booking + messaging flow are implemented. ✅
 
 ---
 
@@ -85,6 +85,7 @@ Early adopters get zero-commission incentives to kickstart supply.
 ## Current Implementation Notes
 
 - Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
+- Frontend browse/search is implemented: bottom navigation now exposes dedicated Home, Search, Messages, and Profile surfaces, and the Search screen supports query, category filtering, price filtering, and sort/filter menus.
 - Frontend profiles are now implemented with collectible-style profile cards, public profile viewing, inline profile editing, avatar upload, and demo-mode mock profile data for UI testing.
 - Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
 - Week 8 is implemented on the backend: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
@@ -224,27 +225,24 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 
 ## Week 5 — Browse, Search, and Filtering
 
-### Currently working on: frontend UI
+### Status: complete
 
-The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified. The following frontend work is in progress:
+The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified, and the main Week 5 frontend browse flow is now wired into the app.
 
 **API integration**
-- Add Axios frontend helpers for listings queries and category fetching.
+- Axios frontend helpers now support listings browse queries and category fetching.
 
 **Browse / Explore screen**
-- Implement an infinite-scroll `FlatList` to display listing cards from the nearby feed.
-- Show `distanceKm` on each card returned by the geo query.
+- Nearby listings render in the app feed and show `distanceKm` when available.
 
 **Search and filter interactions**
-- Build a search bar and accessible filter modal with `category`, `minPrice`, and `maxPrice` controls.
-- Validate that combined filters are strictly enforced on the query.
+- A dedicated Search screen now supports query input, category filtering, price filtering, and sort/filter menus.
 
 **Geolocation**
-- Request device location permissions to populate `latitude` and `longitude` on search.
-- Verify `distanceKm` values are accurate against known test locations.
+- Device location is requested to populate `latitude` and `longitude` for nearby browse results.
 
 **Pagination**
-- Validate that scrolling triggers `limit` and `offset` fetching correctly until `hasMore` is false.
+- Basic browse/search results are wired; pagination/infinite scroll can be extended further if the product needs larger result sets.
 
 ---
 

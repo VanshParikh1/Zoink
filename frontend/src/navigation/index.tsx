@@ -11,7 +11,7 @@ import LoginScreen from '../screens/LoginScreen'
 import RegisterScreen from '../screens/RegisterScreen'
 import VerifyEmailScreen from '../screens/VerifyEmailScreen'
 import VerificationGateScreen from '../screens/VerificationGateScreen'
-import HomeScreen from '../screens/HomeScreen'
+import MainAppScreen from '../screens/MainAppScreen'
 import CreateListingScreen from '../screens/CreateListingScreen'
 import ListingDetailScreen from '../screens/ListingDetailScreen'
 import EditListingScreen from '../screens/EditListingScreen'
@@ -31,7 +31,7 @@ export type RootStackParamList = {
   Register: undefined
   VerifyEmail: undefined
   VerificationGate: undefined
-  Home: undefined
+  MainApp: { tab?: 'Home' | 'Search' | 'Inbox' | 'MyProfile' } | undefined
   CreateListing: undefined
   ListingDetail: { listingId: string }
   EditListing: { listingId: string }
@@ -73,9 +73,9 @@ function VerifiedAppStack() {
   return (
     <Stack.Navigator 
       screenOptions={{ headerShown: false }} 
-      initialRouteName={initialReview ? 'ReviewPrompt' : 'Home'}
+      initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
-      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="MainApp" component={MainAppScreen} />
       <Stack.Screen name="CreateListing" component={CreateListingScreen} />
       <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
       <Stack.Screen name="EditListing" component={EditListingScreen} />

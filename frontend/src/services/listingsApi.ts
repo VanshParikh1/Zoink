@@ -1,11 +1,13 @@
 import api from './api'
-import { Listing, ListingImage } from '../types'
+import { BrowseListingsResult, Listing, ListingImage } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
 import {
+  mockBrowseListings,
   mockCreateListing,
   mockDeleteListing,
   mockDeleteListingImage,
   mockGetListing,
+  mockGetListingCategories,
   mockGetMyListings,
   mockGetNearbyListings,
   mockSetAvailability,
@@ -16,6 +18,16 @@ import {
 export type NearbyListingsParams = {
   lat: number
   lng: number
+  radius?: number
+}
+
+export type BrowseListingsParams = {
+  query?: string
+  category?: string
+  minPrice?: number
+  maxPrice?: number
+  lat?: number
+  lng?: number
   radius?: number
 }
 
@@ -31,6 +43,53 @@ export async function getNearbyListings({
   })
 
   return res.data.items ?? res.data
+}
+
+export async function browseListings({
+  query,
+  category,
+  minPrice,
+  maxPrice,
+  lat,
+  lng,
+  radius = 25,
+}: BrowseListingsParams): Promise<BrowseListingsResult> {
+  if (DEMO_MODE) {
+    return mockBrowseListings({
+      query,
+      category,
+      minPrice,
+      maxPrice,
+      lat,
+      lng,
+      radius,
+    })
+  }
+
+  const res = await api.get('/listings', {
+    params: {
+      q: query || undefined,
+      category: category || undefined,
+      minPrice,
+      maxPrice,
+      latitude: lat,
+      longitude: lng,
+      radiusKm: lat != null && lng != null ? radius : undefined,
+    },
+  })
+
+  return {
+    items: res.data.items ?? [],
+    total: res.data.total ?? res.data.items?.length ?? 0,
+    hasMore: res.data.hasMore ?? false,
+  }
+}
+
+export async function getListingCategories(): Promise<string[]> {
+  if (DEMO_MODE) return mockGetListingCategories()
+
+  const res = await api.get('/listings/categories')
+  return res.data.categories ?? []
 }
 
 export type CreateListingPayload = {

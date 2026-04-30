@@ -1,5 +1,5 @@
-import { Listing, ListingImage, User } from '../types'
-import type { CreateListingPayload, UpdateListingPayload } from './listingsApi'
+import { BrowseListingsResult, Listing, ListingImage, User } from '../types'
+import type { BrowseListingsParams, CreateListingPayload, UpdateListingPayload } from './listingsApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 
 const demoOwner: User = toDemoUser(demoProfile)
@@ -105,6 +105,50 @@ export async function mockGetNearbyListings() {
   return listings
     .filter((listing) => listing.isAvailable)
     .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+}
+
+export async function mockBrowseListings({
+  query,
+  category,
+  minPrice,
+  maxPrice,
+}: BrowseListingsParams): Promise<BrowseListingsResult> {
+  const normalizedQuery = query?.trim().toLowerCase()
+  const normalizedCategory = category?.trim().toLowerCase()
+
+  const items = listings
+    .filter((listing) => listing.isAvailable)
+    .filter((listing) => {
+      if (normalizedQuery) {
+        const haystack = `${listing.title} ${listing.description} ${listing.category} ${listing.city}`.toLowerCase()
+        if (!haystack.includes(normalizedQuery)) return false
+      }
+
+      if (normalizedCategory && listing.category.toLowerCase() !== normalizedCategory) {
+        return false
+      }
+
+      if (minPrice != null && listing.dailyPrice < minPrice) {
+        return false
+      }
+
+      if (maxPrice != null && listing.dailyPrice > maxPrice) {
+        return false
+      }
+
+      return true
+    })
+    .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+
+  return {
+    items,
+    total: items.length,
+    hasMore: false,
+  }
+}
+
+export async function mockGetListingCategories() {
+  return [...new Set(listings.map((listing) => listing.category))].sort((a, b) => a.localeCompare(b))
 }
 
 export async function mockCreateListing(data: CreateListingPayload) {
