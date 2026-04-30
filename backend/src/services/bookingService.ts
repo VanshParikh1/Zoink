@@ -8,6 +8,7 @@ import {
   getRentalDays,
   roundCurrency,
 } from './bookingUtils'
+import { notifyUser } from './notificationService'
 
 function scoreLabelsForRole(role: ReviewRole) {
   if (role === ReviewRole.RENTER) {
@@ -251,6 +252,14 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     select: bookingSelect as any,
   })
 
+  void notifyUser({
+    userId: listing.ownerId,
+    type: 'BOOKING_REQUEST',
+    title: 'New booking request',
+    body: 'A renter requested dates for one of your listings.',
+    data: { bookingId: booking.id, listingId: listing.id },
+  })
+
   return toBookingResponse(booking)
 }
 
@@ -319,6 +328,37 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       select: bookingSelect as any,
     })
 
+    if (nextStatus === 'ACCEPTED') {
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'BOOKING_ACCEPTED',
+        title: 'Booking accepted',
+        body: `${booking.listing.title} was approved by the owner.`,
+        data: { bookingId: booking.id, listingId: booking.listingId },
+      })
+    }
+
+    if (nextStatus === 'DECLINED') {
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'BOOKING_DECLINED',
+        title: 'Booking declined',
+        body: `${booking.listing.title} was declined.`,
+        data: { bookingId: booking.id, listingId: booking.listingId },
+      })
+    }
+
+    if (nextStatus === 'CANCELLED') {
+      const recipientId = isOwner ? booking.renterId : booking.ownerId
+      void notifyUser({
+        userId: recipientId,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking cancelled',
+        body: `${booking.listing.title} is no longer scheduled for those dates.`,
+        data: { bookingId: booking.id, listingId: booking.listingId },
+      })
+    }
+
     return toBookingResponse(updated, actorId)
   }
 
@@ -339,6 +379,24 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       select: bookingSelect as any,
     })
   })
+
+  void notifyUser({
+    userId: booking.renterId,
+    type: 'BOOKING_ACCEPTED',
+    title: 'Rental completed',
+    body: `Your rental for ${booking.listing.title} has been marked complete.`,
+    data: { bookingId: booking.id, listingId: booking.listingId },
+  })
+
+  if (booking.ownerId !== booking.renterId) {
+    void notifyUser({
+      userId: booking.ownerId,
+      type: 'BOOKING_ACCEPTED',
+      title: 'Rental completed',
+      body: `${booking.listing.title} has been marked complete.`,
+      data: { bookingId: booking.id, listingId: booking.listingId },
+    })
+  }
 
   return toBookingResponse(completed, actorId)
 }

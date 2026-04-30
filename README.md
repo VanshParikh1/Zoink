@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Backend, authentication, listings, search/filtering, and the week 6 booking + messaging flow are implemented. ✅
+> Currently in active development. Authentication, profiles, listings, search/filtering, booking + messaging, and reviews are implemented. Payments, push notifications, release hardening, and deployment are still in progress. ✅
 
 ---
 
@@ -20,16 +20,16 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 ## Core Features
 
 - **Authentication** — email/password registration, JWT-based auth, protected routes ✅
-- **Identity verification** — university email verification to ensure a trusted student-only network
-- **User profiles** — avatar, bio, verified badge, listings, and reviews
-- **Listings** — create items with photos, description, category, daily price, and location
-- **Search and filtering** — geo-based nearby search, category, price range, availability
-- **Messaging** — in-app chat between renters and listers before and during a booking
-- **Booking system** — request rentals, accept/decline, strict state machine
-- **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion
-- **Insurance** — optional ~5% coverage fee on listed item value for added protection
-- **Reviews and ratings** — post-rental reviews and aggregate scores
-- **Push notifications** — booking alerts, payment updates, message notifications
+- **Identity verification** — university email OTP verification with verified-only app access ✅
+- **User profiles** — avatar, bio, verified badge, public profiles, and review reputation ✅
+- **Listings** — create items with photos, description, category, daily price, and location ✅
+- **Search and filtering** — geo-based nearby search, category, price range, availability ✅
+- **Messaging** — in-app chat between renters and listers before and during a booking ✅
+- **Booking system** — request rentals, accept/decline, strict state machine ✅
+- **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion 🚧 Planned
+- **Insurance** — optional ~5% coverage fee on listed item value for added protection 🚧 Planned
+- **Reviews and ratings** — post-rental reviews and aggregate scores ✅
+- **Push notifications** — booking alerts, payment updates, message notifications 🚧 Planned
 
 ---
 
@@ -74,7 +74,7 @@ Early adopters get zero-commission incentives to kickstart supply.
 | Mobile frontend | React Native + Expo SDK 54 + TypeScript |
 | Backend API | Node.js + Express + TypeScript |
 | Database | PostgreSQL + Prisma ORM |
-| Image storage | Cloudinary (listings), AWS S3 (profile photos) |
+| Image storage | Cloudinary (listings and profile photos) |
 | Email | AWS SES |
 | Hosting | AWS EC2 + RDS (free tier) |
 | Payments | Stripe |
@@ -88,10 +88,11 @@ Early adopters get zero-commission incentives to kickstart supply.
 - Frontend browse/search is implemented: bottom navigation now exposes dedicated Home, Search, Messages, and Profile surfaces, and the Search screen supports query, category filtering, price filtering, and sort/filter menus.
 - Frontend profiles are now implemented with collectible-style profile cards, public profile viewing, inline profile editing, avatar upload, and demo-mode mock profile data for UI testing.
 - Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
-- Week 8 is implemented on the backend: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
+- Week 8 is implemented end-to-end: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
 - `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
 - The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
+- Frontend demo mode can run core browse, profile, booking, messaging, and review flows locally without a live backend.
 
 ---
 
@@ -110,7 +111,7 @@ Early adopters get zero-commission incentives to kickstart supply.
 ```bash
 cd backend
 npm install
-cp .env.example .env        # fill in your values
+# create backend/.env with the variables below
 npx prisma migrate dev
 npx prisma generate
 npm run dev
@@ -140,7 +141,6 @@ PORT=3000
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_REGION=
-AWS_S3_BUCKET=
 
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
@@ -151,6 +151,8 @@ STRIPE_WEBHOOK_SECRET=
 
 SES_FROM_EMAIL=
 ADMIN_EMAIL=
+ALLOWED_EMAIL_DOMAINS=utoronto.ca,uwaterloo.ca,tmu.ca
+OTP_EXPIRY_MINUTES=15
 ```
 
 For frontend development, create `frontend/.env` locally:
@@ -177,8 +179,8 @@ Demo mode lets the app log in with local mock auth and use local mock listings. 
 zoink/
 ├── backend/
 │   ├── src/
-│   │   ├── controllers/
 │   │   ├── middleware/
+│   │   │   └── controllers/
 │   │   ├── routes/
 │   │   ├── services/
 │   │   └── utils/
@@ -211,7 +213,7 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 |---|---|---|
 | 1 | Project setup — DB schema, base structure, navigation shell | ✅ Done |
 | 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
-| 3 | User profiles — avatars, public profiles, profile card UI + AWS SES wire-up | ✅ Done |
+| 3 | User profiles — avatars, public profiles, profile card UI + email verification flow | ✅ Done |
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
 | 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
 | 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
@@ -391,7 +393,7 @@ Week 8 has been implemented. The backend correctly generates review obligations 
 
 ## Key Architecture Decisions
 
-**Monorepo** — frontend and backend in one repo with shared TypeScript types so API shapes never drift.
+**Monorepo** — frontend and backend live in one repo. Types are currently maintained separately, so shared contracts are still a worthwhile future improvement.
 
 **Vertical slice delivery** — each week ships a complete feature end-to-end (backend + frontend). No catch-up UI weeks.
 
@@ -399,7 +401,7 @@ Week 8 has been implemented. The backend correctly generates review obligations 
 
 **Geo search from day one** — listings store `latitude` and `longitude` as floats. Haversine query for nearby search, upgradeable to PostGIS with no schema changes.
 
-**Stripe Payment Intents, not Charges** — card is authorized on booking, captured when rental starts, payout sent after completion.
+**Stripe Payment Intents, not Charges** — this is still the intended payments design for Week 7; the live Stripe flow is not implemented yet.
 
 **Messaging via polling, not WebSockets** — simpler to deploy and sufficient for MVP usage patterns. Upgradeable to WebSockets or a service like Ably post-launch with no schema changes.
 

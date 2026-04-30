@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
+import { sendDirectPush } from './notificationService'
 
 const conversationSelect = {
   id: true,
@@ -192,6 +193,14 @@ export async function sendMessage(currentUserId: string, conversationId: string,
 
     return created
   })
+
+  const recipientId = conversation.renterId === currentUserId ? conversation.ownerId : conversation.renterId
+  void sendDirectPush(
+    recipientId,
+    'New message on Zoink',
+    trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody,
+    { conversationId: conversation.id, listingId: conversation.listingId }
+  )
 
   return toMessage(message)
 }

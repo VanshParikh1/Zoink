@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import api from '../services/api'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
+import { clearPushToken, syncPushToken } from '../services/pushNotifications'
 
 const TOKEN_KEY = 'zoink_jwt'
 
@@ -72,6 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadToken()
   }, [])
 
+  useEffect(() => {
+    if (!token || !user || user.verificationStatus !== 'VERIFIED' || DEMO_MODE) {
+      return
+    }
+
+    syncPushToken().catch((error) => {
+      console.warn('Failed to sync push token', error)
+    })
+  }, [token, user])
+
   async function register(email: string, password: string, firstName: string, lastName: string) {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, {
@@ -100,6 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    if (!DEMO_MODE && token) {
+      await clearPushToken()
+    }
     await deleteTokenAsync(TOKEN_KEY)
     delete api.defaults.headers.common['Authorization']
     setToken(null)

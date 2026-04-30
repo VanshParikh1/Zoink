@@ -59,3 +59,10 @@ export async function uploadMyAvatar(uri: string): Promise<{ id: string; avatarU
 
   return res.data
 }
+
+export async function updateMyPushToken(expoPushToken: string | null): Promise<{ id: string; expoPushToken?: string | null }> {
+  if (DEMO_MODE) return { id: 'demo-user-1', expoPushToken }
+
+  const res = await api.patch('/users/me/push-token', { expoPushToken })
+  return res.data
+}

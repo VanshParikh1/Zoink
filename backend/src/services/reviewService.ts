@@ -1,5 +1,6 @@
 import { Prisma, ReviewRole, ReviewObligationStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
+import { notifyUser } from './notificationService'
 
 type SubmitReviewInput = {
   obligationId: string
@@ -299,6 +300,14 @@ export async function submitReview(userId: string, input: SubmitReviewInput) {
   })
 
   const reviewee = obligation.targetUserId === obligation.booking.owner.id ? obligation.booking.owner : obligation.booking.renter
+
+  void notifyUser({
+    userId: obligation.targetUserId,
+    type: 'REVIEW_RECEIVED',
+    title: 'New review received',
+    body: `A new review just landed for ${obligation.booking.listing.title}.`,
+    data: { bookingId: obligation.booking.id, reviewId: result.review.id },
+  })
 
   return {
     ...result,

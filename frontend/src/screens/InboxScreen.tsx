@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getMyConversations } from '../services/conversationsApi'
 import { Conversation } from '../types'
 import { theme } from '../theme/colors'
+import StateCard from '../components/StateCard'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -14,13 +15,15 @@ export default function InboxScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
 
   const loadConversations = useCallback(async () => {
     try {
+      setError('')
       const nextConversations = await getMyConversations()
       setConversations(nextConversations)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load your inbox.')
+      setError(err?.response?.data?.error ?? 'Could not load your inbox.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -30,6 +33,12 @@ export default function InboxScreen() {
   useFocusEffect(
     useCallback(() => {
       loadConversations()
+
+      const intervalId = setInterval(() => {
+        loadConversations()
+      }, 4000)
+
+      return () => clearInterval(intervalId)
     }, [loadConversations])
   )
 
@@ -37,6 +46,7 @@ export default function InboxScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={styles.loadingText}>Loading your conversations...</Text>
       </View>
     )
   }
@@ -57,10 +67,36 @@ export default function InboxScreen() {
               <Text style={styles.backText}>Back</Text>
             </TouchableOpacity>
             <Text style={styles.title}>Inbox</Text>
-            <Text style={styles.subtitle}>Listing conversations update here as new messages come in.</Text>
+            <Text style={styles.subtitle}>
+              Listing conversations update here as new messages come in.
+            </Text>
+            <Text style={styles.summaryText}>
+              {conversations.length === 0
+                ? 'No active threads yet'
+                : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'} in motion`}
+            </Text>
           </View>
         }
-        ListEmptyComponent={<Text style={styles.emptyText}>No conversations yet.</Text>}
+        ListEmptyComponent={
+          error ? (
+            <StateCard
+              tone="error"
+              eyebrow="INBOX ISSUE"
+              title="Your inbox couldn’t load"
+              body={error}
+              actionLabel="Try again"
+              onAction={loadConversations}
+            />
+          ) : (
+            <StateCard
+              eyebrow="QUIET FOR NOW"
+              title="No conversations yet"
+              body="Open a listing and tap Message to start talking with an owner before you book."
+              actionLabel="Browse rentals"
+              onAction={() => nav.navigate('MainApp', { tab: 'Search' })}
+            />
+          )
+        }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.card, item.unread && styles.cardUnread]}
@@ -86,12 +122,13 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.screen },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
+  loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32 },
   header: { marginBottom: 8 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { color: theme.text, fontSize: 28, fontWeight: '900' },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  emptyText: { color: theme.textMuted, fontSize: 15, marginTop: 24 },
+  summaryText: { color: theme.textFaint, fontSize: 13, marginTop: 10, fontWeight: '700' },
   card: {
     backgroundColor: theme.surface,
     borderRadius: 22,

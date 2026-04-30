@@ -6,6 +6,7 @@ import { RootStackParamList } from '../navigation'
 import { acceptBooking, declineBooking, getIncomingRequests } from '../services/bookingsApi'
 import { Booking } from '../types'
 import { theme } from '../theme/colors'
+import StateCard from '../components/StateCard'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -15,13 +16,15 @@ export default function BookingRequestsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [error, setError] = useState('')
 
   const loadBookings = useCallback(async () => {
     try {
+      setError('')
       const nextBookings = await getIncomingRequests()
       setBookings(nextBookings)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load incoming requests.')
+      setError(err?.response?.data?.error ?? 'Could not load incoming requests.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -51,6 +54,7 @@ export default function BookingRequestsScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={styles.loadingText}>Loading incoming requests...</Text>
       </View>
     )
   }
@@ -72,9 +76,33 @@ export default function BookingRequestsScreen() {
             </TouchableOpacity>
             <Text style={styles.title}>Incoming requests</Text>
             <Text style={styles.subtitle}>Approve or decline rental requests on your listings.</Text>
+            <Text style={styles.summaryText}>
+              {bookings.length === 0
+                ? 'No pending action right now'
+                : `${bookings.filter((booking) => booking.status === 'PENDING').length} request${bookings.filter((booking) => booking.status === 'PENDING').length === 1 ? '' : 's'} waiting on you`}
+            </Text>
           </View>
         }
-        ListEmptyComponent={<Text style={styles.emptyText}>No requests have landed yet.</Text>}
+        ListEmptyComponent={
+          error ? (
+            <StateCard
+              tone="error"
+              eyebrow="REQUEST ISSUE"
+              title="Incoming requests couldn’t load"
+              body={error}
+              actionLabel="Try again"
+              onAction={loadBookings}
+            />
+          ) : (
+            <StateCard
+              eyebrow="ALL CLEAR"
+              title="No requests have landed yet"
+              body="As soon as someone wants one of your items, you’ll be able to review dates and respond from here."
+              actionLabel="View my listings"
+              onAction={() => nav.navigate('MyListings')}
+            />
+          )
+        }
         renderItem={({ item }) => {
           const isPending = item.status === 'PENDING'
           const isBusy = busyId === item.id
@@ -112,12 +140,13 @@ export default function BookingRequestsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.screen },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
+  loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32 },
   header: { marginBottom: 8 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { color: theme.text, fontSize: 28, fontWeight: '900' },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  emptyText: { color: theme.textMuted, fontSize: 15, marginTop: 24 },
+  summaryText: { color: theme.textFaint, fontSize: 13, marginTop: 10, fontWeight: '700' },
   card: {
     backgroundColor: theme.surface,
     borderRadius: 22,
