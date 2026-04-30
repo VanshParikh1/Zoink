@@ -48,8 +48,8 @@ function NavItem({
 }) {
   return (
     <TouchableOpacity style={[styles.navItem, active && styles.navItemActive]} onPress={onPress}>
-      <Text style={styles.navIcon}>{icon}</Text>
-      <Text style={styles.navLabel}>{label}</Text>
+      <Text style={[styles.navIcon, active ? styles.navIconActive : styles.navIconInactive]}>{icon}</Text>
+      <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>{label}</Text>
     </TouchableOpacity>
   )
 }
@@ -61,15 +61,13 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   const [bottomBarWidth, setBottomBarWidth] = React.useState(0)
   const translateX = React.useRef(new Animated.Value(0)).current
   const tabHighlightX = React.useRef(new Animated.Value(0)).current
-  const isTransitioningRef = React.useRef(false)
   const activeIndex = TAB_ORDER.indexOf(activeTab)
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
     : 0
 
   const transitionToTab = React.useCallback((nextTab: MainTab) => {
-    if (nextTab === activeTab || isTransitioningRef.current) {
-      setActiveTab(nextTab)
+    if (nextTab === activeTab) {
       return
     }
 
@@ -80,38 +78,36 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
     const nextIndex = TAB_ORDER.indexOf(nextTab)
     const animations = [
-      Animated.timing(translateX, {
+      Animated.spring(translateX, {
         toValue: -(nextIndex * contentWidth),
-        duration: TAB_TRANSITION_MS,
-        easing: Easing.out(Easing.cubic),
+        tension: 200,
+        friction: 20,
         useNativeDriver: true,
       }),
     ]
 
     if (tabWidth > 0) {
       animations.push(
-        Animated.timing(tabHighlightX, {
+        Animated.spring(tabHighlightX, {
           toValue: getTabOffset(nextIndex, tabWidth),
-          duration: TAB_TRANSITION_MS,
-          easing: Easing.out(Easing.cubic),
+          tension: 200,
+          friction: 20,
           useNativeDriver: true,
         })
       )
     }
 
-    isTransitioningRef.current = true
     setActiveTab(nextTab)
 
-    Animated.parallel(animations).start(() => {
-      isTransitioningRef.current = false
-    })
+    Animated.parallel(animations).start()
   }, [activeTab, contentWidth, tabHighlightX, tabWidth, translateX])
 
   React.useEffect(() => {
     if (route.params?.tab) {
       transitionToTab(route.params.tab)
+      navigation.setParams({ tab: undefined })
     }
-  }, [route.params?.tab, transitionToTab])
+  }, [route.params?.tab, transitionToTab, navigation])
 
   React.useEffect(() => {
     if (!contentWidth) return
@@ -185,7 +181,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
           <View style={styles.centerSlot} />
 
-          <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Messages" onPress={() => transitionToTab('Inbox')} />
+          <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Inbox" onPress={() => transitionToTab('Inbox')} />
           <NavItem active={activeTab === 'MyProfile'} icon="◉" label="Profile" onPress={() => transitionToTab('MyProfile')} />
         </View>
 
@@ -214,28 +210,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   bottomWrap: {
-    position: 'relative',
     paddingHorizontal: 16,
-    paddingBottom: 14,
-    backgroundColor: theme.screen,
+    paddingBottom: 24,
+    backgroundColor: 'transparent',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   bottomBar: {
-    height: 78,
-    backgroundColor: theme.colors.inkBlack,
-    borderRadius: 28,
+    height: 72,
+    backgroundColor: theme.surface,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(22,255,110,0.10)',
+    borderRadius: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: BAR_HORIZONTAL_PADDING,
-    overflow: 'hidden',
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
   activeTabHighlight: {
     position: 'absolute',
     left: BAR_HORIZONTAL_PADDING,
-    top: 12,
-    bottom: 12,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    top: 10,
+    bottom: 10,
+    borderRadius: 26,
+    backgroundColor: theme.surfaceSoft,
   },
   navItem: {
     flex: 1,
@@ -247,14 +252,24 @@ const styles = StyleSheet.create({
   },
   navItemActive: {},
   navIcon: {
-    color: theme.primary,
     fontSize: 20,
     fontWeight: '900',
   },
-  navLabel: {
+  navIconActive: {
     color: theme.primary,
+  },
+  navIconInactive: {
+    color: theme.textFaint,
+  },
+  navLabel: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  navLabelActive: {
+    color: theme.primary,
+  },
+  navLabelInactive: {
+    color: theme.textFaint,
   },
   centerSlot: {
     width: CENTER_SLOT_WIDTH,
@@ -262,21 +277,26 @@ const styles = StyleSheet.create({
   createButton: {
     position: 'absolute',
     alignSelf: 'center',
-    top: -22,
+    top: -18,
     width: 64,
     height: 64,
     borderRadius: 32,
     backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 6,
+    borderWidth: 4,
     borderColor: theme.screen,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 10,
   },
   createButtonText: {
     color: theme.primaryText,
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 34,
-    marginTop: -1,
+    marginTop: -2,
   },
 })

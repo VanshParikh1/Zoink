@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
 } from 'react-native'
 import * as Location from 'expo-location'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
@@ -16,13 +17,13 @@ import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
 import { Listing } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
-import LogoPlaceholder from '../components/LogoPlaceholder'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 25
+const CATEGORIES = ['All', 'Tech', 'Tools', 'Rides', 'Clothes', 'Music']
 
 export default function HomeScreen() {
   const { user } = useAuth()
@@ -30,15 +31,10 @@ export default function HomeScreen() {
 
   const [listings, setListings] = useState<Listing[]>([])
   const [coords, setCoords] = useState(DEFAULT_COORDS)
-  const [locationLabel, setLocationLabel] = useState('Fetching your location')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-
-  const greeting = useMemo(() => {
-    if (!user?.firstName) return 'Explore nearby rentals'
-    return `Hi ${user.firstName}, explore nearby rentals`
-  }, [user?.firstName])
+  const [selectedCategory, setSelectedCategory] = useState('All')
 
   const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
     try {
@@ -64,7 +60,6 @@ export default function HomeScreen() {
       const permission = await Location.requestForegroundPermissionsAsync()
 
       if (permission.status !== 'granted') {
-        setLocationLabel('Showing listings around downtown Toronto')
         setCoords(DEFAULT_COORDS)
         await fetchListings(DEFAULT_COORDS)
         return
@@ -80,10 +75,8 @@ export default function HomeScreen() {
       }
 
       setCoords(nextCoords)
-      setLocationLabel('Showing listings near you')
       await fetchListings(nextCoords)
     } catch {
-      setLocationLabel('Showing listings around downtown Toronto')
       setCoords(DEFAULT_COORDS)
       await fetchListings(DEFAULT_COORDS)
     }
@@ -110,46 +103,38 @@ export default function HomeScreen() {
     return (
       <TouchableOpacity
         style={styles.card}
+        activeOpacity={0.75}
         onPress={() => nav.navigate('ListingDetail', { listingId: item.id })}
       >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.cardImage} />
-        ) : (
-          <View style={[styles.cardImage, styles.imageFallback]}>
-            <Text style={styles.imageFallbackText}>{item.category}</Text>
+        <View style={styles.thumbnailContainer}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+          ) : (
+            <View style={[styles.cardImage, styles.imageFallback]}>
+              <Text style={styles.imageFallbackText}>{item.category}</Text>
+            </View>
+          )}
+          <View style={styles.badgePill}>
+            <Text style={styles.badgeText}>{item.isAvailable ? 'popular' : 'paused'}</Text>
           </View>
-        )}
+        </View>
 
         <View style={styles.cardBody}>
-          <View style={styles.cardTopRow}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <View style={[styles.statusPill, item.isAvailable ? styles.statusLive : styles.statusPaused]}>
-              <Text style={styles.statusPillText}>{item.isAvailable ? 'Live' : 'Paused'}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.cardMeta} numberOfLines={2}>
-            {item.description}
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.title}
           </Text>
-
-          <View style={styles.cardFooter}>
-            <View>
-              <Text style={styles.cardPrice}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-              <Text style={styles.cardCity}>
-                {item.city}
-                {typeof item.distanceKm === 'number' ? ` - ${item.distanceKm.toFixed(1)} km away` : ''}
-              </Text>
-            </View>
-            <Text style={styles.cardOwner}>
-              {item.owner.firstName} {item.owner.lastName}
-            </Text>
-          </View>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            {typeof item.distanceKm === 'number' ? `${item.distanceKm.toFixed(1)} km · ` : ''}{item.owner.firstName}
+          </Text>
+          <Text style={styles.cardPrice}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
         </View>
       </TouchableOpacity>
     )
   }
+
+  const filteredListings = listings.filter(
+    (l) => selectedCategory === 'All' || l.category.toLowerCase() === selectedCategory.toLowerCase()
+  )
 
   if (loading) {
     return (
@@ -163,61 +148,73 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={listings}
+        data={filteredListings}
         keyExtractor={(item) => item.id}
         renderItem={renderListing}
+        numColumns={2}
+        columnWrapperStyle={styles.rowWrapper}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroCopy}>
-                <Text style={styles.eyebrow}>ZOINK MARKET</Text>
-                <Text style={styles.title}>{greeting}</Text>
+          <View style={styles.headerBlock}>
+            <View style={styles.headerTopRow}>
+              <View>
+                <Text style={styles.greetingText}>good morning{user?.firstName ? `, ${user.firstName}` : ''}</Text>
+                <Text style={styles.headerTitle}>Don't buy, Zoink it.</Text>
               </View>
-              <LogoPlaceholder size="small" style={styles.heroLogo} />
-            </View>
-            <Text style={styles.subtitle}>{locationLabel}</Text>
-
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => nav.navigate('CreateListing')}>
-                <Text style={styles.primaryButtonText}>Create listing</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => nav.navigate('MyListings')}>
-                <Text style={styles.secondaryButtonText}>My listings</Text>
+              <TouchableOpacity style={styles.bellButton} activeOpacity={0.75} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
+                <Text style={styles.bellIcon}>🔔</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingHistory')}>
-                <Text style={styles.tertiaryButtonText}>My bookings</Text>
+            <View style={styles.shortcutsGrid}>
+              <TouchableOpacity style={styles.shortcutPrimary} activeOpacity={0.75} onPress={() => nav.navigate('CreateListing')}>
+                <Text style={styles.shortcutPrimaryText}>Create listing</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingRequests')}>
-                <Text style={styles.tertiaryButtonText}>Requests</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
-                <Text style={styles.tertiaryButtonText}>Inbox</Text>
+              <TouchableOpacity style={styles.shortcutSecondary} activeOpacity={0.75} onPress={() => nav.navigate('MyListings')}>
+                <Text style={styles.shortcutSecondaryText}>My listings</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.profileButton} onPress={() => nav.navigate('MainApp', { tab: 'MyProfile' })}>
-                <Text style={styles.profileButtonText}>Open my profile card</Text>
+            <View style={styles.shortcutsGrid}>
+              <TouchableOpacity style={styles.shortcutTertiary} activeOpacity={0.75} onPress={() => nav.navigate('BookingHistory')}>
+                <Text style={styles.shortcutTertiaryText}>My bookings</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shortcutTertiary} activeOpacity={0.75} onPress={() => nav.navigate('BookingRequests')}>
+                <Text style={styles.shortcutTertiaryText}>Requests</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shortcutTertiary} activeOpacity={0.75} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
+                <Text style={styles.shortcutTertiaryText}>Inbox</Text>
               </TouchableOpacity>
             </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContainer}>
+              {CATEGORIES.map((cat) => {
+                const isSelected = selectedCategory === cat
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    activeOpacity={0.75}
+                    style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
+                    onPress={() => setSelectedCategory(cat)}
+                  >
+                    <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No nearby listings yet</Text>
+            <Text style={styles.emptyTitle}>No listings found</Text>
             <Text style={styles.emptyText}>
-              Pull to refresh, or be the first person in your area to put something up for rent.
+              Try another category or pull to refresh.
             </Text>
-            <TouchableOpacity style={styles.emptyButton} onPress={() => nav.navigate('CreateListing')}>
-              <Text style={styles.emptyButtonText}>Post the first listing</Text>
-            </TouchableOpacity>
           </View>
         }
       />
@@ -232,136 +229,121 @@ const styles = StyleSheet.create({
     backgroundColor: theme.screen,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
   },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  listContent: { paddingHorizontal: 18, paddingTop: 60, paddingBottom: 32 },
-  hero: {
-    backgroundColor: theme.surface,
-    borderRadius: 28,
-    padding: 24,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 4,
-  },
-  heroTopRow: {
+  listContent: { paddingHorizontal: 16, paddingTop: 60, paddingBottom: 120 },
+  headerBlock: { marginBottom: 24 },
+  headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  heroCopy: {
-    flex: 1,
-    minWidth: 0,
+  greetingText: { color: theme.textMuted, fontSize: 14, marginBottom: 4 },
+  headerTitle: { color: theme.text, fontSize: 32, fontWeight: 'bold' },
+  bellButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
   },
-  heroLogo: {
-    flexShrink: 0,
-    marginTop: 2,
+  bellIcon: { fontSize: 20 },
+  shortcutsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
   },
-  eyebrow: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-  title: { color: theme.text, fontSize: 30, fontWeight: '900', lineHeight: 36, marginBottom: 10, flex: 1 },
-  subtitle: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 22 },
-  primaryButton: {
+  shortcutPrimary: {
     flex: 1,
     backgroundColor: theme.primary,
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  primaryButtonText: { color: theme.primaryText, fontSize: 15, fontWeight: '900' },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: theme.colors.inkBlack,
-    borderWidth: 1,
-    borderColor: theme.colors.inkBlack,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  secondaryButtonText: { color: theme.primary, fontSize: 15, fontWeight: '900' },
-  tertiaryButton: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.screen,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  tertiaryButtonText: { color: theme.text, fontSize: 13, fontWeight: '800' },
-  profileButton: {
-    flex: 1,
-    backgroundColor: theme.colors.forestGreen,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  profileButtonText: {
-    color: theme.colors.porcelain,
-    fontSize: 15,
+  shortcutPrimaryText: {
+    color: theme.primaryText,
+    fontSize: 14,
     fontWeight: '900',
   },
-  errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13, lineHeight: 18 },
-  card: {
+  shortcutSecondary: {
+    flex: 1,
     backgroundColor: theme.surface,
-    borderRadius: 22,
-    overflow: 'hidden',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.38,
-    shadowRadius: 14,
-    elevation: 3,
-  },
-  cardImage: { width: '100%', height: 200, backgroundColor: theme.surfaceSoft },
-  imageFallback: { justifyContent: 'center', alignItems: 'center' },
-  imageFallbackText: { color: theme.primary, fontWeight: '900', fontSize: 18 },
-  cardBody: { padding: 16 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  cardTitle: { flex: 1, color: theme.text, fontSize: 19, fontWeight: '900', marginRight: 12 },
-  statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusLive: { backgroundColor: theme.primary },
-  statusPaused: { backgroundColor: theme.colors.danger },
-  statusPillText: { color: theme.primaryText, fontSize: 12, fontWeight: '900' },
-  cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 14 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 },
-  cardPrice: { color: theme.primary, fontSize: 17, fontWeight: '900', marginBottom: 4 },
-  cardCity: { color: theme.textMuted, fontSize: 13 },
-  cardOwner: { color: theme.text, fontSize: 13, fontWeight: '700' },
-  emptyState: {
-    backgroundColor: theme.surface,
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 3,
   },
-  emptyTitle: { color: theme.text, fontSize: 22, fontWeight: '900', marginBottom: 8 },
-  emptyText: { color: theme.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 18 },
-  emptyButton: {
-    backgroundColor: theme.primary,
+  shortcutSecondaryText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  shortcutTertiary: {
+    flex: 1,
+    backgroundColor: theme.surfaceAlt,
     borderRadius: 14,
-    paddingHorizontal: 18,
     paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
   },
-  emptyButtonText: { color: theme.primaryText, fontWeight: '900' },
+  shortcutTertiaryText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  chipsScroll: { marginHorizontal: -16 },
+  chipsContainer: { paddingHorizontal: 16, gap: 8, flexDirection: 'row' },
+  chip: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  chipSelected: { backgroundColor: theme.primary },
+  chipUnselected: { backgroundColor: theme.surfaceAlt },
+  chipTextSelected: { color: theme.primaryText, fontWeight: '700', fontSize: 14 },
+  chipTextUnselected: { color: theme.textMuted, fontWeight: '600', fontSize: 14 },
+  errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
+  rowWrapper: { gap: 16, justifyContent: 'space-between', marginBottom: 16 },
+  card: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  thumbnailContainer: {
+    width: '100%',
+    height: 140,
+    backgroundColor: theme.surfaceAlt,
+    position: 'relative',
+  },
+  cardImage: { width: '100%', height: '100%' },
+  imageFallback: { justifyContent: 'center', alignItems: 'center' },
+  imageFallbackText: { color: theme.primary, fontWeight: '900', fontSize: 14 },
+  badgePill: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: theme.surfaceSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeText: { color: theme.primary, fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
+  cardBody: { padding: 12 },
+  cardTitle: { color: theme.text, fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
+  cardMeta: { color: theme.textFaint, fontSize: 12, marginBottom: 8 },
+  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: 'bold' },
+  emptyState: { alignItems: 'center', marginTop: 40 },
+  emptyTitle: { color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
+  emptyText: { color: theme.textMuted, fontSize: 14 },
 })

@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,14 +13,36 @@ import {
   View,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { useFocusEffect } from '@react-navigation/native'
+import * as SecureStore from 'expo-secure-store'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
+import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
 
+type Nav = NativeStackNavigationProp<RootStackParamList>
+const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
+
+async function setPromptSeen(key: string) {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(key, '1')
+    return
+  }
+  await SecureStore.setItemAsync(key, '1')
+}
+
+async function getPromptSeen(key: string) {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key)
+  }
+  return await SecureStore.getItemAsync(key)
+}
+
 export default function MyProfileScreen() {
+  const nav = useNavigation<Nav>()
   const { user, logout } = useAuth()
   const [profile, setProfile] = useState<MyProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -27,6 +50,7 @@ export default function MyProfileScreen() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
     firstName: '',
@@ -65,6 +89,26 @@ export default function MyProfileScreen() {
       loadProfile()
     }, [loadProfile])
   )
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const promptKey = `${PROFILE_PROMPT_KEY_PREFIX}_${user.id}`
+    getPromptSeen(promptKey)
+      .then((value) => {
+        setShowProfilePrompt(!value)
+      })
+      .catch(() => {
+        setShowProfilePrompt(true)
+      })
+  }, [user?.id])
+
+  async function dismissProfilePrompt() {
+    if (user?.id) {
+      await setPromptSeen(`${PROFILE_PROMPT_KEY_PREFIX}_${user.id}`)
+    }
+    setShowProfilePrompt(false)
+  }
 
   async function handlePickAvatar() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -152,11 +196,18 @@ export default function MyProfileScreen() {
       }} tintColor={theme.primary} />}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.eyebrow}>YOUR CARD</Text>
-      <Text style={styles.title}>Make your Zoink profile memorable</Text>
-      <Text style={styles.subtitle}>
-        This is the profile students will judge in a split second. Give them a face, a vibe, and proof you are easy to rent from.
-      </Text>
+      {showProfilePrompt ? (
+        <View style={styles.promptCard}>
+          <Text style={styles.promptEyebrow}>ONE-TIME TIP</Text>
+          <Text style={styles.promptTitle}>Make your Zoink profile memorable</Text>
+          <Text style={styles.promptBody}>
+            This card is the first impression. Add a photo, a short bio, and clean details so people feel good renting from you.
+          </Text>
+          <TouchableOpacity style={styles.promptButton} onPress={dismissProfilePrompt}>
+            <Text style={styles.promptButtonText}>Got it</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <ProfileCard profile={displayProfile} />
 
@@ -185,6 +236,26 @@ export default function MyProfileScreen() {
             </TouchableOpacity>
           </View>
         )}
+      </View>
+
+      <View style={styles.quickActionsPanel}>
+        <Text style={styles.panelTitle}>Manage your Zoink account</Text>
+        <View style={styles.quickActionRow}>
+          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MyListings')}>
+            <Text style={styles.quickActionButtonText}>My listings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingHistory')}>
+            <Text style={styles.quickActionButtonText}>My bookings</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.quickActionRow}>
+          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingRequests')}>
+            <Text style={styles.quickActionButtonText}>Requests</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
+            <Text style={styles.quickActionButtonText}>Inbox</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.panel}>
@@ -251,7 +322,7 @@ export default function MyProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.screen },
-  content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
+  content: { padding: 18, paddingTop: 56, paddingBottom: 140 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
@@ -259,25 +330,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
-  eyebrow: {
+  promptCard: {
+    backgroundColor: theme.surface,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  promptEyebrow: {
     color: theme.primary,
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1.2,
     marginBottom: 8,
   },
-  title: {
+  promptTitle: {
     color: theme.text,
-    fontSize: 30,
+    fontSize: 24,
     fontWeight: '900',
-    lineHeight: 36,
+    lineHeight: 30,
   },
-  subtitle: {
+  promptBody: {
     color: theme.textMuted,
     fontSize: 15,
     lineHeight: 22,
     marginTop: 10,
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  promptButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.primary,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  promptButtonText: {
+    color: theme.primaryText,
+    fontSize: 14,
+    fontWeight: '900',
   },
   avatarRow: {
     flexDirection: 'row',
@@ -310,6 +401,33 @@ const styles = StyleSheet.create({
   },
   actions: { marginBottom: 14 },
   actionPair: { flexDirection: 'row', gap: 10 },
+  quickActionsPanel: {
+    backgroundColor: theme.surface,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  quickActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  quickActionButton: {
+    flex: 1,
+    backgroundColor: theme.screen,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  quickActionButtonText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
   primaryButton: {
     flex: 1,
     backgroundColor: theme.primary,
