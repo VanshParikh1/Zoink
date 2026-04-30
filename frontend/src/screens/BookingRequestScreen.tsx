@@ -20,11 +20,58 @@ import { theme } from '../theme/colors'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
 
-function parseDateInput(value: string) {
-  const trimmed = value.trim()
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null
-  const parsed = new Date(`${trimmed}T00:00:00.000Z`)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+type CalendarDay = {
+  key: string
+  label: string
+  date: Date
+  inCurrentMonth: boolean
+}
+
+const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+const MONTH_COUNT = 2
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + amount)
+  return startOfDay(next)
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1)
+}
+
+function isSameDay(left: Date | null, right: Date | null) {
+  if (!left || !right) return false
+  return left.getTime() === right.getTime()
+}
+
+function isBeforeDay(left: Date, right: Date) {
+  return left.getTime() < right.getTime()
+}
+
+function isWithinRange(date: Date, startDate: Date | null, endDate: Date | null) {
+  if (!startDate || !endDate) return false
+  return date.getTime() > startDate.getTime() && date.getTime() < endDate.getTime()
+}
+
+function formatDateLabel(date: Date | null) {
+  if (!date) return 'Select'
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function formatApiDate(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function getRentalDays(startDate: Date | null, endDate: Date | null) {
@@ -34,14 +81,33 @@ function getRentalDays(startDate: Date | null, endDate: Date | null) {
   return diffDays + 1
 }
 
+function buildMonthDays(monthDate: Date) {
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const gridStart = addDays(monthStart, -monthStart.getDay())
+  const days: CalendarDay[] = []
+
+  for (let index = 0; index < 42; index += 1) {
+    const date = addDays(gridStart, index)
+    days.push({
+      key: date.toISOString(),
+      label: `${date.getDate()}`,
+      date,
+      inCurrentMonth: date.getMonth() === monthDate.getMonth(),
+    })
+  }
+
+  return days
+}
+
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date())
+  const [startDate, setStartDate] = useState<Date | null>(null)
+  const [endDate, setEndDate] = useState<Date | null>(null)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -60,19 +126,44 @@ export default function BookingRequestScreen() {
     loadListing()
   }, [nav, route.params.listingId])
 
-  const parsedStartDate = useMemo(() => parseDateInput(startDate), [startDate])
-  const parsedEndDate = useMemo(() => parseDateInput(endDate), [endDate])
-  const rentalDays = useMemo(() => getRentalDays(parsedStartDate, parsedEndDate), [parsedEndDate, parsedStartDate])
+  const today = useMemo(() => startOfDay(new Date()), [])
+  const visibleMonths = useMemo(
+    () => Array.from({ length: MONTH_COUNT }, (_, index) => addMonths(calendarMonth, index)),
+    [calendarMonth]
+  )
+  const rentalDays = useMemo(() => getRentalDays(startDate, endDate), [endDate, startDate])
   const totalPrice = useMemo(
     () => (listing && rentalDays > 0 ? Number((listing.dailyPrice * rentalDays).toFixed(2)) : 0),
     [listing, rentalDays]
   )
   const depositAmount = useMemo(() => Number((totalPrice * 0.3).toFixed(2)), [totalPrice])
 
+  function handleDayPress(day: Date) {
+    if (isBeforeDay(day, today)) return
+
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(day)
+      setEndDate(null)
+      return
+    }
+
+    if (isBeforeDay(day, startDate)) {
+      setStartDate(day)
+      return
+    }
+
+    if (isSameDay(day, startDate)) {
+      setEndDate(day)
+      return
+    }
+
+    setEndDate(day)
+  }
+
   async function handleSubmit() {
     if (!listing) return
-    if (!parsedStartDate || !parsedEndDate || rentalDays <= 0) {
-      Alert.alert('Invalid dates', 'Enter a valid start and end date in YYYY-MM-DD format.')
+    if (!startDate || !endDate || rentalDays <= 0) {
+      Alert.alert('Choose dates', 'Pick a start and end date from the calendar before sending your request.')
       return
     }
 
@@ -81,8 +172,8 @@ export default function BookingRequestScreen() {
     try {
       const booking = await createBooking({
         listingId: listing.id,
-        startDate: parsedStartDate.toISOString(),
-        endDate: parsedEndDate.toISOString(),
+        startDate: `${formatApiDate(startDate)}T00:00:00.000Z`,
+        endDate: `${formatApiDate(endDate)}T00:00:00.000Z`,
         message,
       })
 
@@ -116,25 +207,110 @@ export default function BookingRequestScreen() {
       </Text>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Start date</Text>
-        <TextInput
-          value={startDate}
-          onChangeText={setStartDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={theme.textFaint}
-          style={styles.input}
-          autoCapitalize="none"
-        />
+        <Text style={styles.sectionEyebrow}>YOUR DATES</Text>
+        <Text style={styles.sectionTitle}>Pick a rental range</Text>
+        <Text style={styles.sectionSubtitle}>
+          Tap a start date, then an end date. Your total updates automatically.
+        </Text>
 
-        <Text style={styles.label}>End date</Text>
-        <TextInput
-          value={endDate}
-          onChangeText={setEndDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={theme.textFaint}
-          style={styles.input}
-          autoCapitalize="none"
-        />
+        <View style={styles.dateSummaryRow}>
+          <View style={styles.dateSummaryCard}>
+            <Text style={styles.summaryLabel}>Start</Text>
+            <Text style={styles.summaryValue}>{formatDateLabel(startDate)}</Text>
+          </View>
+          <View style={styles.dateSummaryCard}>
+            <Text style={styles.summaryLabel}>End</Text>
+            <Text style={styles.summaryValue}>{formatDateLabel(endDate)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity
+            style={styles.calendarArrow}
+            onPress={() => setCalendarMonth((current) => addMonths(current, -1))}
+          >
+            <Text style={styles.calendarArrowText}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.calendarHeaderText}>Choose your dates</Text>
+          <TouchableOpacity
+            style={styles.calendarArrow}
+            onPress={() => setCalendarMonth((current) => addMonths(current, 1))}
+          >
+            <Text style={styles.calendarArrowText}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {visibleMonths.map((monthDate) => {
+          const days = buildMonthDays(monthDate)
+          return (
+            <View key={monthDate.toISOString()} style={styles.monthBlock}>
+              <Text style={styles.monthTitle}>
+                {monthDate.toLocaleDateString(undefined, {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+
+              <View style={styles.weekdayRow}>
+                {DAY_LABELS.map((label) => (
+                  <Text key={label} style={styles.weekdayLabel}>
+                    {label}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.calendarGrid}>
+                {days.map((day) => {
+                  const isPast = isBeforeDay(day.date, today)
+                  const isStart = isSameDay(day.date, startDate)
+                  const isEnd = isSameDay(day.date, endDate)
+                  const isRange = isWithinRange(day.date, startDate, endDate)
+
+                  return (
+                    <TouchableOpacity
+                      key={day.key}
+                      style={styles.dayCell}
+                      onPress={() => handleDayPress(day.date)}
+                      disabled={isPast}
+                    >
+                      <View
+                        style={[
+                          styles.dayPill,
+                          isRange && styles.dayPillRange,
+                          (isStart || isEnd) && styles.dayPillSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayText,
+                            !day.inCurrentMonth && styles.dayTextMuted,
+                            isPast && styles.dayTextDisabled,
+                            isRange && styles.dayTextRange,
+                            (isStart || isEnd) && styles.dayTextSelected,
+                          ]}
+                        >
+                          {day.label}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </View>
+          )
+        })}
+
+        {(startDate || endDate) ? (
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={() => {
+              setStartDate(null)
+              setEndDate(null)
+            }}
+          >
+            <Text style={styles.clearButtonText}>Clear dates</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <Text style={styles.label}>Message to owner</Text>
         <TextInput
@@ -190,7 +366,144 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     gap: 12,
   },
-  label: { color: theme.text, fontSize: 14, fontWeight: '800' },
+  sectionEyebrow: {
+    color: theme.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  sectionTitle: {
+    color: theme.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  sectionSubtitle: {
+    color: theme.textMuted,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  dateSummaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  dateSummaryCard: {
+    flex: 1,
+    backgroundColor: theme.screen,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  summaryLabel: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  summaryValue: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  calendarArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: theme.screen,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarArrowText: {
+    color: theme.text,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 26,
+  },
+  calendarHeaderText: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  monthBlock: {
+    marginTop: 8,
+  },
+  monthTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekdayLabel: {
+    flex: 1,
+    textAlign: 'center',
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCell: {
+    width: '14.2857%',
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  dayPill: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayPillSelected: {
+    backgroundColor: theme.primary,
+  },
+  dayPillRange: {
+    backgroundColor: 'rgba(0, 239, 32, 0.16)',
+  },
+  dayText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  dayTextMuted: {
+    color: theme.textFaint,
+  },
+  dayTextDisabled: {
+    color: 'rgba(4, 15, 15, 0.22)',
+  },
+  dayTextRange: {
+    color: theme.colors.forestGreen,
+  },
+  dayTextSelected: {
+    color: theme.primaryText,
+  },
+  clearButton: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+  },
+  clearButtonText: {
+    color: theme.colors.forestGreen,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  label: { color: theme.text, fontSize: 14, fontWeight: '800', marginTop: 4 },
   input: {
     backgroundColor: theme.screen,
     borderRadius: 14,

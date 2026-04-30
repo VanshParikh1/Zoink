@@ -25,7 +25,7 @@ const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 25
 
 export default function HomeScreen() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const nav = useNavigation<Nav>()
 
   const [listings, setListings] = useState<Listing[]>([])
@@ -171,11 +171,11 @@ export default function HomeScreen() {
         ListHeaderComponent={
           <View style={styles.hero}>
             <View style={styles.heroTopRow}>
-              <View>
+              <View style={styles.heroCopy}>
                 <Text style={styles.eyebrow}>ZOINK MARKET</Text>
                 <Text style={styles.title}>{greeting}</Text>
               </View>
-              <LogoPlaceholder size="small" />
+              <LogoPlaceholder size="small" style={styles.heroLogo} />
             </View>
             <Text style={styles.subtitle}>{locationLabel}</Text>
 
@@ -220,11 +220,6 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         }
-        ListFooterComponent={
-          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-            <Text style={styles.logoutButtonText}>Sign out</Text>
-          </TouchableOpacity>
-        }
       />
     </View>
   )
@@ -259,6 +254,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 16,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroLogo: {
+    flexShrink: 0,
+    marginTop: 2,
   },
   eyebrow: {
     color: theme.primary,
@@ -361,6 +364,4 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emptyButtonText: { color: theme.primaryText, fontWeight: '900' },
-  logoutButton: { marginTop: 8, alignItems: 'center', paddingVertical: 14 },
-  logoutButtonText: { color: theme.textMuted, fontSize: 15, fontWeight: '700' },
 })
