@@ -196,7 +196,11 @@ export default function ListingDetailScreen() {
           <Text style={styles.description}>{listing.description}</Text>
 
           <Text style={styles.sectionTitle}>Listed by</Text>
-          <View style={styles.ownerRow}>
+          <TouchableOpacity
+            style={styles.ownerRow}
+            activeOpacity={0.9}
+            onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
+          >
             {listing.owner.avatarUrl ? (
               <Image source={{ uri: listing.owner.avatarUrl }} style={styles.avatar} />
             ) : (
@@ -214,8 +218,9 @@ export default function ListingDetailScreen() {
               {listing.owner.verificationStatus === 'VERIFIED' && (
                 <Text style={styles.verified}>Verified student</Text>
               )}
+              <Text style={styles.profileHint}>Tap to view profile card</Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
           {isOwner && (
             <View style={styles.ownerActions}>
@@ -344,6 +349,7 @@ const styles = StyleSheet.create({
   avatarInitial: { color: theme.primaryText, fontSize: 20, fontWeight: '900' },
   ownerName: { fontSize: 15, fontWeight: '800', color: theme.text },
   verified: { fontSize: 12, color: theme.primary, marginTop: 2, fontWeight: '800' },
+  profileHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, fontWeight: '700' },
   ownerActions: { marginTop: 8 },
   editBtn: {
     backgroundColor: theme.surface,

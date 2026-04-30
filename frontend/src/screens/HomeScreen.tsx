@@ -200,6 +200,12 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.profileButton} onPress={() => nav.navigate('MyProfile')}>
+                <Text style={styles.profileButtonText}>Open my profile card</Text>
+              </TouchableOpacity>
+            </View>
+
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         }
@@ -292,6 +298,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tertiaryButtonText: { color: theme.text, fontSize: 13, fontWeight: '800' },
+  profileButton: {
+    flex: 1,
+    backgroundColor: theme.colors.forestGreen,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  profileButtonText: {
+    color: theme.colors.porcelain,
+    fontSize: 15,
+    fontWeight: '900',
+  },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13, lineHeight: 18 },
   card: {
     backgroundColor: theme.surface,

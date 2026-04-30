@@ -1,24 +1,10 @@
 import { Listing, ListingImage, User } from '../types'
-import { DEMO_USER } from '../config/demoMode'
 import type { CreateListingPayload, UpdateListingPayload } from './listingsApi'
+import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 
-const demoOwner: User = {
-  id: DEMO_USER.id,
-  email: DEMO_USER.email,
-  firstName: DEMO_USER.firstName,
-  lastName: 'Demo',
-  verificationStatus: 'VERIFIED',
-  createdAt: new Date().toISOString(),
-}
-
-const otherOwner: User = {
-  id: 'demo-user-2',
-  email: 'avery@zoink.app',
-  firstName: 'Avery',
-  lastName: 'Chen',
-  verificationStatus: 'VERIFIED',
-  createdAt: new Date().toISOString(),
-}
+const demoOwner: User = toDemoUser(demoProfile)
+const otherOwner: User = toDemoUser(publicProfiles['demo-user-2'])
+const thirdOwner: User = toDemoUser(publicProfiles['demo-user-3'])
 
 let listings: Listing[] = [
   {
@@ -34,7 +20,13 @@ let listings: Listing[] = [
     address: 'Downtown campus',
     ownerId: otherOwner.id,
     owner: otherOwner,
-    images: [],
+    images: [
+      {
+        id: 'demo-image-speaker-1',
+        url: 'https://images.unsplash.com/photo-1589003077984-894e133dabab?auto=format&fit=crop&w=1200&q=80',
+        order: 0,
+      },
+    ],
     createdAt: new Date().toISOString(),
     distanceKm: 1.4,
   },
@@ -51,7 +43,13 @@ let listings: Listing[] = [
     address: 'UofT area',
     ownerId: otherOwner.id,
     owner: otherOwner,
-    images: [],
+    images: [
+      {
+        id: 'demo-image-camera-1',
+        url: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1200&q=80',
+        order: 0,
+      },
+    ],
     createdAt: new Date().toISOString(),
     distanceKm: 2.2,
   },
@@ -68,9 +66,38 @@ let listings: Listing[] = [
     address: 'TMU area',
     ownerId: demoOwner.id,
     owner: demoOwner,
-    images: [],
+    images: [
+      {
+        id: 'demo-image-drill-1',
+        url: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&w=1200&q=80',
+        order: 0,
+      },
+    ],
     createdAt: new Date().toISOString(),
     distanceKm: 0.8,
+  },
+  {
+    id: 'demo-listing-4',
+    title: 'Camping Chair + Lantern Bundle',
+    description: 'Foldable chair and rechargeable lantern combo for beach nights, campus events, or quick weekend trips.',
+    category: 'Outdoors',
+    dailyPrice: 11,
+    isAvailable: true,
+    latitude: 43.6487,
+    longitude: -79.3861,
+    city: 'Toronto',
+    address: 'Harbourfront',
+    ownerId: thirdOwner.id,
+    owner: thirdOwner,
+    images: [
+      {
+        id: 'demo-image-camping-1',
+        url: 'https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?auto=format&fit=crop&w=1200&q=80',
+        order: 0,
+      },
+    ],
+    createdAt: new Date().toISOString(),
+    distanceKm: 3.1,
   },
 ]
 

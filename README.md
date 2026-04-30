@@ -85,8 +85,9 @@ Early adopters get zero-commission incentives to kickstart supply.
 ## Current Implementation Notes
 
 - Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
+- Frontend profiles are now implemented with collectible-style profile cards, public profile viewing, inline profile editing, avatar upload, and demo-mode mock profile data for UI testing.
 - Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
-- `GET /listings?latitude=...&longitude=...&radiusKm=...` exists for geo-based nearby listing search and returns `distanceKm`.
+- Week 8 is implemented on the backend: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
 - `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
 - The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
@@ -209,13 +210,13 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 |---|---|---|
 | 1 | Project setup — DB schema, base structure, navigation shell | ✅ Done |
 | 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
-| 3 | User profiles — avatars, public profiles, verified badge + AWS SES wire-up | — |
+| 3 | User profiles — avatars, public profiles, profile card UI + AWS SES wire-up | ✅ Done |
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
 | 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
 | 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
 | 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
 | 8 | Reviews and ratings — post-rental prompts, aggregate scores | ✅ Done |
-| 9 | Push notifications and polish — loading states, empty states, UI pass | — |
+| 9 | Push notifications and polish — loading states, empty states, UI pass | 🔨 Up next |
 | 10 | Testing and security audit — integration tests, device testing, security review | — |
 | 11–12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
 

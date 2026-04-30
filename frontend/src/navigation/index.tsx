@@ -23,6 +23,8 @@ import BookingDetailScreen from '../screens/BookingDetailScreen'
 import InboxScreen from '../screens/InboxScreen'
 import ConversationThreadScreen from '../screens/ConversationThreadScreen'
 import ReviewPromptScreen from '../screens/ReviewPromptScreen'
+import MyProfileScreen from '../screens/MyProfileScreen'
+import PublicProfileScreen from '../screens/PublicProfileScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -40,6 +42,8 @@ export type RootStackParamList = {
   BookingDetail: { bookingId: string }
   ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
+  MyProfile: undefined
+  PublicProfile: { userId: string }
   ConversationThread: { conversationId: string; title?: string }
 }
 
@@ -87,6 +91,8 @@ function VerifiedAppStack() {
         options={{ gestureEnabled: false }}
       />
       <Stack.Screen name="Inbox" component={InboxScreen} />
+      <Stack.Screen name="MyProfile" component={MyProfileScreen} />
+      <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
       <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
     </Stack.Navigator>
   )
