@@ -24,13 +24,15 @@ export default function MyListingsScreen() {
   const [listings, setListings] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
 
   const fetchListings = useCallback(async () => {
     try {
+      setError('')
       const data = await getMyListings()
       setListings(data)
-    } catch (err) {
-      console.error('Failed to fetch my listings', err)
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Could not load your listings right now.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -109,13 +111,24 @@ export default function MyListingsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <LogoPlaceholder size="medium" style={styles.emptyLogo} />
-            <Text style={styles.emptyText}>You have not listed anything yet.</Text>
-            <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('CreateListing')}>
-              <Text style={styles.btnText}>Create your first listing</Text>
-            </TouchableOpacity>
-          </View>
+          error ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyErrorTitle}>Your listings couldn’t load</Text>
+              <Text style={styles.emptyText}>{error}</Text>
+              <TouchableOpacity style={styles.btn} onPress={fetchListings}>
+                <Text style={styles.btnText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <LogoPlaceholder size="medium" style={styles.emptyLogo} />
+              <Text style={styles.emptyTitle}>You have not listed anything yet.</Text>
+              <Text style={styles.emptyText}>Post your first item to start getting requests from nearby students.</Text>
+              <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('CreateListing')}>
+                <Text style={styles.btnText}>Create your first listing</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
       />
     </View>
@@ -169,7 +182,9 @@ const styles = StyleSheet.create({
   arrow: { fontSize: 24, color: theme.primary, marginLeft: 8 },
   empty: { marginTop: 100, alignItems: 'center' },
   emptyLogo: { marginBottom: 18 },
-  emptyText: { color: theme.textMuted, fontSize: 16, marginBottom: 20 },
+  emptyTitle: { color: theme.text, fontSize: 20, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
+  emptyErrorTitle: { color: theme.colors.danger, fontSize: 20, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
+  emptyText: { color: theme.textMuted, fontSize: 16, marginBottom: 20, textAlign: 'center', lineHeight: 22, maxWidth: 280 },
   btn: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
   btnText: { color: theme.primaryText, fontWeight: '900' },
 })

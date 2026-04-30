@@ -2,7 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
-import { getMe, getPublicProfile, updateMe, uploadAvatar } from '../middleware/controllers/userController'
+import { getMe, getPublicProfile, updateMe, updatePushToken, uploadAvatar } from '../middleware/controllers/userController'
 
 const router = Router()
 
@@ -22,6 +22,7 @@ const upload = multer({
 // Own profile
 router.get('/me', requireAuth, getMe)
 router.patch('/me', requireAuth, updateMe)
+router.patch('/me/push-token', requireAuth, updatePushToken)
 router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar)
 
 // Public profile — must be verified to view others

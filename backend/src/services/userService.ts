@@ -118,3 +118,14 @@ export async function updateAvatar(userId: string, avatarUrl: string) {
   })
   return user
 }
+
+// ── Update Expo push token ───────────────────────────────────────────────────
+
+export async function updateExpoPushToken(userId: string, expoPushToken: string | null) {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { expoPushToken },
+    select: { id: true, expoPushToken: true },
+  })
+  return user
+}

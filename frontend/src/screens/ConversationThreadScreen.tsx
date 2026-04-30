@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import { getConversationMessages, sendMessage } from '../services/conversationsA
 import { Message } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
+import StateCard from '../components/StateCard'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -30,10 +30,15 @@ export default function ConversationThreadScreen() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [body, setBody] = useState('')
+  const [error, setError] = useState('')
+  const [sendError, setSendError] = useState('')
   const latestMessageId = useRef<string | undefined>(undefined)
 
   const loadMessages = useCallback(async (incremental = false) => {
     try {
+      if (!incremental) {
+        setError('')
+      }
       const nextMessages = await getConversationMessages(route.params.conversationId, incremental ? latestMessageId.current : undefined)
       if (incremental) {
         if (nextMessages.length > 0) {
@@ -45,9 +50,8 @@ export default function ConversationThreadScreen() {
         latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load messages.')
       if (!incremental) {
-        nav.goBack()
+        setError(err?.response?.data?.error ?? 'Could not load messages.')
       }
     } finally {
       setLoading(false)
@@ -71,13 +75,14 @@ export default function ConversationThreadScreen() {
     if (!trimmed) return
 
     setSending(true)
+    setSendError('')
     try {
       const message = await sendMessage(route.params.conversationId, trimmed)
       setMessages((current) => [...current, message])
       latestMessageId.current = message.id
       setBody('')
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not send that message.')
+      setSendError(err?.response?.data?.error ?? 'Could not send that message.')
     } finally {
       setSending(false)
     }
@@ -87,6 +92,7 @@ export default function ConversationThreadScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={styles.loadingText}>Loading the conversation...</Text>
       </View>
     )
   }
@@ -102,24 +108,54 @@ export default function ConversationThreadScreen() {
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{route.params.title ?? 'Conversation'}</Text>
+        <Text style={styles.subtitle}>
+          Keep the details in one place before pickup, during the rental, and on return day.
+        </Text>
       </View>
 
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => {
-          const isMine = item.senderId === user?.id
-          return (
-            <View style={[styles.bubble, isMine ? styles.myBubble : styles.theirBubble]}>
-              <Text style={[styles.bubbleText, isMine && styles.myBubbleText]}>{item.body}</Text>
-              <Text style={[styles.timeText, isMine && styles.myBubbleText]}>
-                {new Date(item.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-              </Text>
+      {error ? (
+        <View style={styles.stateWrap}>
+          <StateCard
+            tone="error"
+            eyebrow="THREAD ISSUE"
+            title="This conversation couldn’t load"
+            body={error}
+            actionLabel="Try again"
+            onAction={() => {
+              setLoading(true)
+              loadMessages()
+            }}
+            secondaryActionLabel="Go back"
+            onSecondaryAction={() => nav.goBack()}
+          />
+        </View>
+      ) : (
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.stateWrap}>
+              <StateCard
+                eyebrow="START THE THREAD"
+                title="No messages yet"
+                body="Send the first note to confirm dates, pickup details, or anything else before the booking moves forward."
+              />
             </View>
-          )
-        }}
-      />
+          }
+          renderItem={({ item }) => {
+            const isMine = item.senderId === user?.id
+            return (
+              <View style={[styles.bubble, isMine ? styles.myBubble : styles.theirBubble]}>
+                <Text style={[styles.bubbleText, isMine && styles.myBubbleText]}>{item.body}</Text>
+                <Text style={[styles.timeText, isMine && styles.myBubbleText]}>
+                  {new Date(item.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </Text>
+              </View>
+            )
+          }}
+        />
+      )}
 
       <View style={styles.composer}>
         <TextInput
@@ -133,6 +169,7 @@ export default function ConversationThreadScreen() {
           <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
         </TouchableOpacity>
       </View>
+      {sendError ? <Text style={styles.sendError}>{sendError}</Text> : null}
     </KeyboardAvoidingView>
   )
 }
@@ -140,10 +177,13 @@ export default function ConversationThreadScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.screen },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
+  loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   header: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 14 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { color: theme.text, fontSize: 24, fontWeight: '900' },
-  listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10 },
+  subtitle: { color: theme.textMuted, fontSize: 14, lineHeight: 20, marginTop: 8 },
+  listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10, flexGrow: 1 },
+  stateWrap: { paddingVertical: 8 },
   bubble: {
     maxWidth: '82%',
     borderRadius: 18,
@@ -185,4 +225,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   sendText: { color: theme.primaryText, fontWeight: '900', fontSize: 14 },
+  sendError: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: theme.surface,
+  },
 })

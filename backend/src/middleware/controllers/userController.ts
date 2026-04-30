@@ -61,3 +61,20 @@ export async function uploadAvatar(req: Request, res: Response) {
     return handleError(res, error)
   }
 }
+
+// PATCH /users/me/push-token
+export async function updatePushToken(req: Request, res: Response) {
+  const userId = (req as any).userId
+  const { expoPushToken } = req.body as { expoPushToken?: unknown }
+
+  if (expoPushToken !== null && expoPushToken !== undefined && typeof expoPushToken !== 'string') {
+    return res.status(400).json({ error: 'expoPushToken must be a string or null.' })
+  }
+
+  try {
+    const user = await userService.updateExpoPushToken(userId, expoPushToken ?? null)
+    return res.json(user)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
