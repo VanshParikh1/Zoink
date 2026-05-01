@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native'
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, Image, Platform } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -42,6 +43,17 @@ export default function InboxScreen() {
     }, [loadConversations])
   )
 
+  const renderHeader = () => (
+    <View style={styles.headerInner}>
+      <Text style={styles.title}>Messages</Text>
+      <Text style={styles.subtitle}>
+        {conversations.length === 0
+          ? 'No active threads yet'
+          : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'} in motion`}
+      </Text>
+    </View>
+  )
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -52,6 +64,10 @@ export default function InboxScreen() {
 
   return (
     <View style={{ flex: 1 }}>
+      <View style={styles.header}>
+        {renderHeader()}
+      </View>
+
       <FlatList
         data={conversations}
         keyExtractor={(item) => item.id}
@@ -60,16 +76,6 @@ export default function InboxScreen() {
           loadConversations()
         }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.title}>Messages</Text>
-            <Text style={styles.subtitle}>
-              {conversations.length === 0
-                ? 'No active threads yet'
-                : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'} in motion`}
-            </Text>
-          </View>
-        }
         ListEmptyComponent={
           error ? (
             <StateCard
@@ -94,6 +100,7 @@ export default function InboxScreen() {
           const imageUrl = item.listing.images?.[0]?.url
           return (
             <TouchableOpacity
+              activeOpacity={0.75}
               style={[styles.glassCard, item.unread && styles.glassCardUnread]}
               onPress={() => nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })}
             >
@@ -129,60 +136,73 @@ export default function InboxScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
-  content: { paddingHorizontal: 24, paddingBottom: 120 },
-  header: { marginBottom: 24, paddingTop: 56 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900', marginBottom: 4 },
-  subtitle: { color: theme.textMuted, fontSize: 14, fontWeight: '600' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  content: { paddingHorizontal: 24, paddingBottom: 120, paddingTop: 16 },
+  header: {
+    paddingTop: 56,
+    paddingBottom: 16,
+    zIndex: 10,
+  },
+  headerInner: {
+    paddingHorizontal: 24,
+  },
+  title: { color: theme.text, fontSize: 28, fontWeight: '500', marginBottom: 4, letterSpacing: -0.5 },
+  subtitle: { color: theme.textMuted, fontSize: 14, fontWeight: '300' },
   glassCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 24,
-    padding: 20,
+    backgroundColor: theme.glassFill,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 16,
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
+    marginBottom: 12,
+    shadowColor: theme.glassShadow,
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 4,
   },
   glassCardUnread: {
-    borderColor: 'rgba(22,255,110,0.3)',
-    backgroundColor: 'rgba(22,255,110,0.05)',
+    borderColor: theme.glassPrimaryBorder,
+    backgroundColor: theme.glassPrimaryFill,
   },
   cardLeft: {
     position: 'relative',
-    marginRight: 18,
+    marginRight: 16,
   },
   glassThumbnailImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
+    width: 64,
+    height: 64,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: theme.glassBorder,
   },
   glassThumbnail: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: theme.glassBorder,
   },
   glassThumbnailEmoji: {
-    fontSize: 32,
+    fontSize: 28,
   },
   unreadDot: {
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: theme.primary,
     borderWidth: 2,
-    borderColor: theme.screen,
+    borderColor: '#FFFFFF',
   },
   cardRight: {
     flex: 1,
@@ -196,29 +216,29 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: theme.text,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '500',
     flex: 1,
     marginRight: 12,
   },
   cardPrice: {
-    color: theme.textMuted,
+    color: theme.primary,
     fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   cardTime: {
     color: theme.textFaint,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '300',
   },
   cardMeta: {
     color: theme.textMuted,
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '500',
+    fontWeight: '300',
   },
   cardMetaUnread: {
     color: theme.text,
-    fontWeight: '600',
+    fontWeight: '500',
   },
 })

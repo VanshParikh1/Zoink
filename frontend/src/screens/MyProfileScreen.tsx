@@ -178,12 +178,12 @@ export default function MyProfileScreen() {
 
   const displayProfile = editing
     ? {
-        ...profile,
-        firstName: form.firstName || profile.firstName,
-        lastName: form.lastName || profile.lastName,
-        phone: form.phone || undefined,
-        bio: form.bio || undefined,
-      }
+      ...profile,
+      firstName: form.firstName || profile.firstName,
+      lastName: form.lastName || profile.lastName,
+      phone: form.phone || undefined,
+      bio: form.bio || undefined,
+    }
     : profile
 
   return (
@@ -191,140 +191,153 @@ export default function MyProfileScreen() {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
-        setRefreshing(true)
-        loadProfile()
-      }} tintColor={theme.primary} colors={[theme.primary]} />}
-      showsVerticalScrollIndicator={false}
-    >
-      {showProfilePrompt ? (
-        <View style={styles.promptCard}>
-          <Text style={styles.promptEyebrow}>ONE-TIME TIP</Text>
-          <Text style={styles.promptTitle}>Make your Zoink profile memorable</Text>
-          <Text style={styles.promptBody}>
-            This card is the first impression. Add a photo, a short bio, and clean details so people feel good renting from you.
-          </Text>
-          <TouchableOpacity style={styles.promptButton} onPress={dismissProfilePrompt}>
-            <Text style={styles.promptButtonText}>Got it</Text>
-          </TouchableOpacity>
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
+          setRefreshing(true)
+          loadProfile()
+        }} tintColor={theme.primary} colors={[theme.primary]} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerInner}>
+            <Text style={styles.headerTitle}>Profile</Text>
+          </View>
         </View>
-      ) : null}
 
-      <ProfileCard profile={displayProfile} />
-
-      <View style={styles.avatarRow}>
-        {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatarThumb} /> : <View style={styles.avatarThumbFallback} />}
-        <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar} disabled={uploading}>
-          <Text style={styles.avatarButtonText}>{uploading ? 'Uploading photo...' : 'Change photo'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.actions}>
-        {!editing ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
-            <Text style={styles.primaryButtonText}>Edit profile details</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.actionPair}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => {
-              syncForm(profile)
-              setEditing(false)
-            }}>
-              <Text style={styles.secondaryButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={saving}>
-              <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save changes'}</Text>
+        {showProfilePrompt ? (
+          <View style={styles.promptCard}>
+            <Text style={styles.promptEyebrow}>ONE-TIME TIP</Text>
+            <Text style={styles.promptTitle}>Make your Zoink profile memorable</Text>
+            <Text style={styles.promptBody}>
+              This card is the first impression. Add a photo, a short bio, and clean details so people feel good renting from you.
+            </Text>
+            <TouchableOpacity style={styles.promptButton} onPress={dismissProfilePrompt}>
+              <Text style={styles.promptButtonText}>Got it</Text>
             </TouchableOpacity>
           </View>
-        )}
-      </View>
+        ) : null}
 
-      <View style={styles.quickActionsPanel}>
-        <Text style={styles.panelTitle}>Manage your Zoink account</Text>
-        <View style={styles.quickActionRow}>
-          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MyListings')}>
-            <Text style={styles.quickActionButtonText}>My listings</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingHistory')}>
-            <Text style={styles.quickActionButtonText}>My bookings</Text>
+        <ProfileCard profile={displayProfile} />
+
+        <View style={styles.avatarRow}>
+          {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatarThumb} /> : <View style={styles.avatarThumbFallback} />}
+          <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar} disabled={uploading}>
+            <Text style={styles.avatarButtonText}>{uploading ? 'Uploading photo...' : 'Change photo'}</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.quickActionRow}>
-          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingRequests')}>
-            <Text style={styles.quickActionButtonText}>Requests</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
-            <Text style={styles.quickActionButtonText}>Inbox</Text>
-          </TouchableOpacity>
+
+        <View style={styles.actions}>
+          {!editing ? (
+            <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
+              <Text style={styles.primaryButtonText}>Edit profile details</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.actionPair}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => {
+                syncForm(profile)
+                setEditing(false)
+              }}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={saving}>
+                <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save changes'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-      </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>Profile basics</Text>
+        <View style={styles.quickActionsPanel}>
+          <Text style={styles.panelTitle}>Manage your Zoink account</Text>
+          <View style={styles.quickActionRow}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MyListings')}>
+              <Text style={styles.quickActionButtonText}>My listings</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingHistory')}>
+              <Text style={styles.quickActionButtonText}>My bookings</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickActionRow}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingRequests')}>
+              <Text style={styles.quickActionButtonText}>Requests</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
+              <Text style={styles.quickActionButtonText}>Inbox</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-        <Text style={styles.label}>First name</Text>
-        <TextInput
-          value={form.firstName}
-          onChangeText={(value) => setForm((current) => ({ ...current, firstName: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="First name"
-          placeholderTextColor={theme.textFaint}
-        />
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Profile basics</Text>
 
-        <Text style={styles.label}>Last name</Text>
-        <TextInput
-          value={form.lastName}
-          onChangeText={(value) => setForm((current) => ({ ...current, lastName: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="Last name"
-          placeholderTextColor={theme.textFaint}
-        />
+          <Text style={styles.label}>First name</Text>
+          <TextInput
+            value={form.firstName}
+            onChangeText={(value) => setForm((current) => ({ ...current, firstName: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="First name"
+            placeholderTextColor={theme.textFaint}
+          />
 
-        <Text style={styles.label}>Phone</Text>
-        <TextInput
-          value={form.phone}
-          onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="Optional contact number"
-          placeholderTextColor={theme.textFaint}
-          keyboardType="phone-pad"
-        />
+          <Text style={styles.label}>Last name</Text>
+          <TextInput
+            value={form.lastName}
+            onChangeText={(value) => setForm((current) => ({ ...current, lastName: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="Last name"
+            placeholderTextColor={theme.textFaint}
+          />
 
-        <Text style={styles.label}>Quote or bio</Text>
-        <TextInput
-          value={form.bio}
-          onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))}
-          editable={editing}
-          style={[styles.input, styles.bioInput, !editing && styles.inputDisabled]}
-          placeholder="Add a quick line that feels like you"
-          placeholderTextColor={theme.textFaint}
-          multiline
-        />
-      </View>
+          <Text style={styles.label}>Phone</Text>
+          <TextInput
+            value={form.phone}
+            onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="Optional contact number"
+            placeholderTextColor={theme.textFaint}
+            keyboardType="phone-pad"
+          />
 
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>Why this card works</Text>
-        <Text style={styles.note}>Your photo and quote set the vibe before anyone opens a chat.</Text>
-        <Text style={styles.note}>The two rating tracks show what kind of owner and borrower you are.</Text>
-        <Text style={styles.note}>Badges can grow naturally as more Week 8 reviews come in.</Text>
-      </View>
+          <Text style={styles.label}>Quote or bio</Text>
+          <TextInput
+            value={form.bio}
+            onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))}
+            editable={editing}
+            style={[styles.input, styles.bioInput, !editing && styles.inputDisabled]}
+            placeholder="Add a quick line that feels like you"
+            placeholderTextColor={theme.textFaint}
+            multiline
+          />
+        </View>
+        <TouchableOpacity style={styles.signOutButton} onPress={logout}>
+          <Text style={styles.signOutButtonText}>Sign out</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={styles.signOutButton} onPress={logout}>
-        <Text style={styles.signOutButtonText}>Sign out</Text>
-      </TouchableOpacity>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
+  header: {
+    paddingTop: 56,
+    paddingBottom: 16,
+    zIndex: 10,
+  },
+  headerInner: {
+    paddingHorizontal: 24,
+  },
+  headerTitle: {
+    color: theme.text,
+    fontSize: 28,
+    fontWeight: '500',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
   container: { flex: 1 },
-  content: { padding: 18, paddingTop: 56, paddingBottom: 140 },
+  content: { paddingHorizontal: 18, paddingBottom: 140 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
@@ -404,12 +417,14 @@ const styles = StyleSheet.create({
   actions: { marginBottom: 14 },
   actionPair: { flexDirection: 'row', gap: 10 },
   quickActionsPanel: {
-    backgroundColor: theme.surface,
+    backgroundColor: theme.glassFill,
     borderRadius: 24,
     padding: 18,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
   },
   quickActionRow: {
     flexDirection: 'row',
@@ -457,12 +472,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   panel: {
-    backgroundColor: theme.surface,
+    backgroundColor: theme.glassFill,
     borderRadius: 24,
     padding: 18,
     marginTop: 14,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
   },
   panelTitle: {
     color: theme.text,

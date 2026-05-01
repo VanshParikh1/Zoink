@@ -194,7 +194,9 @@ export default function HomeScreen() {
                     nav.navigate('CreateListing')
                   }}
                 >
-                  <Text style={styles.heroActionIcon}>＋</Text>
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={[styles.heroActionIcon, { color: '#FFF' }]}>＋</Text>
+                  </View>
                   <Text style={styles.heroActionLabel}>List item</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -205,7 +207,9 @@ export default function HomeScreen() {
                     nav.navigate('MyListings')
                   }}
                 >
-                  <Text style={styles.heroActionIcon}>📦</Text>
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>📦</Text>
+                  </View>
                   <Text style={styles.heroActionLabel}>My listings</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -216,7 +220,9 @@ export default function HomeScreen() {
                     nav.navigate('BookingHistory')
                   }}
                 >
-                  <Text style={styles.heroActionIcon}>🗓</Text>
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>🗓</Text>
+                  </View>
                   <Text style={styles.heroActionLabel}>Bookings</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -227,7 +233,9 @@ export default function HomeScreen() {
                     nav.navigate('BookingRequests')
                   }}
                 >
-                  <Text style={styles.heroActionIcon}>📨</Text>
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>📨</Text>
+                  </View>
                   <Text style={styles.heroActionLabel}>Requests</Text>
                 </TouchableOpacity>
               </View>
@@ -288,8 +296,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 22,
   },
-  greetingText: { color: theme.textMuted, fontSize: 13, marginBottom: 4, fontWeight: '600' },
-  headerTitle: { color: theme.text, fontSize: 30, fontWeight: '900', lineHeight: 36 },
+  greetingText: { color: theme.textMuted, fontSize: 13, marginBottom: 4, fontWeight: '300' },
+  headerTitle: { color: theme.text, fontSize: 30, fontWeight: '500', lineHeight: 36 },
   headerTitleAccent: { color: theme.primary },
   bellButton: {
     width: 44,
@@ -305,9 +313,11 @@ const styles = StyleSheet.create({
   // ── Hero card ──────────────────────────────────────────
   heroCard: {
     borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: theme.glassFill,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
     overflow: 'hidden',
     marginBottom: 16,
     padding: 20,
@@ -318,7 +328,7 @@ const styles = StyleSheet.create({
   heroCardLabel: {
     color: theme.primary,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '500',
     letterSpacing: 1.6,
     textTransform: 'uppercase',
     marginBottom: 6,
@@ -326,7 +336,7 @@ const styles = StyleSheet.create({
   heroCardSub: {
     color: theme.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '300',
   },
   heroCardActions: {
     flexDirection: 'row',
@@ -336,20 +346,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  heroActionIcon: {
+  heroActionIconWrap: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(22,255,110,0.12)',
-    textAlign: 'center',
-    lineHeight: 48,
+    backgroundColor: theme.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroActionIcon: {
     fontSize: 20,
-    overflow: 'hidden',
   },
   heroActionLabel: {
     color: theme.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   // ── Category chips ──────────────────────────────────────
   chipsScroll: { marginHorizontal: -16, marginBottom: 18 },
@@ -362,24 +373,26 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   chipSelected: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipUnselected: { backgroundColor: 'rgba(255,255,255,0.04)' },
-  chipTextSelected: { color: theme.primaryText, fontWeight: '800', fontSize: 13 },
-  chipTextUnselected: { color: theme.textMuted, fontWeight: '600', fontSize: 13 },
+  chipUnselected: { backgroundColor: theme.glassFill },
+  chipTextSelected: { color: theme.primaryText, fontWeight: '500', fontSize: 13 },
+  chipTextUnselected: { color: theme.textMuted, fontWeight: '300', fontSize: 13 },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
   // ── Listing grid ──────────────────────────────────────
   rowWrapper: { gap: 14, justifyContent: 'space-between', marginBottom: 14 },
   card: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: theme.glassFill,
     borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
   },
   thumbnailContainer: {
     width: '100%',
     height: 130,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     position: 'relative',
   },
   cardImage: { width: '100%', height: '100%' },
@@ -396,12 +409,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(22,255,110,0.25)',
   },
-  badgeText: { color: theme.primary, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  badgeText: { color: theme.primary, fontSize: 10, fontWeight: '500', textTransform: 'uppercase' },
   cardBody: { padding: 12 },
-  cardTitle: { color: theme.text, fontSize: 14, fontWeight: '800', marginBottom: 4 },
+  cardTitle: { color: theme.text, fontSize: 14, fontWeight: '500', marginBottom: 4 },
   cardMeta: { color: theme.textFaint, fontSize: 11, marginBottom: 6 },
-  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: '900' },
+  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: '500' },
   emptyState: { alignItems: 'center', marginTop: 40 },
-  emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '900', marginBottom: 8 },
+  emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '500', marginBottom: 8 },
   emptyText: { color: theme.textMuted, fontSize: 14 },
 })

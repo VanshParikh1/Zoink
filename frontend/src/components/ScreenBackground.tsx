@@ -1,42 +1,58 @@
 import React from 'react'
-import { View, StyleSheet, StyleProp, ViewStyle } from 'react-native'
+import { View, StyleSheet, StyleProp, ViewStyle, Dimensions, Platform } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { BlurView } from 'expo-blur'
 import { theme } from '../theme/colors'
 
 interface Props {
   children: React.ReactNode
   style?: StyleProp<ViewStyle>
-  /** Controls how prominent the top blob is. 0 = hidden, 1 = full. Default 1. */
-  blobIntensity?: number
 }
 
-/**
- * Full-screen background with a dark gradient and two soft green blobs
- * inspired by the Cash App aesthetic. Wrap any screen's root in this instead
- * of a plain LinearGradient.
- */
-export default function ScreenBackground({ children, style, blobIntensity = 1 }: Props) {
-  const topOpacity = 0.28 * blobIntensity
-  const bottomOpacity = 0.12 * blobIntensity
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 
+/**
+ * ScreenBackground – Liquid Glass Light Edition.
+ * Features a bright white/gray gradient with vibrant lime green blobs
+ * to create a luminous backdrop for frosted glass layers.
+ */
+export default function ScreenBackground({ children, style }: Props) {
   return (
     <LinearGradient colors={theme.backgroundGradient} style={[styles.root, style]}>
-      {/* Top-right large blob */}
+      {/* Blob 1: Vibrant Top-Left (Lime) */}
       <View
         pointerEvents="none"
-        style={[
-          styles.blobTopRight,
-          { opacity: topOpacity },
-        ]}
+        style={styles.blob1}
       />
-      {/* Bottom-left softer blob */}
+
+      {/* Blob 3: Center Anchor (Green Glow) */}
       <View
         pointerEvents="none"
-        style={[
-          styles.blobBottomLeft,
-          { opacity: bottomOpacity },
-        ]}
+        style={styles.blob3}
       />
+
+      {/* Blob 2: Bottom-Right (Emerald) */}
+      <View
+        pointerEvents="none"
+        style={styles.blob2}
+      />
+
+      {/* Tactile noise overlay */}
+      <View 
+        pointerEvents="none" 
+        style={styles.noiseOverlay} 
+      />
+
+      {/* Blur the blobs to create a soft luminous glow */}
+      {Platform.OS === 'ios' ? (
+        <BlurView 
+          intensity={80} 
+          tint="dark" 
+          style={StyleSheet.absoluteFillObject} 
+          pointerEvents="none"
+        />
+      ) : null}
+
       {children}
     </LinearGradient>
   )
@@ -46,25 +62,37 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     overflow: 'hidden',
+    backgroundColor: theme.colors.inkBase,
   },
-  /** Large organic circle — upper right */
-  blobTopRight: {
+  blob1: {
     position: 'absolute',
-    width: 340,
-    height: 340,
-    borderRadius: 170,
-    backgroundColor: theme.primary, // limeGreen
-    top: -80,
-    right: -100,
+    width: SCREEN_WIDTH * 1.6,
+    height: SCREEN_WIDTH * 1.6,
+    borderRadius: (SCREEN_WIDTH * 1.6) / 2,
+    backgroundColor: theme.blobColor1,
+    top: -SCREEN_WIDTH * 0.6,
+    left: -SCREEN_WIDTH * 0.5,
   },
-  /** Smaller soft circle — lower left */
-  blobBottomLeft: {
+  blob2: {
     position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: theme.primary,
-    bottom: 80,
-    left: -120,
+    width: SCREEN_WIDTH * 1.4,
+    height: SCREEN_WIDTH * 1.4,
+    borderRadius: (SCREEN_WIDTH * 1.4) / 2,
+    backgroundColor: theme.blobColor2,
+    bottom: -SCREEN_WIDTH * 0.4,
+    right: -SCREEN_WIDTH * 0.5,
+  },
+  blob3: {
+    position: 'absolute',
+    width: SCREEN_WIDTH * 1.2,
+    height: SCREEN_WIDTH * 1.2,
+    borderRadius: (SCREEN_WIDTH * 1.2) / 2,
+    backgroundColor: theme.blobColor3,
+    bottom: -SCREEN_WIDTH * 0.2,
+    left: -SCREEN_WIDTH * 0.1,
+  },
+  noiseOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)', // subtle noise overlay
   },
 })

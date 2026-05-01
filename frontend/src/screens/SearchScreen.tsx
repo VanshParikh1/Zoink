@@ -9,7 +9,9 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native'
+import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -189,61 +191,60 @@ export default function SearchScreen() {
     </ScrollView>
   )
 
-  const renderIdleState = () => (
-    <Animated.ScrollView
-      style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}
-      contentContainerStyle={styles.idleContent}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      {renderCategoryChips()}
-
-      <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.horizontalScrollContent}
-        snapToInterval={(SCREEN_WIDTH - 32) * 0.65 + 16}
-        decelerationRate="fast"
-      >
-        {MOCK_TRENDING.map((item) => (
-          <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
-        ))}
-      </ScrollView>
-
-      <Text style={[styles.sectionHeader, { marginTop: 32 }]}>RECENTLY VIEWED</Text>
-      <View style={styles.verticalRowsContainer}>
-        {MOCK_RECENT.map((item) => (
-          <GlassCardHorizontal key={item.id} item={item} onPress={() => handleListingPress(item)} />
-        ))}
+  const renderHeaderComponent = () => (
+    <View>
+      <View style={styles.header}>
+        <View style={styles.headerInner}>
+          <Text style={styles.headerTitle}>Discover</Text>
+          <SearchBar value={query} onChange={setQuery} />
+        </View>
       </View>
-    </Animated.ScrollView>
-  )
 
-  const renderResultsState = () => (
-    <Animated.View style={[styles.resultsContainer, { opacity: fadeAnim, transform: [{ translateY: translateAnim }] }]}>
       {renderCategoryChips()}
-      <FlatList
-        data={MOCK_RESULTS}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />}
-        contentContainerStyle={styles.resultsListContent}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      />
-    </Animated.View>
+
+      {!isResultsState && (
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
+          <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalScrollContent}
+            snapToInterval={(SCREEN_WIDTH - 48) * 0.75 + 16}
+            decelerationRate="fast"
+          >
+            {MOCK_TRENDING.map((item) => (
+              <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
+            ))}
+          </ScrollView>
+
+          <Text style={[styles.sectionHeader, { marginTop: 32 }]}>RECENTLY VIEWED</Text>
+          <View style={styles.verticalRowsContainer}>
+            {MOCK_RECENT.map((item) => (
+              <GlassCardHorizontal key={item.id} item={item} onPress={() => handleListingPress(item)} />
+            ))}
+          </View>
+        </Animated.View>
+      )}
+    </View>
   )
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Discover</Text>
-        <SearchBar value={query} onChange={setQuery} />
-      </View>
-
-      <View style={styles.contentArea}>
-        {isResultsState ? renderResultsState() : renderIdleState()}
-      </View>
+      <FlatList
+        data={isResultsState ? MOCK_RESULTS : []}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeaderComponent}
+        renderItem={({ item }) => (
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
+            <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
+          </Animated.View>
+        )}
+        contentContainerStyle={styles.idleContent}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   )
 }
@@ -251,27 +252,31 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   header: {
     paddingTop: 56,
-    paddingBottom: 4,
+    paddingBottom: 12,
     zIndex: 10,
+  },
+  headerInner: {
+    paddingHorizontal: 0,
   },
   headerTitle: {
     color: theme.text,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: '500',
     paddingHorizontal: 24,
     marginBottom: 4,
+    letterSpacing: -0.5,
   },
   contentArea: {
     flex: 1,
   },
   idleContent: {
-    paddingTop: 8,
+    paddingTop: 16,
     paddingBottom: 120,
   },
   sectionHeader: {
-    color: theme.primary,
+    color: theme.textMuted,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '300',
     letterSpacing: 1.5,
     paddingHorizontal: 24,
     marginBottom: 16,
@@ -281,30 +286,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 16,
   },
+  separator: {
+    height: 1,
+    backgroundColor: theme.glassBorder,
+    marginHorizontal: 24,
+    marginVertical: 4,
+  },
   
   /* --- Glass Cards --- */
   glassCardVertical: {
-    width: (SCREEN_WIDTH - 32) * 0.65,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 28,
+    width: (SCREEN_WIDTH - 48) * 0.75,
+    backgroundColor: theme.glassFill,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
     overflow: 'hidden',
     padding: 16,
+    shadowColor: theme.glassShadow,
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 4,
   },
   glassThumbnailLarge: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: theme.glassBorder,
   },
   glassThumbnailEmojiLarge: {
-    fontSize: 56,
+    fontSize: 48,
   },
   availabilityBadge: {
     position: 'absolute',
@@ -312,20 +330,20 @@ const styles = StyleSheet.create({
     right: 10,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
   },
   badgeAvailable: {
-    backgroundColor: 'rgba(22,255,110,0.15)',
-    borderColor: 'rgba(22,255,110,0.3)',
+    backgroundColor: theme.glassPrimaryFill,
+    borderColor: theme.glassPrimaryBorder,
   },
   badgeUnavailable: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    borderColor: theme.glassBorder,
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   badgeTextAvailable: {
@@ -336,12 +354,12 @@ const styles = StyleSheet.create({
   },
   glassCardBody: {
     flex: 1,
-    gap: 10,
+    gap: 8,
   },
   glassTitle: {
     color: theme.text,
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '500',
   },
   glassCardFooter: {
     flexDirection: 'row',
@@ -350,22 +368,22 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
   },
   glassPrice: {
     color: theme.primary,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   glassPriceUnit: {
     color: theme.textFaint,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '300',
   },
   glassDistance: {
     color: theme.textFaint,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '300',
   },
 
   /* --- Horizontal Glass Cards --- */
@@ -377,40 +395,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 24,
+    backgroundColor: theme.glassFill,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
+    shadowColor: theme.glassShadow,
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 4,
   },
   glassThumbnailSmall: {
     width: 64,
     height: 64,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: theme.glassBorder,
   },
   glassThumbnailEmojiSmall: {
     fontSize: 28,
   },
   glassRowMiddle: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   glassRowRight: {
     paddingLeft: 12,
     alignItems: 'flex-end',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
   },
 
   /* --- Chips --- */
   chipsScroll: {
     flexGrow: 0,
-    marginBottom: 24,
+    marginBottom: 20,
     marginTop: 8,
   },
   chipsContainer: {
@@ -421,25 +446,28 @@ const styles = StyleSheet.create({
   glassChip: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
   },
   glassChipSelected: {
-    backgroundColor: theme.primary,
-    borderColor: theme.primary,
+    backgroundColor: theme.glassPrimaryFill,
+    borderColor: theme.glassPrimaryBorder,
+    borderTopColor: 'rgba(22, 255, 110, 0.4)',
   },
   glassChipUnselected: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.glassFill,
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
   },
   chipTextSelected: {
-    color: theme.primaryText,
-    fontWeight: '800',
+    color: theme.primary,
+    fontWeight: '600',
     fontSize: 14,
   },
   chipTextUnselected: {
     color: theme.textMuted,
-    fontWeight: '600',
+    fontWeight: '400',
     fontSize: 14,
   },
 
@@ -453,28 +481,28 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniAvatarText: {
     color: theme.text,
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   miniName: {
     color: theme.textMuted,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   verifiedTick: {
     color: theme.primary,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   miniRating: {
     color: theme.primary,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
   },
 
   resultsContainer: {
@@ -484,5 +512,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 12,
     paddingBottom: 120,
+    paddingTop: 16,
   },
 })

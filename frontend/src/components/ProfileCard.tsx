@@ -1,5 +1,6 @@
 import React from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, StyleSheet, Text, View, Platform } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { MyProfile, PublicProfile, UserReputation } from '../types'
 import { theme } from '../theme/colors'
 
@@ -111,6 +112,12 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
     <View style={styles.shell}>
       <View style={styles.glowA} />
       <View style={styles.glowB} />
+
+      {Platform.OS === 'ios' ? (
+        <BlurView intensity={75} tint="dark" style={StyleSheet.absoluteFillObject} />
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5, 30, 9, 0.4)' }]} />
+      )}
 
       <View style={styles.topRow}>
         <View style={styles.tierChip}>
@@ -224,11 +231,13 @@ const styles = StyleSheet.create({
   shell: {
     position: 'relative',
     overflow: 'hidden',
-    backgroundColor: theme.surface,
+    backgroundColor: theme.glassFill,
     borderRadius: 30,
     padding: 20,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.glassBorder,
+    borderTopColor: theme.glassHighlight,
+    borderBottomColor: theme.glassBorderBottom,
   },
   glowA: {
     position: 'absolute',
@@ -276,7 +285,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 18,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
   },
   heroImage: {
     width: '100%',
@@ -315,7 +324,7 @@ const styles = StyleSheet.create({
   },
   statBubble: {
     minWidth: 76,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -348,7 +357,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderWidth: 1,
     borderColor: theme.border,
   },
@@ -375,7 +384,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.text,
   },
   badgeSoft: {
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderWidth: 1,
     borderColor: theme.border,
   },
@@ -388,7 +397,7 @@ const styles = StyleSheet.create({
     color: theme.primaryText,
   },
   badgeTextDark: {
-    color: theme.colors.screenBg,
+    color: theme.colors.inkBase,
   },
   statsRow: {
     flexDirection: 'row',
@@ -397,7 +406,7 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 10,
@@ -414,7 +423,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   panel: {
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
@@ -449,7 +458,7 @@ const styles = StyleSheet.create({
   trackRail: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: theme.colors.screenBg,
+    backgroundColor: theme.colors.inkBase,
     overflow: 'hidden',
   },
   trackFill: {

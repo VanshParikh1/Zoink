@@ -294,9 +294,9 @@ export default function CreateListingScreen() {
                 <Switch
                   value={formData.availableNow}
                   onValueChange={(value) => updateForm('availableNow', value)}
-                  trackColor={{ false: theme.surfaceAlt, true: theme.primary }}
+                  trackColor={{ false: theme.glassFill, true: theme.primary }}
                   thumbColor={formData.availableNow ? theme.primaryText : theme.text}
-                  ios_backgroundColor={theme.surfaceAlt}
+                  ios_backgroundColor={theme.glassFill}
                   style={styles.toggleSwitch}
                 />
               </View>
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     height: 3,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -532,7 +532,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
   },
   chipUnselected: {
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
   },
   chipTextSelected: {
     color: theme.primaryText,
@@ -609,7 +609,7 @@ const styles = StyleSheet.create({
   reviewThumb: {
     height: 176,
     borderRadius: 16,
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -675,7 +675,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
   },
   photoPreview: {
     width: '100%',
@@ -707,7 +707,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.surfaceAlt,
+    backgroundColor: theme.glassFill,
   },
   addPhotoIcon: {
     color: theme.primary,
