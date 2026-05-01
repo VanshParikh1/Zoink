@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
@@ -52,7 +54,8 @@ export default function PublicProfileScreen() {
   if (!profile) return null
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScreenBackground>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <TouchableOpacity style={styles.backButton} onPress={() => nav.goBack()}>
         <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
@@ -70,12 +73,13 @@ export default function PublicProfileScreen() {
         <Text style={styles.note}>The top half sells the person: photo, vibe, and personality.</Text>
         <Text style={styles.note}>The bottom half proves the history: role-specific review scores and earned badges.</Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
   loadingScreen: {
     flex: 1,

@@ -1,5 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -60,14 +62,14 @@ export default function BookingRequestsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <FlatList
         data={bookings}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
           setRefreshing(true)
           loadBookings()
-        }} tintColor={theme.primary} />}
+        }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
@@ -133,12 +135,12 @@ export default function BookingRequestsScreen() {
           )
         }}
       />
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32 },

@@ -24,7 +24,7 @@ export default function LogoPlaceholder({
 const styles = StyleSheet.create({
   base: {
     backgroundColor: theme.primary,
-    borderColor: theme.colors.porcelain,
+    borderColor: theme.text,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
     borderRadius: 34,
   },
   mark: {
-    color: theme.colors.inkBlack,
+    color: theme.colors.inkBase,
     fontSize: 32,
     fontWeight: '900',
     lineHeight: 38,
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   label: {
-    color: theme.colors.inkBlack,
+    color: theme.colors.inkBase,
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 1,

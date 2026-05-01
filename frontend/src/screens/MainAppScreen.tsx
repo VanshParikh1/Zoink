@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useState, useCallback, useEffect } from 'react'
 import {
   Animated,
   Easing,
@@ -8,7 +8,11 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ScrollView,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
+import * as Haptics from 'expo-haptics'
 import { RouteProp, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -21,7 +25,6 @@ import { theme } from '../theme/colors'
 type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
-const TAB_TRANSITION_MS = 520
 const CENTER_SLOT_WIDTH = 72
 const BAR_HORIZONTAL_PADDING = 14
 
@@ -56,70 +59,76 @@ function NavItem({
 
 export default function MainAppScreen({ navigation }: ScreenProps) {
   const route = useRoute<MainAppRoute>()
-  const [activeTab, setActiveTab] = React.useState<MainTab>(route.params?.tab ?? 'Home')
-  const [contentWidth, setContentWidth] = React.useState(0)
-  const [bottomBarWidth, setBottomBarWidth] = React.useState(0)
-  const translateX = React.useRef(new Animated.Value(0)).current
-  const tabHighlightX = React.useRef(new Animated.Value(0)).current
+  const [activeTab, setActiveTab] = useState<MainTab>(route.params?.tab ?? 'Home')
+  const [contentWidth, setContentWidth] = useState(0)
+  const [bottomBarWidth, setBottomBarWidth] = useState(0)
+  const scrollX = useRef(new Animated.Value(0)).current
+  const scrollViewRef = useRef<ScrollView>(null)
+
   const activeIndex = TAB_ORDER.indexOf(activeTab)
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
     : 0
 
-  const transitionToTab = React.useCallback((nextTab: MainTab) => {
-    if (nextTab === activeTab) {
-      return
+  // Map scroll position directly to the bottom bar highlight
+  const tabHighlightX = scrollX.interpolate({
+    inputRange: contentWidth > 0 ? [0, contentWidth, contentWidth * 2, contentWidth * 3] : [0, 1, 2, 3],
+    outputRange: [
+      0,
+      tabWidth,
+      tabWidth * 2 + CENTER_SLOT_WIDTH,
+      tabWidth * 3 + CENTER_SLOT_WIDTH,
+    ],
+    extrapolate: 'clamp',
+  })
+
+  // Sync scroll position on initial load
+  useEffect(() => {
+    if (contentWidth > 0 && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        x: activeIndex * contentWidth,
+        animated: false,
+      })
     }
+  }, [contentWidth]) // Only run once when contentWidth is first determined
 
-    if (!contentWidth) {
-      setActiveTab(nextTab)
-      return
-    }
-
-    const nextIndex = TAB_ORDER.indexOf(nextTab)
-    const animations = [
-      Animated.spring(translateX, {
-        toValue: -(nextIndex * contentWidth),
-        tension: 200,
-        friction: 20,
-        useNativeDriver: true,
-      }),
-    ]
-
-    if (tabWidth > 0) {
-      animations.push(
-        Animated.spring(tabHighlightX, {
-          toValue: getTabOffset(nextIndex, tabWidth),
-          tension: 200,
-          friction: 20,
-          useNativeDriver: true,
-        })
-      )
-    }
-
-    setActiveTab(nextTab)
-
-    Animated.parallel(animations).start()
-  }, [activeTab, contentWidth, tabHighlightX, tabWidth, translateX])
-
-  React.useEffect(() => {
+  // Handle route params
+  useEffect(() => {
     if (route.params?.tab) {
       transitionToTab(route.params.tab)
       navigation.setParams({ tab: undefined })
     }
-  }, [route.params?.tab, transitionToTab, navigation])
+  }, [route.params?.tab, navigation])
 
-  React.useEffect(() => {
+  const transitionToTab = useCallback((nextTab: MainTab) => {
+    if (nextTab === activeTab) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    
+    setActiveTab(nextTab)
+    const nextIndex = TAB_ORDER.indexOf(nextTab)
+    
+    if (contentWidth > 0 && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        x: nextIndex * contentWidth,
+        animated: true,
+      })
+    }
+  }, [activeTab, contentWidth])
+
+  const handleScrollEnd = (e: any) => {
     if (!contentWidth) return
-    translateX.setValue(-(activeIndex * contentWidth))
-  }, [contentWidth, translateX])
+    const offsetX = e.nativeEvent.contentOffset.x
+    const newIndex = Math.round(offsetX / contentWidth)
+    
+    if (newIndex >= 0 && newIndex < TAB_ORDER.length) {
+      const nextTab = TAB_ORDER[newIndex]
+      if (nextTab !== activeTab) {
+        setActiveTab(nextTab)
+      }
+    }
+  }
 
-  React.useEffect(() => {
-    if (!tabWidth) return
-    tabHighlightX.setValue(getTabOffset(activeIndex, tabWidth))
-  }, [tabHighlightX, tabWidth])
-
-  const handleBottomBarLayout = React.useCallback((event: LayoutChangeEvent) => {
+  const handleBottomBarLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width
     if (nextWidth !== bottomBarWidth) {
       setBottomBarWidth(nextWidth)
@@ -127,76 +136,84 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   }, [bottomBarWidth])
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View
-        style={styles.content}
-        onLayout={(event) => {
-          const nextWidth = event.nativeEvent.layout.width
-          if (nextWidth !== contentWidth) {
-            setContentWidth(nextWidth)
-          }
-        }}
-      >
-        <Animated.View
-          style={[
-            styles.tabStrip,
-            {
-              width: contentWidth ? contentWidth * TAB_ORDER.length : '100%',
-              transform: [{ translateX }],
-            },
-          ]}
+    <ScreenBackground>
+      <SafeAreaView style={styles.safeArea}>
+        <View
+          style={styles.content}
+          onLayout={(event) => {
+            const nextWidth = event.nativeEvent.layout.width
+            if (nextWidth !== contentWidth && nextWidth > 0) {
+              setContentWidth(nextWidth)
+            }
+          }}
         >
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <HomeScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <SearchScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <InboxScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <MyProfileScreen />
-          </View>
-        </Animated.View>
-      </View>
-
-      <View style={styles.bottomWrap}>
-        <View style={styles.bottomBar} onLayout={handleBottomBarLayout}>
-          {tabWidth > 0 ? (
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.activeTabHighlight,
-                {
-                  width: tabWidth,
-                  transform: [{ translateX: tabHighlightX }],
-                },
-              ]}
-            />
-          ) : null}
-
-          <NavItem active={activeTab === 'Home'} icon="⌂" label="Home" onPress={() => transitionToTab('Home')} />
-          <NavItem active={activeTab === 'Search'} icon="⌕" label="Search" onPress={() => transitionToTab('Search')} />
-
-          <View style={styles.centerSlot} />
-
-          <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Inbox" onPress={() => transitionToTab('Inbox')} />
-          <NavItem active={activeTab === 'MyProfile'} icon="◉" label="Profile" onPress={() => transitionToTab('MyProfile')} />
+          {contentWidth > 0 && (
+            <Animated.ScrollView
+              ref={scrollViewRef as any}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              directionalLockEnabled={true}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                { useNativeDriver: true }
+              )}
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={handleScrollEnd}
+              style={styles.tabStrip}
+            >
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <HomeScreen />
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <SearchScreen />
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <InboxScreen />
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <MyProfileScreen />
+              </View>
+            </Animated.ScrollView>
+          )}
         </View>
 
-        <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateListing')}>
-          <Text style={styles.createButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+        <View style={styles.bottomWrap}>
+          <View style={styles.bottomBar} onLayout={handleBottomBarLayout}>
+            {tabWidth > 0 ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.activeTabHighlight,
+                  {
+                    width: tabWidth,
+                    transform: [{ translateX: tabHighlightX }],
+                  },
+                ]}
+              />
+            ) : null}
+
+            <NavItem active={activeTab === 'Home'} icon="⌂" label="Home" onPress={() => transitionToTab('Home')} />
+            <NavItem active={activeTab === 'Search'} icon="⌕" label="Search" onPress={() => transitionToTab('Search')} />
+
+            <View style={styles.centerSlot} />
+
+            <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Inbox" onPress={() => transitionToTab('Inbox')} />
+            <NavItem active={activeTab === 'MyProfile'} icon="◉" label="Profile" onPress={() => transitionToTab('MyProfile')} />
+          </View>
+
+          <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateListing')}>
+            <Text style={styles.createButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.screen,
   },
   content: {
     flex: 1,

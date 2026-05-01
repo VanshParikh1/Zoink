@@ -12,6 +12,8 @@ import {
   Dimensions,
   FlatList,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -128,7 +130,7 @@ export default function ListingDetailScreen() {
   const hasImages = listing.images.length > 0
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <ScrollView showsVerticalScrollIndicator={false}>
         {hasImages ? (
           <View style={styles.carouselContainer}>
@@ -282,12 +284,12 @@ export default function ListingDetailScreen() {
           </View>
         </View>
       )}
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   carouselContainer: { position: 'relative' },
   carouselImage: { width: SCREEN_WIDTH, height: 280 },

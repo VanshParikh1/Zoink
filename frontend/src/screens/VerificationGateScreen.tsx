@@ -1,5 +1,7 @@
 import React from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
@@ -14,7 +16,7 @@ export default function VerificationGateScreen() {
   const { user, logout } = useAuth()
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <LogoPlaceholder size="large" style={styles.logo} />
       <Text style={styles.kicker}>one quick step</Text>
       <Text style={styles.title}>Verify your email</Text>
@@ -30,14 +32,13 @@ export default function VerificationGateScreen() {
       <TouchableOpacity onPress={logout}>
         <Text style={styles.link}>Sign out</Text>
       </TouchableOpacity>
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.screen,
     justifyContent: 'center',
     paddingHorizontal: 24,
     alignItems: 'center',

@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -91,7 +93,7 @@ export default function MyListingsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>{'< Back'}</Text>
@@ -108,7 +110,7 @@ export default function MyListingsScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
         }
         ListEmptyComponent={
           error ? (
@@ -131,12 +133,12 @@ export default function MyListingsScreen() {
           )
         }
       />
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   center: { flex: 1, backgroundColor: theme.screen, justifyContent: 'center', alignItems: 'center' },
   header: {
     paddingTop: 60,

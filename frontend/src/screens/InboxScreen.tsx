@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -46,31 +46,24 @@ export default function InboxScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={styles.loadingText}>Loading your conversations...</Text>
       </View>
     )
   }
 
   return (
-    <View style={styles.container}>
+    <View style={{ flex: 1 }}>
       <FlatList
         data={conversations}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
           setRefreshing(true)
           loadConversations()
-        }} tintColor={theme.primary} />}
+        }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => nav.goBack()}>
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
-            <Text style={styles.title}>Inbox</Text>
+            <Text style={styles.title}>Messages</Text>
             <Text style={styles.subtitle}>
-              Listing conversations update here as new messages come in.
-            </Text>
-            <Text style={styles.summaryText}>
               {conversations.length === 0
                 ? 'No active threads yet'
                 : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'} in motion`}
@@ -97,50 +90,135 @@ export default function InboxScreen() {
             />
           )
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.card, item.unread && styles.cardUnread]}
-            onPress={() => nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })}
-          >
-            <View style={styles.cardTop}>
-              <Text style={styles.cardTitle}>{item.listing.title}</Text>
-              {item.unread ? <View style={styles.unreadDot} /> : null}
-            </View>
-            <Text style={styles.cardMeta}>
-              {item.lastMessage?.body ?? 'Conversation ready to start'}
-            </Text>
-            <Text style={styles.cardTime}>
-              {new Date(item.updatedAt).toLocaleString()}
-            </Text>
-          </TouchableOpacity>
-        )}
+        renderItem={({ item }) => {
+          const imageUrl = item.listing.images?.[0]?.url
+          return (
+            <TouchableOpacity
+              style={[styles.glassCard, item.unread && styles.glassCardUnread]}
+              onPress={() => nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })}
+            >
+              <View style={styles.cardLeft}>
+                {imageUrl ? (
+                  <Image source={{ uri: imageUrl }} style={styles.glassThumbnailImage} />
+                ) : (
+                  <View style={styles.glassThumbnail}>
+                    <Text style={styles.glassThumbnailEmoji}>{item.listing.category || '💬'}</Text>
+                  </View>
+                )}
+                {item.unread ? <View style={styles.unreadDot} /> : null}
+              </View>
+
+              <View style={styles.cardRight}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{item.listing.title}</Text>
+                  <Text style={styles.cardTime}>
+                    {new Date(item.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </Text>
+                </View>
+                <Text style={styles.cardPrice}>${item.listing.dailyPrice} / day</Text>
+                <Text style={[styles.cardMeta, item.unread && styles.cardMetaUnread]} numberOfLines={2}>
+                  {item.lastMessage?.body ?? 'Conversation ready to start'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )
+        }}
       />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 32 },
-  header: { marginBottom: 8 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
-  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  summaryText: { color: theme.textFaint, fontSize: 13, marginTop: 10, fontWeight: '700' },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: 22,
-    padding: 18,
+  container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
+  content: { paddingHorizontal: 24, paddingBottom: 120 },
+  header: { marginBottom: 24, paddingTop: 56 },
+  title: { color: theme.text, fontSize: 28, fontWeight: '900', marginBottom: 4 },
+  subtitle: { color: theme.textMuted, fontSize: 14, fontWeight: '600' },
+  glassCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 24,
+    padding: 20,
     borderWidth: 1,
-    borderColor: theme.border,
-    marginBottom: 14,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 16,
   },
-  cardUnread: { borderColor: theme.primary },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  cardTitle: { color: theme.text, fontSize: 17, fontWeight: '900', flex: 1, marginRight: 12 },
-  unreadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.primary },
-  cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  cardTime: { color: theme.textFaint, fontSize: 12 },
+  glassCardUnread: {
+    borderColor: 'rgba(22,255,110,0.3)',
+    backgroundColor: 'rgba(22,255,110,0.05)',
+  },
+  cardLeft: {
+    position: 'relative',
+    marginRight: 18,
+  },
+  glassThumbnailImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  glassThumbnail: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  glassThumbnailEmoji: {
+    fontSize: 32,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.primary,
+    borderWidth: 2,
+    borderColor: theme.screen,
+  },
+  cardRight: {
+    flex: 1,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  cardTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '900',
+    flex: 1,
+    marginRight: 12,
+  },
+  cardPrice: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  cardTime: {
+    color: theme.textFaint,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cardMeta: {
+    color: theme.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  cardMetaUnread: {
+    color: theme.text,
+    fontWeight: '600',
+  },
 })

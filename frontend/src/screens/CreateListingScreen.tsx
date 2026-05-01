@@ -15,6 +15,8 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import * as ImagePicker from 'expo-image-picker'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -370,48 +372,50 @@ export default function CreateListingScreen() {
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <KeyboardAvoidingView
-        style={styles.keyboardWrap}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.container}>
-          <View style={styles.topBar}>
-            <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-              <Text style={styles.backText}>←</Text>
-            </TouchableOpacity>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, progressFillStyle]} />
+      <ScreenBackground>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={{ flex: 1 }}>
+            <View style={styles.topBar}>
+              <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                <Text style={styles.backText}>←</Text>
+              </TouchableOpacity>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, progressFillStyle]} />
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.content}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {step === 1 ? renderStepOne() : null}
+              {step === 2 ? renderStepTwo() : null}
+              {step === 3 ? renderStepThree() : null}
+            </ScrollView>
+
+            <View style={styles.footer}>
+              {step < 3 ? (
+                <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+                  <Text style={styles.continueButtonText}>continue →</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.goLiveButton} onPress={handleGoLive} disabled={loading}>
+                  {loading ? (
+                    <ActivityIndicator color={theme.primaryText} />
+                  ) : (
+                    <Text style={styles.goLiveButtonText}>go live</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
           </View>
-
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {step === 1 ? renderStepOne() : null}
-            {step === 2 ? renderStepTwo() : null}
-            {step === 3 ? renderStepThree() : null}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            {step < 3 ? (
-              <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-                <Text style={styles.continueButtonText}>continue →</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={styles.goLiveButton} onPress={handleGoLive} disabled={loading}>
-                {loading ? (
-                  <ActivityIndicator color={theme.primaryText} />
-                ) : (
-                  <Text style={styles.goLiveButtonText}>go live</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </ScreenBackground>
     </TouchableWithoutFeedback>
   )
 }
@@ -422,7 +426,6 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: theme.screen,
   },
   topBar: {
     paddingTop: 58,
@@ -721,7 +724,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 24,
-    backgroundColor: theme.screen,
   },
   continueButton: {
     width: '100%',

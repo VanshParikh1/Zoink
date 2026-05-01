@@ -51,16 +51,16 @@ export default function StateCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: theme.surface,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 24,
     padding: 22,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'flex-start',
   },
   cardError: {
-    borderColor: 'rgba(239, 68, 68, 0.28)',
-    backgroundColor: '#FFF3F1',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
   },
   eyebrow: {
     color: theme.primary,

@@ -187,13 +187,14 @@ export default function MyProfileScreen() {
     : profile
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
         setRefreshing(true)
         loadProfile()
-      }} tintColor={theme.primary} />}
+      }} tintColor={theme.primary} colors={[theme.primary]} />}
       showsVerticalScrollIndicator={false}
     >
       {showProfilePrompt ? (
@@ -316,12 +317,13 @@ export default function MyProfileScreen() {
       </TouchableOpacity>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </ScrollView>
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   content: { padding: 18, paddingTop: 56, paddingBottom: 140 },
   loadingScreen: {
     flex: 1,
@@ -389,7 +391,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceSoft,
   },
   avatarButton: {
-    backgroundColor: theme.colors.inkBlack,
+    backgroundColor: theme.colors.inkBase,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 14,

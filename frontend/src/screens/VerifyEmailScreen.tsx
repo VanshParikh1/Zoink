@@ -7,6 +7,8 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import LogoPlaceholder from '../components/LogoPlaceholder'
@@ -77,7 +79,7 @@ export default function VerifyEmailScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <LogoPlaceholder size="medium" style={styles.logo} />
       <Text style={styles.title}>Check your email</Text>
       <Text style={styles.subtitle}>
@@ -118,12 +120,12 @@ export default function VerifyEmailScreen() {
       </TouchableOpacity>
 
       {resendMessage ? <Text style={styles.resendMessage}>{resendMessage}</Text> : null}
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen, justifyContent: 'center', paddingHorizontal: 24 },
+  container: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
   logo: { marginBottom: 22 },
   title: { fontSize: 32, fontWeight: '900', color: theme.text, marginBottom: 8 },
   subtitle: { fontSize: 16, color: theme.textMuted, marginBottom: 32, lineHeight: 24 },
