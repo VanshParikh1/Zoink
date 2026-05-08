@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+﻿import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
   messageBody: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
   actions: { gap: 12, marginTop: 8 },
   primaryButton: { backgroundColor: theme.primary, borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
-  primaryText: { color: theme.primaryText, fontSize: 15, fontWeight: '900' },
+  primaryText: { color: theme.textOnPrimary, fontSize: 15, fontWeight: '900' },
   secondaryButton: {
     borderRadius: 16,
     borderWidth: 1,
@@ -201,3 +201,4 @@ const styles = StyleSheet.create({
   },
   secondaryText: { color: theme.text, fontSize: 15, fontWeight: '800' },
 })
+

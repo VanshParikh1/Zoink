@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -121,7 +121,7 @@ export default function ConversationThreadScreen() {
             <StateCard
               tone="error"
               eyebrow="THREAD ISSUE"
-              title="This conversation couldn’t load"
+              title="This conversation couldnâ€™t load"
               body={error}
               actionLabel="Try again"
               onAction={() => {
@@ -165,7 +165,7 @@ export default function ConversationThreadScreen() {
             value={body}
             onChangeText={setBody}
             placeholder="Write a message"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             style={styles.input}
           />
           <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
@@ -198,8 +198,8 @@ const styles = StyleSheet.create({
   myBubble: { alignSelf: 'flex-end', backgroundColor: theme.primary },
   theirBubble: { alignSelf: 'flex-start', backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
   bubbleText: { color: theme.text, fontSize: 15, lineHeight: 20 },
-  myBubbleText: { color: theme.primaryText },
-  timeText: { color: theme.textFaint, fontSize: 11, marginTop: 8 },
+  myBubbleText: { color: theme.textOnPrimary },
+  timeText: { color: theme.textDisabled, fontSize: 11, marginTop: 8 },
   composer: {
     flexDirection: 'row',
     gap: 10,
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-  sendText: { color: theme.primaryText, fontWeight: '900', fontSize: 14 },
+  sendText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 14 },
   sendError: {
     color: theme.colors.danger,
     fontSize: 13,
@@ -238,3 +238,4 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
   },
 })
+

@@ -14,6 +14,7 @@ import {
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
+import * as Haptics from 'expo-haptics'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
@@ -22,6 +23,8 @@ import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
+import ZoinkButton from '../components/ZoinkButton'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -199,7 +202,10 @@ export default function MyProfileScreen() {
       >
         <View style={styles.header}>
           <View style={styles.headerInner}>
-            <Text style={styles.headerTitle}>Profile</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.headerTitle}>Profile</Text>
+              <ZoinkFullLogo width={100} height={30} />
+            </View>
           </View>
         </View>
 
@@ -210,7 +216,13 @@ export default function MyProfileScreen() {
             <Text style={styles.promptBody}>
               This card is the first impression. Add a photo, a short bio, and clean details so people feel good renting from you.
             </Text>
-            <TouchableOpacity style={styles.promptButton} onPress={dismissProfilePrompt}>
+            <TouchableOpacity 
+              style={styles.promptButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                dismissProfilePrompt()
+              }}
+            >
               <Text style={styles.promptButtonText}>Got it</Text>
             </TouchableOpacity>
           </View>
@@ -220,27 +232,43 @@ export default function MyProfileScreen() {
 
         <View style={styles.avatarRow}>
           {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatarThumb} /> : <View style={styles.avatarThumbFallback} />}
-          <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar} disabled={uploading}>
+          <TouchableOpacity 
+            style={styles.avatarButton} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              handlePickAvatar()
+            }} 
+            disabled={uploading}
+          >
             <Text style={styles.avatarButtonText}>{uploading ? 'Uploading photo...' : 'Change photo'}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.actions}>
           {!editing ? (
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
-              <Text style={styles.primaryButtonText}>Edit profile details</Text>
-            </TouchableOpacity>
+            <ZoinkButton 
+              label="Edit profile details" 
+              variant="stamped" 
+              onPress={() => setEditing(true)} 
+            />
           ) : (
             <View style={styles.actionPair}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => {
-                syncForm(profile)
-                setEditing(false)
-              }}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={saving}>
-                <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save changes'}</Text>
-              </TouchableOpacity>
+              <ZoinkButton 
+                label="Cancel" 
+                variant="inset" 
+                onPress={() => {
+                  syncForm(profile)
+                  setEditing(false)
+                }} 
+                style={{ flex: 1 }}
+              />
+              <ZoinkButton 
+                label="Save changes" 
+                variant="stamped" 
+                onPress={handleSave} 
+                isLoading={saving}
+                style={{ flex: 1 }}
+              />
             </View>
           )}
         </View>
@@ -248,18 +276,41 @@ export default function MyProfileScreen() {
         <View style={styles.quickActionsPanel}>
           <Text style={styles.panelTitle}>Manage your Zoink account</Text>
           <View style={styles.quickActionRow}>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MyListings')}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('MyListings')
+              }}
+            >
               <Text style={styles.quickActionButtonText}>My listings</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingHistory')}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('BookingHistory')
+              }}
+            >
               <Text style={styles.quickActionButtonText}>My bookings</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.quickActionRow}>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('BookingRequests')}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('BookingRequests')
+              }}
+            >
               <Text style={styles.quickActionButtonText}>Requests</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('MainApp', { tab: 'Inbox' }
+              )}}>
               <Text style={styles.quickActionButtonText}>Inbox</Text>
             </TouchableOpacity>
           </View>
@@ -275,7 +326,7 @@ export default function MyProfileScreen() {
             editable={editing}
             style={[styles.input, !editing && styles.inputDisabled]}
             placeholder="First name"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
           />
 
           <Text style={styles.label}>Last name</Text>
@@ -285,7 +336,7 @@ export default function MyProfileScreen() {
             editable={editing}
             style={[styles.input, !editing && styles.inputDisabled]}
             placeholder="Last name"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
           />
 
           <Text style={styles.label}>Phone</Text>
@@ -295,7 +346,7 @@ export default function MyProfileScreen() {
             editable={editing}
             style={[styles.input, !editing && styles.inputDisabled]}
             placeholder="Optional contact number"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             keyboardType="phone-pad"
           />
 
@@ -306,13 +357,16 @@ export default function MyProfileScreen() {
             editable={editing}
             style={[styles.input, styles.bioInput, !editing && styles.inputDisabled]}
             placeholder="Add a quick line that feels like you"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             multiline
           />
         </View>
-        <TouchableOpacity style={styles.signOutButton} onPress={logout}>
-          <Text style={styles.signOutButtonText}>Sign out</Text>
-        </TouchableOpacity>
+        <ZoinkButton 
+          label="Sign out" 
+          variant="danger" 
+          onPress={logout} 
+          style={{ marginTop: 18 }}
+        />
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
@@ -346,12 +400,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   promptCard: {
-    backgroundColor: theme.surface,
-    borderRadius: 24,
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
+    borderRadius: 16,
     padding: 18,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   promptEyebrow: {
     color: theme.primary,
@@ -381,7 +435,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   promptButtonText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -401,10 +455,10 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: theme.surfaceSoft,
+    backgroundColor: theme.primarySurface,
   },
   avatarButton: {
-    backgroundColor: theme.colors.inkBase,
+    backgroundColor: '#051E09',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 14,
@@ -417,14 +471,12 @@ const styles = StyleSheet.create({
   actions: { marginBottom: 14 },
   actionPair: { flexDirection: 'row', gap: 10 },
   quickActionsPanel: {
-    backgroundColor: theme.glassFill,
-    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 16,
     padding: 18,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   quickActionRow: {
     flexDirection: 'row',
@@ -433,10 +485,10 @@ const styles = StyleSheet.create({
   },
   quickActionButton: {
     flex: 1,
-    backgroundColor: theme.screen,
-    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -453,7 +505,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -472,14 +524,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   panel: {
-    backgroundColor: theme.glassFill,
-    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 16,
     padding: 18,
     marginTop: 14,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   panelTitle: {
     color: theme.text,
@@ -495,10 +545,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   input: {
-    backgroundColor: theme.screen,
+    backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 16,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 13,
     color: theme.text,
@@ -538,3 +588,4 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
 })
+

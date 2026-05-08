@@ -1,9 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
 import {
   Animated,
-  Easing,
   LayoutChangeEvent,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,6 +10,7 @@ import {
   Platform,
 } from 'react-native'
 import { BlurView } from 'expo-blur'
+import { Feather } from '@expo/vector-icons'
 import ScreenBackground from '../components/ScreenBackground'
 import * as Haptics from 'expo-haptics'
 import { RouteProp, useRoute } from '@react-navigation/native'
@@ -35,25 +34,39 @@ type ScreenProps = {
 
 type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
 
-function getTabOffset(index: number, tabWidth: number) {
-  return index < 2 ? index * tabWidth : index * tabWidth + CENTER_SLOT_WIDTH
+const TAB_ICONS: Record<MainTab, keyof typeof Feather.glyphMap> = {
+  Home: 'home',
+  Search: 'search',
+  Inbox: 'mail',
+  MyProfile: 'user',
+}
+
+const TAB_LABELS: Record<MainTab, string> = {
+  Home: 'Home',
+  Search: 'Search',
+  Inbox: 'Inbox',
+  MyProfile: 'Profile',
 }
 
 function NavItem({
   active,
-  icon,
-  label,
+  tab,
   onPress,
 }: {
   active: boolean
-  icon: string
-  label: string
+  tab: MainTab
   onPress: () => void
 }) {
   return (
     <TouchableOpacity style={styles.navItem} onPress={onPress} activeOpacity={0.7}>
-      <Text style={[styles.navIcon, active ? styles.navIconActive : styles.navIconInactive]}>{icon}</Text>
-      <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>{label}</Text>
+      <Feather
+        name={TAB_ICONS[tab]}
+        size={20}
+        color={active ? theme.primary : 'rgba(255, 255, 255, 0.55)'}
+      />
+      <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>
+        {TAB_LABELS[tab]}
+      </Text>
     </TouchableOpacity>
   )
 }
@@ -65,8 +78,9 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   const [bottomBarWidth, setBottomBarWidth] = useState(0)
   const scrollX = useRef(new Animated.Value(0)).current
   const scrollViewRef = useRef<ScrollView>(null)
+  // Track the last haptic-fired index to avoid double-fires
+  const lastHapticIndex = useRef(TAB_ORDER.indexOf(route.params?.tab ?? 'Home'))
 
-  const activeIndex = TAB_ORDER.indexOf(activeTab)
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
     : 0
@@ -84,8 +98,9 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
   useEffect(() => {
     if (contentWidth > 0 && scrollViewRef.current) {
+      const idx = TAB_ORDER.indexOf(activeTab)
       scrollViewRef.current.scrollTo({
-        x: activeIndex * contentWidth,
+        x: idx * contentWidth,
         animated: false,
       })
     }
@@ -102,8 +117,8 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
     if (nextTab === activeTab) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
 
-    setActiveTab(nextTab)
     const nextIndex = TAB_ORDER.indexOf(nextTab)
+    lastHapticIndex.current = nextIndex
 
     if (contentWidth > 0 && scrollViewRef.current) {
       scrollViewRef.current.scrollTo({
@@ -113,18 +128,24 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
     }
   }, [activeTab, contentWidth])
 
-  const handleScrollEnd = (e: any) => {
+  // Continuously track scroll position and update active tab at the halfway point
+  const handleScroll = useCallback((e: any) => {
     if (!contentWidth) return
     const offsetX = e.nativeEvent.contentOffset.x
-    const newIndex = Math.round(offsetX / contentWidth)
+    const currentIndex = Math.round(offsetX / contentWidth)
 
-    if (newIndex >= 0 && newIndex < TAB_ORDER.length) {
-      const nextTab = TAB_ORDER[newIndex]
+    if (currentIndex >= 0 && currentIndex < TAB_ORDER.length) {
+      const nextTab = TAB_ORDER[currentIndex]
       if (nextTab !== activeTab) {
+        // Fire haptic only once per crossing
+        if (lastHapticIndex.current !== currentIndex) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          lastHapticIndex.current = currentIndex
+        }
         setActiveTab(nextTab)
       }
     }
-  }
+  }, [contentWidth, activeTab])
 
   const handleBottomBarLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width
@@ -148,13 +169,13 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
         />
       ) : null}
 
-      <NavItem active={activeTab === 'Home'} icon="⌂" label="Home" onPress={() => transitionToTab('Home')} />
-      <NavItem active={activeTab === 'Search'} icon="⌕" label="Search" onPress={() => transitionToTab('Search')} />
+      <NavItem active={activeTab === 'Home'} tab="Home" onPress={() => transitionToTab('Home')} />
+      <NavItem active={activeTab === 'Search'} tab="Search" onPress={() => transitionToTab('Search')} />
 
       <View style={styles.centerSlot} />
 
-      <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Inbox" onPress={() => transitionToTab('Inbox')} />
-      <NavItem active={activeTab === 'MyProfile'} icon="◉" label="Profile" onPress={() => transitionToTab('MyProfile')} />
+      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} />
+      <NavItem active={activeTab === 'MyProfile'} tab="MyProfile" onPress={() => transitionToTab('MyProfile')} />
     </View>
   )
 
@@ -178,10 +199,12 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
             directionalLockEnabled={true}
             onScroll={Animated.event(
               [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-              { useNativeDriver: true }
+              {
+                useNativeDriver: true,
+                listener: handleScroll,
+              }
             )}
             scrollEventThrottle={16}
-            onMomentumScrollEnd={handleScrollEnd}
             style={styles.tabStrip}
           >
             <View style={[styles.tabPanel, { width: contentWidth }]}>
@@ -213,7 +236,14 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
           )}
         </View>
 
-        <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateListing')} activeOpacity={0.9}>
+        <TouchableOpacity 
+          style={styles.createButton} 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
+            navigation.navigate('CreateListing')
+          }} 
+          activeOpacity={0.9}
+        >
           <Text style={styles.createButtonText}>+</Text>
         </TouchableOpacity>
       </View>
@@ -242,7 +272,7 @@ const styles = StyleSheet.create({
   },
   tabShadowWrapper: {
     borderRadius: 32,
-    shadowColor: theme.glassShadow,
+    shadowColor: theme.shadow,
     shadowOpacity: 0.25,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
@@ -250,21 +280,16 @@ const styles = StyleSheet.create({
   },
   blurWrapper: {
     borderRadius: 32,
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(255, 255, 255, 0.15)',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0, 0, 0, 0.12)',
-    // no borderWidth, no borderLeftWidth, no borderRightWidth
-    backgroundColor: theme.glassFill,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(15, 255, 80, 0.12)',
     overflow: 'hidden',
   },
   androidWrapper: {
     borderRadius: 32,
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(255, 255, 255, 0.15)',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0, 0, 0, 0.12)',
-    backgroundColor: 'rgba(5, 30, 9, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
+    backgroundColor: 'rgba(15, 255, 80, 0.22)',
     overflow: 'hidden',
   },
   bottomBar: {
@@ -280,34 +305,24 @@ const styles = StyleSheet.create({
     top: 6,
     bottom: 6,
     borderRadius: 14,
-    backgroundColor: theme.surfaceSoft,
+    backgroundColor: theme.primarySurface,
   },
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
-  },
-  navIcon: {
-    fontSize: 22,
-    fontWeight: '300',
-  },
-  navIconActive: {
-    color: theme.primary,
-  },
-  navIconInactive: {
-    color: theme.textMuted,
+    gap: 2,
   },
   navLabel: {
     fontSize: 10,
     fontWeight: '500',
-    marginTop: -2,
+    marginTop: 1,
   },
   navLabelActive: {
     color: theme.primary,
   },
   navLabelInactive: {
-    color: theme.textMuted,
+    color: 'rgba(255, 255, 255, 0.55)',
   },
   centerSlot: {
     width: CENTER_SLOT_WIDTH,

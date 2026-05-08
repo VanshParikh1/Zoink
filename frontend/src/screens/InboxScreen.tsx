@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, Image, Platform } from 'react-native'
-import { BlurView } from 'expo-blur'
+import * as Haptics from 'expo-haptics'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -77,39 +78,67 @@ export default function InboxScreen() {
         }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
         ListEmptyComponent={
-          error ? (
-            <StateCard
-              tone="error"
-              eyebrow="INBOX ISSUE"
-              title="Your inbox couldn’t load"
-              body={error}
-              actionLabel="Try again"
-              onAction={loadConversations}
-            />
-          ) : (
-            <StateCard
-              eyebrow="QUIET FOR NOW"
-              title="No conversations yet"
-              body="Open a listing and tap Message to start talking with an owner before you book."
-              actionLabel="Browse rentals"
-              onAction={() => nav.navigate('MainApp', { tab: 'Search' })}
-            />
-          )
+          <View style={styles.showcase}>
+            <Text style={styles.showcaseTitle}>Button Style Preview</Text>
+
+            {/* 1. LIME → DEEP GREEN (diagonal) */}
+            <TouchableOpacity 
+              style={styles.btnWrap} 
+              activeOpacity={0.8}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}) }}
+            >
+              <LinearGradient colors={[theme.primary, theme.primaryDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                <Text style={styles.btnText}>Continue</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* 2. SOFT MINT → LIME → DEEP (three-stop) */}
+            <TouchableOpacity style={styles.btnWrap} activeOpacity={0.8}>
+              <LinearGradient colors={['rgba(150, 232, 90, 1)', theme.primary, theme.primaryDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                <Text style={styles.btnText}>Create account</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* 3. LIME → FOREST (less neon) */}
+            <TouchableOpacity style={styles.btnWrap} activeOpacity={0.8}>
+              <LinearGradient colors={[theme.primary, 'rgba(78, 168, 34, 1)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                <Text style={styles.btnText}>Get started</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* 4. LEFT → RIGHT (flatter) */}
+            <TouchableOpacity style={styles.btnWrap} activeOpacity={0.8}>
+              <LinearGradient colors={[theme.primaryDeep, theme.primary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.btn}>
+                <Text style={styles.btnText}>Post to Zoink</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* 5. GHOST */}
+            <TouchableOpacity 
+              style={styles.ghostBtn}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}) }}
+            >
+              <Text style={styles.ghostText}>Learn more</Text>
+            </TouchableOpacity>
+          </View>
         }
         renderItem={({ item }) => {
           const imageUrl = item.listing.images?.[0]?.url
           return (
             <TouchableOpacity
               activeOpacity={0.75}
-              style={[styles.glassCard, item.unread && styles.glassCardUnread]}
-              onPress={() => nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })}
+              style={[styles.card, item.unread && styles.cardUnread]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })
+              }}
             >
               <View style={styles.cardLeft}>
                 {imageUrl ? (
-                  <Image source={{ uri: imageUrl }} style={styles.glassThumbnailImage} />
+                  <Image source={{ uri: imageUrl }} style={styles.thumbnailImage} />
                 ) : (
-                  <View style={styles.glassThumbnail}>
-                    <Text style={styles.glassThumbnailEmoji}>{item.listing.category || '💬'}</Text>
+                  <View style={styles.thumbnailPlaceholder}>
+                    <Text style={styles.thumbnailEmoji}>{item.listing.category || '🗨'}</Text>
                   </View>
                 )}
                 {item.unread ? <View style={styles.unreadDot} /> : null}
@@ -148,49 +177,86 @@ const styles = StyleSheet.create({
   },
   title: { color: theme.text, fontSize: 28, fontWeight: '500', marginBottom: 4, letterSpacing: -0.5 },
   subtitle: { color: theme.textMuted, fontSize: 14, fontWeight: '300' },
-  glassCard: {
+  showcase: {
+    marginTop: 20,
+    gap: 16,
+  },
+  showcaseTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  btnWrap: {
+    width: '100%',
+  },
+  btn: {
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  btnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.textOnPrimary,
+  },
+  ghostBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 10,
+    backgroundColor: 'rgba(109, 216, 50, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(109, 216, 50, 0.30)',
+    alignItems: 'center',
+  },
+  ghostText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.primaryDeep,
+  },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.glassFill,
-    borderRadius: 16,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     padding: 16,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: theme.cardBorder,
     marginBottom: 12,
-    shadowColor: theme.glassShadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  glassCardUnread: {
-    borderColor: theme.glassPrimaryBorder,
-    backgroundColor: theme.glassPrimaryFill,
+  cardUnread: {
+    borderColor: theme.primary,
+    backgroundColor: theme.primarySurface,
   },
   cardLeft: {
     position: 'relative',
     marginRight: 16,
   },
-  glassThumbnailImage: {
+  thumbnailImage: {
     width: 64,
     height: 64,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
   },
-  glassThumbnail: {
+  thumbnailPlaceholder: {
     width: 64,
     height: 64,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
   },
-  glassThumbnailEmoji: {
+  thumbnailEmoji: {
     fontSize: 28,
   },
   unreadDot: {
@@ -227,7 +293,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   cardTime: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
     fontSize: 12,
     fontWeight: '300',
   },
@@ -242,3 +308,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 })
+

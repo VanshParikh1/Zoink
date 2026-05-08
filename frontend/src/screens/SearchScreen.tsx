@@ -22,7 +22,7 @@ import SearchBar from '../components/SearchBar'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const SCREEN_WIDTH = Dimensions.get('window').width
-const CATEGORIES = ['All', 'Tech', 'Tools', 'Rides', 'Clothes', 'Music']
+const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
 type MockOwner = {
   id: string
@@ -42,20 +42,20 @@ type MockListing = {
 }
 
 const MOCK_TRENDING: MockListing[] = [
-  { id: 't1', title: 'Sony A7III Camera', category: '📷', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
-  { id: 't2', title: 'Makita Power Drill', category: '🛠️', distanceKm: 3.4, dailyPrice: 15, isAvailable: false, owner: { id: 'o2', name: 'Sam K.', rating: 4.9, verified: false } },
-  { id: 't3', title: 'DJI Mavic Mini', category: '🚁', distanceKm: 0.8, dailyPrice: 30, isAvailable: true, owner: { id: 'o3', name: 'Jordan P.', rating: 5.0, verified: true } },
+  { id: 't1', title: 'Sony A7III Camera', category: '\u{1F4F7}', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
+  { id: 't2', title: 'Makita Power Drill', category: '\u{1F6E0}', distanceKm: 3.4, dailyPrice: 15, isAvailable: false, owner: { id: 'o2', name: 'Sam K.', rating: 4.9, verified: false } },
+  { id: 't3', title: 'DJI Mavic Mini', category: '\u{1F681}', distanceKm: 0.8, dailyPrice: 30, isAvailable: true, owner: { id: 'o3', name: 'Jordan P.', rating: 5.0, verified: true } },
 ]
 
 const MOCK_RECENT: MockListing[] = [
-  { id: 'r1', title: 'JBL PartyBox 310', category: '🎵', distanceKm: 2.1, dailyPrice: 25, isAvailable: true, owner: { id: 'o4', name: 'Casey R.', rating: 4.7, verified: true } },
-  { id: 'r2', title: 'North Face Tent', category: '🏕️', distanceKm: 5.5, dailyPrice: 20, isAvailable: true, owner: { id: 'o5', name: 'Taylor W.', rating: 4.6, verified: false } },
+  { id: 'r1', title: 'JBL PartyBox 310', category: '\u{1F3B5}', distanceKm: 2.1, dailyPrice: 25, isAvailable: true, owner: { id: 'o4', name: 'Casey R.', rating: 4.7, verified: true } },
+  { id: 'r2', title: 'North Face Tent', category: '\u{26FA}', distanceKm: 5.5, dailyPrice: 20, isAvailable: true, owner: { id: 'o5', name: 'Taylor W.', rating: 4.6, verified: false } },
 ]
 
 const MOCK_RESULTS: MockListing[] = [
-  { id: 's1', title: 'Sony A7III Camera', category: '📷', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
-  { id: 's2', title: 'Canon EOS R5', category: '📷', distanceKm: 2.8, dailyPrice: 65, isAvailable: true, owner: { id: 'o6', name: 'Morgan L.', rating: 4.9, verified: true } },
-  { id: 's3', title: 'Vintage Film Camera', category: '📷', distanceKm: 4.1, dailyPrice: 18, isAvailable: false, owner: { id: 'o7', name: 'Drew T.', rating: 4.5, verified: false } },
+  { id: 's1', title: 'Sony A7III Camera', category: '\u{1F4F7}', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
+  { id: 's2', title: 'Canon EOS R5', category: '\u{1F4F7}', distanceKm: 2.8, dailyPrice: 65, isAvailable: true, owner: { id: 'o6', name: 'Morgan L.', rating: 4.9, verified: true } },
+  { id: 's3', title: 'Vintage Film Camera', category: '\u{1F4F7}', distanceKm: 4.1, dailyPrice: 18, isAvailable: false, owner: { id: 'o7', name: 'Drew T.', rating: 4.5, verified: false } },
 ]
 
 function MiniProfile({ owner }: { owner: MockOwner }) {
@@ -68,10 +68,10 @@ function MiniProfile({ owner }: { owner: MockOwner }) {
       <Text style={styles.miniName}>
         {owner.name}
         {owner.verified ? (
-          <Text style={styles.verifiedTick}> ✓</Text>
+          <Text style={styles.verifiedTick}> {"\u2713"}</Text>
         ) : null}
       </Text>
-      <Text style={styles.miniRating}>★ {owner.rating.toFixed(1)}</Text>
+      <Text style={styles.miniRating}>{"\u2605"} {owner.rating.toFixed(1)}</Text>
     </View>
   )
 }
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 1,
-    backgroundColor: theme.glassBorder,
+    backgroundColor: theme.border,
     marginHorizontal: 24,
     marginVertical: 4,
   },
@@ -296,15 +296,15 @@ const styles = StyleSheet.create({
   /* --- Glass Cards --- */
   glassCardVertical: {
     width: (SCREEN_WIDTH - 48) * 0.75,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: theme.border,
+    borderTopColor: theme.border,
+    borderBottomColor: theme.borderBottom,
     overflow: 'hidden',
     padding: 16,
-    shadowColor: theme.glassShadow,
+    shadowColor: theme.shadow,
     shadowOpacity: 0.25,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
   },
   glassThumbnailEmojiLarge: {
     fontSize: 48,
@@ -334,12 +334,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeAvailable: {
-    backgroundColor: theme.glassPrimaryFill,
-    borderColor: theme.glassPrimaryBorder,
+    backgroundColor: theme.primarySurface,
+    borderColor: theme.borderFocus,
   },
   badgeUnavailable: {
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
   },
   badgeText: {
     fontSize: 10,
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     color: theme.primary,
   },
   badgeTextUnavailable: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
   },
   glassCardBody: {
     flex: 1,
@@ -376,12 +376,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   glassPriceUnit: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
     fontSize: 12,
     fontWeight: '300',
   },
   glassDistance: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
     fontSize: 13,
     fontWeight: '300',
   },
@@ -395,13 +395,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
-    shadowColor: theme.glassShadow,
+    borderColor: theme.border,
+    borderTopColor: theme.border,
+    borderBottomColor: theme.borderBottom,
+    shadowColor: theme.shadow,
     shadowOpacity: 0.25,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 16,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
   },
   glassThumbnailEmojiSmall: {
     fontSize: 28,
@@ -450,15 +450,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   glassChipSelected: {
-    backgroundColor: theme.glassPrimaryFill,
-    borderColor: theme.glassPrimaryBorder,
+    backgroundColor: theme.primarySurface,
+    borderColor: theme.borderFocus,
     borderTopColor: 'rgba(22, 255, 110, 0.4)',
   },
   glassChipUnselected: {
-    backgroundColor: theme.glassFill,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    backgroundColor: theme.surfaceSubdued,
+    borderColor: theme.border,
+    borderTopColor: theme.border,
+    borderBottomColor: theme.borderBottom,
   },
   chipTextSelected: {
     color: theme.primary,
@@ -515,3 +515,4 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
 })
+

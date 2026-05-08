@@ -13,6 +13,7 @@ import {
   FlatList,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import * as Haptics from 'expo-haptics'
 import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -21,8 +22,9 @@ import { getListing, setAvailability, deleteListing } from '../services/listings
 import { openConversation } from '../services/conversationsApi'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
-import LogoPlaceholder from '../components/LogoPlaceholder'
+import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
+import ZoinkButton from '../components/ZoinkButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -159,16 +161,28 @@ export default function ListingDetailScreen() {
           </View>
         ) : (
           <View style={styles.noImageBox}>
-            <LogoPlaceholder size="medium" style={styles.noImageLogo} />
+            <ZoinkLogo size={60} style={styles.noImageLogo} />
             <Text style={styles.noImageText}>No photos yet</Text>
           </View>
         )}
 
         <View style={styles.floatingRow}>
-          <TouchableOpacity style={styles.floatingBtn} onPress={() => nav.goBack()}>
+          <TouchableOpacity 
+            style={styles.floatingBtn} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              nav.goBack()
+            }}
+          >
             <Text style={styles.floatingBtnText}>{'<'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.floatingBtn} onPress={handleShare}>
+          <TouchableOpacity 
+            style={styles.floatingBtn} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              handleShare()
+            }}
+          >
             <Text style={styles.floatingBtnText}>Share</Text>
           </TouchableOpacity>
         </View>
@@ -199,7 +213,7 @@ export default function ListingDetailScreen() {
 
           <Text style={styles.sectionTitle}>Listed by</Text>
           <TouchableOpacity
-            style={styles.ownerRow}
+            style={styles.ownerCard}
             activeOpacity={0.9}
             onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
           >
@@ -228,30 +242,26 @@ export default function ListingDetailScreen() {
             <View style={styles.ownerActions}>
               <Text style={styles.sectionTitle}>Manage listing</Text>
 
-              <TouchableOpacity
-                style={styles.editBtn}
+              <ZoinkButton
+                label="Edit details"
+                variant="inset"
                 onPress={() => nav.navigate('EditListing', { listingId: listing.id })}
-              >
-                <Text style={styles.editBtnText}>Edit details</Text>
-              </TouchableOpacity>
+                style={{ marginBottom: 12 }}
+              />
 
-              <TouchableOpacity
-                style={[styles.availBtn, listing.isAvailable ? styles.availBtnOff : styles.availBtnOn]}
+              <ZoinkButton
+                label={listing.isAvailable ? 'Mark as unavailable' : 'Mark as available'}
+                variant={listing.isAvailable ? 'inset' : 'stamped'}
                 onPress={handleToggleAvailability}
-                disabled={toggling}
-              >
-                {toggling ? (
-                  <ActivityIndicator color={theme.primaryText} />
-                ) : (
-                  <Text style={styles.availBtnText}>
-                    {listing.isAvailable ? 'Mark as unavailable' : 'Mark as available'}
-                  </Text>
-                )}
-              </TouchableOpacity>
+                isLoading={toggling}
+                style={{ marginBottom: 12 }}
+              />
 
-              <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
-                <Text style={styles.deleteBtnText}>Delete listing</Text>
-              </TouchableOpacity>
+              <ZoinkButton
+                label="Delete listing"
+                variant="danger"
+                onPress={handleDelete}
+              />
             </View>
           )}
         </View>
@@ -268,19 +278,20 @@ export default function ListingDetailScreen() {
           </View>
 
           <View style={styles.footerActions}>
-            <TouchableOpacity style={styles.messageBtn} onPress={handleMessageOwner}>
-              <Text style={styles.messageBtnText}>Message</Text>
-            </TouchableOpacity>
+            <ZoinkButton 
+              label="Message" 
+              variant="stampedOutline" 
+              onPress={handleMessageOwner}
+              style={{ flex: 1 }}
+            />
 
-            <TouchableOpacity
-              style={[styles.rentBtn, !listing.isAvailable && styles.rentBtnDisabled]}
-              disabled={!listing.isAvailable}
+            <ZoinkButton 
+              label={listing.isAvailable ? 'Request to rent' : 'Unavailable'} 
+              variant="stamped" 
               onPress={() => nav.navigate('BookingRequest', { listingId: listing.id })}
-            >
-              <Text style={styles.rentBtnText}>
-                {listing.isAvailable ? 'Request to rent' : 'Unavailable'}
-              </Text>
-            </TouchableOpacity>
+              disabled={!listing.isAvailable}
+              style={{ flex: 1 }}
+            />
           </View>
         </View>
       )}
@@ -290,7 +301,7 @@ export default function ListingDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   carouselContainer: { position: 'relative' },
   carouselImage: { width: SCREEN_WIDTH, height: 280 },
   dotRow: {
@@ -338,7 +349,21 @@ const styles = StyleSheet.create({
   location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },
   sectionTitle: { fontSize: 16, fontWeight: '900', color: theme.text, marginTop: 24, marginBottom: 10 },
   description: { fontSize: 15, color: theme.textMuted, lineHeight: 22 },
-  ownerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  ownerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   avatar: { width: 48, height: 48, borderRadius: 24 },
   avatarPlaceholder: {
     width: 48,
@@ -348,27 +373,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarInitial: { color: theme.primaryText, fontSize: 20, fontWeight: '900' },
+  avatarInitial: { color: theme.textOnPrimary, fontSize: 20, fontWeight: '900' },
   ownerName: { fontSize: 15, fontWeight: '800', color: theme.text },
   verified: { fontSize: 12, color: theme.primary, marginTop: 2, fontWeight: '800' },
   profileHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, fontWeight: '700' },
   ownerActions: { marginTop: 8 },
   editBtn: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     paddingVertical: 13,
     alignItems: 'center',
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   editBtnText: { color: theme.text, fontWeight: '800', fontSize: 15 },
-  availBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 10 },
+  availBtn: { borderRadius: 8, paddingVertical: 13, alignItems: 'center', marginBottom: 10 },
   availBtnOn: { backgroundColor: theme.primary },
-  availBtnOff: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
-  availBtnText: { color: theme.primaryText, fontWeight: '900', fontSize: 15 },
+  availBtnOff: { backgroundColor: theme.colors.dangerSurface, borderWidth: 1, borderColor: theme.colors.danger },
+  availBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
   deleteBtn: { alignItems: 'center', paddingVertical: 10 },
-  deleteBtnText: { color: '#EF4444', fontWeight: '600', fontSize: 14 },
+  deleteBtnText: { color: theme.colors.danger, fontWeight: '600', fontSize: 14 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -394,6 +424,7 @@ const styles = StyleSheet.create({
   },
   messageBtnText: { color: theme.text, fontWeight: '800', fontSize: 14 },
   rentBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
-  rentBtnDisabled: { backgroundColor: theme.surfaceSoft },
-  rentBtnText: { color: theme.primaryText, fontWeight: '900', fontSize: 15 },
+  rentBtnDisabled: { backgroundColor: theme.primarySurface },
+  rentBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
 })
+

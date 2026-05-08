@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+﻿import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -232,14 +232,14 @@ export default function BookingRequestScreen() {
             style={styles.calendarArrow}
             onPress={() => setCalendarMonth((current) => addMonths(current, -1))}
           >
-            <Text style={styles.calendarArrowText}>‹</Text>
+            <Text style={styles.calendarArrowText}>â€¹</Text>
           </TouchableOpacity>
           <Text style={styles.calendarHeaderText}>Choose your dates</Text>
           <TouchableOpacity
             style={styles.calendarArrow}
             onPress={() => setCalendarMonth((current) => addMonths(current, 1))}
           >
-            <Text style={styles.calendarArrowText}>›</Text>
+            <Text style={styles.calendarArrowText}>â€º</Text>
           </TouchableOpacity>
         </View>
 
@@ -320,7 +320,7 @@ export default function BookingRequestScreen() {
           value={message}
           onChangeText={setMessage}
           placeholder="Add pickup timing, questions, or a quick intro"
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
           style={[styles.input, styles.textarea]}
           multiline
           textAlignVertical="top"
@@ -335,7 +335,7 @@ export default function BookingRequestScreen() {
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Rental days</Text>
-          <Text style={styles.rowValue}>{rentalDays > 0 ? rentalDays : '—'}</Text>
+          <Text style={styles.rowValue}>{rentalDays > 0 ? rentalDays : 'â€”'}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Rental total</Text>
@@ -348,7 +348,7 @@ export default function BookingRequestScreen() {
       </View>
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.submitText}>Send request</Text>}
+        {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
       </TouchableOpacity>
       </ScrollView>
     </ScreenBackground>
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   dayTextMuted: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
   },
   dayTextDisabled: {
     color: 'rgba(4, 15, 15, 0.22)',
@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
     color: theme.primary,
   },
   dayTextSelected: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
   },
   clearButton: {
     alignSelf: 'flex-start',
@@ -534,5 +534,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  submitText: { color: theme.primaryText, fontSize: 16, fontWeight: '800' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '800' },
 })
+

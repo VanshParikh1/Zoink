@@ -22,6 +22,42 @@ async function main() {
   })
 
   console.log('Seeded user:', user.email)
+
+  // Seed some sample listings
+  const listingsCount = await prisma.listing.count()
+  if (listingsCount === 0) {
+    const categories = ['Electronics', 'Tools', 'Sports', 'Outdoors']
+    
+    await prisma.listing.create({
+      data: {
+        title: 'Sony A7III Camera',
+        description: 'Professional full-frame mirrorless camera. Includes 24-70mm lens.',
+        category: 'Electronics',
+        dailyPrice: 45.00,
+        city: 'Toronto',
+        latitude: 43.6532,
+        longitude: -79.3832,
+        ownerId: user.id,
+        isAvailable: true,
+      }
+    })
+
+    await prisma.listing.create({
+      data: {
+        title: 'Makita Power Drill',
+        description: 'High torque power drill with 2 batteries and charger.',
+        category: 'Tools',
+        dailyPrice: 15.00,
+        city: 'Toronto',
+        latitude: 43.6532,
+        longitude: -79.3832,
+        ownerId: user.id,
+        isAvailable: true,
+      }
+    })
+
+    console.log('Seeded sample listings in Toronto')
+  }
 }
 
 main()

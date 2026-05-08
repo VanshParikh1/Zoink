@@ -9,13 +9,12 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
-import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import LogoPlaceholder from '../components/LogoPlaceholder'
+import ScreenBackground from '../components/ScreenBackground'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
@@ -31,14 +30,11 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     setError('')
-
     if (!email || !password) {
       setError('Please fill in all fields.')
       return
     }
-
     setLoading(true)
-
     try {
       await login(email.trim().toLowerCase(), password)
     } catch (e: any) {
@@ -51,90 +47,173 @@ export default function LoginScreen() {
   return (
     <ScreenBackground>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <View style={styles.inner}>
-        <LogoPlaceholder size="large" style={styles.logo} />
-        <Text style={styles.kicker}>student rentals</Text>
-        <Text style={styles.title}>Welcome back to Zoink</Text>
-        <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
+        <View style={styles.inner}>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+          {/* Header & Logo */}
+          <ZoinkFullLogo width={760} height={220} style={styles.logo} />
+          <Text style={styles.kicker}>student rentals</Text>
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="University email"
-          placeholderTextColor={theme.textFaint}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor={theme.textFaint}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+          {/* Form */}
+          <View style={styles.form}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-          {loading ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.buttonText}>Sign in</Text>}
-        </TouchableOpacity>
+            <TextInput
+              style={styles.input}
+              placeholder="University email"
+              placeholderTextColor={theme.textDisabled}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor={theme.textDisabled}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+            />
 
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-          <Text style={styles.link}>
-            Do not have an account? <Text style={styles.linkBold}>Sign up</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
+            {/* Tactile stamped button */}
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.75}
+            >
+              {loading
+                ? <ActivityIndicator color={theme.textOnPrimary} />
+                : <Text style={styles.buttonText}>Sign in</Text>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Register')} activeOpacity={0.7}>
+              <Text style={styles.link}>
+                Don't have an account?{' '}
+                <Text style={styles.linkBold}>Sign up</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+        </View>
       </KeyboardAvoidingView>
     </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  inner: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  logo: { marginBottom: 22 },
-  kicker: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    marginBottom: 10,
+  flex: {
+    flex: 1,
   },
-  title: { fontSize: 32, fontWeight: '900', color: theme.text, marginBottom: 8 },
-  subtitle: { fontSize: 16, color: theme.textMuted, marginBottom: 32, lineHeight: 23 },
-  error: { color: theme.colors.danger, marginBottom: 16, fontSize: 14, fontWeight: '600' },
+  inner: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+
+    // tighter vertical spacing
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  logo: {
+    alignSelf: 'center',
+
+    // less space below logo
+    marginBottom: -8,
+  },
+  kicker: {
+    color: theme.primaryDeep,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+
+    // tighter
+    marginBottom: 4,
+
+    alignSelf: 'center',
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: theme.text,
+
+    // tighter
+    marginBottom: 4,
+
+    letterSpacing: -0.5,
+
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: theme.textMuted,
+    lineHeight: 20,
+
+    textAlign: 'center',
+  },
+  form: {
+    width: '100%',
+
+    // MUCH tighter
+    marginTop: 14,
+  },
+  error: {
+    color: theme.danger,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 15,
     fontSize: 16,
-    marginBottom: 14,
+
+    // tighter
+    marginBottom: 10,
+
     backgroundColor: theme.surface,
     color: theme.text,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    elevation: 1,
   },
   button: {
     backgroundColor: theme.primary,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 24,
+
+    // tighter
+    marginTop: 2,
+    marginBottom: 16,
+
+    borderBottomWidth: 4,
+    borderBottomColor: theme.primaryDeep,
+    borderRightWidth: 2,
+    borderRightColor: theme.primaryDeep,
   },
-  buttonText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
-  link: { textAlign: 'center', color: theme.textMuted, fontSize: 14 },
-  linkBold: { fontWeight: '900', color: theme.primary },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: theme.textOnPrimary,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  link: {
+    textAlign: 'center',
+    color: theme.textMuted,
+    fontSize: 14,
+  },
+  linkBold: {
+    fontWeight: '900',
+    color: theme.primary,
+  },
 })

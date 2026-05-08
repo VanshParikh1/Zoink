@@ -90,7 +90,7 @@ export default function BookingRequestsScreen() {
             <StateCard
               tone="error"
               eyebrow="REQUEST ISSUE"
-              title="Incoming requests couldn’t load"
+              title="Incoming requests couldnâ€™t load"
               body={error}
               actionLabel="Try again"
               onAction={loadBookings}
@@ -99,7 +99,7 @@ export default function BookingRequestsScreen() {
             <StateCard
               eyebrow="ALL CLEAR"
               title="No requests have landed yet"
-              body="As soon as someone wants one of your items, you’ll be able to review dates and respond from here."
+              body="As soon as someone wants one of your items, youâ€™ll be able to review dates and respond from here."
               actionLabel="View my listings"
               onAction={() => nav.navigate('MyListings')}
             />
@@ -148,14 +148,19 @@ const styles = StyleSheet.create({
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { color: theme.text, fontSize: 28, fontWeight: '900' },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  summaryText: { color: theme.textFaint, fontSize: 13, marginTop: 10, fontWeight: '700' },
+  summaryText: { color: theme.textDisabled, fontSize: 13, marginTop: 10, fontWeight: '700' },
   card: {
-    backgroundColor: theme.surface,
-    borderRadius: 22,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     padding: 18,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.cardBorder,
     marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cardTitle: { color: theme.text, fontSize: 17, fontWeight: '900', marginBottom: 8 },
   cardMeta: { color: theme.textMuted, fontSize: 14, marginBottom: 14, lineHeight: 20 },
@@ -164,7 +169,8 @@ const styles = StyleSheet.create({
   cardStatus: { color: theme.text, fontSize: 13, fontWeight: '800' },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   acceptButton: { flex: 1, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  acceptText: { color: theme.primaryText, fontSize: 14, fontWeight: '900' },
+  acceptText: { color: theme.textOnPrimary, fontSize: 14, fontWeight: '900' },
   declineButton: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingVertical: 12, alignItems: 'center' },
   declineText: { color: theme.text, fontSize: 14, fontWeight: '800' },
 })
+

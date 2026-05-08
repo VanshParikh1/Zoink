@@ -229,15 +229,12 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
 
 const styles = StyleSheet.create({
   shell: {
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: theme.glassFill,
-    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: 24,
     padding: 20,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    overflow: 'hidden',
   },
   glowA: {
     position: 'absolute',
@@ -271,7 +268,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   tierChipText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 0.8,
@@ -285,7 +282,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 18,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
   },
   heroImage: {
     width: '100%',
@@ -295,7 +292,7 @@ const styles = StyleSheet.create({
     height: 240,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.inkBase,
+    backgroundColor: '#051E09',
   },
   heroFallbackText: {
     color: theme.primary,
@@ -324,19 +321,21 @@ const styles = StyleSheet.create({
   },
   statBubble: {
     minWidth: 76,
-    backgroundColor: theme.glassFill,
+    backgroundColor: 'rgba(15, 255, 80, 0.1)',
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   statBubbleValue: {
-    color: theme.primary,
+    color: theme.primaryDeep,
     fontSize: 24,
     fontWeight: '900',
   },
   statBubbleLabel: {
-    color: theme.textFaint,
+    color: 'rgba(5, 30, 9, 0.5)',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -357,7 +356,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     borderWidth: 1,
     borderColor: theme.border,
   },
@@ -384,9 +383,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.text,
   },
   badgeSoft: {
-    backgroundColor: theme.glassFill,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   badgeText: {
     fontSize: 12,
@@ -394,7 +393,7 @@ const styles = StyleSheet.create({
     color: theme.text,
   },
   badgeTextBright: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
   },
   badgeTextDark: {
     color: theme.colors.inkBase,
@@ -406,10 +405,12 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: theme.glassFill,
-    borderRadius: 18,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     paddingVertical: 14,
     paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
   },
   statLabel: {
     color: theme.textMuted,
@@ -423,12 +424,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   panel: {
-    backgroundColor: theme.glassFill,
-    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   panelTitle: {
     color: theme.text,
@@ -486,3 +487,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 })
+

@@ -1,98 +1,60 @@
 import React from 'react'
-import { View, StyleSheet, StyleProp, ViewStyle, Dimensions, Platform } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { View, StyleSheet, Dimensions, Platform } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { theme } from '../theme/colors'
 
+const { width: W, height: H } = Dimensions.get('window')
+
 interface Props {
   children: React.ReactNode
-  style?: StyleProp<ViewStyle>
+  style?: any
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
-
 /**
- * ScreenBackground – Liquid Glass Light Edition.
- * Features a bright white/gray gradient with vibrant lime green blobs
- * to create a luminous backdrop for frosted glass layers.
+ * ScreenBackground – Blurred blob backdrop.
+ * Three organic circles at balanced positions, blurred into soft ambient glows.
  */
 export default function ScreenBackground({ children, style }: Props) {
   return (
-    <LinearGradient colors={theme.backgroundGradient} style={[styles.root, style]}>
-      {/* Blob 1: Vibrant Top-Left (Lime) */}
-      <View
+    <View style={[styles.container, style]}>
+      {/* Colored circles */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={[styles.blob, styles.blobA]} />
+      </View>
+
+      {/* Blur layer */}
+      <BlurView
+        intensity={Platform.OS === 'ios' ? 55 : 25}
+        tint="light"
+        style={StyleSheet.absoluteFill}
         pointerEvents="none"
-        style={styles.blob1}
       />
-
-      {/* Blob 3: Center Anchor (Green Glow) */}
-      <View
-        pointerEvents="none"
-        style={styles.blob3}
-      />
-
-      {/* Blob 2: Bottom-Right (Emerald) */}
-      <View
-        pointerEvents="none"
-        style={styles.blob2}
-      />
-
-      {/* Tactile noise overlay */}
-      <View 
-        pointerEvents="none" 
-        style={styles.noiseOverlay} 
-      />
-
-      {/* Blur the blobs to create a soft luminous glow */}
-      {Platform.OS === 'ios' ? (
-        <BlurView 
-          intensity={80} 
-          tint="dark" 
-          style={StyleSheet.absoluteFillObject} 
-          pointerEvents="none"
-        />
-      ) : null}
 
       {children}
-    </LinearGradient>
+    </View>
   )
 }
 
+const BLOB_SIZE_A = 260
+
 const styles = StyleSheet.create({
-  root: {
+  container: {
     flex: 1,
+    backgroundColor: theme.screen,
     overflow: 'hidden',
-    backgroundColor: theme.colors.inkBase,
   },
-  blob1: {
+
+  blob: {
     position: 'absolute',
-    width: SCREEN_WIDTH * 1.6,
-    height: SCREEN_WIDTH * 1.6,
-    borderRadius: (SCREEN_WIDTH * 1.6) / 2,
-    backgroundColor: theme.blobColor1,
-    top: -SCREEN_WIDTH * 0.6,
-    left: -SCREEN_WIDTH * 0.5,
+    borderRadius: 999,
   },
-  blob2: {
-    position: 'absolute',
-    width: SCREEN_WIDTH * 1.4,
-    height: SCREEN_WIDTH * 1.4,
-    borderRadius: (SCREEN_WIDTH * 1.4) / 2,
-    backgroundColor: theme.blobColor2,
-    bottom: -SCREEN_WIDTH * 0.4,
-    right: -SCREEN_WIDTH * 0.5,
-  },
-  blob3: {
-    position: 'absolute',
-    width: SCREEN_WIDTH * 1.2,
-    height: SCREEN_WIDTH * 1.2,
-    borderRadius: (SCREEN_WIDTH * 1.2) / 2,
-    backgroundColor: theme.blobColor3,
-    bottom: -SCREEN_WIDTH * 0.2,
-    left: -SCREEN_WIDTH * 0.1,
-  },
-  noiseOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)', // subtle noise overlay
+
+  // ● Top-right — brand green highlight
+  blobA: {
+    width: BLOB_SIZE_A,
+    height: BLOB_SIZE_A,
+    backgroundColor: 'rgba(109, 216, 50, 0.28)', // logo green tint
+    top: 40,
+    right: -50,
   },
 })

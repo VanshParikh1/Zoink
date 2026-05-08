@@ -16,7 +16,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getMyListings } from '../services/listingsApi'
 import { Listing } from '../types'
-import LogoPlaceholder from '../components/LogoPlaceholder'
+import ZoinkLogo from '../components/ZoinkLogo'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -64,7 +65,7 @@ export default function MyListingsScreen() {
           <Image source={{ uri: imageUrl }} style={styles.image} />
         ) : (
           <View style={[styles.image, styles.imageFallback]}>
-            <LogoPlaceholder size="small" />
+            <ZoinkFullLogo width={80} height={24} />
           </View>
         )}
 
@@ -115,7 +116,7 @@ export default function MyListingsScreen() {
         ListEmptyComponent={
           error ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyErrorTitle}>Your listings couldn’t load</Text>
+              <Text style={styles.emptyErrorTitle}>Your listings couldnâ€™t load</Text>
               <Text style={styles.emptyText}>{error}</Text>
               <TouchableOpacity style={styles.btn} onPress={fetchListings}>
                 <Text style={styles.btnText}>Try again</Text>
@@ -123,7 +124,7 @@ export default function MyListingsScreen() {
             </View>
           ) : (
             <View style={styles.empty}>
-              <LogoPlaceholder size="medium" style={styles.emptyLogo} />
+              <ZoinkLogo size={60} style={styles.emptyLogo} />
               <Text style={styles.emptyTitle}>You have not listed anything yet.</Text>
               <Text style={styles.emptyText}>Post your first item to start getting requests from nearby students.</Text>
               <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('CreateListing')}>
@@ -171,7 +172,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-  image: { width: 70, height: 70, borderRadius: 12, backgroundColor: theme.surfaceSoft },
+  image: { width: 70, height: 70, borderRadius: 12, backgroundColor: theme.primarySurface },
   imageFallback: { alignItems: 'center', justifyContent: 'center' },
   cardContent: { flex: 1, marginLeft: 16 },
   title: { fontSize: 16, fontWeight: '900', color: theme.text, marginBottom: 4 },
@@ -188,5 +189,6 @@ const styles = StyleSheet.create({
   emptyErrorTitle: { color: theme.colors.danger, fontSize: 20, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
   emptyText: { color: theme.textMuted, fontSize: 16, marginBottom: 20, textAlign: 'center', lineHeight: 22, maxWidth: 280 },
   btn: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  btnText: { color: theme.primaryText, fontWeight: '900' },
+  btnText: { color: theme.textOnPrimary, fontWeight: '900' },
 })
+

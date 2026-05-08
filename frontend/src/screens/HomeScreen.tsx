@@ -19,15 +19,16 @@ import { RootStackParamList } from '../navigation'
 import { Listing } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
 import { theme } from '../theme/colors'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
-const DEFAULT_RADIUS_KM = 25
-const CATEGORIES = ['All', 'Tech', 'Tools', 'Rides', 'Clothes', 'Music']
+const DEFAULT_RADIUS_KM = 5000
+const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
 export default function HomeScreen() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const nav = useNavigation<Nav>()
 
   const [listings, setListings] = useState<Listing[]>([])
@@ -45,6 +46,7 @@ export default function HomeScreen() {
         lng: currentCoords.longitude,
         radius: DEFAULT_RADIUS_KM,
       })
+      console.log(`Fetched ${data.length} listings at radius ${DEFAULT_RADIUS_KM}km`)
       setListings(data)
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
@@ -161,6 +163,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.headerBlock}>
+            <ZoinkFullLogo width={120} height={40} style={{ marginBottom: 20 }} />
             {/* ── Top row: greeting + bell ── */}
             <View style={styles.headerTopRow}>
               <View>
@@ -171,11 +174,11 @@ export default function HomeScreen() {
                 style={styles.bellButton}
                 activeOpacity={0.75}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                  nav.navigate('MainApp', { tab: 'Inbox' })
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
+                  logout()
                 }}
               >
-                <Text style={styles.bellIcon}>🔔</Text>
+                <Text style={styles.bellIcon}>🚪</Text>
               </TouchableOpacity>
             </View>
 
@@ -283,7 +286,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingScreen: {
     flex: 1,
-    backgroundColor: theme.screen,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -303,7 +305,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -312,15 +314,18 @@ const styles = StyleSheet.create({
   bellIcon: { fontSize: 18 },
   // ── Hero card ──────────────────────────────────────────
   heroCard: {
-    borderRadius: 24,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
     overflow: 'hidden',
     marginBottom: 16,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   heroCardInner: {
     marginBottom: 20,
@@ -350,7 +355,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: theme.surfaceSoft,
+    backgroundColor: theme.primarySurface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -373,26 +378,29 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   chipSelected: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.glassFill },
-  chipTextSelected: { color: theme.primaryText, fontWeight: '500', fontSize: 13 },
+  chipUnselected: { backgroundColor: theme.surfaceSubdued },
+  chipTextSelected: { color: theme.textOnPrimary, fontWeight: '500', fontSize: 13 },
   chipTextUnselected: { color: theme.textMuted, fontWeight: '300', fontSize: 13 },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
   // ── Listing grid ──────────────────────────────────────
   rowWrapper: { gap: 14, justifyContent: 'space-between', marginBottom: 14 },
   card: {
     flex: 1,
-    backgroundColor: theme.glassFill,
-    borderRadius: 20,
-    overflow: 'hidden',
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   thumbnailContainer: {
     width: '100%',
     height: 130,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     position: 'relative',
   },
   cardImage: { width: '100%', height: '100%' },
@@ -402,18 +410,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     left: 8,
-    backgroundColor: 'rgba(22,255,110,0.15)',
+    backgroundColor: theme.primarySurface,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(22,255,110,0.25)',
+    borderColor: theme.primaryLight,
   },
-  badgeText: { color: theme.primary, fontSize: 10, fontWeight: '500', textTransform: 'uppercase' },
+  badgeText: { color: theme.primaryDeep, fontSize: 10, fontWeight: '500', textTransform: 'uppercase' },
   cardBody: { padding: 12 },
   cardTitle: { color: theme.text, fontSize: 14, fontWeight: '500', marginBottom: 4 },
-  cardMeta: { color: theme.textFaint, fontSize: 11, marginBottom: 6 },
-  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: '500' },
+  cardMeta: { color: theme.textMuted, fontSize: 11, marginBottom: 6 },
+  cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '500' },
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '500', marginBottom: 8 },
   emptyText: { color: theme.textMuted, fontSize: 14 },

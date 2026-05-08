@@ -29,8 +29,8 @@ export default function StateCard({
   const isError = tone === 'error'
   const [isPressed, setIsPressed] = useState(false)
 
-  const renderContent = () => (
-    <>
+  return (
+    <View style={[styles.cardContainer, isError && styles.cardError]}>
       {eyebrow ? <Text style={[styles.eyebrow, isError && styles.eyebrowError]}>{eyebrow}</Text> : null}
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{body}</Text>
@@ -58,50 +58,27 @@ export default function StateCard({
           ) : null}
         </View>
       ) : null}
-    </>
-  )
-
-  return (
-    <View style={[styles.cardContainer, isError && styles.cardError]}>
-      {Platform.OS === 'ios' ? (
-        <BlurView intensity={50} style={styles.blurCard} tint="dark">
-          {renderContent()}
-        </BlurView>
-      ) : (
-        <View style={styles.androidCard}>
-          {renderContent()}
-        </View>
-      )}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   cardContainer: {
-    borderRadius: 24,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderTopColor: theme.glassHighlight,
-    borderBottomColor: theme.glassBorderBottom,
-    overflow: 'hidden',
+    borderColor: theme.cardBorder,
+    padding: 22,
     marginBottom: 16,
-    // Soft glass shadow
-    shadowColor: theme.glassShadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cardError: {
-    borderColor: 'rgba(239, 68, 68, 0.4)',
-  },
-  blurCard: {
-    padding: 22,
-    backgroundColor: theme.glassFill,
-  },
-  androidCard: {
-    padding: 22,
-    backgroundColor: 'rgba(10, 46, 22, 0.85)',
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.dangerSurface,
   },
   eyebrow: {
     color: theme.primary,
@@ -132,12 +109,12 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   primaryButton: {
-    backgroundColor: theme.glassPrimaryFill,
+    backgroundColor: theme.primarySurface,
     borderRadius: 14,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: theme.glassPrimaryBorder,
+    borderColor: theme.borderFocus,
     borderTopColor: 'rgba(22, 255, 110, 0.4)',
   },
   primaryButtonPressed: {
@@ -155,7 +132,7 @@ const styles = StyleSheet.create({
   secondaryButton: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: theme.glassBorder,
+    borderColor: theme.border,
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
@@ -165,3 +142,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 })
+

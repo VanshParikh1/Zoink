@@ -18,14 +18,16 @@ import {
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
 import * as ImagePicker from 'expo-image-picker'
+import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
 import { theme } from '../theme/colors'
+import ZoinkButton from '../components/ZoinkButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
-type Step = 1 | 2 | 3
+type Step = 1 | 2 | 3 | 4 | 5
 
 type FormData = {
   title: string
@@ -34,6 +36,8 @@ type FormData = {
   dailyPrice: string
   deposit: string
   availableNow: boolean
+  city: string
+  address: string
 }
 
 const CATEGORIES = [
@@ -50,7 +54,7 @@ const CATEGORIES = [
 
 const DEFAULT_CITY = 'Toronto'
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
-const TOTAL_STEPS = 3
+const TOTAL_STEPS = 5
 
 function getProgress(step: Step) {
   return (step / TOTAL_STEPS) * 100
@@ -68,6 +72,8 @@ export default function CreateListingScreen() {
     dailyPrice: '',
     deposit: '',
     availableNow: true,
+    city: DEFAULT_CITY,
+    address: '',
   })
 
   useEffect(() => {
@@ -102,6 +108,7 @@ export default function CreateListingScreen() {
 
       if (result.canceled || !result.assets[0]?.uri) return
 
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
       const nextUri = result.assets[0].uri
       setPhotos((current) => (current.includes(nextUri) ? current : [...current, nextUri].slice(0, 8)))
     } catch {
@@ -114,11 +121,12 @@ export default function CreateListingScreen() {
   }
 
   function handleBack() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     if (step === 1) {
       nav.goBack()
       return
     }
-    setStep((current) => (current === 3 ? 2 : 1))
+    setStep((current) => (current - 1) as Step)
   }
 
   function handleContinue() {
@@ -127,6 +135,7 @@ export default function CreateListingScreen() {
         Alert.alert('Missing details', 'Add a name, pick a category, and write a short description first.')
         return
       }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
       setStep(2)
       return
     }
@@ -147,7 +156,28 @@ export default function CreateListingScreen() {
         return
       }
 
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
       setStep(3)
+      return
+    }
+
+    if (step === 3) {
+      if (photos.length === 0) {
+        Alert.alert('Photo required', 'Add at least one photo of your item before continuing.')
+        return
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+      setStep(4)
+      return
+    }
+
+    if (step === 4) {
+      if (!formData.city.trim()) {
+        Alert.alert('Location required', 'Add a city so renters can find your item.')
+        return
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+      setStep(5)
     }
   }
 
@@ -162,7 +192,8 @@ export default function CreateListingScreen() {
         description: formData.description.trim(),
         category: formData.category,
         dailyPrice: parsedDailyPrice,
-        city: DEFAULT_CITY,
+        city: formData.city.trim(),
+        address: formData.address.trim() || undefined,
         latitude: DEFAULT_COORDS.latitude,
         longitude: DEFAULT_COORDS.longitude,
       })
@@ -179,7 +210,7 @@ export default function CreateListingScreen() {
         }
       }
 
-      nav.navigate('ListingDetail', { listingId: listing.id })
+      nav.replace('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
       const msg = err?.response?.data?.error ?? 'Something went wrong.'
       Alert.alert('Error', msg)
@@ -200,7 +231,7 @@ export default function CreateListingScreen() {
           <TextInput
             style={styles.input}
             placeholder="e.g. Sony a7III Camera"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             value={formData.title}
             onChangeText={(value) => updateForm('title', value)}
             maxLength={80}
@@ -223,7 +254,10 @@ export default function CreateListingScreen() {
                   key={category}
                   activeOpacity={0.75}
                   style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
-                  onPress={() => updateForm('category', category)}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                    updateForm('category', category)
+                  }}
                 >
                   <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
                     {category}
@@ -239,7 +273,7 @@ export default function CreateListingScreen() {
           <TextInput
             style={[styles.input, styles.descriptionInput]}
             placeholder="What is it, what condition is it in, and what should renters know?"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             value={formData.description}
             onChangeText={(value) => updateForm('description', value)}
             multiline
@@ -265,7 +299,7 @@ export default function CreateListingScreen() {
             <TextInput
               style={styles.priceInput}
               placeholder="0"
-              placeholderTextColor={theme.textFaint}
+              placeholderTextColor={theme.textDisabled}
               value={formData.dailyPrice}
               onChangeText={(value) => updateForm('dailyPrice', value)}
               keyboardType="decimal-pad"
@@ -279,7 +313,7 @@ export default function CreateListingScreen() {
             <TextInput
               style={styles.input}
               placeholder="Optional"
-              placeholderTextColor={theme.textFaint}
+              placeholderTextColor={theme.textDisabled}
               value={formData.deposit}
               onChangeText={(value) => updateForm('deposit', value)}
               keyboardType="decimal-pad"
@@ -293,10 +327,13 @@ export default function CreateListingScreen() {
               <View style={styles.toggleSwitchWrap}>
                 <Switch
                   value={formData.availableNow}
-                  onValueChange={(value) => updateForm('availableNow', value)}
-                  trackColor={{ false: theme.glassFill, true: theme.primary }}
-                  thumbColor={formData.availableNow ? theme.primaryText : theme.text}
-                  ios_backgroundColor={theme.glassFill}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                    updateForm('availableNow', value)
+                  }}
+                  trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
+                  thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
+                  ios_backgroundColor={theme.surfaceSubdued}
                   style={styles.toggleSwitch}
                 />
               </View>
@@ -311,6 +348,96 @@ export default function CreateListingScreen() {
     return (
       <View style={styles.stepBody}>
         <Text style={styles.stepEyebrow}>STEP 3</Text>
+        <Text style={styles.header}>Add photos</Text>
+        <Text style={styles.subheader}>At least one photo is required. Items with clear photos rent 3x faster.</Text>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Photos ({photos.length}/8)</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.photoRow}
+          >
+            {photos.map((uri) => (
+              <View key={uri} style={styles.photoCard}>
+                <Image source={{ uri }} style={styles.photoPreview} />
+                <TouchableOpacity 
+                  style={styles.photoRemove} 
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+                    removePhoto(uri)
+                  }}
+                >
+                  <Text style={styles.photoRemoveText}>x</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            {photos.length < 8 ? (
+              <TouchableOpacity 
+                style={[styles.addPhotoCard, photos.length === 0 && styles.addPhotoCardRequired]} 
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  handlePickPhoto()
+                }}
+              >
+                <Text style={styles.addPhotoIcon}>+</Text>
+                <Text style={styles.addPhotoText}>{photos.length === 0 ? 'Add photo *' : 'Add more'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
+        </View>
+
+        {photos.length === 0 && (
+          <View style={styles.warningBanner}>
+            <Text style={styles.warningText}>You need at least 1 photo to continue</Text>
+          </View>
+        )}
+      </View>
+    )
+  }
+
+  function renderStepFour() {
+    return (
+      <View style={styles.stepBody}>
+        <Text style={styles.stepEyebrow}>STEP 4</Text>
+        <Text style={styles.header}>Set your location</Text>
+        <Text style={styles.subheader}>Help renters find your item. Only the city is shown publicly.</Text>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>City *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. Toronto"
+            placeholderTextColor={theme.textDisabled}
+            value={formData.city}
+            onChangeText={(value) => updateForm('city', value)}
+            maxLength={60}
+            returnKeyType="next"
+          />
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Address or cross-street (optional)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 123 College St"
+            placeholderTextColor={theme.textDisabled}
+            value={formData.address}
+            onChangeText={(value) => updateForm('address', value)}
+            maxLength={120}
+            returnKeyType="done"
+          />
+          <Text style={styles.fieldHint}>This helps renters plan pickup. You can keep it vague.</Text>
+        </View>
+      </View>
+    )
+  }
+
+  function renderStepFive() {
+    return (
+      <View style={styles.stepBody}>
+        <Text style={styles.stepEyebrow}>STEP 5</Text>
         <Text style={styles.header}>Review before you go live</Text>
         <Text style={styles.subheader}>This is the snapshot renters will see first.</Text>
 
@@ -319,10 +446,7 @@ export default function CreateListingScreen() {
             {photos[0] ? (
               <Image source={{ uri: photos[0] }} style={styles.reviewImage} />
             ) : (
-              <>
-                <Text style={styles.reviewThumbIcon}>📸</Text>
-                <Text style={styles.reviewThumbText}>Add photo before you publish</Text>
-              </>
+              <Text style={styles.reviewThumbText}>No photo</Text>
             )}
           </View>
 
@@ -338,33 +462,12 @@ export default function CreateListingScreen() {
             <Text style={styles.reviewDeposit}>
               Deposit: {formData.deposit.trim() ? `$${parsedDeposit.toFixed(2)}` : 'None'}
             </Text>
+            <Text style={styles.reviewLocation}>
+              {formData.city}{formData.address ? ` - ${formData.address}` : ''}
+            </Text>
             <Text style={styles.reviewDescription}>{formData.description.trim()}</Text>
+            <Text style={styles.reviewPhotoCount}>{photos.length} photo{photos.length !== 1 ? 's' : ''} attached</Text>
           </View>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Photos</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.photoRow}
-          >
-            {photos.map((uri) => (
-              <View key={uri} style={styles.photoCard}>
-                <Image source={{ uri }} style={styles.photoPreview} />
-                <TouchableOpacity style={styles.photoRemove} onPress={() => removePhoto(uri)}>
-                  <Text style={styles.photoRemoveText}>×</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-
-            {photos.length < 8 ? (
-              <TouchableOpacity style={styles.addPhotoCard} onPress={handlePickPhoto}>
-                <Text style={styles.addPhotoIcon}>+</Text>
-                <Text style={styles.addPhotoText}>Add photo</Text>
-              </TouchableOpacity>
-            ) : null}
-          </ScrollView>
         </View>
       </View>
     )
@@ -380,7 +483,7 @@ export default function CreateListingScreen() {
           <View style={{ flex: 1 }}>
             <View style={styles.topBar}>
               <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-                <Text style={styles.backText}>←</Text>
+                <Text style={styles.backText}>{'\u2190'}</Text>
               </TouchableOpacity>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, progressFillStyle]} />
@@ -396,21 +499,22 @@ export default function CreateListingScreen() {
               {step === 1 ? renderStepOne() : null}
               {step === 2 ? renderStepTwo() : null}
               {step === 3 ? renderStepThree() : null}
+              {step === 4 ? renderStepFour() : null}
+              {step === 5 ? renderStepFive() : null}
             </ScrollView>
 
             <View style={styles.footer}>
-              {step < 3 ? (
-                <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-                  <Text style={styles.continueButtonText}>continue →</Text>
-                </TouchableOpacity>
+              {step < 5 ? (
+                <ZoinkButton 
+                  label={'continue \u2192'} 
+                  onPress={handleContinue} 
+                />
               ) : (
-                <TouchableOpacity style={styles.goLiveButton} onPress={handleGoLive} disabled={loading}>
-                  {loading ? (
-                    <ActivityIndicator color={theme.primaryText} />
-                  ) : (
-                    <Text style={styles.goLiveButtonText}>go live</Text>
-                  )}
-                </TouchableOpacity>
+                <ZoinkButton 
+                  label="go live" 
+                  onPress={handleGoLive} 
+                  isLoading={loading} 
+                />
               )}
             </View>
           </View>
@@ -451,7 +555,7 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     height: 3,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -503,7 +607,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 14,
     color: theme.text,
@@ -532,10 +636,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
   },
   chipUnselected: {
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
   },
   chipTextSelected: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontWeight: '700',
     fontSize: 14,
   },
@@ -547,12 +651,17 @@ const styles = StyleSheet.create({
   priceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.surface,
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 10,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
     paddingHorizontal: 16,
     minHeight: 72,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   pricePrefix: {
     color: theme.textMuted,
@@ -576,14 +685,19 @@ const styles = StyleSheet.create({
   },
   toggleCard: {
     minHeight: 56,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 10,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   toggleLabel: {
     color: theme.textMuted,
@@ -600,16 +714,21 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   reviewCard: {
-    backgroundColor: theme.surface,
-    borderRadius: 18,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.cardBorder,
     padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   reviewThumb: {
     height: 176,
     borderRadius: 16,
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -675,7 +794,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
   },
   photoPreview: {
     width: '100%',
@@ -707,7 +826,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.glassFill,
+    backgroundColor: theme.surfaceSubdued,
   },
   addPhotoIcon: {
     color: theme.primary,
@@ -734,7 +853,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueButtonText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 16,
     fontWeight: '900',
     textTransform: 'lowercase',
@@ -748,9 +867,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   goLiveButtonText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 16,
     fontWeight: '900',
     textTransform: 'lowercase',
+  },
+  warningBanner: {
+    backgroundColor: 'rgba(239, 165, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 165, 68, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  warningText: {
+    color: '#B45309',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  addPhotoCardRequired: {
+    borderColor: theme.primary,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+  },
+  fieldHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  reviewLocation: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  reviewPhotoCount: {
+    color: theme.primary,
+    fontSize: 13,
+    fontWeight: '800',
   },
 })

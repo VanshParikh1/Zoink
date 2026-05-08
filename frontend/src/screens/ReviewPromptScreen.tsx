@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+﻿import React, { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
@@ -146,7 +146,7 @@ export default function ReviewPromptScreen() {
       </View>
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={busy}>
-        {busy ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.submitText}>Submit review</Text>}
+        {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit review</Text>}
       </TouchableOpacity>
       </ScrollView>
     </ScreenBackground>
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     borderColor: theme.primary,
   },
   scaleText: { color: theme.text, fontSize: 15, fontWeight: '800' },
-  scaleTextActive: { color: theme.primaryText },
+  scaleTextActive: { color: theme.textOnPrimary },
   inputLabel: { color: theme.text, fontSize: 15, fontWeight: '800' },
   input: {
     minHeight: 110,
@@ -208,5 +208,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  submitText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
 })
+
