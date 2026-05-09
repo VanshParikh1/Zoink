@@ -4,10 +4,10 @@
     "slug": "zoink",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/ZoinkTransparent.png",
       "resizeMode": "contain",
       "backgroundColor": "#F4EDE1"
     },

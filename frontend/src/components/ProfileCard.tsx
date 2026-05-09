@@ -1,5 +1,6 @@
 import React from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, StyleSheet, Text, View, Platform } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { MyProfile, PublicProfile, UserReputation } from '../types'
 import { theme } from '../theme/colors'
 
@@ -112,6 +113,12 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
       <View style={styles.glowA} />
       <View style={styles.glowB} />
 
+      {Platform.OS === 'ios' ? (
+        <BlurView intensity={75} tint="dark" style={StyleSheet.absoluteFillObject} />
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(5, 30, 9, 0.4)' }]} />
+      )}
+
       <View style={styles.topRow}>
         <View style={styles.tierChip}>
           <Text style={styles.tierChipText}>{tier}</Text>
@@ -222,13 +229,12 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
 
 const styles = StyleSheet.create({
   shell: {
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: theme.colors.inkBlack,
-    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: 24,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    overflow: 'hidden',
   },
   glowA: {
     position: 'absolute',
@@ -237,7 +243,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderRadius: 999,
-    backgroundColor: 'rgba(0, 239, 32, 0.16)',
+    backgroundColor: 'rgba(22, 255, 110, 0.12)',
   },
   glowB: {
     position: 'absolute',
@@ -246,7 +252,7 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 999,
-    backgroundColor: 'rgba(244, 237, 225, 0.08)',
+    backgroundColor: 'rgba(240, 250, 242, 0.06)',
   },
   topRow: {
     flexDirection: 'row',
@@ -262,13 +268,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   tierChipText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 0.8,
   },
   memberSince: {
-    color: 'rgba(244, 237, 225, 0.76)',
+    color: theme.textMuted,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -276,7 +282,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: theme.surfaceSubdued,
   },
   heroImage: {
     width: '100%',
@@ -286,7 +292,7 @@ const styles = StyleSheet.create({
     height: 240,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.jetBlack,
+    backgroundColor: '#051E09',
   },
   heroFallbackText: {
     color: theme.primary,
@@ -302,37 +308,39 @@ const styles = StyleSheet.create({
   },
   nameBlock: { flex: 1 },
   name: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 28,
     fontWeight: '900',
     lineHeight: 32,
   },
   handle: {
     marginTop: 6,
-    color: 'rgba(244, 237, 225, 0.72)',
+    color: theme.textMuted,
     fontSize: 13,
     fontWeight: '700',
   },
   statBubble: {
     minWidth: 76,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(15, 255, 80, 0.1)',
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   statBubbleValue: {
-    color: theme.primary,
+    color: theme.primaryDeep,
     fontSize: 24,
     fontWeight: '900',
   },
   statBubbleLabel: {
-    color: 'rgba(244, 237, 225, 0.68)',
+    color: 'rgba(5, 30, 9, 0.5)',
     fontSize: 12,
     fontWeight: '700',
   },
   quote: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 16,
     lineHeight: 24,
     fontStyle: 'italic',
@@ -348,12 +356,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: theme.surfaceSubdued,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: theme.border,
   },
   tagChipText: {
-    color: 'rgba(244, 237, 225, 0.84)',
+    color: theme.textMuted,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -372,23 +380,23 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
   },
   badgeDark: {
-    backgroundColor: theme.colors.porcelain,
+    backgroundColor: theme.text,
   },
   badgeSoft: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   badgeText: {
     fontSize: 12,
     fontWeight: '800',
-    color: theme.colors.porcelain,
+    color: theme.text,
   },
   badgeTextBright: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
   },
   badgeTextDark: {
-    color: theme.colors.inkBlack,
+    color: theme.colors.inkBase,
   },
   statsRow: {
     flexDirection: 'row',
@@ -397,32 +405,34 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 18,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     paddingVertical: 14,
     paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
   },
   statLabel: {
-    color: 'rgba(244, 237, 225, 0.72)',
+    color: theme.textMuted,
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 8,
   },
   statValue: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 22,
     fontWeight: '900',
   },
   panel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   panelTitle: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 16,
     fontWeight: '900',
     marginBottom: 12,
@@ -437,19 +447,19 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   trackLabel: {
-    color: 'rgba(244, 237, 225, 0.78)',
+    color: theme.textMuted,
     fontSize: 13,
     fontWeight: '700',
   },
   trackValue: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 13,
     fontWeight: '800',
   },
   trackRail: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: theme.colors.inkBase,
     overflow: 'hidden',
   },
   trackFill: {
@@ -458,15 +468,15 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
   },
   highlightCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: theme.surface,
     borderRadius: 16,
     padding: 14,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: theme.border,
   },
   highlightQuote: {
-    color: theme.colors.porcelain,
+    color: theme.text,
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 8,
@@ -477,3 +487,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 })
+

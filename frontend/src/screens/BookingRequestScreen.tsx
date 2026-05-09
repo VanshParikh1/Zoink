@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -196,7 +198,8 @@ export default function BookingRequestScreen() {
   if (!listing) return null
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScreenBackground>
+      <ScrollView contentContainerStyle={styles.content}>
       <TouchableOpacity onPress={() => nav.goBack()}>
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
@@ -317,7 +320,7 @@ export default function BookingRequestScreen() {
           value={message}
           onChangeText={setMessage}
           placeholder="Add pickup timing, questions, or a quick intro"
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
           style={[styles.input, styles.textarea]}
           multiline
           textAlignVertical="top"
@@ -345,32 +348,36 @@ export default function BookingRequestScreen() {
       </View>
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.submitText}>Send request</Text>}
+        {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 18 },
+  container: { flex: 1 },
+  content: { padding: 24, paddingTop: 64, paddingBottom: 120, gap: 18 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { fontSize: 28, fontWeight: '900', color: theme.text },
-  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8, marginBottom: 8 },
+  title: { fontSize: 32, fontWeight: '900', color: theme.text },
+  subtitle: { color: theme.textMuted, fontSize: 16, marginTop: 4, marginBottom: 12 },
   card: {
     backgroundColor: theme.surface,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 12,
+    borderRadius: 32,
+    padding: 24,
+    shadowColor: theme.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 6,
+    gap: 16,
   },
   sectionEyebrow: {
     color: theme.primary,
     fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.1,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   sectionTitle: {
     color: theme.text,
@@ -390,17 +397,15 @@ const styles = StyleSheet.create({
   dateSummaryCard: {
     flex: 1,
     backgroundColor: theme.screen,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   summaryLabel: {
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
     textTransform: 'uppercase',
   },
   summaryValue: {
@@ -483,34 +488,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   dayTextMuted: {
-    color: theme.textFaint,
+    color: theme.textDisabled,
   },
   dayTextDisabled: {
     color: 'rgba(4, 15, 15, 0.22)',
   },
   dayTextRange: {
-    color: theme.colors.forestGreen,
+    color: theme.primary,
   },
   dayTextSelected: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
   },
   clearButton: {
     alignSelf: 'flex-start',
     marginTop: 6,
   },
   clearButtonText: {
-    color: theme.colors.forestGreen,
+    color: theme.primary,
     fontSize: 14,
     fontWeight: '800',
   },
   label: { color: theme.text, fontSize: 14, fontWeight: '800', marginTop: 4 },
   input: {
     backgroundColor: theme.screen,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     color: theme.text,
     fontSize: 15,
   },
@@ -521,10 +524,16 @@ const styles = StyleSheet.create({
   rowValue: { color: theme.text, fontSize: 15, fontWeight: '800' },
   submitButton: {
     backgroundColor: theme.primary,
-    borderRadius: 18,
-    minHeight: 54,
+    borderRadius: 99,
+    minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: theme.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  submitText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '800' },
 })
+

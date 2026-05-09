@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react'
+﻿import React, { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -93,7 +95,8 @@ export default function ReviewPromptScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScreenBackground>
+      <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>Trust check</Text>
         <Text style={styles.title}>Review {review.reviewee.firstName}</Text>
@@ -143,14 +146,15 @@ export default function ReviewPromptScreen() {
       </View>
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={busy}>
-        {busy ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.submitText}>Submit review</Text>}
+        {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit review</Text>}
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   content: { padding: 24, paddingTop: 72, paddingBottom: 40, gap: 16 },
   hero: { gap: 10 },
   eyebrow: { color: theme.primary, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0 },
@@ -177,21 +181,21 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.screen,
+    backgroundColor: 'transparent',
   },
   scaleButtonActive: {
     backgroundColor: theme.primary,
     borderColor: theme.primary,
   },
   scaleText: { color: theme.text, fontSize: 15, fontWeight: '800' },
-  scaleTextActive: { color: theme.primaryText },
+  scaleTextActive: { color: theme.textOnPrimary },
   inputLabel: { color: theme.text, fontSize: 15, fontWeight: '800' },
   input: {
     minHeight: 110,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: theme.border,
-    backgroundColor: theme.screen,
+    backgroundColor: 'transparent',
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: theme.text,
@@ -204,5 +208,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  submitText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
 })
+

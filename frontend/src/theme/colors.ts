@@ -1,25 +1,69 @@
 export const colors = {
-  electricGreen: '#00EF20',
-  inkBlack: '#040F0F',
-  forestGreen: '#248232',
-  jetBlack: '#2D3A3A',
-  porcelain: '#F4EDE1',
-  shadowGrey: '#D8D1C7',
-  danger: '#EF4444',
-  warning: '#F59E0B',
+  // Matched to logo — grass green, not neon
+  green: '#6DD832',          // primary — the exact logo green
+  greenDeep: '#4EA822',      // pressed states, borders, button floors
+  greenDark: '#3A7D19',      // deep shadow, heavy button base
+  greenSoft: '#96E85A',      // highlights, soft accents
+  greenSurface: '#F2FAE8',   // faint tint for bg surfaces
+
+  white: '#FFFFFF',
+  gray50: '#F6F6F7',
+  gray100: '#F1F1F1',
+  gray200: '#E3E3E3',
+  gray300: '#C9C9C9',
+  gray500: '#6D7175',
+  gray700: '#3A3C3E',
+  gray900: '#1A1A1A',
+
+  danger: '#D72C0D',
+  warning: '#FFC453',
+  dangerSurface: '#FFF4F4',
+  warningSurface: '#FFF5EA',
+
+  inkBase: '#1A1A1A',
 }
 
 export const theme = {
   colors,
-  screen: colors.porcelain,
-  surface: '#FFF9EF',
-  surfaceStrong: colors.forestGreen,
-  surfaceSoft: 'rgba(36, 130, 50, 0.08)',
-  border: 'rgba(45, 58, 58, 0.13)',
-  shadow: colors.shadowGrey,
-  text: colors.inkBlack,
-  textMuted: 'rgba(4, 15, 15, 0.66)',
-  textFaint: 'rgba(4, 15, 15, 0.42)',
-  primary: colors.electricGreen,
-  primaryText: colors.inkBlack,
+
+  screen: colors.gray50,
+  surface: colors.white,
+  surfaceRaised: colors.white,
+  surfaceSubdued: colors.gray100,
+
+  border: colors.gray200,
+  borderFocus: colors.green,
+  borderSubdued: colors.gray100,
+  borderBottom: colors.gray200,
+
+  shadow: 'rgba(0, 0, 0, 0.08)',
+  shadowMd: 'rgba(0, 0, 0, 0.12)',
+  shadowLg: 'rgba(0, 0, 0, 0.16)',
+
+  text: colors.gray900,
+  textSecondary: colors.gray700,
+  textMuted: colors.gray500,
+  textDisabled: colors.gray300,
+  textOnPrimary: '#1A3A08',  // dark green — readable on #6DD832
+
+  primary: colors.green,
+  primaryDeep: colors.greenDeep,
+  primaryLight: colors.greenSoft,
+  primarySurface: colors.greenSurface,
+
+  cardBorder: colors.gray200,
+  cardBackground: colors.white,
+  cardShadow: '0px 1px 3px rgba(0,0,0,0.08), 0px 1px 2px rgba(0,0,0,0.06)',
+
+  backgroundGradient: [colors.gray50, colors.white, colors.gray50] as const,
+
+  glassLight: 'rgba(255, 255, 255, 0.65)',
+  glassDark: 'rgba(10, 28, 5, 0.85)',
+  glassGreen: 'rgba(109, 216, 50, 0.12)',  // updated to new green
+  glassBorder: 'rgba(255, 255, 255, 0.3)',
+
+  danger: colors.danger,
+  warning: colors.warning,
+  dangerSurface: colors.dangerSurface,
+  warningSurface: colors.warningSurface,
 }

@@ -1,5 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -52,14 +54,14 @@ export default function BookingHistoryScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScreenBackground>
       <FlatList
         data={bookings}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
           setRefreshing(true)
           loadBookings()
-        }} tintColor={theme.primary} />}
+        }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
@@ -67,7 +69,7 @@ export default function BookingHistoryScreen() {
               <Text style={styles.backText}>Back</Text>
             </TouchableOpacity>
             <Text style={styles.title}>My bookings</Text>
-            <Text style={styles.subtitle}>Every request you’ve sent, with live status updates.</Text>
+            <Text style={styles.subtitle}>Every request youâ€™ve sent, with live status updates.</Text>
             <Text style={styles.summaryText}>
               {bookings.length === 0
                 ? 'Nothing booked yet'
@@ -80,7 +82,7 @@ export default function BookingHistoryScreen() {
             <StateCard
               tone="error"
               eyebrow="BOOKING ISSUE"
-              title="Your bookings couldn’t load"
+              title="Your bookings couldnâ€™t load"
               body={error}
               actionLabel="Try again"
               onAction={loadBookings}
@@ -106,12 +108,12 @@ export default function BookingHistoryScreen() {
           </TouchableOpacity>
         )}
       />
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
@@ -119,14 +121,19 @@ const styles = StyleSheet.create({
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { color: theme.text, fontSize: 28, fontWeight: '900' },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  summaryText: { color: theme.textFaint, fontSize: 13, marginTop: 10, fontWeight: '700' },
+  summaryText: { color: theme.textDisabled, fontSize: 13, marginTop: 10, fontWeight: '700' },
   card: {
-    backgroundColor: theme.surface,
-    borderRadius: 22,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
     padding: 18,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: theme.cardBorder,
     marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cardTitle: { color: theme.text, fontSize: 17, fontWeight: '900', marginBottom: 8 },
   cardMeta: { color: theme.textMuted, fontSize: 14, marginBottom: 14 },
@@ -134,3 +141,4 @@ const styles = StyleSheet.create({
   cardPrice: { color: theme.primary, fontSize: 16, fontWeight: '900' },
   cardStatus: { color: theme.text, fontSize: 13, fontWeight: '800' },
 })
+

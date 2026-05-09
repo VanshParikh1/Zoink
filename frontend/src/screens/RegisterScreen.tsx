@@ -10,11 +10,12 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native'
-import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import LogoPlaceholder from '../components/LogoPlaceholder'
+import ScreenBackground from '../components/ScreenBackground'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Register'>
@@ -32,19 +33,15 @@ export default function RegisterScreen() {
 
   async function handleRegister() {
     setError('')
-
     if (!firstName || !lastName || !email || !password) {
       setError('Please fill in all fields.')
       return
     }
-
     if (password.length < 8) {
       setError('Password must be at least 8 characters.')
       return
     }
-
     setLoading(true)
-
     try {
       await register(email.trim().toLowerCase(), password, firstName.trim(), lastName.trim())
     } catch (e: any) {
@@ -55,113 +52,182 @@ export default function RegisterScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
-        <LogoPlaceholder size="medium" style={styles.logo} />
-        <Text style={styles.kicker}>join zoink</Text>
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.subtitle}>Use your university email to unlock the student marketplace.</Text>
-
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <View style={styles.row}>
-          <TextInput
-            style={[styles.input, styles.halfInput]}
-            placeholder="First name"
-            placeholderTextColor={theme.textFaint}
-            value={firstName}
-            onChangeText={setFirstName}
-          />
-          <TextInput
-            style={[styles.input, styles.halfInput]}
-            placeholder="Last name"
-            placeholderTextColor={theme.textFaint}
-            value={lastName}
-            onChangeText={setLastName}
-          />
-        </View>
-
-        <TextInput
-          style={styles.input}
-          placeholder="University email"
-          placeholderTextColor={theme.textFaint}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password (min 8 characters)"
-          placeholderTextColor={theme.textFaint}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        <TouchableOpacity style={styles.button} onPress={handleRegister} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color={theme.primaryText} />
-          ) : (
-            <Text style={styles.buttonText}>Create account</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-          <Text style={styles.link}>
-            Already have an account? <Text style={styles.linkBold}>Sign in</Text>
+    <ScreenBackground>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.inner}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header & Logo */}
+          <ZoinkFullLogo width={280} height={80} style={styles.logo} />
+          <Text style={styles.kicker}>join zoink</Text>
+          <Text style={styles.title}>Create account</Text>
+          <Text style={styles.subtitle}>
+            Use your university email to unlock the student marketplace.
           </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+          {/* Form */}
+          <View style={styles.form}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, styles.halfInput]}
+                placeholder="First name"
+                placeholderTextColor={theme.textDisabled}
+                value={firstName}
+                onChangeText={setFirstName}
+              />
+              <TextInput
+                style={[styles.input, styles.halfInput]}
+                placeholder="Last name"
+                placeholderTextColor={theme.textDisabled}
+                value={lastName}
+                onChangeText={setLastName}
+              />
+            </View>
+
+            <TextInput
+              style={styles.input}
+              placeholder="University email"
+              placeholderTextColor={theme.textDisabled}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password (min 8 characters)"
+              placeholderTextColor={theme.textDisabled}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+            />
+
+            {/* Tactile stamped button */}
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleRegister}
+              disabled={loading}
+              activeOpacity={0.75}
+            >
+              {loading
+                ? <ActivityIndicator color={theme.textOnPrimary} />
+                : <Text style={styles.buttonText}>Create account</Text>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.7}>
+              <Text style={styles.link}>
+                Already have an account?{' '}
+                <Text style={styles.linkBold}>Sign in</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
-  inner: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
-  logo: { marginBottom: 20 },
+  flex: {
+    flex: 1,
+  },
+  inner: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 40,
+  },
+  logo: {
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
   kicker: {
-    color: theme.primary,
-    fontSize: 12,
+    color: theme.primaryDeep,
+    fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 1.8,
+    letterSpacing: 2,
     textTransform: 'uppercase',
     marginBottom: 10,
   },
-  title: { fontSize: 32, fontWeight: '900', color: theme.text, marginBottom: 8 },
-  subtitle: { fontSize: 16, color: theme.textMuted, marginBottom: 32, lineHeight: 23 },
-  error: { color: theme.colors.danger, marginBottom: 16, fontSize: 14, fontWeight: '600' },
-  row: { flexDirection: 'row', gap: 12 },
+  title: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: theme.text,
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: theme.textMuted,
+    lineHeight: 22,
+  },
+  form: {
+    width: '100%',
+    marginTop: 16,
+  },
+  error: {
+    color: theme.danger,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 15,
     fontSize: 16,
-    marginBottom: 14,
+    marginBottom: 12,
     backgroundColor: theme.surface,
     color: theme.text,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    elevation: 1,
   },
-  halfInput: { flex: 1 },
+  halfInput: {
+    flex: 1,
+  },
+  // Tactile stamped style
   button: {
     backgroundColor: theme.primary,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 6,
     marginBottom: 24,
+    borderBottomWidth: 4,
+    borderBottomColor: theme.primaryDeep,
+    borderRightWidth: 2,
+    borderRightColor: theme.primaryDeep,
   },
-  buttonText: { color: theme.primaryText, fontSize: 16, fontWeight: '900' },
-  link: { textAlign: 'center', color: theme.textMuted, fontSize: 14 },
-  linkBold: { fontWeight: '900', color: theme.primary },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: theme.textOnPrimary,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  link: {
+    textAlign: 'center',
+    color: theme.textMuted,
+    fontSize: 14,
+  },
+  linkBold: {
+    fontWeight: '900',
+    color: theme.primary,
+  },
 })

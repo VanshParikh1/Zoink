@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   View,
   Text,
@@ -8,7 +8,9 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
 } from 'react-native'
+import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -16,29 +18,25 @@ import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
 import { Listing } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
-import LogoPlaceholder from '../components/LogoPlaceholder'
 import { theme } from '../theme/colors'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
-const DEFAULT_RADIUS_KM = 25
+const DEFAULT_RADIUS_KM = 5000
+const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
 export default function HomeScreen() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const nav = useNavigation<Nav>()
 
   const [listings, setListings] = useState<Listing[]>([])
   const [coords, setCoords] = useState(DEFAULT_COORDS)
-  const [locationLabel, setLocationLabel] = useState('Fetching your location')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-
-  const greeting = useMemo(() => {
-    if (!user?.firstName) return 'Explore nearby rentals'
-    return `Hi ${user.firstName}, explore nearby rentals`
-  }, [user?.firstName])
+  const [selectedCategory, setSelectedCategory] = useState('All')
 
   const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
     try {
@@ -48,6 +46,7 @@ export default function HomeScreen() {
         lng: currentCoords.longitude,
         radius: DEFAULT_RADIUS_KM,
       })
+      console.log(`Fetched ${data.length} listings at radius ${DEFAULT_RADIUS_KM}km`)
       setListings(data)
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
@@ -64,7 +63,6 @@ export default function HomeScreen() {
       const permission = await Location.requestForegroundPermissionsAsync()
 
       if (permission.status !== 'granted') {
-        setLocationLabel('Showing listings around downtown Toronto')
         setCoords(DEFAULT_COORDS)
         await fetchListings(DEFAULT_COORDS)
         return
@@ -80,10 +78,8 @@ export default function HomeScreen() {
       }
 
       setCoords(nextCoords)
-      setLocationLabel('Showing listings near you')
       await fetchListings(nextCoords)
     } catch {
-      setLocationLabel('Showing listings around downtown Toronto')
       setCoords(DEFAULT_COORDS)
       await fetchListings(DEFAULT_COORDS)
     }
@@ -110,46 +106,41 @@ export default function HomeScreen() {
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() => nav.navigate('ListingDetail', { listingId: item.id })}
+        activeOpacity={0.75}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          nav.navigate('ListingDetail', { listingId: item.id })
+        }}
       >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.cardImage} />
-        ) : (
-          <View style={[styles.cardImage, styles.imageFallback]}>
-            <Text style={styles.imageFallbackText}>{item.category}</Text>
+        <View style={styles.thumbnailContainer}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+          ) : (
+            <View style={[styles.cardImage, styles.imageFallback]}>
+              <Text style={styles.imageFallbackText}>{item.category}</Text>
+            </View>
+          )}
+          <View style={styles.badgePill}>
+            <Text style={styles.badgeText}>{item.isAvailable ? 'popular' : 'paused'}</Text>
           </View>
-        )}
+        </View>
 
         <View style={styles.cardBody}>
-          <View style={styles.cardTopRow}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <View style={[styles.statusPill, item.isAvailable ? styles.statusLive : styles.statusPaused]}>
-              <Text style={styles.statusPillText}>{item.isAvailable ? 'Live' : 'Paused'}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.cardMeta} numberOfLines={2}>
-            {item.description}
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.title}
           </Text>
-
-          <View style={styles.cardFooter}>
-            <View>
-              <Text style={styles.cardPrice}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-              <Text style={styles.cardCity}>
-                {item.city}
-                {typeof item.distanceKm === 'number' ? ` - ${item.distanceKm.toFixed(1)} km away` : ''}
-              </Text>
-            </View>
-            <Text style={styles.cardOwner}>
-              {item.owner.firstName} {item.owner.lastName}
-            </Text>
-          </View>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            {typeof item.distanceKm === 'number' ? `${item.distanceKm.toFixed(1)} km · ` : ''}{item.owner.firstName}
+          </Text>
+          <Text style={styles.cardPrice}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
         </View>
       </TouchableOpacity>
     )
   }
+
+  const filteredListings = listings.filter(
+    (l) => selectedCategory === 'All' || l.category.toLowerCase() === selectedCategory.toLowerCase()
+  )
 
   if (loading) {
     return (
@@ -161,63 +152,122 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={{ flex: 1 }}>
       <FlatList
-        data={listings}
+        data={filteredListings}
         keyExtractor={(item) => item.id}
         renderItem={renderListing}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
+        numColumns={2}
+        columnWrapperStyle={styles.rowWrapper}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroCopy}>
-                <Text style={styles.eyebrow}>ZOINK MARKET</Text>
-                <Text style={styles.title}>{greeting}</Text>
+          <View style={styles.headerBlock}>
+            {/* ── Top row: greeting ── */}
+            <View style={styles.headerTopRow}>
+              <View>
+                <Text style={styles.greetingText}>Good morning{user?.firstName ? `, ${user.firstName}` : ''} 👋</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.headerTitle}>Don't buy, </Text>
+                  <ZoinkFullLogo width={160} height={75} style={{ marginHorizontal: 5, marginTop: -20, marginBottom: -15 }} />
+                  <Text style={styles.headerTitle}>it.</Text>
+                </View>
               </View>
-              <LogoPlaceholder size="small" style={styles.heroLogo} />
-            </View>
-            <Text style={styles.subtitle}>{locationLabel}</Text>
-
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => nav.navigate('CreateListing')}>
-                <Text style={styles.primaryButtonText}>Create listing</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => nav.navigate('MyListings')}>
-                <Text style={styles.secondaryButtonText}>My listings</Text>
-              </TouchableOpacity>
             </View>
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingHistory')}>
-                <Text style={styles.tertiaryButtonText}>My bookings</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('BookingRequests')}>
-                <Text style={styles.tertiaryButtonText}>Requests</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tertiaryButton} onPress={() => nav.navigate('MainApp', { tab: 'Inbox' })}>
-                <Text style={styles.tertiaryButtonText}>Inbox</Text>
-              </TouchableOpacity>
+            {/* ── Glassy hero card ── */}
+            <View style={styles.heroCard}>
+              <View style={styles.heroCardInner}>
+                <Text style={styles.heroCardLabel}>peer-to-peer rentals</Text>
+                <Text style={styles.heroCardSub}>Your campus marketplace</Text>
+              </View>
+              <View style={styles.heroCardActions}>
+                <TouchableOpacity
+                  style={styles.heroActionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
+                    nav.navigate('CreateListing')
+                  }}
+                >
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={[styles.heroActionIcon, { color: theme.primaryDeep }]}>＋</Text>
+                  </View>
+                  <Text style={styles.heroActionLabel}>List item</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.heroActionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+                    nav.navigate('MyListings')
+                  }}
+                >
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>📦</Text>
+                  </View>
+                  <Text style={styles.heroActionLabel}>My listings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.heroActionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+                    nav.navigate('BookingHistory')
+                  }}
+                >
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>🗓</Text>
+                  </View>
+                  <Text style={styles.heroActionLabel}>Bookings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.heroActionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+                    nav.navigate('BookingRequests')
+                  }}
+                >
+                  <View style={styles.heroActionIconWrap}>
+                    <Text style={styles.heroActionIcon}>📨</Text>
+                  </View>
+                  <Text style={styles.heroActionLabel}>Requests</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.profileButton} onPress={() => nav.navigate('MainApp', { tab: 'MyProfile' })}>
-                <Text style={styles.profileButtonText}>Open my profile card</Text>
-              </TouchableOpacity>
-            </View>
+            {/* ── Category chips ── */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContainer}>
+              {CATEGORIES.map((cat) => {
+                const isSelected = selectedCategory === cat
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    activeOpacity={0.75}
+                    style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+                      setSelectedCategory(cat)
+                    }}
+                  >
+                    <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No nearby listings yet</Text>
+            <Text style={styles.emptyTitle}>No listings found</Text>
             <Text style={styles.emptyText}>
-              Pull to refresh, or be the first person in your area to put something up for rent.
+              Try another category or pull to refresh.
             </Text>
-            <TouchableOpacity style={styles.emptyButton} onPress={() => nav.navigate('CreateListing')}>
-              <Text style={styles.emptyButtonText}>Post the first listing</Text>
-            </TouchableOpacity>
           </View>
         }
       />
@@ -226,142 +276,154 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   loadingScreen: {
     flex: 1,
-    backgroundColor: theme.screen,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
   },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  listContent: { paddingHorizontal: 18, paddingTop: 60, paddingBottom: 32 },
-  hero: {
-    backgroundColor: theme.surface,
-    borderRadius: 28,
-    padding: 24,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 4,
-  },
-  heroTopRow: {
+  listContent: { paddingHorizontal: 16, paddingTop: 90, paddingBottom: 120 },
+  headerBlock: { marginBottom: 20 },
+  headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 16,
+    marginBottom: 22,
   },
-  heroCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  heroLogo: {
-    flexShrink: 0,
-    marginTop: 2,
-  },
-  eyebrow: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-  title: { color: theme.text, fontSize: 30, fontWeight: '900', lineHeight: 36, marginBottom: 10, flex: 1 },
-  subtitle: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 22 },
-  primaryButton: {
-    flex: 1,
-    backgroundColor: theme.primary,
-    borderRadius: 16,
-    paddingVertical: 14,
+  greetingText: { color: theme.textMuted, fontSize: 13, marginBottom: 4, fontWeight: '300' },
+  headerTitle: { color: theme.text, fontSize: 30, fontWeight: '500', lineHeight: 36 },
+  headerTitleAccent: { color: theme.primary },
+  bellButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
-  },
-  primaryButtonText: { color: theme.primaryText, fontSize: 15, fontWeight: '900' },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: theme.colors.inkBlack,
-    borderWidth: 1,
-    borderColor: theme.colors.inkBlack,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  secondaryButtonText: { color: theme.primary, fontSize: 15, fontWeight: '900' },
-  tertiaryButton: {
-    flex: 1,
-    borderRadius: 14,
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.border,
-    backgroundColor: theme.screen,
-    paddingVertical: 12,
-    alignItems: 'center',
   },
-  tertiaryButtonText: { color: theme.text, fontSize: 13, fontWeight: '800' },
-  profileButton: {
-    flex: 1,
-    backgroundColor: theme.colors.forestGreen,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  profileButtonText: {
-    color: theme.colors.porcelain,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13, lineHeight: 18 },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: 22,
+  bellIcon: { fontSize: 18 },
+  // ── Hero card ──────────────────────────────────────────
+  heroCard: {
+    backgroundColor: theme.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
     overflow: 'hidden',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.38,
-    shadowRadius: 14,
-    elevation: 3,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  cardImage: { width: '100%', height: 200, backgroundColor: theme.surfaceSoft },
-  imageFallback: { justifyContent: 'center', alignItems: 'center' },
-  imageFallbackText: { color: theme.primary, fontWeight: '900', fontSize: 18 },
-  cardBody: { padding: 16 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  cardTitle: { flex: 1, color: theme.text, fontSize: 19, fontWeight: '900', marginRight: 12 },
-  statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusLive: { backgroundColor: theme.primary },
-  statusPaused: { backgroundColor: theme.colors.danger },
-  statusPillText: { color: theme.primaryText, fontSize: 12, fontWeight: '900' },
-  cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 14 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 },
-  cardPrice: { color: theme.primary, fontSize: 17, fontWeight: '900', marginBottom: 4 },
-  cardCity: { color: theme.textMuted, fontSize: 13 },
-  cardOwner: { color: theme.text, fontSize: 13, fontWeight: '700' },
-  emptyState: {
-    backgroundColor: theme.surface,
-    borderRadius: 24,
-    padding: 24,
+  heroCardInner: {
+    marginBottom: 20,
+  },
+  heroCardLabel: {
+    color: theme.primary,
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  heroCardSub: {
+    color: theme.text,
+    fontSize: 22,
+    fontWeight: '300',
+  },
+  heroCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  heroActionBtn: {
     alignItems: 'center',
+    gap: 6,
+  },
+  heroActionIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(109, 216, 50, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroActionIcon: {
+    fontSize: 20,
+  },
+  heroActionLabel: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  // ── Category chips ──────────────────────────────────────
+  chipsScroll: { marginHorizontal: -16, marginBottom: 18 },
+  chipsContainer: { paddingHorizontal: 16, gap: 8, flexDirection: 'row' },
+  chip: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
+  },
+  chipSelected: {
+    backgroundColor: theme.primarySurface,
+    borderColor: theme.borderFocus,
+    borderTopColor: 'rgba(22, 255, 110, 0.4)',
+  },
+  chipUnselected: { 
+    backgroundColor: theme.surfaceSubdued,
     borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 3,
+    borderTopColor: theme.border,
+    borderBottomColor: theme.borderBottom,
   },
-  emptyTitle: { color: theme.text, fontSize: 22, fontWeight: '900', marginBottom: 8 },
-  emptyText: { color: theme.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 18 },
-  emptyButton: {
-    backgroundColor: theme.primary,
-    borderRadius: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+  chipTextSelected: { color: theme.primary, fontWeight: '600', fontSize: 14 },
+  chipTextUnselected: { color: theme.textMuted, fontWeight: '400', fontSize: 14 },
+  errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
+  // ── Listing grid ──────────────────────────────────────
+  rowWrapper: { gap: 14, justifyContent: 'space-between', marginBottom: 14 },
+  card: {
+    flex: 1,
+    backgroundColor: theme.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  emptyButtonText: { color: theme.primaryText, fontWeight: '900' },
+  thumbnailContainer: {
+    width: '100%',
+    height: 130,
+    backgroundColor: theme.surfaceSubdued,
+    position: 'relative',
+  },
+  cardImage: { width: '100%', height: '100%' },
+  imageFallback: { justifyContent: 'center', alignItems: 'center' },
+  imageFallbackText: { color: theme.primary, fontWeight: '900', fontSize: 14 },
+  badgePill: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: theme.primarySurface,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.primaryLight,
+  },
+  badgeText: { color: theme.primaryDeep, fontSize: 10, fontWeight: '500', textTransform: 'uppercase' },
+  cardBody: { padding: 12 },
+  cardTitle: { color: theme.text, fontSize: 14, fontWeight: '500', marginBottom: 4 },
+  cardMeta: { color: theme.textMuted, fontSize: 11, marginBottom: 6 },
+  cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '500' },
+  emptyState: { alignItems: 'center', marginTop: 40 },
+  emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '500', marginBottom: 8 },
+  emptyText: { color: theme.textMuted, fontSize: 14 },
 })

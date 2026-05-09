@@ -1,14 +1,18 @@
-import React from 'react'
+import React, { useRef, useState, useCallback, useEffect } from 'react'
 import {
   Animated,
-  Easing,
   LayoutChangeEvent,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  ScrollView,
+  Platform,
 } from 'react-native'
+import { BlurView } from 'expo-blur'
+import { Feather } from '@expo/vector-icons'
+import ScreenBackground from '../components/ScreenBackground'
+import * as Haptics from 'expo-haptics'
 import { RouteProp, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -21,7 +25,6 @@ import { theme } from '../theme/colors'
 type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
-const TAB_TRANSITION_MS = 520
 const CENTER_SLOT_WIDTH = 72
 const BAR_HORIZONTAL_PADDING = 14
 
@@ -31,177 +34,224 @@ type ScreenProps = {
 
 type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
 
-function getTabOffset(index: number, tabWidth: number) {
-  return index < 2 ? index * tabWidth : index * tabWidth + CENTER_SLOT_WIDTH
+const TAB_ICONS: Record<MainTab, keyof typeof Feather.glyphMap> = {
+  Home: 'home',
+  Search: 'search',
+  Inbox: 'mail',
+  MyProfile: 'user',
+}
+
+const TAB_LABELS: Record<MainTab, string> = {
+  Home: 'Home',
+  Search: 'Search',
+  Inbox: 'Inbox',
+  MyProfile: 'Profile',
 }
 
 function NavItem({
   active,
-  icon,
-  label,
+  tab,
   onPress,
 }: {
   active: boolean
-  icon: string
-  label: string
+  tab: MainTab
   onPress: () => void
 }) {
   return (
-    <TouchableOpacity style={[styles.navItem, active && styles.navItemActive]} onPress={onPress}>
-      <Text style={styles.navIcon}>{icon}</Text>
-      <Text style={styles.navLabel}>{label}</Text>
+    <TouchableOpacity style={styles.navItem} onPress={onPress} activeOpacity={0.7}>
+      <Feather
+        name={TAB_ICONS[tab]}
+        size={20}
+        color={active ? theme.primary : 'rgba(255, 255, 255, 0.55)'}
+      />
+      <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>
+        {TAB_LABELS[tab]}
+      </Text>
     </TouchableOpacity>
   )
 }
 
 export default function MainAppScreen({ navigation }: ScreenProps) {
   const route = useRoute<MainAppRoute>()
-  const [activeTab, setActiveTab] = React.useState<MainTab>(route.params?.tab ?? 'Home')
-  const [contentWidth, setContentWidth] = React.useState(0)
-  const [bottomBarWidth, setBottomBarWidth] = React.useState(0)
-  const translateX = React.useRef(new Animated.Value(0)).current
-  const tabHighlightX = React.useRef(new Animated.Value(0)).current
-  const isTransitioningRef = React.useRef(false)
-  const activeIndex = TAB_ORDER.indexOf(activeTab)
+  const [activeTab, setActiveTab] = useState<MainTab>(route.params?.tab ?? 'Home')
+  const [contentWidth, setContentWidth] = useState(0)
+  const [bottomBarWidth, setBottomBarWidth] = useState(0)
+  const scrollX = useRef(new Animated.Value(0)).current
+  const scrollViewRef = useRef<ScrollView>(null)
+  // Track the last haptic-fired index to avoid double-fires
+  const lastHapticIndex = useRef(TAB_ORDER.indexOf(route.params?.tab ?? 'Home'))
+
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
     : 0
 
-  const transitionToTab = React.useCallback((nextTab: MainTab) => {
-    if (nextTab === activeTab || isTransitioningRef.current) {
-      setActiveTab(nextTab)
-      return
+  const tabHighlightX = scrollX.interpolate({
+    inputRange: contentWidth > 0 ? [0, contentWidth, contentWidth * 2, contentWidth * 3] : [0, 1, 2, 3],
+    outputRange: [
+      0,
+      tabWidth,
+      tabWidth * 2 + CENTER_SLOT_WIDTH,
+      tabWidth * 3 + CENTER_SLOT_WIDTH,
+    ],
+    extrapolate: 'clamp',
+  })
+
+  useEffect(() => {
+    if (contentWidth > 0 && scrollViewRef.current) {
+      const idx = TAB_ORDER.indexOf(activeTab)
+      scrollViewRef.current.scrollTo({
+        x: idx * contentWidth,
+        animated: false,
+      })
     }
+  }, [contentWidth])
 
-    if (!contentWidth) {
-      setActiveTab(nextTab)
-      return
-    }
-
-    const nextIndex = TAB_ORDER.indexOf(nextTab)
-    const animations = [
-      Animated.timing(translateX, {
-        toValue: -(nextIndex * contentWidth),
-        duration: TAB_TRANSITION_MS,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]
-
-    if (tabWidth > 0) {
-      animations.push(
-        Animated.timing(tabHighlightX, {
-          toValue: getTabOffset(nextIndex, tabWidth),
-          duration: TAB_TRANSITION_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        })
-      )
-    }
-
-    isTransitioningRef.current = true
-    setActiveTab(nextTab)
-
-    Animated.parallel(animations).start(() => {
-      isTransitioningRef.current = false
-    })
-  }, [activeTab, contentWidth, tabHighlightX, tabWidth, translateX])
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (route.params?.tab) {
       transitionToTab(route.params.tab)
+      navigation.setParams({ tab: undefined })
     }
-  }, [route.params?.tab, transitionToTab])
+  }, [route.params?.tab, navigation])
 
-  React.useEffect(() => {
+  const transitionToTab = useCallback((nextTab: MainTab) => {
+    if (nextTab === activeTab) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+
+    const nextIndex = TAB_ORDER.indexOf(nextTab)
+    lastHapticIndex.current = nextIndex
+
+    if (contentWidth > 0 && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        x: nextIndex * contentWidth,
+        animated: true,
+      })
+    }
+  }, [activeTab, contentWidth])
+
+  // Continuously track scroll position and update active tab at the halfway point
+  const handleScroll = useCallback((e: any) => {
     if (!contentWidth) return
-    translateX.setValue(-(activeIndex * contentWidth))
-  }, [contentWidth, translateX])
+    const offsetX = e.nativeEvent.contentOffset.x
+    const currentIndex = Math.round(offsetX / contentWidth)
 
-  React.useEffect(() => {
-    if (!tabWidth) return
-    tabHighlightX.setValue(getTabOffset(activeIndex, tabWidth))
-  }, [tabHighlightX, tabWidth])
+    if (currentIndex >= 0 && currentIndex < TAB_ORDER.length) {
+      const nextTab = TAB_ORDER[currentIndex]
+      if (nextTab !== activeTab) {
+        // Fire haptic only once per crossing
+        if (lastHapticIndex.current !== currentIndex) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          lastHapticIndex.current = currentIndex
+        }
+        setActiveTab(nextTab)
+      }
+    }
+  }, [contentWidth, activeTab])
 
-  const handleBottomBarLayout = React.useCallback((event: LayoutChangeEvent) => {
+  const handleBottomBarLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width
     if (nextWidth !== bottomBarWidth) {
       setBottomBarWidth(nextWidth)
     }
   }, [bottomBarWidth])
 
+  const renderBottomBarContent = () => (
+    <View style={styles.bottomBar} onLayout={handleBottomBarLayout}>
+      {tabWidth > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.activeTabHighlight,
+            {
+              width: tabWidth,
+              transform: [{ translateX: tabHighlightX }],
+            },
+          ]}
+        />
+      ) : null}
+
+      <NavItem active={activeTab === 'Home'} tab="Home" onPress={() => transitionToTab('Home')} />
+      <NavItem active={activeTab === 'Search'} tab="Search" onPress={() => transitionToTab('Search')} />
+
+      <View style={styles.centerSlot} />
+
+      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} />
+      <NavItem active={activeTab === 'MyProfile'} tab="MyProfile" onPress={() => transitionToTab('MyProfile')} />
+    </View>
+  )
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenBackground>
       <View
         style={styles.content}
         onLayout={(event) => {
           const nextWidth = event.nativeEvent.layout.width
-          if (nextWidth !== contentWidth) {
+          if (nextWidth !== contentWidth && nextWidth > 0) {
             setContentWidth(nextWidth)
           }
         }}
       >
-        <Animated.View
-          style={[
-            styles.tabStrip,
-            {
-              width: contentWidth ? contentWidth * TAB_ORDER.length : '100%',
-              transform: [{ translateX }],
-            },
-          ]}
-        >
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <HomeScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <SearchScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <InboxScreen />
-          </View>
-          <View style={[styles.tabPanel, { width: contentWidth || '100%' }]}>
-            <MyProfileScreen />
-          </View>
-        </Animated.View>
+        {contentWidth > 0 && (
+          <Animated.ScrollView
+            ref={scrollViewRef as any}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            directionalLockEnabled={true}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+              {
+                useNativeDriver: true,
+                listener: handleScroll,
+              }
+            )}
+            scrollEventThrottle={16}
+            style={styles.tabStrip}
+          >
+            <View style={[styles.tabPanel, { width: contentWidth }]}>
+              <HomeScreen />
+            </View>
+            <View style={[styles.tabPanel, { width: contentWidth }]}>
+              <SearchScreen />
+            </View>
+            <View style={[styles.tabPanel, { width: contentWidth }]}>
+              <InboxScreen />
+            </View>
+            <View style={[styles.tabPanel, { width: contentWidth }]}>
+              <MyProfileScreen />
+            </View>
+          </Animated.ScrollView>
+        )}
       </View>
 
       <View style={styles.bottomWrap}>
-        <View style={styles.bottomBar} onLayout={handleBottomBarLayout}>
-          {tabWidth > 0 ? (
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.activeTabHighlight,
-                {
-                  width: tabWidth,
-                  transform: [{ translateX: tabHighlightX }],
-                },
-              ]}
-            />
-          ) : null}
-
-          <NavItem active={activeTab === 'Home'} icon="⌂" label="Home" onPress={() => transitionToTab('Home')} />
-          <NavItem active={activeTab === 'Search'} icon="⌕" label="Search" onPress={() => transitionToTab('Search')} />
-
-          <View style={styles.centerSlot} />
-
-          <NavItem active={activeTab === 'Inbox'} icon="✉︎" label="Messages" onPress={() => transitionToTab('Inbox')} />
-          <NavItem active={activeTab === 'MyProfile'} icon="◉" label="Profile" onPress={() => transitionToTab('MyProfile')} />
+        <View style={styles.tabShadowWrapper}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={75} style={styles.blurWrapper} tint="dark">
+              {renderBottomBarContent()}
+            </BlurView>
+          ) : (
+            <View style={styles.androidWrapper}>
+              {renderBottomBarContent()}
+            </View>
+          )}
         </View>
 
-        <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateListing')}>
+        <TouchableOpacity 
+          style={styles.createButton} 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
+            navigation.navigate('CreateListing')
+          }} 
+          activeOpacity={0.9}
+        >
           <Text style={styles.createButtonText}>+</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: theme.screen,
-  },
   content: {
     flex: 1,
     overflow: 'hidden',
@@ -214,47 +264,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   bottomWrap: {
-    position: 'relative',
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    backgroundColor: theme.screen,
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 32 : 16,
+    left: 16,
+    right: 16,
+    backgroundColor: 'transparent',
+  },
+  tabShadowWrapper: {
+    borderRadius: 32,
+    shadowColor: theme.shadow,
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 8,
+  },
+  blurWrapper: {
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(15, 255, 80, 0.12)',
+    overflow: 'hidden',
+  },
+  androidWrapper: {
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
+    backgroundColor: 'rgba(15, 255, 80, 0.22)',
+    overflow: 'hidden',
   },
   bottomBar: {
-    height: 78,
-    backgroundColor: theme.colors.inkBlack,
-    borderRadius: 28,
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: BAR_HORIZONTAL_PADDING,
-    overflow: 'hidden',
   },
   activeTabHighlight: {
     position: 'absolute',
     left: BAR_HORIZONTAL_PADDING,
-    top: 12,
-    bottom: 12,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    top: 6,
+    bottom: 6,
+    borderRadius: 14,
+    backgroundColor: theme.primarySurface,
   },
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    paddingVertical: 8,
-    borderRadius: 18,
-  },
-  navItemActive: {},
-  navIcon: {
-    color: theme.primary,
-    fontSize: 20,
-    fontWeight: '900',
   },
   navLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  navLabelActive: {
     color: theme.primary,
-    fontSize: 11,
-    fontWeight: '800',
+  },
+  navLabelInactive: {
+    color: 'rgba(255, 255, 255, 0.55)',
   },
   centerSlot: {
     width: CENTER_SLOT_WIDTH,
@@ -262,21 +330,24 @@ const styles = StyleSheet.create({
   createButton: {
     position: 'absolute',
     alignSelf: 'center',
-    top: -22,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    top: -24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 6,
-    borderColor: theme.screen,
+    shadowColor: theme.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 10,
   },
   createButtonText: {
-    color: theme.primaryText,
+    color: '#050A05',
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: '400',
     lineHeight: 34,
-    marginTop: -1,
+    marginTop: -2,
   },
 })

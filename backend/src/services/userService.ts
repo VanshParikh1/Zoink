@@ -62,16 +62,16 @@ export async function getPublicProfile(userId: string) {
     ...user,
     reputation: user.reputation
       ? {
-          ...user.reputation,
-          overallRenterRating: toNumber(user.reputation.overallRenterRating),
-          overallLenderRating: toNumber(user.reputation.overallLenderRating),
-          renterReliabilityAvg: toNumber(user.reputation.renterReliabilityAvg),
-          renterCareAvg: toNumber(user.reputation.renterCareAvg),
-          renterCommunicationAvg: toNumber(user.reputation.renterCommunicationAvg),
-          lenderAccuracyAvg: toNumber(user.reputation.lenderAccuracyAvg),
-          lenderConditionAvg: toNumber(user.reputation.lenderConditionAvg),
-          lenderCommunicationAvg: toNumber(user.reputation.lenderCommunicationAvg),
-        }
+        ...user.reputation,
+        overallRenterRating: toNumber(user.reputation.overallRenterRating),
+        overallLenderRating: toNumber(user.reputation.overallLenderRating),
+        renterReliabilityAvg: toNumber(user.reputation.renterReliabilityAvg),
+        renterCareAvg: toNumber(user.reputation.renterCareAvg),
+        renterCommunicationAvg: toNumber(user.reputation.renterCommunicationAvg),
+        lenderAccuracyAvg: toNumber(user.reputation.lenderAccuracyAvg),
+        lenderConditionAvg: toNumber(user.reputation.lenderConditionAvg),
+        lenderCommunicationAvg: toNumber(user.reputation.lenderCommunicationAvg),
+      }
       : null,
   }
 }

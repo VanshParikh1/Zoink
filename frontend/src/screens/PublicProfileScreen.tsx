@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
@@ -52,30 +54,20 @@ export default function PublicProfileScreen() {
   if (!profile) return null
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <TouchableOpacity style={styles.backButton} onPress={() => nav.goBack()}>
-        <Text style={styles.backButtonText}>Back</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.eyebrow}>STUDENT CARD</Text>
-      <Text style={styles.title}>See how {profile.firstName} shows up on Zoink</Text>
-      <Text style={styles.subtitle}>
-        Reputation, responsiveness, and completed rentals all live here. This card should make trust feel immediate.
-      </Text>
-
-      <ProfileCard profile={profile} />
-
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>What this tells a renter</Text>
-        <Text style={styles.note}>The top half sells the person: photo, vibe, and personality.</Text>
-        <Text style={styles.note}>The bottom half proves the history: role-specific review scores and earned badges.</Text>
-      </View>
-    </ScrollView>
+    <ScreenBackground>
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.content} 
+        showsVerticalScrollIndicator={false}
+      >
+        <ProfileCard profile={profile} />
+      </ScrollView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
   loadingScreen: {
     flex: 1,

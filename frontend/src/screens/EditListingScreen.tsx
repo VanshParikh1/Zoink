@@ -12,6 +12,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import ScreenBackground from '../components/ScreenBackground'
 import * as ImagePicker from 'expo-image-picker'
 import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -23,7 +25,7 @@ import {
   deleteListingImage,
 } from '../services/listingsApi'
 import { Listing } from '../types'
-import LogoPlaceholder from '../components/LogoPlaceholder'
+import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -174,13 +176,14 @@ export default function EditListingScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </TouchableOpacity>
 
-        <LogoPlaceholder size="small" style={styles.logo} />
+        <ZoinkLogo size={40} style={styles.logo} />
         <Text style={styles.header}>Edit Listing</Text>
 
         <Text style={styles.label}>Photos</Text>
@@ -211,7 +214,7 @@ export default function EditListingScreen() {
           style={styles.input}
           value={title}
           onChangeText={setTitle}
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
           maxLength={80}
         />
 
@@ -220,7 +223,7 @@ export default function EditListingScreen() {
           style={[styles.input, styles.textarea]}
           value={description}
           onChangeText={setDescription}
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
           multiline
           numberOfLines={4}
           maxLength={1000}
@@ -246,7 +249,7 @@ export default function EditListingScreen() {
             style={[styles.input, { flex: 1 }]}
             value={dailyPrice}
             onChangeText={setDailyPrice}
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.textDisabled}
             keyboardType="decimal-pad"
           />
         </View>
@@ -256,7 +259,7 @@ export default function EditListingScreen() {
           style={styles.input}
           value={city}
           onChangeText={setCity}
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
         />
 
         <Text style={styles.label}>Address <Text style={styles.optional}>(optional)</Text></Text>
@@ -264,7 +267,7 @@ export default function EditListingScreen() {
           style={styles.input}
           value={address}
           onChangeText={setAddress}
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={theme.textDisabled}
         />
 
         <TouchableOpacity
@@ -272,17 +275,18 @@ export default function EditListingScreen() {
           onPress={handleSave}
           disabled={saving}
         >
-          {saving ? <ActivityIndicator color={theme.primaryText} /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
+          {saving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
+  container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { paddingHorizontal: 24, paddingTop: 60 },
   backBtn: { marginBottom: 16 },
@@ -319,7 +323,7 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
   chipText: { fontSize: 13, color: theme.textMuted, fontWeight: '700' },
-  chipTextActive: { color: theme.primaryText },
+  chipTextActive: { color: theme.textOnPrimary },
   priceRow: { flexDirection: 'row', alignItems: 'center' },
   currency: { fontSize: 20, color: theme.primary, marginRight: 8, fontWeight: '900' },
   photoScroll: { marginTop: 4 },
@@ -358,5 +362,6 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: theme.primaryText, fontSize: 17, fontWeight: '900' },
+  saveBtnText: { color: theme.textOnPrimary, fontSize: 17, fontWeight: '900' },
 })
+

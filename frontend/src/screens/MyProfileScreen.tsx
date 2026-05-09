@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,14 +13,39 @@ import {
   View,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { useFocusEffect } from '@react-navigation/native'
+import * as SecureStore from 'expo-secure-store'
+import * as Haptics from 'expo-haptics'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
+import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
+import ZoinkButton from '../components/ZoinkButton'
+import ZoinkFullLogo from '../components/ZoinkFullLogo'
+
+type Nav = NativeStackNavigationProp<RootStackParamList>
+const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
+
+async function setPromptSeen(key: string) {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(key, '1')
+    return
+  }
+  await SecureStore.setItemAsync(key, '1')
+}
+
+async function getPromptSeen(key: string) {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key)
+  }
+  return await SecureStore.getItemAsync(key)
+}
 
 export default function MyProfileScreen() {
+  const nav = useNavigation<Nav>()
   const { user, logout } = useAuth()
   const [profile, setProfile] = useState<MyProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -27,6 +53,7 @@ export default function MyProfileScreen() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
     firstName: '',
@@ -65,6 +92,26 @@ export default function MyProfileScreen() {
       loadProfile()
     }, [loadProfile])
   )
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const promptKey = `${PROFILE_PROMPT_KEY_PREFIX}_${user.id}`
+    getPromptSeen(promptKey)
+      .then((value) => {
+        setShowProfilePrompt(!value)
+      })
+      .catch(() => {
+        setShowProfilePrompt(true)
+      })
+  }, [user?.id])
+
+  async function dismissProfilePrompt() {
+    if (user?.id) {
+      await setPromptSeen(`${PROFILE_PROMPT_KEY_PREFIX}_${user.id}`)
+    }
+    setShowProfilePrompt(false)
+  }
 
   async function handlePickAvatar() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -134,124 +181,217 @@ export default function MyProfileScreen() {
 
   const displayProfile = editing
     ? {
-        ...profile,
-        firstName: form.firstName || profile.firstName,
-        lastName: form.lastName || profile.lastName,
-        phone: form.phone || undefined,
-        bio: form.bio || undefined,
-      }
+      ...profile,
+      firstName: form.firstName || profile.firstName,
+      lastName: form.lastName || profile.lastName,
+      phone: form.phone || undefined,
+      bio: form.bio || undefined,
+    }
     : profile
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
-        setRefreshing(true)
-        loadProfile()
-      }} tintColor={theme.primary} />}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.eyebrow}>YOUR CARD</Text>
-      <Text style={styles.title}>Make your Zoink profile memorable</Text>
-      <Text style={styles.subtitle}>
-        This is the profile students will judge in a split second. Give them a face, a vibe, and proof you are easy to rent from.
-      </Text>
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
+          setRefreshing(true)
+          loadProfile()
+        }} tintColor={theme.primary} colors={[theme.primary]} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerInner}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.headerTitle}>Profile</Text>
+              <ZoinkFullLogo width={160} height={48} />
+            </View>
+          </View>
+        </View>
 
-      <ProfileCard profile={displayProfile} />
-
-      <View style={styles.avatarRow}>
-        {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatarThumb} /> : <View style={styles.avatarThumbFallback} />}
-        <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar} disabled={uploading}>
-          <Text style={styles.avatarButtonText}>{uploading ? 'Uploading photo...' : 'Change photo'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.actions}>
-        {!editing ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
-            <Text style={styles.primaryButtonText}>Edit profile details</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.actionPair}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => {
-              syncForm(profile)
-              setEditing(false)
-            }}>
-              <Text style={styles.secondaryButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={saving}>
-              <Text style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save changes'}</Text>
+        {showProfilePrompt ? (
+          <View style={styles.promptCard}>
+            <Text style={styles.promptEyebrow}>ONE-TIME TIP</Text>
+            <Text style={styles.promptTitle}>Make your Zoink profile memorable</Text>
+            <Text style={styles.promptBody}>
+              This card is the first impression. Add a photo, a short bio, and clean details so people feel good renting from you.
+            </Text>
+            <TouchableOpacity 
+              style={styles.promptButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                dismissProfilePrompt()
+              }}
+            >
+              <Text style={styles.promptButtonText}>Got it</Text>
             </TouchableOpacity>
           </View>
-        )}
-      </View>
+        ) : null}
 
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>Profile basics</Text>
+        <ProfileCard profile={displayProfile} />
 
-        <Text style={styles.label}>First name</Text>
-        <TextInput
-          value={form.firstName}
-          onChangeText={(value) => setForm((current) => ({ ...current, firstName: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="First name"
-          placeholderTextColor={theme.textFaint}
+        <View style={styles.avatarRow}>
+          {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatarThumb} /> : <View style={styles.avatarThumbFallback} />}
+          <TouchableOpacity 
+            style={styles.avatarButton} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              handlePickAvatar()
+            }} 
+            disabled={uploading}
+          >
+            <Text style={styles.avatarButtonText}>{uploading ? 'Uploading photo...' : 'Change photo'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.actions}>
+          {!editing ? (
+            <ZoinkButton 
+              label="Edit profile details" 
+              variant="stamped" 
+              onPress={() => setEditing(true)} 
+            />
+          ) : (
+            <View style={styles.actionPair}>
+              <ZoinkButton 
+                label="Cancel" 
+                variant="inset" 
+                onPress={() => {
+                  syncForm(profile)
+                  setEditing(false)
+                }} 
+                style={{ flex: 1 }}
+              />
+              <ZoinkButton 
+                label="Save changes" 
+                variant="stamped" 
+                onPress={handleSave} 
+                isLoading={saving}
+                style={{ flex: 1 }}
+              />
+            </View>
+          )}
+        </View>
+
+        <View style={styles.quickActionsPanel}>
+          <Text style={styles.panelTitle}>Manage your Zoink account</Text>
+          <View style={styles.quickActionRow}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('MyListings')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>My listings</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('BookingHistory')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>My bookings</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickActionRow}>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('BookingRequests')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>Requests</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.quickActionButton} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('MainApp', { tab: 'Inbox' }
+              )}}>
+              <Text style={styles.quickActionButtonText}>Inbox</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Profile basics</Text>
+
+          <Text style={styles.label}>First name</Text>
+          <TextInput
+            value={form.firstName}
+            onChangeText={(value) => setForm((current) => ({ ...current, firstName: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="First name"
+            placeholderTextColor={theme.textDisabled}
+          />
+
+          <Text style={styles.label}>Last name</Text>
+          <TextInput
+            value={form.lastName}
+            onChangeText={(value) => setForm((current) => ({ ...current, lastName: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="Last name"
+            placeholderTextColor={theme.textDisabled}
+          />
+
+          <Text style={styles.label}>Phone</Text>
+          <TextInput
+            value={form.phone}
+            onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
+            editable={editing}
+            style={[styles.input, !editing && styles.inputDisabled]}
+            placeholder="Optional contact number"
+            placeholderTextColor={theme.textDisabled}
+            keyboardType="phone-pad"
+          />
+
+          <Text style={styles.label}>Quote or bio</Text>
+          <TextInput
+            value={form.bio}
+            onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))}
+            editable={editing}
+            style={[styles.input, styles.bioInput, !editing && styles.inputDisabled]}
+            placeholder="Add a quick line that feels like you"
+            placeholderTextColor={theme.textDisabled}
+            multiline
+          />
+        </View>
+        <ZoinkButton 
+          label="Sign out" 
+          variant="danger" 
+          onPress={logout} 
+          style={{ marginTop: 18 }}
         />
 
-        <Text style={styles.label}>Last name</Text>
-        <TextInput
-          value={form.lastName}
-          onChangeText={(value) => setForm((current) => ({ ...current, lastName: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="Last name"
-          placeholderTextColor={theme.textFaint}
-        />
-
-        <Text style={styles.label}>Phone</Text>
-        <TextInput
-          value={form.phone}
-          onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
-          editable={editing}
-          style={[styles.input, !editing && styles.inputDisabled]}
-          placeholder="Optional contact number"
-          placeholderTextColor={theme.textFaint}
-          keyboardType="phone-pad"
-        />
-
-        <Text style={styles.label}>Quote or bio</Text>
-        <TextInput
-          value={form.bio}
-          onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))}
-          editable={editing}
-          style={[styles.input, styles.bioInput, !editing && styles.inputDisabled]}
-          placeholder="Add a quick line that feels like you"
-          placeholderTextColor={theme.textFaint}
-          multiline
-        />
-      </View>
-
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>Why this card works</Text>
-        <Text style={styles.note}>Your photo and quote set the vibe before anyone opens a chat.</Text>
-        <Text style={styles.note}>The two rating tracks show what kind of owner and borrower you are.</Text>
-        <Text style={styles.note}>Badges can grow naturally as more Week 8 reviews come in.</Text>
-      </View>
-
-      <TouchableOpacity style={styles.signOutButton} onPress={logout}>
-        <Text style={styles.signOutButtonText}>Sign out</Text>
-      </TouchableOpacity>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </ScrollView>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.screen },
-  content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
+  header: {
+    paddingTop: 56,
+    paddingBottom: 16,
+    zIndex: 10,
+  },
+  headerInner: {
+    paddingHorizontal: 24,
+  },
+  headerTitle: {
+    color: theme.text,
+    fontSize: 28,
+    fontWeight: '500',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  container: { flex: 1 },
+  content: { paddingHorizontal: 18, paddingBottom: 140 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
@@ -259,25 +399,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
-  eyebrow: {
+  promptCard: {
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
+  },
+  promptEyebrow: {
     color: theme.primary,
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1.2,
     marginBottom: 8,
   },
-  title: {
+  promptTitle: {
     color: theme.text,
-    fontSize: 30,
+    fontSize: 24,
     fontWeight: '900',
-    lineHeight: 36,
+    lineHeight: 30,
   },
-  subtitle: {
+  promptBody: {
     color: theme.textMuted,
     fontSize: 15,
     lineHeight: 22,
     marginTop: 10,
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  promptButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.primary,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  promptButtonText: {
+    color: theme.textOnPrimary,
+    fontSize: 14,
+    fontWeight: '900',
   },
   avatarRow: {
     flexDirection: 'row',
@@ -295,10 +455,10 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: theme.surfaceSoft,
+    backgroundColor: theme.primarySurface,
   },
   avatarButton: {
-    backgroundColor: theme.colors.inkBlack,
+    backgroundColor: '#051E09',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 14,
@@ -310,6 +470,33 @@ const styles = StyleSheet.create({
   },
   actions: { marginBottom: 14 },
   actionPair: { flexDirection: 'row', gap: 10 },
+  quickActionsPanel: {
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
+  },
+  quickActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  quickActionButton: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 255, 80, 0.15)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.3)',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  quickActionButtonText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
   primaryButton: {
     flex: 1,
     backgroundColor: theme.primary,
@@ -318,7 +505,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: theme.primaryText,
+    color: theme.textOnPrimary,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -337,12 +524,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   panel: {
-    backgroundColor: theme.surface,
-    borderRadius: 24,
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
+    borderRadius: 16,
     padding: 18,
     marginTop: 14,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   panelTitle: {
     color: theme.text,
@@ -358,10 +545,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   input: {
-    backgroundColor: theme.screen,
+    backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 16,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 13,
     color: theme.text,
@@ -401,3 +588,4 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
 })
+
