@@ -63,7 +63,7 @@ export default function RegisterScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Header & Logo */}
-          <ZoinkFullLogo width={760} height={220} style={styles.logo} />
+          <ZoinkFullLogo width={280} height={80} style={styles.logo} />
           <Text style={styles.kicker}>join zoink</Text>
           <Text style={styles.title}>Create account</Text>
           <Text style={styles.subtitle}>
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   logo: {
-    marginBottom: 8,
+    marginBottom: 16,
     alignSelf: 'center',
   },
   kicker: {

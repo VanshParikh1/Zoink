@@ -54,7 +54,7 @@ export default function ZoinkButton({
           {isLoading ? (
             <ActivityIndicator color={theme.textOnPrimary} size="small" />
           ) : (
-            <Text style={styles.btnText}>{label}</Text>
+            <Text style={styles.btnText} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
           )}
         </LinearGradient>
       </TouchableOpacity>
@@ -72,7 +72,7 @@ export default function ZoinkButton({
         {isLoading ? (
           <ActivityIndicator color={theme.primary} size="small" />
         ) : (
-          <Text style={styles.ghostText}>{label}</Text>
+          <Text style={styles.ghostText} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
         )}
       </TouchableOpacity>
     );
@@ -89,7 +89,7 @@ export default function ZoinkButton({
         {isLoading ? (
           <ActivityIndicator color={theme.textMuted} size="small" />
         ) : (
-          <Text style={styles.insetText}>{label}</Text>
+          <Text style={styles.insetText} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
         )}
       </TouchableOpacity>
     );
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
   },
   btn: {
     paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 48,
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   ghostBtn: {
     paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
     borderRadius: 10,
     backgroundColor: 'rgba(109, 216, 50, 0.08)',
     borderWidth: 1,
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
   },
   insetBtn: {
     paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
     borderRadius: 10,
     backgroundColor: theme.surfaceSubdued,
     borderWidth: 1,
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
   },
   dangerBtn: {
     paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
     borderRadius: 10,
     backgroundColor: theme.colors.dangerSurface,
     borderWidth: 1,

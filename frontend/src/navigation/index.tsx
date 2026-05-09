@@ -92,7 +92,11 @@ function VerifiedAppStack() {
       />
       <Stack.Screen name="Inbox" component={InboxScreen} />
       <Stack.Screen name="MyProfile" component={MyProfileScreen} />
-      <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
+      <Stack.Screen 
+        name="PublicProfile" 
+        component={PublicProfileScreen} 
+        options={{ presentation: 'modal' }}
+      />
       <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
     </Stack.Navigator>
   )

@@ -11,6 +11,7 @@ import {
   Share,
   Dimensions,
   FlatList,
+  Modal,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
@@ -25,6 +26,7 @@ import { Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -34,6 +36,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window')
 export default function ListingDetailScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<Route>()
+  const insets = useSafeAreaInsets()
   const { user } = useAuth()
   const listingId = route.params.listingId
 
@@ -41,6 +44,7 @@ export default function ListingDetailScreen() {
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
   const [activeImg, setActiveImg] = useState(0)
+  const [fullImage, setFullImage] = useState<string | null>(null)
 
   const isOwner = listing?.ownerId === user?.id
 
@@ -134,38 +138,6 @@ export default function ListingDetailScreen() {
   return (
     <ScreenBackground>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {hasImages ? (
-          <View style={styles.carouselContainer}>
-            <FlatList
-              data={listing.images}
-              keyExtractor={(item) => item.id}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(event) => {
-                const idx = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH)
-                setActiveImg(idx)
-              }}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item.url }} style={styles.carouselImage} resizeMode="cover" />
-              )}
-            />
-
-            {listing.images.length > 1 && (
-              <View style={styles.dotRow}>
-                {listing.images.map((_, index) => (
-                  <View key={index} style={[styles.dot, index === activeImg && styles.dotActive]} />
-                ))}
-              </View>
-            )}
-          </View>
-        ) : (
-          <View style={styles.noImageBox}>
-            <ZoinkLogo size={60} style={styles.noImageLogo} />
-            <Text style={styles.noImageText}>No photos yet</Text>
-          </View>
-        )}
-
         <View style={styles.floatingRow}>
           <TouchableOpacity 
             style={styles.floatingBtn} 
@@ -188,6 +160,42 @@ export default function ListingDetailScreen() {
         </View>
 
         <View style={styles.content}>
+          {hasImages ? (
+            <View style={styles.carouselContainer}>
+              <FlatList
+                style={{ width: SCREEN_WIDTH - 80 }}
+                data={listing.images}
+                keyExtractor={(item) => item.id}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => {
+                  const idx = Math.round(event.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 80))
+                  setActiveImg(idx)
+                }}
+                renderItem={({ item }) => (
+                  <View style={{ width: SCREEN_WIDTH - 80 }}>
+                    <TouchableOpacity activeOpacity={0.9} onPress={() => setFullImage(item.url)}>
+                      <Image source={{ uri: item.url }} style={styles.carouselImage} resizeMode="cover" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              />
+
+              {listing.images.length > 1 && (
+                <View style={styles.dotRow}>
+                  {listing.images.map((_, index) => (
+                    <View key={index} style={[styles.dot, index === activeImg && styles.dotActive]} />
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.noImageBox}>
+              <ZoinkLogo size={60} style={styles.noImageLogo} />
+              <Text style={styles.noImageText}>No photos yet</Text>
+            </View>
+          )}
           <View style={styles.badgeRow}>
             <View style={[styles.badge, listing.isAvailable ? styles.badgeAvail : styles.badgeUnavail]}>
               <Text style={[styles.badgeText, !listing.isAvailable && styles.badgeTextUnavailable]}>
@@ -268,7 +276,7 @@ export default function ListingDetailScreen() {
       </ScrollView>
 
       {!isOwner && (
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View>
             <Text style={styles.footerPrice}>
               ${Number(listing.dailyPrice).toFixed(2)}
@@ -286,7 +294,7 @@ export default function ListingDetailScreen() {
             />
 
             <ZoinkButton 
-              label={listing.isAvailable ? 'Request to rent' : 'Unavailable'} 
+              label={listing.isAvailable ? 'Request' : 'Unavailable'} 
               variant="stamped" 
               onPress={() => nav.navigate('BookingRequest', { listingId: listing.id })}
               disabled={!listing.isAvailable}
@@ -295,6 +303,21 @@ export default function ListingDetailScreen() {
           </View>
         </View>
       )}
+
+      {/* Full screen image viewer */}
+      <Modal visible={!!fullImage} transparent={true} animationType="fade">
+        <View style={styles.fullImageContainer}>
+          <TouchableOpacity 
+            style={styles.fullImageCloseBtn} 
+            onPress={() => setFullImage(null)}
+          >
+            <Text style={styles.floatingBtnText}>Close</Text>
+          </TouchableOpacity>
+          {fullImage && (
+            <Image source={{ uri: fullImage }} style={styles.fullImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
     </ScreenBackground>
   )
 }
@@ -302,8 +325,8 @@ export default function ListingDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  carouselContainer: { position: 'relative' },
-  carouselImage: { width: SCREEN_WIDTH, height: 280 },
+  carouselContainer: { position: 'relative', marginBottom: 20 },
+  carouselImage: { width: '100%', height: 240, borderRadius: 16 },
   dotRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -312,30 +335,45 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 6,
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(252,255,252,0.35)' },
-  dotActive: { backgroundColor: theme.primary, width: 18 },
-  noImageBox: { height: 240, backgroundColor: theme.surface, justifyContent: 'center', alignItems: 'center' },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(252,255,252,0.45)' },
+  dotActive: { backgroundColor: theme.textOnPrimary, width: 18 },
+  noImageBox: { height: 180, backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   noImageLogo: { marginBottom: 12 },
   noImageText: { color: theme.textMuted, fontSize: 16 },
   floatingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    position: 'absolute',
-    top: 50,
-    left: 16,
-    right: 16,
+    marginTop: 50,
+    marginBottom: 20,
+    marginHorizontal: 16,
   },
   floatingBtn: {
     minWidth: 40,
     height: 40,
     borderRadius: 20,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(4, 15, 15, 0.76)',
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(15, 255, 80, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  floatingBtnText: { color: theme.text, fontSize: 14, fontWeight: '900' },
-  content: { padding: 24 },
+  floatingBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+  content: {
+    padding: 24,
+    marginHorizontal: 16,
+    marginBottom: 40,
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 255, 80, 0.2)',
+    // shadow for depth
+    shadowColor: theme.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
+  },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   badge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
   badgeAvail: { backgroundColor: 'rgba(0, 239, 32, 0.16)' },
@@ -412,7 +450,13 @@ const styles = StyleSheet.create({
   footerPrice: { fontSize: 20, fontWeight: '900', color: theme.text },
   footerPerDay: { fontSize: 14, fontWeight: '400', color: theme.textMuted },
   footerCity: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
-  footerActions: { gap: 10, minWidth: 170 },
+  footerActions: { 
+    flexDirection: 'row', 
+    gap: 8, 
+    flex: 1, 
+    marginLeft: 20,
+    justifyContent: 'flex-end',
+  },
   messageBtn: {
     backgroundColor: theme.surface,
     borderRadius: 12,
@@ -426,5 +470,17 @@ const styles = StyleSheet.create({
   rentBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
   rentBtnDisabled: { backgroundColor: theme.primarySurface },
   rentBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
+  fullImageContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center' },
+  fullImage: { width: '100%', height: '80%' },
+  fullImageCloseBtn: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    zIndex: 10,
+  },
 })
 

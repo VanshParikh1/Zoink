@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   Animated,
   Dimensions,
@@ -10,77 +10,56 @@ import {
   TouchableOpacity,
   View,
   Platform,
+  Image,
 } from 'react-native'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
-import { useNavigation } from '@react-navigation/native'
+import * as Location from 'expo-location'
+import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
 import SearchBar from '../components/SearchBar'
+import { Listing } from '../types'
+import { browseListings, getNearbyListings } from '../services/listingsApi'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const SCREEN_WIDTH = Dimensions.get('window').width
 const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
-type MockOwner = {
-  id: string
-  name: string
-  rating: number
-  verified: boolean
-}
+// Global in-memory cache for recently viewed items across the session
+let sessionRecentlyViewed: Listing[] = []
 
-type MockListing = {
-  id: string
-  title: string
-  category: string
-  distanceKm: number
-  dailyPrice: number
-  isAvailable: boolean
-  owner: MockOwner
-}
-
-const MOCK_TRENDING: MockListing[] = [
-  { id: 't1', title: 'Sony A7III Camera', category: '\u{1F4F7}', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
-  { id: 't2', title: 'Makita Power Drill', category: '\u{1F6E0}', distanceKm: 3.4, dailyPrice: 15, isAvailable: false, owner: { id: 'o2', name: 'Sam K.', rating: 4.9, verified: false } },
-  { id: 't3', title: 'DJI Mavic Mini', category: '\u{1F681}', distanceKm: 0.8, dailyPrice: 30, isAvailable: true, owner: { id: 'o3', name: 'Jordan P.', rating: 5.0, verified: true } },
-]
-
-const MOCK_RECENT: MockListing[] = [
-  { id: 'r1', title: 'JBL PartyBox 310', category: '\u{1F3B5}', distanceKm: 2.1, dailyPrice: 25, isAvailable: true, owner: { id: 'o4', name: 'Casey R.', rating: 4.7, verified: true } },
-  { id: 'r2', title: 'North Face Tent', category: '\u{26FA}', distanceKm: 5.5, dailyPrice: 20, isAvailable: true, owner: { id: 'o5', name: 'Taylor W.', rating: 4.6, verified: false } },
-]
-
-const MOCK_RESULTS: MockListing[] = [
-  { id: 's1', title: 'Sony A7III Camera', category: '\u{1F4F7}', distanceKm: 1.2, dailyPrice: 45, isAvailable: true, owner: { id: 'o1', name: 'Alex M.', rating: 4.8, verified: true } },
-  { id: 's2', title: 'Canon EOS R5', category: '\u{1F4F7}', distanceKm: 2.8, dailyPrice: 65, isAvailable: true, owner: { id: 'o6', name: 'Morgan L.', rating: 4.9, verified: true } },
-  { id: 's3', title: 'Vintage Film Camera', category: '\u{1F4F7}', distanceKm: 4.1, dailyPrice: 18, isAvailable: false, owner: { id: 'o7', name: 'Drew T.', rating: 4.5, verified: false } },
-]
-
-function MiniProfile({ owner }: { owner: MockOwner }) {
-  const initials = owner.name.split(' ').map(n => n[0]).join('').toUpperCase()
+function MiniProfile({ owner }: { owner: Listing['owner'] }) {
+  const name = `${owner.firstName} ${owner.lastName}`
+  const initials = `${owner.firstName?.[0] || ''}${owner.lastName?.[0] || ''}`.toUpperCase()
   return (
     <View style={styles.miniProfile}>
       <View style={styles.miniAvatar}>
         <Text style={styles.miniAvatarText}>{initials}</Text>
       </View>
       <Text style={styles.miniName}>
-        {owner.name}
-        {owner.verified ? (
+        {name}
+        {owner.verificationStatus === 'VERIFIED' ? (
           <Text style={styles.verifiedTick}> {"\u2713"}</Text>
         ) : null}
       </Text>
-      <Text style={styles.miniRating}>{"\u2605"} {owner.rating.toFixed(1)}</Text>
+      <Text style={styles.miniRating}>{"\u2605"} {((owner as any).rating || 5.0).toFixed(1)}</Text>
     </View>
   )
 }
 
-function GlassCardVertical({ item, onPress }: { item: MockListing; onPress: () => void }) {
+function GlassCardVertical({ item, onPress }: { item: Listing; onPress: () => void }) {
+  const imageUrl = item.images?.[0]?.url
   return (
     <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailLarge}>
-        <Text style={styles.glassThumbnailEmojiLarge}>{item.category}</Text>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+        ) : (
+          <Text style={styles.glassThumbnailEmojiLarge}>{item.category?.[0] || '📦'}</Text>
+        )}
         <View style={[styles.availabilityBadge, item.isAvailable ? styles.badgeAvailable : styles.badgeUnavailable]}>
           <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextUnavailable]}>
             {item.isAvailable ? 'Available' : 'Paused'}
@@ -93,19 +72,24 @@ function GlassCardVertical({ item, onPress }: { item: MockListing; onPress: () =
         <MiniProfile owner={item.owner} />
         
         <View style={styles.glassCardFooter}>
-          <Text style={styles.glassPrice}>${item.dailyPrice.toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
-          <Text style={styles.glassDistance}>{item.distanceKm.toFixed(1)} km</Text>
+          <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
+          <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
         </View>
       </View>
     </TouchableOpacity>
   )
 }
 
-function GlassCardHorizontal({ item, onPress }: { item: MockListing; onPress: () => void }) {
+function GlassCardHorizontal({ item, onPress }: { item: Listing; onPress: () => void }) {
+  const imageUrl = item.images?.[0]?.url
   return (
     <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailSmall}>
-        <Text style={styles.glassThumbnailEmojiSmall}>{item.category}</Text>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+        ) : (
+          <Text style={styles.glassThumbnailEmojiSmall}>{item.category?.[0] || '📦'}</Text>
+        )}
       </View>
       
       <View style={styles.glassRowMiddle}>
@@ -114,8 +98,8 @@ function GlassCardHorizontal({ item, onPress }: { item: MockListing; onPress: ()
       </View>
       
       <View style={styles.glassRowRight}>
-        <Text style={styles.glassPrice}>${item.dailyPrice.toFixed(0)}</Text>
-        <Text style={styles.glassDistance}>{item.distanceKm.toFixed(1)} km</Text>
+        <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)}</Text>
+        <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
       </View>
     </TouchableOpacity>
   )
@@ -127,11 +111,36 @@ export default function SearchScreen() {
   const [isResultsState, setIsResultsState] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('All')
 
+  const [trending, setTrending] = useState<Listing[]>([])
+  const [recent, setRecent] = useState<Listing[]>([])
+  const [results, setResults] = useState<Listing[]>([])
+
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
-    const hasText = query.trim().length > 0
+    Location.getCurrentPositionAsync({}).then(loc => {
+      const { latitude, longitude } = loc.coords
+      getNearbyListings({ lat: latitude, lng: longitude, radius: 50 })
+        .then(res => {
+          setTrending(res.slice(0, 5))
+        }).catch(console.error)
+    }).catch(() => {
+      browseListings({}).then(res => {
+        setTrending(res.items.slice(0, 5))
+      }).catch(console.error)
+    })
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      setRecent([...sessionRecentlyViewed])
+    }, [])
+  )
+
+  useEffect(() => {
+    const hasText = query.trim().length > 0 || selectedCategory !== 'All'
+    
     if (hasText !== isResultsState) {
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -154,11 +163,40 @@ export default function SearchScreen() {
         ]).start()
       })
     }
-  }, [query, isResultsState, fadeAnim, translateAnim])
 
-  const handleListingPress = (item: MockListing) => {
+    if (hasText) {
+      const timer = setTimeout(() => {
+        Location.getLastKnownPositionAsync().then(loc => {
+           browseListings({
+             query: query.trim() || undefined,
+             category: selectedCategory === 'All' ? undefined : selectedCategory,
+             lat: loc?.coords?.latitude,
+             lng: loc?.coords?.longitude,
+           }).then(res => setResults(res.items)).catch(console.error)
+        }).catch(() => {
+           browseListings({
+             query: query.trim() || undefined,
+             category: selectedCategory === 'All' ? undefined : selectedCategory,
+           }).then(res => setResults(res.items)).catch(console.error)
+        })
+      }, 300)
+      return () => clearTimeout(timer)
+    } else {
+      setResults([])
+    }
+  }, [query, selectedCategory, isResultsState, fadeAnim, translateAnim])
+
+  const handleListingPress = (item: Listing) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     Keyboard.dismiss()
+
+    // Add to top of recently viewed cache
+    sessionRecentlyViewed = sessionRecentlyViewed.filter(i => i.id !== item.id)
+    sessionRecentlyViewed.unshift(item)
+    if (sessionRecentlyViewed.length > 10) sessionRecentlyViewed.pop()
+    
+    setRecent([...sessionRecentlyViewed])
+    
     nav.navigate('ListingDetail', { listingId: item.id })
   }
 
@@ -204,25 +242,33 @@ export default function SearchScreen() {
 
       {!isResultsState && (
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
-          <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalScrollContent}
-            snapToInterval={(SCREEN_WIDTH - 48) * 0.75 + 16}
-            decelerationRate="fast"
-          >
-            {MOCK_TRENDING.map((item) => (
-              <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
-            ))}
-          </ScrollView>
+          {trending.length > 0 && (
+            <>
+              <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.horizontalScrollContent}
+                snapToInterval={(SCREEN_WIDTH - 48) * 0.75 + 16}
+                decelerationRate="fast"
+              >
+                {trending.map((item) => (
+                  <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
+                ))}
+              </ScrollView>
+            </>
+          )}
 
-          <Text style={[styles.sectionHeader, { marginTop: 32 }]}>RECENTLY VIEWED</Text>
-          <View style={styles.verticalRowsContainer}>
-            {MOCK_RECENT.map((item) => (
-              <GlassCardHorizontal key={item.id} item={item} onPress={() => handleListingPress(item)} />
-            ))}
-          </View>
+          {recent.length > 0 && (
+            <>
+              <Text style={[styles.sectionHeader, { marginTop: 32 }]}>RECENTLY VIEWED</Text>
+              <View style={styles.verticalRowsContainer}>
+                {recent.map((item) => (
+                  <GlassCardHorizontal key={item.id} item={item} onPress={() => handleListingPress(item)} />
+                ))}
+              </View>
+            </>
+          )}
         </Animated.View>
       )}
     </View>
@@ -231,7 +277,7 @@ export default function SearchScreen() {
   return (
     <View style={{ flex: 1 }}>
       <FlatList
-        data={isResultsState ? MOCK_RESULTS : []}
+        data={isResultsState ? results : []}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeaderComponent}
         renderItem={({ item }) => (

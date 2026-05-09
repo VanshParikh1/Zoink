@@ -163,23 +163,16 @@ export default function HomeScreen() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.headerBlock}>
-            <ZoinkFullLogo width={120} height={40} style={{ marginBottom: 20 }} />
-            {/* ── Top row: greeting + bell ── */}
+            {/* ── Top row: greeting ── */}
             <View style={styles.headerTopRow}>
               <View>
                 <Text style={styles.greetingText}>Good morning{user?.firstName ? `, ${user.firstName}` : ''} 👋</Text>
-                <Text style={styles.headerTitle}>Don't buy,{'  '}<Text style={styles.headerTitleAccent}>Zoink</Text> it.</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.headerTitle}>Don't buy, </Text>
+                  <ZoinkFullLogo width={160} height={75} style={{ marginHorizontal: 5, marginTop: -20, marginBottom: -15 }} />
+                  <Text style={styles.headerTitle}>it.</Text>
+                </View>
               </View>
-              <TouchableOpacity
-                style={styles.bellButton}
-                activeOpacity={0.75}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
-                  logout()
-                }}
-              >
-                <Text style={styles.bellIcon}>🚪</Text>
-              </TouchableOpacity>
             </View>
 
             {/* ── Glassy hero card ── */}
@@ -198,7 +191,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <View style={styles.heroActionIconWrap}>
-                    <Text style={[styles.heroActionIcon, { color: '#FFF' }]}>＋</Text>
+                    <Text style={[styles.heroActionIcon, { color: theme.primaryDeep }]}>＋</Text>
                   </View>
                   <Text style={styles.heroActionLabel}>List item</Text>
                 </TouchableOpacity>
@@ -290,7 +283,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  listContent: { paddingHorizontal: 16, paddingTop: 64, paddingBottom: 120 },
+  listContent: { paddingHorizontal: 16, paddingTop: 90, paddingBottom: 120 },
   headerBlock: { marginBottom: 20 },
   headerTopRow: {
     flexDirection: 'row',
@@ -355,7 +348,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: theme.primarySurface,
+    backgroundColor: 'rgba(109, 216, 50, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -371,16 +364,24 @@ const styles = StyleSheet.create({
   chipsScroll: { marginHorizontal: -16, marginBottom: 18 },
   chipsContainer: { paddingHorizontal: 16, gap: 8, flexDirection: 'row' },
   chip: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.border,
   },
-  chipSelected: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.surfaceSubdued },
-  chipTextSelected: { color: theme.textOnPrimary, fontWeight: '500', fontSize: 13 },
-  chipTextUnselected: { color: theme.textMuted, fontWeight: '300', fontSize: 13 },
+  chipSelected: {
+    backgroundColor: theme.primarySurface,
+    borderColor: theme.borderFocus,
+    borderTopColor: 'rgba(22, 255, 110, 0.4)',
+  },
+  chipUnselected: { 
+    backgroundColor: theme.surfaceSubdued,
+    borderColor: theme.border,
+    borderTopColor: theme.border,
+    borderBottomColor: theme.borderBottom,
+  },
+  chipTextSelected: { color: theme.primary, fontWeight: '600', fontSize: 14 },
+  chipTextUnselected: { color: theme.textMuted, fontWeight: '400', fontSize: 14 },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
   // ── Listing grid ──────────────────────────────────────
   rowWrapper: { gap: 14, justifyContent: 'space-between', marginBottom: 14 },

@@ -9,13 +9,11 @@ type ZoinkFullLogoProps = {
 
 export default function ZoinkFullLogo({ width = 200, height = 60, style }: ZoinkFullLogoProps) {
   return (
-    <View style={[styles.container, { width, height }, style]}>
-      <Image
-        source={require('../../assets/ZoinkTransparent.png')}
-        style={[styles.logo, { width, height }]}
-        resizeMode="contain"
-      />
-    </View>
+    <Image
+      source={require('../../assets/ZoinkTransparent.png')}
+      style={[{ width, height }, style]}
+      resizeMode="contain"
+    />
   )
 }
 

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/index.ts",
+    "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --test --require ts-node/register src/services/*.test.ts src/middleware/*.test.ts src/middleware/controllers/*.test.ts"

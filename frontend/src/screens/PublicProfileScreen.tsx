@@ -55,24 +55,12 @@ export default function PublicProfileScreen() {
 
   return (
     <ScreenBackground>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <TouchableOpacity style={styles.backButton} onPress={() => nav.goBack()}>
-        <Text style={styles.backButtonText}>Back</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.eyebrow}>STUDENT CARD</Text>
-      <Text style={styles.title}>See how {profile.firstName} shows up on Zoink</Text>
-      <Text style={styles.subtitle}>
-        Reputation, responsiveness, and completed rentals all live here. This card should make trust feel immediate.
-      </Text>
-
-      <ProfileCard profile={profile} />
-
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>What this tells a renter</Text>
-        <Text style={styles.note}>The top half sells the person: photo, vibe, and personality.</Text>
-        <Text style={styles.note}>The bottom half proves the history: role-specific review scores and earned badges.</Text>
-      </View>
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.content} 
+        showsVerticalScrollIndicator={false}
+      >
+        <ProfileCard profile={profile} />
       </ScrollView>
     </ScreenBackground>
   )

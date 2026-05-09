@@ -53,8 +53,8 @@ export default function LoginScreen() {
         <View style={styles.inner}>
 
           {/* Header & Logo */}
-          <ZoinkFullLogo width={760} height={220} style={styles.logo} />
-          <Text style={styles.kicker}>student rentals</Text>
+          <ZoinkFullLogo width={280} height={80} style={styles.logo} />
+          <Text style={styles.kicker}>Access over Ownership</Text>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
 
@@ -122,9 +122,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     alignSelf: 'center',
-
-    // less space below logo
-    marginBottom: -8,
+    marginBottom: 6,
   },
   kicker: {
     color: theme.primaryDeep,

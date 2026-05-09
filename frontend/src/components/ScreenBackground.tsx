@@ -20,6 +20,8 @@ export default function ScreenBackground({ children, style }: Props) {
       {/* Colored circles */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={[styles.blob, styles.blobA]} />
+        <View style={[styles.blob, styles.blobB]} />
+        <View style={[styles.blob, styles.blobC]} />
       </View>
 
       {/* Blur layer */}
@@ -56,5 +58,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(109, 216, 50, 0.28)', // logo green tint
     top: 40,
     right: -50,
+  },
+  // ● Bottom-left — brand green highlight
+  blobB: {
+    width: 320,
+    height: 320,
+    backgroundColor: 'rgba(109, 216, 50, 0.20)', // slightly softer
+    bottom: -80,
+    left: -80,
+  },
+  // ● Middle-right — brand green highlight
+  blobC: {
+    width: 250,
+    height: 250,
+    backgroundColor: 'rgba(109, 216, 50, 0.16)', // slightly softer
+    top: '45%',
+    right: -40,
   },
 })

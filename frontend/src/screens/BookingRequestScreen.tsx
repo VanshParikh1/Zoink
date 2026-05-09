@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -232,14 +232,14 @@ export default function BookingRequestScreen() {
             style={styles.calendarArrow}
             onPress={() => setCalendarMonth((current) => addMonths(current, -1))}
           >
-            <Text style={styles.calendarArrowText}>â€¹</Text>
+            <Text style={styles.calendarArrowText}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.calendarHeaderText}>Choose your dates</Text>
           <TouchableOpacity
             style={styles.calendarArrow}
             onPress={() => setCalendarMonth((current) => addMonths(current, 1))}
           >
-            <Text style={styles.calendarArrowText}>â€º</Text>
+            <Text style={styles.calendarArrowText}>›</Text>
           </TouchableOpacity>
         </View>
 
@@ -335,7 +335,7 @@ export default function BookingRequestScreen() {
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Rental days</Text>
-          <Text style={styles.rowValue}>{rentalDays > 0 ? rentalDays : 'â€”'}</Text>
+          <Text style={styles.rowValue}>{rentalDays > 0 ? rentalDays : '—'}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Rental total</Text>

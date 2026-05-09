@@ -204,7 +204,7 @@ export default function MyProfileScreen() {
           <View style={styles.headerInner}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={styles.headerTitle}>Profile</Text>
-              <ZoinkFullLogo width={100} height={30} />
+              <ZoinkFullLogo width={160} height={48} />
             </View>
           </View>
         </View>
@@ -471,12 +471,12 @@ const styles = StyleSheet.create({
   actions: { marginBottom: 14 },
   actionPair: { flexDirection: 'row', gap: 10 },
   quickActionsPanel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
     borderRadius: 16,
     padding: 18,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   quickActionRow: {
     flexDirection: 'row',
@@ -485,10 +485,10 @@ const styles = StyleSheet.create({
   },
   quickActionButton: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: 'rgba(15, 255, 80, 0.15)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: 'rgba(15, 255, 80, 0.3)',
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -524,12 +524,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   panel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(15, 255, 80, 0.08)',
     borderRadius: 16,
     padding: 18,
     marginTop: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderColor: 'rgba(15, 255, 80, 0.2)',
   },
   panelTitle: {
     color: theme.text,
