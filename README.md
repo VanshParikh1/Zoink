@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Authentication, profiles, listings, search/filtering, booking + messaging, reviews, and push notifications are implemented. Payments, release hardening, and deployment are still in progress. ✅
+> Currently in active development. Authentication, profiles, listings, search/filtering, booking, messaging, reviews, and push notifications are implemented. Payments, Zoink It, insurance, and deployment are still in progress.
 
 ---
 
@@ -26,9 +26,10 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 - **Search and filtering** — geo-based nearby search, category, price range, availability ✅
 - **Messaging** — in-app chat between renters and listers before and during a booking ✅
 - **Booking system** — request rentals, accept/decline, strict state machine ✅
-- **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion 🚧 Planned
+- **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion 🚧 In progress
+- **Zoink It** — photo-verified handoff flow: owner and renter confirm item condition at pickup and return with a synchronized tap 🚧 In progress
 - **Insurance** — optional ~5% coverage fee on listed item value for added protection 🚧 Planned
-- **Reviews and ratings** — post-rental reviews and aggregate scores ✅
+- **Reviews and ratings** — post-rental reviews and aggregate reputation scores ✅
 - **Push notifications** — booking alerts, message notifications, status updates ✅
 
 ---
@@ -36,8 +37,8 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 ## Booking Flow
 
 ```
-Renter:  Search → Message → Book → Pay → Pick up → Use → Return → Review
-Lister:  Upload → Set price → Message → Approve → Get paid → Rent → Retrieve → Review
+Renter:  Search → Message → Book → Pay deposit → Pick up (verify photos → Zoink It) → Use → Return (take photos → Zoink It) → Review
+Lister:  Upload → Set price → Message → Approve → Deposit held → Take photos → Zoink It → Rent out → Verify return photos → Zoink It → Get paid → Review
 ```
 
 Booking states enforced strictly on the backend:
@@ -46,6 +47,16 @@ Booking states enforced strictly on the backend:
 PENDING → ACCEPTED → ACTIVE → COMPLETED
 PENDING → DECLINED
 PENDING / ACCEPTED → CANCELLED
+```
+
+Deposit lifecycle:
+
+```
+ACCEPTED  → Stripe PaymentIntent created, deposit held (authorized, not captured)
+ACTIVE    → Both parties tap Zoink It within the 5-second window; full rental amount captured
+COMPLETED → Both parties tap Zoink It on return; owner payout triggered; deposit released
+CANCELLED → PaymentIntent cancelled; hold released immediately
+DECLINED  → No charge; no hold created
 ```
 
 ---
@@ -59,8 +70,7 @@ PENDING / ACCEPTED → CANCELLED
 | $150+ | 10% |
 
 Additional revenue streams:
-- **Optional insurance** — ~5% of listed item value per rental
-- **Featured listings** — pay to boost item visibility
+- **Optional insurance** — ~5% of listed item value per rental, opted in at checkout
 - **Power seller subscription** — lower commission, featured slots, and platform tools (future)
 
 Early adopters get zero-commission incentives to kickstart supply.
@@ -220,11 +230,12 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
 | 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
 | 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
-| 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | 🚧 Planned |
+| 7 | Payments + Zoink It — Stripe intents, deposit, capture, payout, refunds, handoff verification | 🚧 In progress |
 | 8 | Reviews and ratings — post-rental prompts, aggregate scores | ✅ Done |
 | 9 | Push notifications and polish — loading states, empty states, UI pass | ✅ Done |
-| 10 | Testing and security audit — integration tests, device testing, security review | 🔨 Up next |
-| 11–12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
+| 10 | Insurance — optional rental coverage, checkout opt-in, fee computation | 🔨 Up next |
+| 11 | Testing and security audit — integration tests, device testing, security review | — |
+| 12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
 
 ---
 
@@ -271,9 +282,9 @@ Week 6 has been implemented and the main user flows were manually verified in th
   - `PATCH /bookings/:id/decline` — owner declines (→ `DECLINED`)
   - `PATCH /bookings/:id/cancel` — renter or owner cancels (→ `CANCELLED`)
   - `PATCH /bookings/:id/activate` — mark rental as started (→ `ACTIVE`)
-- `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
-- `GET /bookings/me` — renter's booking history
-- `GET /bookings/requests` — owner's incoming booking requests
+  - `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
+  - `GET /bookings/me` — renter's booking history
+  - `GET /bookings/requests` — owner's incoming booking requests
 - Block double-booking: query for overlapping `ACCEPTED` or `ACTIVE` bookings before accepting
 - `totalPrice` is computed server-side, and the current deposit amount shown in the API/UI is derived server-side from the booking total
 
@@ -395,15 +406,93 @@ model Notification {
 
 ---
 
+## Week 7 — Payments
+
+Payments are the economic backbone of the platform. Week 7 wires Stripe into the booking lifecycle end-to-end: deposit authorization on acceptance, full capture when the rental goes active, owner payout on completion, and clean refund handling for cancellations and declines.
+
+### Status: in progress
+
+### How money moves
+
+Zoink uses **Stripe Payment Intents** with a two-step authorize-then-capture flow. The renter's card is authorized (not charged) when a booking is accepted. The full rental amount is only captured when both parties confirm the handoff. The owner receives a payout — minus Zoink's commission — when the rental is marked complete.
+
+```
+Booking accepted   → PaymentIntent created, deposit authorized (hold placed on card)
+Rental goes ACTIVE → Full rental amount captured from renter
+Rental COMPLETED   → Owner payout triggered via Stripe Transfer
+Booking CANCELLED  → PaymentIntent cancelled, hold released (no charge)
+Booking DECLINED   → No PaymentIntent created
+```
+
+Deposit amount is set at **30% of total rental price**, held as a security buffer against damage or no-show.
+
+### Backend
+
+- Stripe SDK initialized with `STRIPE_SECRET_KEY`
+- `stripePaymentIntentId` and `stripeChargeId` fields already present on the `Booking` model (from Week 6 schema)
+- New fields added: `depositAmount`, `commissionAmount`, `ownerPayout`, `insuranceOptIn`, `insuranceFee`
+- Commission computed server-side at booking creation using the tiered rate table
+- Endpoints:
+  - `POST /payments/intent` — create a PaymentIntent for a booking; returns `clientSecret` to the frontend
+  - `POST /payments/capture/:bookingId` — capture the authorized hold when rental goes `ACTIVE`
+  - `POST /payments/payout/:bookingId` — trigger Stripe Transfer to owner's connected account on `COMPLETED`
+  - `POST /payments/refund/:bookingId` — cancel hold or issue refund on `CANCELLED` or `DECLINED`
+  - `POST /payments/webhook` — Stripe webhook handler for async payment lifecycle events
+- Webhook events handled: `payment_intent.succeeded`, `payment_intent.payment_failed`, `transfer.created`, `charge.refunded`
+- All payment amounts stored as integers in cents to avoid floating-point errors
+- Commission deducted from payout server-side — owner never sees the full rental price in their transfer
+
+### Frontend
+
+- Payment screen presented after renter confirms booking dates and before the request is submitted
+- Stripe React Native SDK (`@stripe/stripe-react-native`) integrated for card collection
+- `CardField` component handles card entry natively (no custom card input)
+- Payment confirmation screen shows: rental total, deposit amount held, Zoink commission, owner payout, and optional insurance toggle
+- Insurance opt-in adds ~5% of listed item value to the total at checkout
+- Booking request is only created after `PaymentIntent` is confirmed on the frontend
+- Error states for card decline, insufficient funds, and network failure
+- Owner-side: payout status visible on completed booking detail screen
+
+### Schema additions (Prisma)
+
+```prisma
+// Additions to the existing Booking model
+model Booking {
+  // ... existing fields ...
+  depositAmount         Decimal   @db.Decimal(10, 2)
+  commissionAmount      Decimal   @db.Decimal(10, 2)
+  ownerPayout           Decimal   @db.Decimal(10, 2)
+  insuranceOptIn        Boolean   @default(false)
+  insuranceFee          Decimal   @default(0) @db.Decimal(10, 2)
+  stripeTransferId      String?
+  refundedAt            DateTime?
+}
+```
+
+### Definition of done — week 7
+
+- [ ] Stripe PaymentIntent created and deposit authorized on booking acceptance
+- [ ] Full amount captured when booking transitions to `ACTIVE`
+- [ ] Owner payout (minus commission) triggered on `COMPLETED`
+- [ ] Hold released / refund issued on `CANCELLED` and `DECLINED`
+- [ ] Stripe webhook handler processes async events correctly
+- [ ] Insurance opt-in at checkout adjusts total and is stored on the booking
+- [ ] Commission computed and stored server-side for every booking
+- [ ] Frontend payment screen collects card details via Stripe React Native SDK
+- [ ] All payment amounts stored as integer cents in Stripe, decimal in DB
+
+---
+
 ## Week 8 — Reviews and Ratings
 
-To maintain a high-trust peer-to-peer network, Zoink enforces a strict mandatory review system upon the completion of any rental. 
+To maintain a high-trust peer-to-peer network, Zoink enforces a strict mandatory review system upon the completion of any rental.
 
 ### Status: complete
 
 Week 8 has been implemented. The backend correctly generates review obligations when a rental is marked as completed, and the frontend surfaces a hard-gated review screen that cannot be bypassed until the user clears their review backlog.
 
 ### Features
+
 **Backend**
 - `Review` and `ReviewObligation` models implemented to track pending and completed reviews.
 - `POST /reviews` endpoint that accepts 3 distinct scores and a comment.
@@ -446,6 +535,80 @@ Week 9 has been implemented end-to-end. Device token registration and token sync
 - Fully polished "Deep Forest Liquid Glass" visual design across all surfaces with glassmorphism components (`glassLight`, `glassDark`, `glassGreen`, `glassBorder`).
 - Enhanced empty/loading states and refined navigation flow.
 
+---
+
+## Week 10 — Zoink It + Insurance
+
+Zoink It gives listers a way to pay for increased visibility, and insurance gives renters peace of mind for higher-value items. Both are monetization features that sit on top of the existing payments infrastructure built in Week 7.
+
+### Status: planned
+
+### Zoink It — Featured Listings
+
+Zoink It lets a lister pay a flat fee to boost their listing to the top of relevant search results and the home feed for a set duration (e.g. 24h, 72h, 7 days). Boosted listings are visually distinguished with a small "Zoink'd" badge.
+
+**Backend**
+- `boost` fields added to the `Listing` model: `isBoosted`, `boostExpiresAt`, `boostTier`
+- Boost tiers: `BASIC` (24h), `STANDARD` (72h), `FEATURED` (7 days) — prices TBD
+- `POST /listings/:id/boost` — creates a Stripe PaymentIntent for the boost fee and marks the listing as boosted on payment success
+- `GET /listings` query modified: boosted listings surfaced first within geo results, ordered by `boostExpiresAt` descending, then by distance
+- Cron job (or Prisma query filter) clears expired boosts automatically
+- Boost payment is a simple one-time charge (not a hold), separate from the rental PaymentIntent flow
+
+**Frontend**
+- "Zoink It" button on the owner's listing management screen
+- Boost tier selection modal: shows duration, reach estimate, and price for each tier
+- Payment confirmation via Stripe React Native SDK (reuses Week 7 card flow)
+- Boosted listings show a `⚡ Zoink'd` badge on listing cards in the feed and search results
+- Boost status and expiry visible to the owner on their listing detail screen
+
+### Insurance
+
+Insurance is an opt-in add-on at checkout that gives the renter coverage up to the listed item value in the event of damage or loss. The fee is approximately 5% of the item's listed value per rental.
+
+**Backend**
+- `insuranceOptIn` and `insuranceFee` already added to `Booking` model in Week 7
+- `insuranceFee` computed server-side: `listing.itemValue * 0.05`, rounded to 2 decimal places
+- Insurance selection passed in the `POST /bookings` request body; validated and stored before PaymentIntent creation
+- Insurance fee added to the total amount charged via the PaymentIntent — not a separate charge
+- `GET /bookings/:id` returns `insuranceOptIn` and `insuranceFee` for display in booking detail and receipts
+
+**Frontend**
+- Insurance toggle presented on the booking confirmation screen (between price breakdown and Pay button)
+- Toggle shows item value and computed fee before the renter opts in
+- When toggled on, total updates in real time before payment is submitted
+- Booking receipt and detail screen show insurance status and fee paid
+
+### Schema additions (Prisma)
+
+```prisma
+// Additions to the Listing model
+model Listing {
+  // ... existing fields ...
+  itemValue     Decimal  @default(0) @db.Decimal(10, 2)
+  isBoosted     Boolean  @default(false)
+  boostTier     BoostTier?
+  boostExpiresAt DateTime?
+}
+
+enum BoostTier {
+  BASIC
+  STANDARD
+  FEATURED
+}
+```
+
+### Definition of done — week 10
+
+- [ ] Listers can purchase a boost from the listing management screen
+- [ ] Boosted listings appear at the top of relevant geo + search results with a badge
+- [ ] Boosts expire automatically after the selected duration
+- [ ] Insurance opt-in at checkout computes and stores the correct fee
+- [ ] Insurance fee is included in the total captured via Stripe
+- [ ] Booking receipt displays insurance status and fee
+
+---
+
 ## Key Architecture Decisions
 
 **Monorepo** — frontend and backend live in one repo. Types are currently maintained separately, so shared contracts are still a worthwhile future improvement.
@@ -456,11 +619,15 @@ Week 9 has been implemented end-to-end. Device token registration and token sync
 
 **Geo search from day one** — listings store `latitude` and `longitude` as floats. Haversine query for nearby search, upgradeable to PostGIS with no schema changes.
 
-**Stripe Payment Intents, not Charges** — this is still the intended payments design for Week 7; the live Stripe flow is not implemented yet.
+**Stripe Payment Intents with authorize-then-capture** — deposit is authorized (not charged) on booking acceptance and only captured when the rental goes active. This protects renters from being charged for bookings that never happen, and gives owners confidence the funds are secured.
+
+**Commission computed server-side** — rental totals, commission deductions, and owner payouts are all calculated on the backend. The frontend is never trusted for pricing.
 
 **Messaging via polling, not WebSockets** — simpler to deploy and sufficient for MVP usage patterns. Upgradeable to WebSockets or a service like Ably post-launch with no schema changes.
 
 **Booking state machine in middleware** — transitions are validated centrally, not scattered across controllers.
+
+**Zoink It as a separate payment flow** — boost purchases are one-time Stripe charges, fully decoupled from the rental PaymentIntent flow, so neither can interfere with the other.
 
 ---
 
