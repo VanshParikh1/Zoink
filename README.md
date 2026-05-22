@@ -5,7 +5,7 @@ Zoink connects university students who have items sitting unused with students w
 
 Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
 
-> Currently in active development. Authentication, profiles, listings, search/filtering, booking + messaging, and reviews are implemented. Payments, push notifications, release hardening, and deployment are still in progress. ✅
+> Currently in active development. Authentication, profiles, listings, search/filtering, booking + messaging, reviews, and push notifications are implemented. Payments, release hardening, and deployment are still in progress. ✅
 
 ---
 
@@ -29,7 +29,7 @@ Zoink fills that gap with a purpose-built, trust-first rental platform.
 - **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion 🚧 Planned
 - **Insurance** — optional ~5% coverage fee on listed item value for added protection 🚧 Planned
 - **Reviews and ratings** — post-rental reviews and aggregate scores ✅
-- **Push notifications** — booking alerts, payment updates, message notifications 🚧 Planned
+- **Push notifications** — booking alerts, message notifications, status updates ✅
 
 ---
 
@@ -89,8 +89,9 @@ Early adopters get zero-commission incentives to kickstart supply.
 - Frontend profiles are now implemented with collectible-style profile cards, public profile viewing, inline profile editing, avatar upload, and demo-mode mock profile data for UI testing.
 - Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
 - Week 8 is implemented end-to-end: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
+- Week 9 is implemented end-to-end: push notification tokens are registered and synced on the frontend, Expo push service handles notifications for booking status transitions and messages on the backend, and UI polish (including liquid glass UI theme, clean empty states, and optimized navigation flow) has been applied.
 - `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
-- The app UI uses the Zoink palette: Electric Green `#00EF20`, Ink Black `#040F0F`, Forest Green `#248232`, Jet Black `#2D3A3A`, and Porcelain `#FCFFFC`.
+- The app UI uses the Zoink palette: Logo Green `#6DD832` (with variations `#4EA822`, `#3A7D19`, `#96E85A`, `#F2FAE8`) and the Deep Forest Liquid Glass styling tokens (`glassLight`, `glassDark`, `glassGreen`, `glassBorder`).
 - Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
 - Frontend demo mode can run core browse, profile, booking, messaging, and review flows locally without a live backend.
 
@@ -148,6 +149,8 @@ CLOUDINARY_API_SECRET=
 
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+
+EXPO_ACCESS_TOKEN=
 
 SES_FROM_EMAIL=
 ADMIN_EMAIL=
@@ -217,10 +220,10 @@ Two developers, 10–15 hours/week each. Each week delivers a complete vertical 
 | 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
 | 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
 | 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
-| 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | — |
+| 7 | Payments — Stripe Payment Intents, deposit, payout, refunds | 🚧 Planned |
 | 8 | Reviews and ratings — post-rental prompts, aggregate scores | ✅ Done |
-| 9 | Push notifications and polish — loading states, empty states, UI pass | 🔨 Up next |
-| 10 | Testing and security audit — integration tests, device testing, security review | — |
+| 9 | Push notifications and polish — loading states, empty states, UI pass | ✅ Done |
+| 10 | Testing and security audit — integration tests, device testing, security review | 🔨 Up next |
 | 11–12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
 
 ---
@@ -306,52 +309,77 @@ Week 6 has been implemented and the main user flows were manually verified in th
 
 ```prisma
 model Booking {
-  id            String        @id @default(uuid())
-  listing       Listing       @relation(fields: [listingId], references: [id])
-  listingId     String
-  renter        User          @relation("RenterBookings", fields: [renterId], references: [id])
-  renterId      String
-  owner         User          @relation("OwnerBookings", fields: [ownerId], references: [id])
-  ownerId       String
-  startDate     DateTime
-  endDate       DateTime
-  totalPrice    Float
-  status        BookingStatus @default(PENDING)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                    String        @id @default(uuid())
+  status                BookingStatus @default(PENDING)
+  startDate             DateTime
+  endDate               DateTime
+  totalPrice            Decimal       @db.Decimal(10, 2)
+  message               String?
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+  paidAt                DateTime?
+  payoutSentAt          DateTime?
+  renterId              String
+  renter                User          @relation("RenterBookings", fields: [renterId], references: [id])
+  ownerId               String
+  owner                 User          @relation("OwnerBookings", fields: [ownerId], references: [id])
+  listingId             String
+  listing               Listing       @relation(fields: [listingId], references: [id])
+  completedAt           DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@map("bookings")
 }
 
 enum BookingStatus {
   PENDING
   ACCEPTED
   DECLINED
-  CANCELLED
   ACTIVE
   COMPLETED
+  CANCELLED
 }
 
 model Conversation {
-  id        String    @id @default(uuid())
-  listing   Listing   @relation(fields: [listingId], references: [id])
-  listingId String
-  renter    User      @relation("RenterConversations", fields: [renterId], references: [id])
-  renterId  String
-  owner     User      @relation("OwnerConversations", fields: [ownerId], references: [id])
-  ownerId   String
-  messages  Message[]
-  createdAt DateTime  @default(now())
+  id         String    @id @default(uuid())
+  listingId  String
+  listing    Listing   @relation(fields: [listingId], references: [id])
+  renterId   String
+  renter     User      @relation("RenterConversations", fields: [renterId], references: [id])
+  ownerId    String
+  owner      User      @relation("OwnerConversations", fields: [ownerId], references: [id])
+  messages   Message[]
+  createdAt  DateTime  @default(now())
 
   @@unique([listingId, renterId])
+  @@map("conversations")
 }
 
 model Message {
   id             String       @id @default(uuid())
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
   conversationId String
-  sender         User         @relation(fields: [senderId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
   body           String
   createdAt      DateTime     @default(now())
+
+  @@map("messages")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  data      Json?
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
 }
 ```
 
@@ -390,6 +418,33 @@ Week 8 has been implemented. The backend correctly generates review obligations 
 - "Trust Check" Lock: If a user has a pending review obligation, the navigation stack intercepts them on app launch and forces `ReviewPromptScreen` as the initial route. Swiping back or hardware back buttons are disabled.
 - Booking completion immediately resets the navigation stack to the review prompt, eliminating escape hatches.
 - Users with multiple pending reviews are automatically chained through them sequentially.
+
+---
+
+## Week 9 — Push Notifications and Polish
+
+To improve engagement and close the communication loop, Zoink implements push notifications for critical booking actions and direct messages, along with a comprehensive UI polish using a frosted glass aesthetic.
+
+### Status: complete
+
+Week 9 has been implemented end-to-end. Device token registration and token syncing are integrated on the frontend, while the backend triggers Expo push notifications for conversation messages and booking state changes. The UI also features polished transitions, custom empty states, and a frosted glass visual design.
+
+### Features
+
+**Backend**
+- `Notification` model and `expoPushToken` stored in PostgreSQL database.
+- `PATCH /users/me/push-token` endpoint allowing mobile devices to register/clear their Expo Push tokens.
+- Integration with the Expo Push Notification API (`https://exp.host/--/api/v2/push/send`) via a modular `notificationService`.
+- Push notifications triggered automatically on:
+  - New booking requests (notifying the owner).
+  - Booking status updates (accepted, declined, cancelled, completed sent to the renter/owner).
+  - Incoming chat messages (notifying the other chat participant with a message body snippet).
+
+**Frontend**
+- Expo notifications device registration helper (`pushNotifications.ts`) requesting proper OS-level notification permissions.
+- Automated token syncing: registers/syncs the device's token with the backend upon login/email verification, and clears the token on logout.
+- Fully polished "Deep Forest Liquid Glass" visual design across all surfaces with glassmorphism components (`glassLight`, `glassDark`, `glassGreen`, `glassBorder`).
+- Enhanced empty/loading states and refined navigation flow.
 
 ## Key Architecture Decisions
 
