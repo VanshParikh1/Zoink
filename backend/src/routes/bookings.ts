@@ -11,6 +11,8 @@ import {
   getBooking,
   getIncomingRequests,
   getMyBookings,
+  uploadHandoffPhotos,
+  zoinkTap,
 } from '../middleware/controllers/bookingController'
 
 const router = Router()
@@ -26,5 +28,7 @@ router.patch('/:id/decline', declineBooking)
 router.patch('/:id/cancel', cancelBooking)
 router.patch('/:id/activate', activateBooking)
 router.patch('/:id/complete', completeBooking)
+router.post('/:id/photos', uploadHandoffPhotos)
+router.post('/:id/zoink-tap', zoinkTap)
 
 export default router

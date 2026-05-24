@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { BookingStatus } from '@prisma/client'
 import * as bookingService from '../../services/bookingService'
+import * as handoffService from '../../services/handoffService'
 
 function handleError(res: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR'
@@ -10,9 +11,14 @@ function handleError(res: Response, error: unknown) {
     BOOKING_FORBIDDEN: { status: 403, message: 'You do not have access to this booking.' },
     BOOKING_INVALID_DATES: { status: 400, message: 'Start and end dates are invalid.' },
     BOOKING_INVALID_TRANSITION: { status: 400, message: 'That booking transition is not allowed.' },
+    BOOKING_VERSION_CONFLICT: { status: 409, message: 'This booking was updated by someone else. Please refresh and try again.' },
     BOOKING_LISTING_UNAVAILABLE: { status: 400, message: 'This listing is currently unavailable.' },
     BOOKING_OVERLAP: { status: 409, message: 'Those dates overlap with another accepted booking.' },
     BOOKING_SELF: { status: 400, message: 'You cannot book your own listing.' },
+    OWNER_STRIPE_ACCOUNT_REQUIRED: { status: 409, message: 'The owner needs to connect Stripe before accepting bookings.' },
+    PAYMENT_NOT_AUTHORIZED: { status: 409, message: 'Payment authorization is not ready yet.' },
+    PAYMENT_INTENT_MISSING: { status: 409, message: 'Payment authorization is missing.' },
+    HANDOFF_PHOTOS_REQUIRED: { status: 400, message: 'Upload handoff photos before tapping Zoink It.' },
   }
 
   const mapped = map[message]
@@ -38,6 +44,7 @@ export async function createBooking(req: Request, res: Response) {
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       message,
+      insuranceOptIn: Boolean(req.body.insuranceOptIn),
     })
 
     return res.status(201).json(booking)
@@ -110,4 +117,42 @@ export async function activateBooking(req: Request, res: Response) {
 
 export async function completeBooking(req: Request, res: Response) {
   return transitionBooking(req, res, 'COMPLETED')
+}
+
+function parsePhase(value: unknown) {
+  return value === 'pickup' || value === 'return' ? value : null
+}
+
+export async function uploadHandoffPhotos(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+  const phase = parsePhase(req.body.phase)
+
+  if (!phase) {
+    return res.status(400).json({ error: 'phase must be pickup or return.' })
+  }
+
+  try {
+    const booking = await handoffService.uploadHandoffPhotos(bookingId, actorId, phase, req.body.photoUrls)
+    return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function zoinkTap(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+  const phase = parsePhase(req.body.phase)
+
+  if (!phase) {
+    return res.status(400).json({ error: 'phase must be pickup or return.' })
+  }
+
+  try {
+    const booking = await handoffService.registerTap(bookingId, actorId, phase)
+    return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
 }

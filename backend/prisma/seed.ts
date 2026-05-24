@@ -18,6 +18,7 @@ async function main() {
       lastName: 'User',
       verificationStatus: VerificationStatus.VERIFIED,
       verifiedAt: new Date(),
+      stripeAccountId: process.env.DEV_STRIPE_ACCOUNT_ID || undefined,
     },
   })
 

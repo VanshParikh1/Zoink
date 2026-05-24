@@ -9,6 +9,7 @@ const listingSelect = {
   description: true,
   category: true,
   dailyPrice: true,
+  itemValue: true,
   isAvailable: true,
   latitude: true,
   longitude: true,
@@ -87,6 +88,7 @@ export type CreateListingInput = {
   description: string
   category: string
   dailyPrice: number
+  itemValue?: number
   latitude: number
   longitude: number
   city: string
@@ -98,6 +100,7 @@ export async function createListing(ownerId: string, data: CreateListingInput) {
     data: {
       ...data,
       dailyPrice: new Prisma.Decimal(data.dailyPrice),
+      itemValue: new Prisma.Decimal(data.itemValue ?? 0),
       ownerId,
     },
     select: listingSelect,
@@ -286,6 +289,7 @@ export type UpdateListingInput = {
   description?: string
   category?: string
   dailyPrice?: number
+  itemValue?: number
   latitude?: number
   longitude?: number
   city?: string
@@ -307,6 +311,9 @@ export async function updateListing(
   )
   if (cleaned.dailyPrice !== undefined) {
     cleaned.dailyPrice = new Prisma.Decimal(cleaned.dailyPrice as number)
+  }
+  if (cleaned.itemValue !== undefined) {
+    cleaned.itemValue = new Prisma.Decimal(cleaned.itemValue as number)
   }
 
   return prisma.listing.update({

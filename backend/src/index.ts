@@ -7,6 +7,7 @@ import listingsRouter from './routes/listings'
 import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
+import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 
 dotenv.config()
 
@@ -14,6 +15,7 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
 app.use(express.json())
 
 app.get('/', (req, res) => {
