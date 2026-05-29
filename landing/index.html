@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Zoink is a campus marketplace for peer-to-peer rentals. Borrow what you need and lend what you own.">
+  <title>Zoink | Campus Rentals</title>
+  <link rel="icon" href="assets/logo.png">
+  <style>
+    :root {
+      --green: #6dd832;
+      --green-deep: #4ea822;
+      --green-dark: #3a7d19;
+      --green-soft: #96e85a;
+      --green-surface: #f2fae8;
+      --white: #ffffff;
+      --gray-50: #f6f6f7;
+      --gray-100: #f1f1f1;
+      --gray-200: #e3e3e3;
+      --gray-300: #c9c9c9;
+      --gray-500: #6d7175;
+      --gray-700: #3a3c3e;
+      --gray-900: #1a1a1a;
+      --warning: #ffc453;
+      --warning-surface: #fff5ea;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+      --radius: 8px;
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      color: var(--gray-900);
+      background: var(--gray-50);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: linear-gradient(180deg, rgba(246,246,247,0.96), rgba(255,255,255,0.98) 36%, rgba(246,246,247,1));
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 86% 10%, rgba(109,216,50,0.18), transparent 28%),
+        radial-gradient(circle at 6% 70%, rgba(255,196,83,0.13), transparent 24%);
+      pointer-events: none;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, input, select, textarea { font: inherit; }
+
+    .page { min-height: 100vh; overflow: hidden; }
+    .shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+
+    /* NAV */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(227,227,227,0.82);
+      background: rgba(246,246,247,0.88);
+      backdrop-filter: blur(16px);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 76px;
+      gap: 16px;
+    }
+
+    .brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand img { display: block; width: 148px; height: auto; }
+
+    /* BUTTONS */
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 14px 20px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+      color: #1a3a08;
+      background: linear-gradient(135deg, var(--green), var(--green-deep));
+      box-shadow: 0 8px 18px rgba(78,168,34,0.18);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+      white-space: nowrap;
+    }
+
+    .button:hover, .button:focus-visible {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(78,168,34,0.22);
+      outline: none;
+    }
+
+    .button.secondary {
+      color: var(--green-deep);
+      background: rgba(109,216,50,0.08);
+      border-color: rgba(109,216,50,0.3);
+      box-shadow: none;
+    }
+
+    /* HERO */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) minmax(330px,430px);
+      align-items: center;
+      gap: 56px;
+      min-height: calc(100vh - 76px);
+      padding: 64px 0 42px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      color: var(--green-deep);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(109,216,50,0.14);
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 18px;
+      max-width: 780px;
+      font-size: clamp(58px, 10vw, 118px);
+      line-height: 0.9;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .hero-copy {
+      max-width: 580px;
+      margin-bottom: 28px;
+      color: var(--gray-700);
+      font-size: clamp(18px, 2.2vw, 22px);
+      font-weight: 400;
+    }
+
+    .hero-form {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 10px;
+      max-width: 560px;
+      padding: 6px;
+      border: 1px solid var(--gray-200);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.78);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-form input {
+      min-width: 0;
+      min-height: 48px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 10px;
+      color: var(--gray-900);
+      background: transparent;
+      outline: none;
+    }
+
+    .hero-form input:focus {
+      background: var(--white);
+      box-shadow: inset 0 0 0 1px rgba(109,216,50,0.45);
+    }
+
+    .mini-proof {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      color: var(--gray-500);
+      font-size: 13px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid var(--gray-200);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.76);
+      white-space: nowrap;
+    }
+
+    /* PHONE MOCKUP */
+    .phone {
+      width: min(100%, 420px);
+      margin-left: auto;
+      border: 1px solid var(--gray-200);
+      border-radius: 34px;
+      background: var(--white);
+      box-shadow: 0 20px 70px rgba(26,26,26,0.14);
+      overflow: hidden;
+    }
+
+    .phone-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 22px 20px 12px;
+    }
+
+    .phone-logo { width: 116px; height: auto; }
+
+    .phone-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--green-surface), var(--gray-100));
+      border: 1px solid var(--gray-200);
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+    }
+
+    .phone-body { padding: 0 18px 22px; }
+
+    .app-panel {
+      padding: 18px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .app-panel + .app-panel { margin-top: 12px; }
+
+    .app-label {
+      margin-bottom: 6px;
+      color: var(--green-deep);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.3px;
+      text-transform: uppercase;
+    }
+
+    .app-title {
+      margin-bottom: 16px;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .quick-action {
+      display: grid;
+      justify-items: center;
+      gap: 7px;
+      min-width: 0;
+      color: var(--gray-500);
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .quick-icon {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(109,216,50,0.15);
+      color: var(--gray-900);
+      font-size: 20px;
+    }
+
+    /* SVG icon inside quick-icon */
+    .quick-icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: var(--green-dark);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .listing-preview {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 13px;
+      align-items: center;
+    }
+
+    .listing-image {
+      width: 80px;
+      aspect-ratio: 1;
+      border-radius: var(--radius);
+      background: var(--gray-100);
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+
+    .listing-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Placeholder illustration inside listing image */
+    .listing-thumb {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 30px;
+      background: linear-gradient(135deg, var(--gray-100), var(--green-surface));
+    }
+
+    .listing-meta { min-width: 0; }
+
+    .listing-name { margin-bottom: 2px; font-weight: 700; font-size: 14px; }
+    .listing-detail { margin-bottom: 6px; color: var(--gray-500); font-size: 12px; }
+
+    .listing-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .listing-price { color: var(--green-deep); font-weight: 700; font-size: 14px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--green-surface);
+      color: var(--green-dark);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    /* SECTIONS */
+    section { padding: 58px 0; }
+
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 22px;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(30px, 4.5vw, 48px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .section-copy {
+      max-width: 440px;
+      margin-bottom: 0;
+      color: var(--gray-500);
+      font-size: 16px;
+    }
+
+    .grid { display: grid; gap: 14px; }
+    .steps { grid-template-columns: repeat(3, 1fr); }
+
+    .card {
+      min-width: 0;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.9);
+      box-shadow: var(--shadow);
+    }
+
+    .step-card { padding: 22px; }
+
+    .step-icon, .category-icon {
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      margin-bottom: 16px;
+      border-radius: 50%;
+      background: var(--green-surface);
+      color: var(--gray-900);
+      font-size: 24px;
+    }
+
+    .step-card h3, .category-card h3 { margin-bottom: 7px; font-size: 18px; line-height: 1.2; }
+    .step-card p, .category-card p { margin-bottom: 0; color: var(--gray-500); font-size: 14px; }
+
+    .categories { grid-template-columns: repeat(3, 1fr); }
+    .category-card { padding: 18px; min-height: 176px; }
+    .category-card:nth-child(2n) .category-icon { background: var(--warning-surface); }
+
+    /* CAMPUS BAND */
+    .campus-band {
+      padding: 30px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .campuses {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .campus {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 16px;
+      border: 1px solid var(--gray-200);
+      border-radius: 999px;
+      color: var(--gray-700);
+      background: var(--gray-50);
+      font-weight: 700;
+    }
+
+    /* WAITLIST */
+    .waitlist {
+      display: grid;
+      grid-template-columns: minmax(0,0.82fr) minmax(330px,1fr);
+      gap: 28px;
+      align-items: start;
+    }
+
+    .waitlist-copy { padding-top: 12px; }
+
+    .form-card {
+      padding: 20px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .form-grid { display: grid; gap: 12px; }
+
+    .field { display: grid; gap: 6px; }
+
+    label { color: var(--gray-700); font-size: 13px; font-weight: 700; }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 48px;
+      padding: 12px 13px;
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      color: var(--gray-900);
+      background: var(--gray-50);
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    textarea { min-height: 92px; resize: vertical; }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--green);
+      background: var(--white);
+      box-shadow: 0 0 0 4px rgba(109,216,50,0.14);
+    }
+
+    .split-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .tally-frame {
+      width: 100%;
+      min-height: 560px;
+      border: 0;
+      border-radius: var(--radius);
+      background: var(--white);
+    }
+
+    .hidden { display: none; }
+
+    /* FOOTER */
+    .footer {
+      padding: 30px 0 42px;
+      border-top: 1px solid var(--gray-200);
+      color: var(--gray-500);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-weight: 700;
+      color: var(--gray-700);
+    }
+
+    .footer a:hover, .footer a:focus-visible {
+      color: var(--green-deep);
+      outline: none;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 860px) {
+      .hero, .waitlist { grid-template-columns: 1fr; }
+      .hero { gap: 34px; min-height: auto; padding-top: 46px; }
+      .phone { margin: 0; }
+      .steps, .categories { grid-template-columns: 1fr 1fr; }
+      .section-heading { display: block; }
+      .section-copy { margin-top: 10px; }
+    }
+
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1120px); }
+      .nav-inner { min-height: 68px; }
+      .brand img { width: 118px; }
+      .nav .button { min-height: 42px; padding: 10px 13px; font-size: 14px; }
+      .hero-form, .split-fields { grid-template-columns: 1fr; }
+      .hero-form .button { width: 100%; }
+      .steps, .categories { grid-template-columns: 1fr; }
+      .category-card { min-height: auto; }
+      .quick-actions { grid-template-columns: repeat(2, 1fr); }
+      .footer-inner { display: block; }
+      .footer-links { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="nav" aria-label="Main navigation">
+      <div class="shell nav-inner">
+        <a class="brand" href="#top" aria-label="Zoink home">
+          <img src="assets/ZoinkTransparent.png" alt="Zoink">
+        </a>
+        <a class="button secondary" href="#waitlist">Join Waitlist</a>
+      </div>
+    </nav>
+
+    <main id="top">
+      <header class="shell hero">
+        <div>
+          <div class="eyebrow">Peer-to-peer campus rentals</div>
+          <h1>Zoink it.</h1>
+          <p class="hero-copy">Why buy it when you can Zoink it? Rent what you need from students nearby — and make money on the stuff sitting in your room.</p>
+          <a class="button" href="#waitlist" style="display:inline-flex; max-width:260px; font-size:17px; min-height:52px;">Get Early Access →</a>
+          <div class="mini-proof" aria-label="Launch campuses">
+            <span class="pill">🎓 UofT</span>
+            <span class="pill">🎓 TMU</span>
+            <span class="pill">🎓 Laurier</span>
+            <span class="pill">🎓 York</span>
+            <span class="pill">🎓 OTU</span>
+            <span class="pill">🎓 McMaster</span>
+            <span class="pill">✓ Verified students only</span>
+          </div>
+        </div>
+
+        <aside class="phone" aria-label="Zoink app preview">
+          <div class="phone-top">
+            <img class="phone-logo" src="assets/ZoinkTransparent.png" alt="">
+            <div class="phone-avatar" aria-hidden="true">👤</div>
+          </div>
+          <div class="phone-body">
+            <div class="app-panel">
+              <div class="app-label">Campus marketplace</div>
+              <div class="app-title">What do you need today?</div>
+              <div class="quick-actions">
+                <div class="quick-action">
+                  <span class="quick-icon">
+                    <!-- List / plus icon -->
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </span>
+                  <span>List</span>
+                </div>
+                <div class="quick-action">
+                  <span class="quick-icon">
+                    <!-- Browse / grid icon -->
+                    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                  </span>
+                  <span>Browse</span>
+                </div>
+                <div class="quick-action">
+                  <span class="quick-icon">
+                    <!-- Calendar icon -->
+                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </span>
+                  <span>Book</span>
+                </div>
+                <div class="quick-action">
+                  <span class="quick-icon">
+                    <!-- Message icon -->
+                    <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  </span>
+                  <span>Chat</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="app-panel listing-preview">
+              <div class="listing-image">
+                <div class="listing-thumb">📷</div>
+              </div>
+              <div class="listing-meta">
+                <div class="listing-name">Sony camera kit</div>
+                <div class="listing-detail">0.8 km · available now</div>
+                <div class="listing-row">
+                  <div class="listing-price">$18 / day</div>
+                  <div class="badge">⭐ 4.9</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="app-panel listing-preview">
+              <div class="listing-image">
+                <div class="listing-thumb">🧰</div>
+              </div>
+              <div class="listing-meta">
+                <div class="listing-name">Tool set</div>
+                <div class="listing-detail">Near campus · verified</div>
+                <div class="listing-row">
+                  <div class="listing-price">$9 / day</div>
+                  <div class="badge">⭐ 5.0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </header>
+
+      <section class="shell" aria-labelledby="how-title">
+        <div class="section-heading">
+          <h2 id="how-title">How it works</h2>
+          <p class="section-copy">Fast enough for a last-minute project. Structured enough to actually trust a stranger.</p>
+        </div>
+        <div class="grid steps">
+          <article class="card step-card">
+            <div class="step-icon" aria-hidden="true">🔎</div>
+            <h3>Find it nearby</h3>
+            <p>Search by category, campus, and availability. If someone around you has it, you'll find it.</p>
+          </article>
+          <article class="card step-card">
+            <div class="step-icon" aria-hidden="true">🤝</div>
+            <h3>Zoink it</h3>
+            <p>Request dates, message the owner, and confirm the handoff. Secure payment, no awkward cash.</p>
+          </article>
+          <article class="card step-card">
+            <div class="step-icon" aria-hidden="true">↩</div>
+            <h3>Return and rate</h3>
+            <p>Bring it back on time, leave a review, and build your rep on campus.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="shell" aria-labelledby="rent-title">
+        <div class="section-heading">
+          <h2 id="rent-title">What you can Zoink</h2>
+          <p class="section-copy">The stuff you occasionally need — without making it a whole purchase.</p>
+        </div>
+        <div class="grid categories">
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">💻</div>
+            <h3>Electronics</h3>
+            <p>Chargers, monitors, calculators, adapters, and presentation gear.</p>
+          </article>
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">📷</div>
+            <h3>Cameras</h3>
+            <p>Photo kits, tripods, lighting, microphones, and creator tools.</p>
+          </article>
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">🧰</div>
+            <h3>Tools</h3>
+            <p>Drills, repair kits, moving supplies, and dorm setup essentials.</p>
+          </article>
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">🏕️</div>
+            <h3>Outdoors</h3>
+            <p>Tents, sleeping bags, coolers, chairs, and weekend gear.</p>
+          </article>
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">🎧</div>
+            <h3>Audio and video</h3>
+            <p>Speakers, projectors, podcast gear, and event equipment.</p>
+          </article>
+          <article class="card category-card">
+            <div class="category-icon" aria-hidden="true">📚</div>
+            <h3>Books and more</h3>
+            <p>Textbooks, costumes, sports gear, kitchen items, and random saves.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="shell" aria-labelledby="campus-title">
+        <div class="campus-band">
+          <div class="section-heading">
+            <h2 id="campus-title">Launching on campus</h2>
+            <p class="section-copy">Starting where student density makes rentals fast, familiar, and walkable.</p>
+          </div>
+          <div class="campuses" aria-label="Initial campuses">
+            <span class="campus">University of Toronto</span>
+            <span class="campus">Toronto Metropolitan University</span>
+            <span class="campus">Wilfrid Laurier University</span>
+            <span class="campus">York University</span>
+            <span class="campus">Ontario Tech University</span>
+            <span class="campus">McMaster University</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="shell waitlist" id="waitlist" aria-labelledby="waitlist-title">
+        <div class="waitlist-copy">
+          <div class="eyebrow">Early access</div>
+          <h2 id="waitlist-title">Get in early.</h2>
+          <p class="section-copy">Tell us where you study, whether you want to rent or lend first, and what you'd actually Zoink.</p>
+        </div>
+
+        <div class="form-card" id="inlineFormWrap">
+          <form class="form-grid" id="waitlistForm">
+            <div class="field">
+              <label for="email">University email</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@university.ca" required>
+            </div>
+            <div class="split-fields">
+              <div class="field">
+                <label for="university">University</label>
+                <select id="university" name="university" required>
+                  <option value="">Choose one</option>
+                  <option>University of Toronto</option>
+                  <option>Toronto Metropolitan University</option>
+                  <option>Wilfrid Laurier University</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="intent">I want to</label>
+                <select id="intent" name="intent" required>
+                  <option value="">Choose one</option>
+                  <option>Rent items</option>
+                  <option>Lend items</option>
+                  <option>Both</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="items">What would you rent or lend?</label>
+              <textarea id="items" name="items" placeholder="Camera, projector, drill, tent..."></textarea>
+            </div>
+            <button class="button" type="submit">Join the Waitlist</button>
+          </form>
+        </div>
+
+        <div class="form-card hidden" id="tallyWrap" aria-label="Zoink waitlist form"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <span>© 2025 Zoink campus rentals</span>
+        <div class="footer-links">
+          <a href="https://www.instagram.com/zoink.it" target="_blank" rel="noreferrer">Instagram</a>
+          <a href="mailto:hello@zoink.ca">hello@zoink.ca</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const TALLY_FORM_URL = "https://tally.so/r/obvBkV";
+    const CONTACT_EMAIL = "hello@zoink.ca";
+
+    const waitlistForm = document.querySelector("#waitlistForm");
+    const tallyWrap = document.querySelector("#tallyWrap");
+    const inlineFormWrap = document.querySelector("#inlineFormWrap");
+
+    if (TALLY_FORM_URL) {
+      inlineFormWrap.classList.add("hidden");
+      tallyWrap.classList.remove("hidden");
+      tallyWrap.innerHTML = `<iframe class="tally-frame" title="Zoink waitlist" src="${TALLY_FORM_URL}" loading="lazy"></iframe>`;
+    }
+
+waitlistForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(waitlistForm);
+      const subject = encodeURIComponent("Zoink waitlist signup");
+      const body = encodeURIComponent(
+        [
+          "Email: " + data.get("email"),
+          "University: " + data.get("university"),
+          "Intent: " + data.get("intent"),
+          "Items: " + data.get("items")
+        ].join("\n")
+      );
+      window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
+    });
+  </script>
+</body>
+</html>
