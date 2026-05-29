@@ -1,79 +1,153 @@
-# Zoink 🔁
+# Zoink
+
 ### A peer-to-peer rental marketplace for students
 
-Zoink connects university students who have items sitting unused with students who need them temporarily — making access affordable and ownership optional.
+Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-Instead of paying $75/day at a rental shop or buying something you'll use once, you rent it from someone nearby for a fraction of the cost. Snowboard for the weekend. Speaker for the party. Drill for the one IKEA job. Camera for the trip.
-
-> Currently in active development. Authentication, profiles, listings, search/filtering, booking, messaging, reviews, and push notifications are implemented. Payments, Zoink It, insurance, and deployment are still in progress.
+The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, and photo-verified synchronized handoff flow are implemented. The remaining major work is real Stripe Connect onboarding, native card collection, end-to-end Stripe sandbox testing, production hardening, and deployment.
 
 ---
 
-## The Problem
+## Current Status
 
-Rising cost of living has made ownership hard to justify for students — especially for items used only occasionally. At the same time, people own things that sit idle for most of the year. Existing options either lack trust (Facebook Marketplace), lack rental infrastructure (Kijiji), or are too expensive (traditional rental shops).
+Completed:
 
-Zoink fills that gap with a purpose-built, trust-first rental platform.
+- Authentication with JWT-protected routes.
+- University email OTP verification and verified-only app access.
+- User profiles, public profile surfaces, avatars, reputation, and review summaries.
+- Listings with photos, categories, daily pricing, location, owner management, and availability.
+- Browse/search with geo distance, category filtering, price filtering, and availability filtering.
+- Conversations and in-app messaging.
+- Booking requests with strict backend state transitions.
+- Reviews and required post-rental review obligations.
+- Push notification token registration and backend notification dispatch.
+- Week 7 backend payment lifecycle:
+  - Stripe PaymentIntent creation with mandatory idempotency keys.
+  - Mock Stripe fallback for local development when `STRIPE_SECRET_KEY` is empty.
+  - Optional checkout insurance fee calculation and storage.
+  - Deposit, commission, and owner payout calculation.
+  - Webhook-first final payment states.
+  - Cancellation policy handling.
+  - 24-hour configurable payout hold.
+  - Audit log events through `BookingEvent`.
+  - Optimistic locking with `Booking.version`.
+- Photo-verified synchronized handoff:
+  - Pickup photos.
+  - Return photos.
+  - Owner/renter synchronized `Zoink It` taps within a configurable 5-second window.
+  - Pickup transition to `ACTIVE`.
+  - Return transition to `COMPLETED`.
+- Backend-only Week 7 smoke test for payment and handoff flows without needing two devices.
 
----
+Still in progress:
 
-## Core Features
-
-- **Authentication** — email/password registration, JWT-based auth, protected routes ✅
-- **Identity verification** — university email OTP verification with verified-only app access ✅
-- **User profiles** — avatar, bio, verified badge, public profiles, and review reputation ✅
-- **Listings** — create items with photos, description, category, daily price, and location ✅
-- **Search and filtering** — geo-based nearby search, category, price range, availability ✅
-- **Messaging** — in-app chat between renters and listers before and during a booking ✅
-- **Booking system** — request rentals, accept/decline, strict state machine ✅
-- **Payments** — Stripe Payment Intents, deposit hold, capture on rental start, payout on completion 🚧 In progress
-- **Zoink It** — photo-verified handoff flow: owner and renter confirm item condition at pickup and return with a synchronized tap 🚧 In progress
-- **Insurance** — optional ~5% coverage fee on listed item value for added protection 🚧 Planned
-- **Reviews and ratings** — post-rental reviews and aggregate reputation scores ✅
-- **Push notifications** — booking alerts, message notifications, status updates ✅
-
----
-
-## Booking Flow
-
-```
-Renter:  Search → Message → Book → Pay deposit → Pick up (verify photos → Zoink It) → Use → Return (take photos → Zoink It) → Review
-Lister:  Upload → Set price → Message → Approve → Deposit held → Take photos → Zoink It → Rent out → Verify return photos → Zoink It → Get paid → Review
-```
-
-Booking states enforced strictly on the backend:
-
-```
-PENDING → ACCEPTED → ACTIVE → COMPLETED
-PENDING → DECLINED
-PENDING / ACCEPTED → CANCELLED
-```
-
-Deposit lifecycle:
-
-```
-ACCEPTED  → Stripe PaymentIntent created, deposit held (authorized, not captured)
-ACTIVE    → Both parties tap Zoink It within the 5-second window; full rental amount captured
-COMPLETED → Both parties tap Zoink It on return; owner payout triggered; deposit released
-CANCELLED → PaymentIntent cancelled; hold released immediately
-DECLINED  → No charge; no hold created
-```
+- Real Stripe Connect onboarding UI for owners.
+- Stripe React Native card collection and PaymentSheet/CardField integration.
+- Full Stripe sandbox end-to-end testing with real test cards, webhooks, and connected accounts.
+- Admin/support tooling for disputes, after-pickup refunds, and manual intervention.
+- Production deployment and release builds.
 
 ---
 
-## Business Model
+## Core User Flow
 
-| Rental Price | Commission |
-|---|---|
-| $0 – $50 | 15% |
-| $50 – $150 | 12% |
-| $150+ | 10% |
+```text
+Renter:
+Search -> Message -> Request booking -> Optional insurance -> Payment authorization -> Pickup photos -> Zoink It -> Use item -> Return photos -> Zoink It -> Review
 
-Additional revenue streams:
-- **Optional insurance** — ~5% of listed item value per rental, opted in at checkout
-- **Power seller subscription** — lower commission, featured slots, and platform tools (future)
+Owner:
+List item -> Message renter -> Accept request -> Pickup photos -> Zoink It -> Rental active -> Return photos -> Zoink It -> Payout pending -> Review
+```
 
-Early adopters get zero-commission incentives to kickstart supply.
+Booking states:
+
+```text
+PENDING -> ACCEPTED -> ACTIVE -> COMPLETED
+PENDING -> DECLINED
+PENDING / ACCEPTED -> CANCELLED
+```
+
+Payment states:
+
+```text
+PENDING_AUTH
+AUTHORIZED
+CAPTURE_PENDING
+CAPTURED
+REFUND_PENDING
+REFUNDED
+PAYOUT_PENDING
+PAID_OUT
+FAILED
+```
+
+Dispute states:
+
+```text
+NONE
+OPEN
+RESOLVED
+```
+
+---
+
+## Week 7 Payments And Handoff
+
+### Implemented Backend Behavior
+
+- `Booking.version` is used for optimistic locking.
+- Booking mutations and handoff taps run through Prisma transactions.
+- Owner acceptance requires a Stripe account.
+- Local beta/dev can bypass full onboarding with `DEV_STRIPE_ACCOUNT_ID`.
+- Payment operations live in `backend/src/services/paymentService.ts`.
+- Synchronized handoff logic lives in `backend/src/services/handoffService.ts`.
+- Stripe webhook handling lives in `backend/src/middleware/controllers/stripeWebhookController.ts`.
+- Reconciliation and cleanup/payout job helpers exist in:
+  - `backend/src/services/reconciliationJob.ts`
+  - `backend/src/services/cleanupJob.ts`
+- Audit logs are stored in `booking_events`.
+- The backend exposes:
+  - `POST /bookings`
+  - `GET /bookings/me`
+  - `GET /bookings/requests`
+  - `GET /bookings/:id`
+  - `PATCH /bookings/:id/accept`
+  - `PATCH /bookings/:id/decline`
+  - `PATCH /bookings/:id/cancel`
+  - `POST /bookings/:id/photos`
+  - `POST /bookings/:id/zoink-tap`
+  - `POST /stripe/webhook`
+
+### Cancellation Rules
+
+- Before owner acceptance: authorization hold is released, no charge.
+- After acceptance but before pickup: 5% cancellation fee, minimum `$5.00`, capped at `$25.00`.
+- After pickup: no automatic refund. Admin/support intervention required.
+
+### Payout Rules
+
+- Owner payout is held in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS`.
+- Default hold is 24 hours.
+- Payout is blocked if a dispute is open.
+- Once released, the backend creates a Stripe Transfer and marks the booking `PAID_OUT`.
+
+### Local Smoke Test
+
+You can test the whole Week 7 flow without the mobile app or two devices:
+
+```bash
+cd backend
+npm.cmd run smoke:week7
+```
+
+The smoke test creates synthetic users, a listing, a booking, acceptance, pickup photos, synchronized pickup taps, return photos, synchronized return taps, and verifies the booking reaches:
+
+```text
+ACCEPTED -> ACTIVE -> COMPLETED
+AUTHORIZED -> CAPTURE_PENDING -> PAYOUT_PENDING
+```
+
+It forces mock Stripe mode, so it does not charge a real card.
 
 ---
 
@@ -81,56 +155,35 @@ Early adopters get zero-commission incentives to kickstart supply.
 
 | Layer | Technology |
 |---|---|
-| Mobile frontend | React Native + Expo SDK 54 + TypeScript |
+| Mobile frontend | React Native + Expo + TypeScript |
 | Backend API | Node.js + Express + TypeScript |
 | Database | PostgreSQL + Prisma ORM |
-| Image storage | Cloudinary (listings and profile photos) |
+| Image storage | Cloudinary |
 | Email | AWS SES |
-| Hosting | AWS EC2 + RDS (free tier) |
 | Payments | Stripe |
 | Push notifications | Expo Push Notifications |
 
 ---
 
-## Current Implementation Notes
-
-- Frontend listings are implemented: nearby home feed, create listing form, photo selection/upload flow, listing detail, owner listing management, and edit listing screens.
-- Frontend browse/search is implemented: bottom navigation now exposes dedicated Home, Search, Messages, and Profile surfaces, and the Search screen supports query, category filtering, price filtering, and sort/filter menus.
-- Frontend profiles are now implemented with collectible-style profile cards, public profile viewing, inline profile editing, avatar upload, and demo-mode mock profile data for UI testing.
-- Week 6 is implemented: renters can open conversations, send messages, create booking requests, and view booking history; owners can review and act on incoming requests.
-- Week 8 is implemented end-to-end: completed bookings create review prompts, both sides can submit three-score reviews, and reputation aggregates are available for profile surfaces.
-- Week 9 is implemented end-to-end: push notification tokens are registered and synced on the frontend, Expo push service handles notifications for booking status transitions and messages on the backend, and UI polish (including liquid glass UI theme, clean empty states, and optimized navigation flow) has been applied.
-- `GET /listings?latitude=...&longitude=...&radiusKm=...` powers geo-based nearby listing search and returns `distanceKm`.
-- The app UI uses the Zoink palette: Logo Green `#6DD832` (with variations `#4EA822`, `#3A7D19`, `#96E85A`, `#F2FAE8`) and the Deep Forest Liquid Glass styling tokens (`glassLight`, `glassDark`, `glassGreen`, `glassBorder`).
-- Temporary in-app Zoink logo placeholders exist in the frontend so real logo assets can be swapped in later.
-- Frontend demo mode can run core browse, profile, booking, messaging, and review flows locally without a live backend.
-
----
-
 ## Getting Started
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 15+
-- Expo CLI
-- AWS account (free tier)
-- Stripe account
-- Cloudinary account
-
-### Backend setup
+### Backend
 
 ```bash
 cd backend
 npm install
-# create backend/.env with the variables below
 npx prisma migrate dev
 npx prisma generate
 npm run dev
 ```
 
-Backend runs at `http://localhost:3000`. Test it at `http://localhost:3000/health`.
+Backend health check:
 
-### Frontend setup
+```text
+http://localhost:3000/health
+```
+
+### Frontend
 
 ```bash
 cd frontend
@@ -138,522 +191,148 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with Expo Go, or press `i` for iOS simulator, `a` for Android, `w` for web.
+Scan the QR code with Expo Go, or run on simulator/device from Expo.
 
-### Environment variables
+---
+
+## Environment Variables
 
 Create `backend/.env`:
 
-```
+```env
 DATABASE_URL="postgresql://youruser@localhost:5432/zoink"
 JWT_SECRET="your-secret-key"
 PORT=3000
 
+ALLOWED_EMAIL_DOMAINS="utoronto.ca,mail.utoronto.ca,gmail.com,hotmail.com,uoguelph.ca"
+OTP_EXPIRY_MINUTES=15
+
+AWS_REGION=
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
-AWS_REGION=
+SES_FROM_EMAIL=
 
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
+STRIPE_CURRENCY=usd
+DEV_STRIPE_ACCOUNT_ID=""
 
-EXPO_ACCESS_TOKEN=
-
-SES_FROM_EMAIL=
-ADMIN_EMAIL=
-ALLOWED_EMAIL_DOMAINS=utoronto.ca,uwaterloo.ca,tmu.ca
-OTP_EXPIRY_MINUTES=15
+PAYOUT_HOLD_HOURS=24
+ZOINK_TAP_WINDOW_MS=5000
+PLATFORM_COMMISSION_RATE=0.15
+INSURANCE_RATE=0.03
+MIN_INSURANCE_FEE=1
+MAX_INSURANCE_FEE=50
 ```
 
-For frontend development, create `frontend/.env` locally:
+For local frontend API access, create `frontend/.env`:
 
+```env
+EXPO_PUBLIC_API_URL="http://your-local-ip:3000"
 ```
-EXPO_PUBLIC_API_URL="https://your-ngrok-url.ngrok-free.app"
-```
 
-`frontend/.env` is intentionally local and should not be committed.
+For frontend demo mode:
 
-To preview the frontend without a running backend, enable demo mode locally:
-
-```
+```env
 EXPO_PUBLIC_DEMO_MODE=true
 ```
-
-Demo mode lets the app log in with local mock auth and use local mock listings. Remove it or set it to `false` when testing against the real backend.
 
 ---
 
 ## Project Structure
 
-```
-zoink/
-├── backend/
-│   ├── src/
-│   │   ├── middleware/
-│   │   │   └── controllers/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   └── utils/
-│   ├── prisma/
-│   │   └── schema.prisma
-│   ├── prisma.config.ts
-│   ├── .env
-│   └── tsconfig.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── screens/
-│   │   ├── navigation/
-│   │   ├── services/
-│   │   ├── context/
-│   │   ├── theme/
-│   │   └── types/
-│   ├── App.tsx
-│   └── tsconfig.json
-└── README.md
+```text
+Zoink/
+  backend/
+    prisma/
+      migrations/
+      schema.prisma
+    src/
+      middleware/
+        controllers/
+      routes/
+      scripts/
+      services/
+      utils/
+  frontend/
+    src/
+      components/
+      config/
+      context/
+      navigation/
+      screens/
+      services/
+      theme/
+      types/
 ```
 
 ---
 
-## 12-Week Build Plan
+## Verification Commands
 
-Two developers, 10–15 hours/week each. Each week delivers a complete vertical slice — backend and frontend together — so the app is always demo-able.
+Backend:
 
-| Week | Focus | Status |
+```bash
+cd backend
+npm.cmd run build
+npm.cmd test
+npx.cmd prisma validate
+npm.cmd run smoke:week7
+```
+
+Frontend:
+
+```bash
+cd frontend
+npx.cmd tsc --noEmit
+```
+
+---
+
+## Build Plan Status
+
+| Phase | Focus | Status |
 |---|---|---|
-| 1 | Project setup — DB schema, base structure, navigation shell | ✅ Done |
-| 2 | Authentication — register/login, JWT, protected routes, auth context | ✅ Done |
-| 3 | User profiles — avatars, public profiles, profile card UI + email verification flow | ✅ Done |
-| 4 | Listings — create, upload photos, detail page, owner management | ✅ Done |
-| 5 | Browse, search, and filtering — geo search, categories, price range | ✅ Done |
-| 6 | Booking system + messaging — request flow, state machine, in-app chat | ✅ Done |
-| 7 | Payments + Zoink It — Stripe intents, deposit, capture, payout, refunds, handoff verification | 🚧 In progress |
-| 8 | Reviews and ratings — post-rental prompts, aggregate scores | ✅ Done |
-| 9 | Push notifications and polish — loading states, empty states, UI pass | ✅ Done |
-| 10 | Insurance — optional rental coverage, checkout opt-in, fee computation | 🔨 Up next |
-| 11 | Testing and security audit — integration tests, device testing, security review | — |
-| 12 | Deployment — AWS EC2/RDS, EAS build, TestFlight, CI/CD | — |
-
----
-
-## Week 5 — Browse, Search, and Filtering
-
-### Status: complete
-
-The backend endpoints (`GET /listings`, `GET /listings/categories`) are built and verified, and the main Week 5 frontend browse flow is now wired into the app.
-
-**API integration**
-- Axios frontend helpers now support listings browse queries and category fetching.
-
-**Browse / Explore screen**
-- Nearby listings render in the app feed and show `distanceKm` when available.
-
-**Search and filter interactions**
-- A dedicated Search screen now supports query input, category filtering, price filtering, and sort/filter menus.
-
-**Geolocation**
-- Device location is requested to populate `latitude` and `longitude` for nearby browse results.
-
-**Pagination**
-- Basic browse/search results are wired; pagination/infinite scroll can be extended further if the product needs larger result sets.
-
----
-
-## Week 6 — Booking System + Messaging
-
-Messaging is load-bearing for a peer-to-peer marketplace — renters need a way to ask questions before committing to a booking request. Both features ship together this week as a full vertical slice.
-
-### Status: complete
-
-Week 6 has been implemented and the main user flows were manually verified in the app: opening or resuming a conversation, sending messages, creating booking requests, reviewing incoming requests, and progressing booking states through the owner/renter flow.
-
-### Booking system
-
-**Backend**
-- `Booking` model: `id`, `listingId`, `renterId`, `ownerId`, `startDate`, `endDate`, `totalPrice`, `status`, `createdAt`, `updatedAt`
-- Status enum: `PENDING | ACCEPTED | DECLINED | CANCELLED | ACTIVE | COMPLETED`
-- State machine enforced in middleware — invalid transitions return 400
-- Endpoints:
-  - `POST /bookings` — renter creates a request (status: `PENDING`)
-  - `PATCH /bookings/:id/accept` — owner accepts (→ `ACCEPTED`)
-  - `PATCH /bookings/:id/decline` — owner declines (→ `DECLINED`)
-  - `PATCH /bookings/:id/cancel` — renter or owner cancels (→ `CANCELLED`)
-  - `PATCH /bookings/:id/activate` — mark rental as started (→ `ACTIVE`)
-  - `PATCH /bookings/:id/complete` — mark rental as returned (→ `COMPLETED`)
-  - `GET /bookings/me` — renter's booking history
-  - `GET /bookings/requests` — owner's incoming booking requests
-- Block double-booking: query for overlapping `ACCEPTED` or `ACTIVE` bookings before accepting
-- `totalPrice` is computed server-side, and the current deposit amount shown in the API/UI is derived server-side from the booking total
-
-**Frontend**
-- Book Now button and booking request flow on listing detail screen
-- Booking request confirmation screen (dates, price breakdown, deposit)
-- Incoming requests screen for owners (approve / decline actions)
-- Booking history screen for renters with status badges
-- Booking detail screen with current status and available actions
-
-### Messaging
-
-**Backend**
-- `Conversation` model: `id`, `listingId`, `renterId`, `ownerId`, `createdAt`
-- `Message` model: `id`, `conversationId`, `senderId`, `body`, `createdAt`
-- One conversation per (renter, listing) pair — enforced with a unique constraint
-- Endpoints:
-  - `POST /conversations` — open or retrieve existing conversation for a listing
-  - `GET /conversations/me` — all conversations for the current user (inbox)
-  - `GET /conversations/:id/messages` — paginated message thread
-  - `POST /conversations/:id/messages` — send a message
-- Poll-based for now (no WebSockets) — `GET /conversations/:id/messages?after=<messageId>` for incremental updates
-- Authorization: only conversation participants can read or write
-
-**Frontend**
-- Message button on listing detail screen (opens or resumes conversation)
-- Inbox screen — list of conversations with last message preview and unread indicator
-- Thread screen — scrollable message history with send input at the bottom
-- Auto-poll on thread screen every 3–5 seconds while focused
-- Inbox entry point from the home screen
-
-### Schema additions (Prisma)
-
-```prisma
-model Booking {
-  id                    String        @id @default(uuid())
-  status                BookingStatus @default(PENDING)
-  startDate             DateTime
-  endDate               DateTime
-  totalPrice            Decimal       @db.Decimal(10, 2)
-  message               String?
-  stripePaymentIntentId String?
-  stripeChargeId        String?
-  paidAt                DateTime?
-  payoutSentAt          DateTime?
-  renterId              String
-  renter                User          @relation("RenterBookings", fields: [renterId], references: [id])
-  ownerId               String
-  owner                 User          @relation("OwnerBookings", fields: [ownerId], references: [id])
-  listingId             String
-  listing               Listing       @relation(fields: [listingId], references: [id])
-  completedAt           DateTime?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-
-  @@map("bookings")
-}
-
-enum BookingStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
-  ACTIVE
-  COMPLETED
-  CANCELLED
-}
-
-model Conversation {
-  id         String    @id @default(uuid())
-  listingId  String
-  listing    Listing   @relation(fields: [listingId], references: [id])
-  renterId   String
-  renter     User      @relation("RenterConversations", fields: [renterId], references: [id])
-  ownerId    String
-  owner      User      @relation("OwnerConversations", fields: [ownerId], references: [id])
-  messages   Message[]
-  createdAt  DateTime  @default(now())
-
-  @@unique([listingId, renterId])
-  @@map("conversations")
-}
-
-model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderId       String
-  sender         User         @relation(fields: [senderId], references: [id])
-  body           String
-  createdAt      DateTime     @default(now())
-
-  @@map("messages")
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  type      NotificationType
-  title     String
-  body      String
-  read      Boolean          @default(false)
-  data      Json?
-  userId    String
-  user      User             @relation(fields: [userId], references: [id])
-  createdAt DateTime         @default(now())
-
-  @@map("notifications")
-}
-```
-
-### Definition of done — week 6
-
-- [x] All booking state transitions work end-to-end and reject invalid transitions
-- [x] Double-booking is blocked at the API level
-- [x] Owner can approve/decline from the requests screen
-- [x] Renter can view booking history with accurate status
-- [x] Two users can exchange messages on a listing thread
-- [x] Inbox shows last message and updates on poll
-- [x] Conversation is created automatically when renter taps Message
-
----
-
-## Week 7 — Payments
-
-Payments are the economic backbone of the platform. Week 7 wires Stripe into the booking lifecycle end-to-end: deposit authorization on acceptance, full capture when the rental goes active, owner payout on completion, and clean refund handling for cancellations and declines.
-
-### Status: in progress
-
-### How money moves
-
-Zoink uses **Stripe Payment Intents** with a two-step authorize-then-capture flow. The renter's card is authorized (not charged) when a booking is accepted. The full rental amount is only captured when both parties confirm the handoff. The owner receives a payout — minus Zoink's commission — when the rental is marked complete.
-
-```
-Booking accepted   → PaymentIntent created, deposit authorized (hold placed on card)
-Rental goes ACTIVE → Full rental amount captured from renter
-Rental COMPLETED   → Owner payout triggered via Stripe Transfer
-Booking CANCELLED  → PaymentIntent cancelled, hold released (no charge)
-Booking DECLINED   → No PaymentIntent created
-```
-
-Deposit amount is set at **30% of total rental price**, held as a security buffer against damage or no-show.
-
-### Backend
-
-- Stripe SDK initialized with `STRIPE_SECRET_KEY`
-- `stripePaymentIntentId` and `stripeChargeId` fields already present on the `Booking` model (from Week 6 schema)
-- New fields added: `depositAmount`, `commissionAmount`, `ownerPayout`, `insuranceOptIn`, `insuranceFee`
-- Commission computed server-side at booking creation using the tiered rate table
-- Endpoints:
-  - `POST /payments/intent` — create a PaymentIntent for a booking; returns `clientSecret` to the frontend
-  - `POST /payments/capture/:bookingId` — capture the authorized hold when rental goes `ACTIVE`
-  - `POST /payments/payout/:bookingId` — trigger Stripe Transfer to owner's connected account on `COMPLETED`
-  - `POST /payments/refund/:bookingId` — cancel hold or issue refund on `CANCELLED` or `DECLINED`
-  - `POST /payments/webhook` — Stripe webhook handler for async payment lifecycle events
-- Webhook events handled: `payment_intent.succeeded`, `payment_intent.payment_failed`, `transfer.created`, `charge.refunded`
-- All payment amounts stored as integers in cents to avoid floating-point errors
-- Commission deducted from payout server-side — owner never sees the full rental price in their transfer
-
-### Frontend
-
-- Payment screen presented after renter confirms booking dates and before the request is submitted
-- Stripe React Native SDK (`@stripe/stripe-react-native`) integrated for card collection
-- `CardField` component handles card entry natively (no custom card input)
-- Payment confirmation screen shows: rental total, deposit amount held, Zoink commission, owner payout, and optional insurance toggle
-- Insurance opt-in adds ~5% of listed item value to the total at checkout
-- Booking request is only created after `PaymentIntent` is confirmed on the frontend
-- Error states for card decline, insufficient funds, and network failure
-- Owner-side: payout status visible on completed booking detail screen
-
-### Schema additions (Prisma)
-
-```prisma
-// Additions to the existing Booking model
-model Booking {
-  // ... existing fields ...
-  depositAmount         Decimal   @db.Decimal(10, 2)
-  commissionAmount      Decimal   @db.Decimal(10, 2)
-  ownerPayout           Decimal   @db.Decimal(10, 2)
-  insuranceOptIn        Boolean   @default(false)
-  insuranceFee          Decimal   @default(0) @db.Decimal(10, 2)
-  stripeTransferId      String?
-  refundedAt            DateTime?
-}
-```
-
-### Definition of done — week 7
-
-- [ ] Stripe PaymentIntent created and deposit authorized on booking acceptance
-- [ ] Full amount captured when booking transitions to `ACTIVE`
-- [ ] Owner payout (minus commission) triggered on `COMPLETED`
-- [ ] Hold released / refund issued on `CANCELLED` and `DECLINED`
-- [ ] Stripe webhook handler processes async events correctly
-- [ ] Insurance opt-in at checkout adjusts total and is stored on the booking
-- [ ] Commission computed and stored server-side for every booking
-- [ ] Frontend payment screen collects card details via Stripe React Native SDK
-- [ ] All payment amounts stored as integer cents in Stripe, decimal in DB
-
----
-
-## Week 8 — Reviews and Ratings
-
-To maintain a high-trust peer-to-peer network, Zoink enforces a strict mandatory review system upon the completion of any rental.
-
-### Status: complete
-
-Week 8 has been implemented. The backend correctly generates review obligations when a rental is marked as completed, and the frontend surfaces a hard-gated review screen that cannot be bypassed until the user clears their review backlog.
-
-### Features
-
-**Backend**
-- `Review` and `ReviewObligation` models implemented to track pending and completed reviews.
-- `POST /reviews` endpoint that accepts 3 distinct scores and a comment.
-- Role-based score dimensions:
-  - Renters review Owners on: Item Quality, Communication, and Accuracy.
-  - Owners review Renters on: Care of Item, Reliability, and Communication.
-- Reputation re-computation triggered asynchronously after every review submission to keep profile scores up-to-date.
-- Database logic enforces that users can only submit a review for an obligation they own, and only once.
-
-**Frontend**
-- `ReviewPromptScreen` presents a dynamic review form with slider inputs and a text area.
-- "Trust Check" Lock: If a user has a pending review obligation, the navigation stack intercepts them on app launch and forces `ReviewPromptScreen` as the initial route. Swiping back or hardware back buttons are disabled.
-- Booking completion immediately resets the navigation stack to the review prompt, eliminating escape hatches.
-- Users with multiple pending reviews are automatically chained through them sequentially.
-
----
-
-## Week 9 — Push Notifications and Polish
-
-To improve engagement and close the communication loop, Zoink implements push notifications for critical booking actions and direct messages, along with a comprehensive UI polish using a frosted glass aesthetic.
-
-### Status: complete
-
-Week 9 has been implemented end-to-end. Device token registration and token syncing are integrated on the frontend, while the backend triggers Expo push notifications for conversation messages and booking state changes. The UI also features polished transitions, custom empty states, and a frosted glass visual design.
-
-### Features
-
-**Backend**
-- `Notification` model and `expoPushToken` stored in PostgreSQL database.
-- `PATCH /users/me/push-token` endpoint allowing mobile devices to register/clear their Expo Push tokens.
-- Integration with the Expo Push Notification API (`https://exp.host/--/api/v2/push/send`) via a modular `notificationService`.
-- Push notifications triggered automatically on:
-  - New booking requests (notifying the owner).
-  - Booking status updates (accepted, declined, cancelled, completed sent to the renter/owner).
-  - Incoming chat messages (notifying the other chat participant with a message body snippet).
-
-**Frontend**
-- Expo notifications device registration helper (`pushNotifications.ts`) requesting proper OS-level notification permissions.
-- Automated token syncing: registers/syncs the device's token with the backend upon login/email verification, and clears the token on logout.
-- Fully polished "Deep Forest Liquid Glass" visual design across all surfaces with glassmorphism components (`glassLight`, `glassDark`, `glassGreen`, `glassBorder`).
-- Enhanced empty/loading states and refined navigation flow.
-
----
-
-## Week 10 — Zoink It + Insurance
-
-Zoink It gives listers a way to pay for increased visibility, and insurance gives renters peace of mind for higher-value items. Both are monetization features that sit on top of the existing payments infrastructure built in Week 7.
-
-### Status: planned
-
-### Zoink It — Featured Listings
-
-Zoink It lets a lister pay a flat fee to boost their listing to the top of relevant search results and the home feed for a set duration (e.g. 24h, 72h, 7 days). Boosted listings are visually distinguished with a small "Zoink'd" badge.
-
-**Backend**
-- `boost` fields added to the `Listing` model: `isBoosted`, `boostExpiresAt`, `boostTier`
-- Boost tiers: `BASIC` (24h), `STANDARD` (72h), `FEATURED` (7 days) — prices TBD
-- `POST /listings/:id/boost` — creates a Stripe PaymentIntent for the boost fee and marks the listing as boosted on payment success
-- `GET /listings` query modified: boosted listings surfaced first within geo results, ordered by `boostExpiresAt` descending, then by distance
-- Cron job (or Prisma query filter) clears expired boosts automatically
-- Boost payment is a simple one-time charge (not a hold), separate from the rental PaymentIntent flow
-
-**Frontend**
-- "Zoink It" button on the owner's listing management screen
-- Boost tier selection modal: shows duration, reach estimate, and price for each tier
-- Payment confirmation via Stripe React Native SDK (reuses Week 7 card flow)
-- Boosted listings show a `⚡ Zoink'd` badge on listing cards in the feed and search results
-- Boost status and expiry visible to the owner on their listing detail screen
-
-### Insurance
-
-Insurance is an opt-in add-on at checkout that gives the renter coverage up to the listed item value in the event of damage or loss. The fee is approximately 5% of the item's listed value per rental.
-
-**Backend**
-- `insuranceOptIn` and `insuranceFee` already added to `Booking` model in Week 7
-- `insuranceFee` computed server-side: `listing.itemValue * 0.05`, rounded to 2 decimal places
-- Insurance selection passed in the `POST /bookings` request body; validated and stored before PaymentIntent creation
-- Insurance fee added to the total amount charged via the PaymentIntent — not a separate charge
-- `GET /bookings/:id` returns `insuranceOptIn` and `insuranceFee` for display in booking detail and receipts
-
-**Frontend**
-- Insurance toggle presented on the booking confirmation screen (between price breakdown and Pay button)
-- Toggle shows item value and computed fee before the renter opts in
-- When toggled on, total updates in real time before payment is submitted
-- Booking receipt and detail screen show insurance status and fee paid
-
-### Schema additions (Prisma)
-
-```prisma
-// Additions to the Listing model
-model Listing {
-  // ... existing fields ...
-  itemValue     Decimal  @default(0) @db.Decimal(10, 2)
-  isBoosted     Boolean  @default(false)
-  boostTier     BoostTier?
-  boostExpiresAt DateTime?
-}
-
-enum BoostTier {
-  BASIC
-  STANDARD
-  FEATURED
-}
-```
-
-### Definition of done — week 10
-
-- [ ] Listers can purchase a boost from the listing management screen
-- [ ] Boosted listings appear at the top of relevant geo + search results with a badge
-- [ ] Boosts expire automatically after the selected duration
-- [ ] Insurance opt-in at checkout computes and stores the correct fee
-- [ ] Insurance fee is included in the total captured via Stripe
-- [ ] Booking receipt displays insurance status and fee
+| 1 | Project setup, backend structure, frontend navigation shell | Done |
+| 2 | Authentication and protected routes | Done |
+| 3 | Profiles and verification | Done |
+| 4 | Listings and photo uploads | Done |
+| 5 | Browse/search/filtering | Done |
+| 6 | Booking requests and messaging | Done |
+| 7 | Payments, insurance, audit logs, synchronized handoff | Backend mostly done; native Stripe UI still needed |
+| 8 | Reviews and reputation | Done |
+| 9 | Push notifications and UI polish | Done |
+| 10 | Stripe Connect onboarding and real payment UX | Next |
+| 11 | Admin/disputes, testing, security hardening | Upcoming |
+| 12 | Deployment, TestFlight, production readiness | Upcoming |
 
 ---
 
 ## Key Architecture Decisions
 
-**Monorepo** — frontend and backend live in one repo. Types are currently maintained separately, so shared contracts are still a worthwhile future improvement.
-
-**Vertical slice delivery** — each week ships a complete feature end-to-end (backend + frontend). No catch-up UI weeks.
-
-**Verification is a hard gate** — every user must verify with a university email before they can browse, list, or book. Middleware chain: `authenticate → requireVerified → handler`. Government ID integration can be added later with no structural changes.
-
-**Geo search from day one** — listings store `latitude` and `longitude` as floats. Haversine query for nearby search, upgradeable to PostGIS with no schema changes.
-
-**Stripe Payment Intents with authorize-then-capture** — deposit is authorized (not charged) on booking acceptance and only captured when the rental goes active. This protects renters from being charged for bookings that never happen, and gives owners confidence the funds are secured.
-
-**Commission computed server-side** — rental totals, commission deductions, and owner payouts are all calculated on the backend. The frontend is never trusted for pricing.
-
-**Messaging via polling, not WebSockets** — simpler to deploy and sufficient for MVP usage patterns. Upgradeable to WebSockets or a service like Ably post-launch with no schema changes.
-
-**Booking state machine in middleware** — transitions are validated centrally, not scattered across controllers.
-
-**Zoink It as a separate payment flow** — boost purchases are one-time Stripe charges, fully decoupled from the rental PaymentIntent flow, so neither can interfere with the other.
+- Backend is the source of truth for booking state, pricing, payment status, and handoff state.
+- Payment API calls are made synchronously, but final payment state is webhook-driven.
+- All critical booking transitions use transaction checks against `Booking.version`.
+- `BookingEvent` provides immutable audit logs for payment, handoff, webhook, reconciliation, dispute, and error events.
+- Local development can run in mock Stripe mode by leaving `STRIPE_SECRET_KEY` empty.
+- Real beta/prod requires Stripe Connect onboarding before owners can accept bookings.
+- Messaging currently uses polling, which is simpler for MVP and can be upgraded later.
 
 ---
 
-## AWS Free Tier Usage
+## Near-Term Roadmap
 
-| Service | Purpose | Free tier limit |
-|---|---|---|
-| EC2 t3.micro | Node/Express API hosting | 750 hrs/month |
-| RDS db.t3.micro | PostgreSQL database | 750 hrs/month + 20GB |
-| SES | University email verification + notifications | 62k emails/month |
-
----
-
-## Target Market
-
-Zoink's initial focus is ~250,000 university students across the GTA (UofT, TMU, Wilfrid Laurier, and others). Year 1 target: 2,000 active users. The platform will expand to young professionals and urban users as it matures.
+1. Build Stripe Connect onboarding for owners.
+2. Add Stripe React Native payment collection.
+3. Test complete Stripe sandbox flow with webhooks.
+4. Add admin/support dispute tooling.
+5. Expand automated integration tests for Week 7 race conditions.
+6. Prepare production deployment and TestFlight builds.
 
 ---
 
-## Team
-
-| Role | Responsibilities |
-|---|---|
-| Dev 1 | Backend API, database, infrastructure, deployment |
-| Dev 2 | React Native frontend, UI/UX, Expo build |
-
----
-
-*Built as a student MVP. Users are verified via university email. Government ID verification can be layered in as the platform grows.*
+Built as a student MVP. Users are verified through university email today; stronger ID verification and support workflows can be layered in as the platform matures.

@@ -2,7 +2,15 @@ import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
-import { getMe, getPublicProfile, updateMe, updatePushToken, uploadAvatar } from '../middleware/controllers/userController'
+import {
+  getMe,
+  getPublicProfile,
+  updateMe,
+  updatePushToken,
+  uploadAvatar,
+  onboardStripeConnect,
+  getStripeConnectStatus,
+} from '../middleware/controllers/userController'
 
 const router = Router()
 
@@ -24,6 +32,8 @@ router.get('/me', requireAuth, getMe)
 router.patch('/me', requireAuth, updateMe)
 router.patch('/me/push-token', requireAuth, updatePushToken)
 router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar)
+router.post('/me/stripe-connect/onboard', requireAuth, onboardStripeConnect)
+router.get('/me/stripe-connect/status', requireAuth, getStripeConnectStatus)
 
 // Public profile — must be verified to view others
 router.get('/:id', requireAuth, requireVerified, getPublicProfile)

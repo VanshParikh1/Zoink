@@ -1,10 +1,10 @@
 import React from 'react'
-import { Image, View, StyleSheet, ViewStyle, ImageStyle } from 'react-native'
+import { Image, ImageStyle } from 'react-native'
 
 type ZoinkFullLogoProps = {
   width?: number
   height?: number
-  style?: ViewStyle
+  style?: ImageStyle
 }
 
 export default function ZoinkFullLogo({ width = 200, height = 60, style }: ZoinkFullLogoProps) {
@@ -17,12 +17,3 @@ export default function ZoinkFullLogo({ width = 200, height = 60, style }: Zoink
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logo: {
-    // No specific styles needed for the image itself if container handles it
-  },
-})

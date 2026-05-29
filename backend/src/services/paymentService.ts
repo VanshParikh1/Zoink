@@ -9,6 +9,28 @@ type StripeClient = any
 
 let stripeClient: StripeClient | null | undefined
 
+function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
+  const specificUrl =
+    kind === 'return' ? process.env.STRIPE_CONNECT_RETURN_URL : process.env.STRIPE_CONNECT_REFRESH_URL
+  const baseUrl = process.env.FRONTEND_URL
+  const url = specificUrl ?? (baseUrl ? `${baseUrl.replace(/\/$/, '')}/stripe-${kind}` : undefined)
+
+  if (!url) {
+    throw new Error('STRIPE_CONNECT_REDIRECT_URL_REQUIRED')
+  }
+
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && parsed.hostname === 'localhost')) {
+      throw new Error('INVALID_PROTOCOL')
+    }
+  } catch {
+    throw new Error('STRIPE_CONNECT_REDIRECT_URL_INVALID')
+  }
+
+  return url
+}
+
 function getStripe(): StripeClient | null {
   if (stripeClient !== undefined) return stripeClient
 
@@ -180,6 +202,41 @@ export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | '
     },
     { idempotencyKey: `payout-${booking.id}-${booking.version}` }
   )
+}
+
+export async function createConnectAccountLink(accountId?: string | null) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { url: 'https://demo-stripe-onboarding.zoink.com' }
+  }
+
+  let account = accountId
+  if (!account) {
+    const acc = await stripe.accounts.create({ type: 'express' })
+    account = acc.id
+  }
+
+  const link = await stripe.accountLinks.create({
+    account: account,
+    refresh_url: getStripeConnectRedirectUrl('refresh'),
+    return_url: getStripeConnectRedirectUrl('return'),
+    type: 'account_onboarding',
+  })
+
+  return { accountId: account, url: link.url }
+}
+
+export async function getConnectAccountStatus(accountId: string) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { detailsSubmitted: true, payoutsEnabled: true }
+  }
+
+  const account = await stripe.accounts.retrieve(accountId)
+  return {
+    detailsSubmitted: account.details_submitted,
+    payoutsEnabled: account.payouts_enabled,
+  }
 }
 
 export function getMockAuthorizedPaymentStatus() {

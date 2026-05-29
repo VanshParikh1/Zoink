@@ -129,3 +129,20 @@ export async function updateExpoPushToken(userId: string, expoPushToken: string 
   })
   return user
 }
+
+// ── Stripe Connect ────────────────────────────────────────────────────────────
+
+export async function getStripeAccountId(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stripeAccountId: true },
+  })
+  return user?.stripeAccountId ?? null
+}
+
+export async function updateStripeAccountId(userId: string, stripeAccountId: string) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { stripeAccountId },
+  })
+}

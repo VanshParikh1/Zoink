@@ -8,6 +8,17 @@ export type BookingStatus =
   | 'COMPLETED'
   | 'CANCELLED'
 
+export type PaymentStatus =
+  | 'PENDING_AUTH'
+  | 'AUTHORIZED'
+  | 'CAPTURE_PENDING'
+  | 'CAPTURED'
+  | 'REFUND_PENDING'
+  | 'REFUNDED'
+  | 'PAYOUT_PENDING'
+  | 'PAID_OUT'
+  | 'FAILED'
+
 export interface User {
   id: string
   email: string
@@ -65,6 +76,7 @@ export interface Listing {
   description: string
   category: string
   dailyPrice: number
+  itemValue?: number
   isAvailable: boolean
   latitude: number
   longitude: number
@@ -93,11 +105,33 @@ export interface BrowseListingsResult {
 export interface Booking {
   id: string
   status: BookingStatus
+  version: number
+  paymentStatus: PaymentStatus
   startDate: string
   endDate: string
   completedAt?: string | null
   totalPrice: number
   depositAmount: number
+  commissionAmount: number
+  ownerPayout: number
+  insuranceOptIn: boolean
+  insuranceFee: number
+  stripePaymentIntentId?: string | null
+  paymentClientSecret?: string | null
+  stripeChargeId?: string | null
+  stripeTransferId?: string | null
+  paidAt?: string | null
+  refundedAt?: string | null
+  payoutSentAt?: string | null
+  pickupPhotos: string[]
+  returnPhotos: string[]
+  ownerPickupTappedAt?: string | null
+  renterPickupTappedAt?: string | null
+  ownerReturnTappedAt?: string | null
+  renterReturnTappedAt?: string | null
+  disputeStatus: 'NONE' | 'OPEN' | 'RESOLVED'
+  disputedAt?: string | null
+  disputeReason?: string | null
   message?: string
   renterId: string
   renter: User
@@ -114,6 +148,7 @@ export interface ListingPreview {
   title: string
   category: string
   dailyPrice: number
+  itemValue?: number
   city: string
   address?: string
   isAvailable: boolean

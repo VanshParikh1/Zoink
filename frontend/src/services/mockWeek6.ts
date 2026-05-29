@@ -13,6 +13,7 @@ function toListingPreview(listing: Awaited<ReturnType<typeof mockGetListing>>): 
     title: listing.title,
     category: listing.category,
     dailyPrice: listing.dailyPrice,
+    itemValue: listing.itemValue,
     city: listing.city,
     address: listing.address,
     isAvailable: listing.isAvailable,
@@ -85,6 +86,13 @@ function updateBookingStatus(id: string, status: BookingStatus) {
   }
 
   booking.status = status
+  booking.version += 1
+  if (status === 'ACTIVE') {
+    booking.paymentStatus = 'CAPTURE_PENDING'
+  }
+  if (status === 'COMPLETED') {
+    booking.paymentStatus = 'PAYOUT_PENDING'
+  }
   return booking
 }
 
@@ -96,14 +104,39 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   const rentalDays = Math.round((endDate.getTime() - startDate.getTime()) / msPerDay) + 1
   const totalPrice = Number((listing.dailyPrice * rentalDays).toFixed(2))
   const depositAmount = Number((totalPrice * 0.3).toFixed(2))
+  const insuranceFee = data.insuranceOptIn && listing.itemValue
+    ? Number(Math.min(50, Math.max(1, listing.itemValue * 0.03)).toFixed(2))
+    : 0
+  const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
 
   const booking: Booking = {
     id: `demo-booking-${Date.now()}`,
     status: 'PENDING',
+    version: 1,
+    paymentStatus: 'AUTHORIZED',
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     totalPrice,
     depositAmount,
+    commissionAmount,
+    ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
+    insuranceOptIn: Boolean(data.insuranceOptIn),
+    insuranceFee,
+    stripePaymentIntentId: `pi_demo_${Date.now()}`,
+    stripeChargeId: null,
+    stripeTransferId: null,
+    paidAt: null,
+    refundedAt: null,
+    payoutSentAt: null,
+    pickupPhotos: [],
+    returnPhotos: [],
+    ownerPickupTappedAt: null,
+    renterPickupTappedAt: null,
+    ownerReturnTappedAt: null,
+    renterReturnTappedAt: null,
+    disputeStatus: 'NONE',
+    disputedAt: null,
+    disputeReason: null,
     message: data.message,
     renterId: demoUser.id,
     renter: demoUser,

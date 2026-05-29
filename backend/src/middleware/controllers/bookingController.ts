@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { BookingStatus } from '@prisma/client'
 import * as bookingService from '../../services/bookingService'
 import * as handoffService from '../../services/handoffService'
+import { uploadImage } from '../../utils/cloudinary'
 
 function handleError(res: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR'
@@ -135,6 +136,23 @@ export async function uploadHandoffPhotos(req: Request, res: Response) {
   try {
     const booking = await handoffService.uploadHandoffPhotos(bookingId, actorId, phase, req.body.photoUrls)
     return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function uploadHandoffPhotoImage(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image file provided.' })
+  }
+
+  try {
+    const publicId = `booking_${bookingId}_${Date.now()}`
+    const url = await uploadImage(req.file.buffer, 'bookings', publicId)
+    return res.status(201).json({ url })
   } catch (error) {
     return handleError(res, error)
   }

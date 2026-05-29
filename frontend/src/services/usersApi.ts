@@ -66,3 +66,17 @@ export async function updateMyPushToken(expoPushToken: string | null): Promise<{
   const res = await api.patch('/users/me/push-token', { expoPushToken })
   return res.data
 }
+
+export async function onboardStripeConnect(): Promise<{ url: string }> {
+  if (DEMO_MODE) return { url: 'https://demo-stripe-onboarding.zoink.com' }
+
+  const res = await api.post('/users/me/stripe-connect/onboard')
+  return res.data
+}
+
+export async function getStripeConnectStatus(): Promise<{ detailsSubmitted: boolean; payoutsEnabled: boolean }> {
+  if (DEMO_MODE) return { detailsSubmitted: true, payoutsEnabled: true }
+
+  const res = await api.get('/users/me/stripe-connect/status')
+  return res.data
+}
