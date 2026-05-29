@@ -1,11 +1,22 @@
-﻿import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import * as ImagePicker from 'expo-image-picker'
 import { RootStackParamList } from '../navigation'
-import { acceptBooking, activateBooking, cancelBooking, completeBooking, declineBooking, getBooking } from '../services/bookingsApi'
+import {
+  acceptBooking,
+  activateBooking,
+  cancelBooking,
+  completeBooking,
+  declineBooking,
+  getBooking,
+  uploadHandoffPhotos,
+  uploadHandoffPhotoImage,
+  zoinkTap,
+} from '../services/bookingsApi'
 import { useAuth } from '../context/AuthContext'
 import { Booking } from '../types'
 import { theme } from '../theme/colors'
@@ -22,6 +33,7 @@ export default function BookingDetailScreen() {
   const [busy, setBusy] = useState(false)
 
   const isOwner = booking?.ownerId === user?.id
+  const handoffPhase = booking?.status === 'ACCEPTED' ? 'pickup' : booking?.status === 'ACTIVE' ? 'return' : null
 
   const loadBooking = useCallback(async () => {
     try {
@@ -52,6 +64,43 @@ export default function BookingDetailScreen() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function handleUploadPhotos() {
+    if (!booking || !handoffPhase) return
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    })
+
+    if (result.canceled || !result.assets[0]?.uri) {
+      return
+    }
+
+    setBusy(true)
+    try {
+      const url = await uploadHandoffPhotoImage(booking.id, result.assets[0].uri)
+      const updated = await uploadHandoffPhotos(booking.id, handoffPhase as 'pickup' | 'return', [url])
+      setBooking(updated)
+      Alert.alert('Success', 'Photo added successfully!')
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error ?? 'Could not upload photo.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleZoinkTap() {
+    if (!booking || !handoffPhase) return
+    await runAction(() => zoinkTap(booking.id, handoffPhase as 'pickup' | 'return'), (updated) => {
+      if (updated.pendingReview) {
+        nav.reset({
+          index: 0,
+          routes: [{ name: 'ReviewPrompt', params: { review: updated.pendingReview } }],
+        })
+      }
+    })
   }
 
   if (loading) {
@@ -160,6 +209,17 @@ export default function BookingDetailScreen() {
             <TouchableOpacity style={styles.secondaryButton} onPress={() => runAction(() => cancelBooking(booking.id))} disabled={busy}>
               <Text style={styles.secondaryText}>Cancel booking</Text>
             </TouchableOpacity>
+          ) : null}
+          
+          {(booking.status === 'ACCEPTED' || booking.status === 'ACTIVE') ? (
+            <>
+              <TouchableOpacity style={styles.secondaryButton} onPress={handleUploadPhotos} disabled={busy}>
+                <Text style={styles.secondaryText}>Add verification photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={handleZoinkTap} disabled={busy}>
+                <Text style={styles.primaryText}>{busy ? 'Saving...' : 'Zoink It'}</Text>
+              </TouchableOpacity>
+            </>
           ) : null}
         </View>
       </ScrollView>

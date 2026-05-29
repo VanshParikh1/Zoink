@@ -11,6 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Linking,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
@@ -20,7 +21,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../services/usersApi'
+import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
@@ -61,6 +62,7 @@ export default function MyProfileScreen() {
     phone: '',
     bio: '',
   })
+  const [stripeStatus, setStripeStatus] = useState<{ detailsSubmitted: boolean; payoutsEnabled: boolean } | null>(null)
 
   const syncForm = useCallback((nextProfile: MyProfile) => {
     setForm({
@@ -84,6 +86,13 @@ export default function MyProfileScreen() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+
+    try {
+      const status = await getStripeConnectStatus()
+      setStripeStatus(status)
+    } catch (err) {
+      // Ignore stripe fetch errors quietly
     }
   }, [syncForm, user?.id])
 
@@ -158,6 +167,18 @@ export default function MyProfileScreen() {
       setEditing(false)
     } catch (err: any) {
       Alert.alert('Save failed', err?.response?.data?.error ?? 'Could not save your profile.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSetupPayouts() {
+    try {
+      setSaving(true)
+      const { url } = await onboardStripeConnect()
+      Linking.openURL(url)
+    } catch (err: any) {
+      Alert.alert('Payouts Error', err?.response?.data?.error ?? 'Could not start payouts setup.')
     } finally {
       setSaving(false)
     }
@@ -314,6 +335,25 @@ export default function MyProfileScreen() {
               <Text style={styles.quickActionButtonText}>Inbox</Text>
             </TouchableOpacity>
           </View>
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Payouts</Text>
+          {stripeStatus?.payoutsEnabled ? (
+            <Text style={styles.note}>Your payout account is connected and active. You are ready to earn!</Text>
+          ) : (
+            <>
+              <Text style={styles.note}>
+                Connect your account securely via Stripe to receive payouts from your rentals.
+              </Text>
+              <ZoinkButton
+                label={stripeStatus?.detailsSubmitted ? 'Finish Payout Setup' : 'Set up payouts'}
+                variant="stamped"
+                onPress={handleSetupPayouts}
+                isLoading={saving}
+              />
+            </>
+          )}
         </View>
 
         <View style={styles.panel}>

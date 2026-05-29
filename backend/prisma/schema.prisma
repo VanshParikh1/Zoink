@@ -27,6 +27,40 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum PaymentStatus {
+  PENDING_AUTH
+  AUTHORIZED
+  CAPTURE_PENDING
+  CAPTURED
+  REFUND_PENDING
+  REFUNDED
+  PAYOUT_PENDING
+  PAID_OUT
+  FAILED
+}
+
+enum DisputeStatus {
+  NONE
+  OPEN
+  RESOLVED
+}
+
+enum BookingEventType {
+  STATUS_CHANGE
+  PAYMENT_INTENT_CREATED
+  PAYMENT_CAPTURED
+  PAYMENT_REFUNDED
+  PAYOUT_TRIGGERED
+  ZOINK_TAP
+  UPLOAD_PHOTOS
+  DISPUTE_OPENED
+  DISPUTE_RESOLVED
+  WEBHOOK_RECEIVED
+  RECONCILIATION_MATCH
+  RECONCILIATION_MISMATCH
+  ERROR
+}
+
 enum NotificationType {
   BOOKING_REQUEST
   BOOKING_ACCEPTED
@@ -112,6 +146,7 @@ model Listing {
   description   String
   category      String
   dailyPrice    Decimal      @db.Decimal(10, 2)
+  itemValue     Decimal      @default(0) @db.Decimal(10, 2)
   isAvailable   Boolean      @default(true)
 
   // Location
@@ -152,6 +187,7 @@ model ListingImage {
 model Booking {
   id              String        @id @default(uuid())
   status          BookingStatus @default(PENDING)
+  version         Int           @default(0)
 
   startDate       DateTime
   endDate         DateTime
@@ -159,10 +195,31 @@ model Booking {
   message         String?       // Optional message from renter
 
   // Payment
+  paymentStatus          PaymentStatus  @default(PENDING_AUTH)
+  depositAmount          Decimal        @default(0) @db.Decimal(10, 2)
+  commissionAmount       Decimal        @default(0) @db.Decimal(10, 2)
+  ownerPayout            Decimal        @default(0) @db.Decimal(10, 2)
+  insuranceOptIn         Boolean        @default(false)
+  insuranceFee           Decimal        @default(0) @db.Decimal(10, 2)
   stripePaymentIntentId  String?
   stripeChargeId         String?
+  stripeTransferId       String?
   paidAt                 DateTime?
+  refundedAt             DateTime?
   payoutSentAt           DateTime?
+
+  // Zoink It handoff
+  pickupPhotos           String[]       @default([])
+  returnPhotos           String[]       @default([])
+  ownerPickupTappedAt    DateTime?
+  renterPickupTappedAt   DateTime?
+  ownerReturnTappedAt    DateTime?
+  renterReturnTappedAt   DateTime?
+
+  // Disputes
+  disputeStatus          DisputeStatus  @default(NONE)
+  disputedAt             DateTime?
+  disputeReason          String?
 
   // Relations
   renterId        String
@@ -174,12 +231,25 @@ model Booking {
   completedAt     DateTime?
   reviews         Review[]
   reviewObligations ReviewObligation[]
+  events          BookingEvent[]
 
   // Timestamps
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   @@map("bookings")
+}
+
+model BookingEvent {
+  id        String           @id @default(uuid())
+  bookingId String
+  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  actorId   String?
+  type      BookingEventType
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@map("booking_events")
 }
 
 // ─────────────────────────────────────────

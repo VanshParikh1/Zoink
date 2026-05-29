@@ -18,6 +18,8 @@ import { getListing } from '../services/listingsApi'
 import { createBooking } from '../services/bookingsApi'
 import { Listing } from '../types'
 import { theme } from '../theme/colors'
+import { useStripe } from '@stripe/stripe-react-native'
+import { isStripePublishableKeyConfigured } from '../config/stripe'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -107,6 +109,8 @@ export default function BookingRequestScreen() {
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [insuranceOptIn, setInsuranceOptIn] = useState(false)
+  const { initPaymentSheet, presentPaymentSheet } = useStripe()
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
@@ -172,12 +176,41 @@ export default function BookingRequestScreen() {
     setSubmitting(true)
 
     try {
+      if (!isStripePublishableKeyConfigured()) {
+        Alert.alert(
+          'Stripe key missing',
+          'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
+        )
+        return
+      }
+
       const booking = await createBooking({
         listingId: listing.id,
         startDate: `${formatApiDate(startDate)}T00:00:00.000Z`,
         endDate: `${formatApiDate(endDate)}T00:00:00.000Z`,
         message,
+        insuranceOptIn,
       })
+
+      if (booking.paymentClientSecret) {
+        const { error: initError } = await initPaymentSheet({
+          merchantDisplayName: 'Zoink',
+          paymentIntentClientSecret: booking.paymentClientSecret,
+          allowsDelayedPaymentMethods: true,
+          returnURL: 'zoink://stripe-redirect',
+        })
+
+        if (initError) {
+          Alert.alert('Payment Setup Error', initError.message)
+          return
+        }
+
+        const { error: presentError } = await presentPaymentSheet()
+        if (presentError) {
+          Alert.alert('Payment Failed or Canceled', presentError.message)
+          return
+        }
+      }
 
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {

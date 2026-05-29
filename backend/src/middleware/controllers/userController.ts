@@ -1,11 +1,20 @@
 import { Request, Response } from 'express'
 import * as userService from '../../services/userService'
+import * as paymentService from '../../services/paymentService'
 import { uploadImage } from '../../utils/cloudinary'
 
 function handleError(res: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR'
   const map: Record<string, { status: number; message: string }> = {
     USER_NOT_FOUND: { status: 404, message: 'User not found.' },
+    STRIPE_CONNECT_REDIRECT_URL_REQUIRED: {
+      status: 500,
+      message: 'Stripe Connect return and refresh URLs are not configured.',
+    },
+    STRIPE_CONNECT_REDIRECT_URL_INVALID: {
+      status: 500,
+      message: 'Stripe Connect return and refresh URLs must be valid http://localhost or https:// URLs.',
+    },
   }
   const mapped = map[message]
   if (mapped) return res.status(mapped.status).json({ error: mapped.message })
@@ -74,6 +83,39 @@ export async function updatePushToken(req: Request, res: Response) {
   try {
     const user = await userService.updateExpoPushToken(userId, expoPushToken ?? null)
     return res.json(user)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+// POST /users/me/stripe-connect/onboard
+export async function onboardStripeConnect(req: Request, res: Response) {
+  const userId = (req as any).userId
+  try {
+    const existingAccountId = await userService.getStripeAccountId(userId)
+    const { accountId, url } = await paymentService.createConnectAccountLink(existingAccountId)
+    
+    if (accountId && accountId !== existingAccountId) {
+      await userService.updateStripeAccountId(userId, accountId)
+    }
+
+    return res.json({ url })
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+// GET /users/me/stripe-connect/status
+export async function getStripeConnectStatus(req: Request, res: Response) {
+  const userId = (req as any).userId
+  try {
+    const accountId = await userService.getStripeAccountId(userId)
+    if (!accountId) {
+      return res.json({ detailsSubmitted: false, payoutsEnabled: false })
+    }
+
+    const status = await paymentService.getConnectAccountStatus(accountId)
+    return res.json(status)
   } catch (error) {
     return handleError(res, error)
   }

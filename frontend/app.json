@@ -2,6 +2,7 @@
   "expo": {
     "name": "Zoink",
     "slug": "zoink",
+    "scheme": "zoink",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -28,14 +29,21 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store",
-      "expo-notifications",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Zoink needs access to your photos so you can add listing images."
-        }
-      ]
-    ]
+  "expo-secure-store",
+  "expo-notifications",
+  [
+    "expo-image-picker",
+    {
+      "photosPermission": "Zoink needs access to your photos so you can add listing images."
+    }
+  ],
+  [
+    "@stripe/stripe-react-native",
+    {
+      "merchantIdentifier": "merchant.com.zoink.app",
+      "enableGooglePay": true
+    }
+  ]
+]
   }
 }

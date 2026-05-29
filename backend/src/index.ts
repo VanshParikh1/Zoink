@@ -7,6 +7,7 @@ import listingsRouter from './routes/listings'
 import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
+import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 
 dotenv.config()
 
@@ -14,6 +15,8 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
 app.use(express.json())
 
 app.get('/', (req, res) => {
@@ -22,6 +25,68 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Zoink API is running' })
+})
+
+function sendStripeConnectRedirectPage(res: express.Response, title: string, message: string) {
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f4ede1;
+        color: #101510;
+      }
+      main {
+        width: min(420px, calc(100vw - 40px));
+        text-align: center;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 12px;
+      }
+      p {
+        color: #4d5a4d;
+        line-height: 1.5;
+        margin: 0 0 24px;
+      }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 22px;
+        border-radius: 12px;
+        background: #0fff50;
+        color: #071107;
+        font-weight: 800;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${title}</h1>
+      <p>${message}</p>
+      <a href="zoink://">Open Zoink</a>
+    </main>
+  </body>
+</html>`)
+}
+
+app.get('/stripe-return', (_req, res) => {
+  sendStripeConnectRedirectPage(res, 'Payout setup complete', 'Return to Zoink and refresh your profile to see your payout status.')
+})
+
+app.get('/stripe-refresh', (_req, res) => {
+  sendStripeConnectRedirectPage(res, 'Payout setup needs another try', 'Your Stripe setup link expired. Open Zoink and start payout setup again.')
 })
 
 app.use('/auth', authRouter)

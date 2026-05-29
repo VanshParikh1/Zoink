@@ -7,7 +7,8 @@
     "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --test --require ts-node/register src/services/*.test.ts src/middleware/*.test.ts src/middleware/controllers/*.test.ts"
+    "test": "node --test --require ts-node/register src/services/*.test.ts src/middleware/*.test.ts src/middleware/controllers/*.test.ts",
+    "smoke:week7": "ts-node src/scripts/week7SmokeFlow.ts"
   },
   "keywords": [],
   "author": "",
@@ -24,7 +25,9 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "stripe": "^18.5.0",
+    "stripe-cli": "^0.1.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -40,6 +43,6 @@
     "typescript": "^5.9.3"
   },
   "prisma": {
-  "seed": "ts-node prisma/seed.ts"
-}
+    "seed": "ts-node prisma/seed.ts"
+  }
 }

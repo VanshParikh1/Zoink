@@ -1,4 +1,4 @@
-import { BookingStatus, Prisma, ReviewRole } from '@prisma/client'
+import { BookingEventType, BookingStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import {
@@ -9,6 +9,17 @@ import {
   roundCurrency,
 } from './bookingUtils'
 import { notifyUser } from './notificationService'
+import {
+  calculateCommission,
+  calculateInsuranceFee,
+  calculateOwnerPayout,
+  cancelPaymentIntent,
+  capturePaymentIntent,
+  createPaymentIntent,
+  getMockAuthorizedPaymentStatus,
+  toCents,
+  toDecimal,
+} from './paymentService'
 
 function scoreLabelsForRole(role: ReviewRole) {
   if (role === ReviewRole.RENTER) {
@@ -29,9 +40,31 @@ function scoreLabelsForRole(role: ReviewRole) {
 const bookingSelect = {
   id: true,
   status: true,
+  version: true,
   startDate: true,
   endDate: true,
   totalPrice: true,
+  paymentStatus: true,
+  depositAmount: true,
+  commissionAmount: true,
+  ownerPayout: true,
+  insuranceOptIn: true,
+  insuranceFee: true,
+  stripePaymentIntentId: true,
+  stripeChargeId: true,
+  stripeTransferId: true,
+  refundedAt: true,
+  paidAt: true,
+  payoutSentAt: true,
+  pickupPhotos: true,
+  returnPhotos: true,
+  ownerPickupTappedAt: true,
+  renterPickupTappedAt: true,
+  ownerReturnTappedAt: true,
+  renterReturnTappedAt: true,
+  disputeStatus: true,
+  disputedAt: true,
+  disputeReason: true,
   message: true,
   renterId: true,
   ownerId: true,
@@ -45,6 +78,7 @@ const bookingSelect = {
       title: true,
       category: true,
       dailyPrice: true,
+      itemValue: true,
       city: true,
       address: true,
       isAvailable: true,
@@ -61,6 +95,7 @@ const bookingSelect = {
       lastName: true,
       avatarUrl: true,
       verificationStatus: true,
+      stripeCustomerId: true,
     },
   },
   owner: {
@@ -70,6 +105,7 @@ const bookingSelect = {
       lastName: true,
       avatarUrl: true,
       verificationStatus: true,
+      stripeAccountId: true,
     },
   },
   reviewObligations: {
@@ -92,6 +128,7 @@ export type CreateBookingInput = {
   startDate: Date
   endDate: Date
   message?: string
+  insuranceOptIn?: boolean
 }
 
 function mapPendingReviewForUser(booking: any, userId?: string) {
@@ -136,9 +173,29 @@ function toBookingResponse(booking: any, userId?: string) {
   return {
     ...booking,
     totalPrice,
-    depositAmount: calculateDepositAmount(totalPrice),
+    depositAmount: Number(booking.depositAmount ?? calculateDepositAmount(totalPrice)),
+    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
+    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
+    insuranceFee: Number(booking.insuranceFee ?? 0),
     pendingReview: mapPendingReviewForUser(booking, userId),
   }
+}
+
+async function createBookingEvent(
+  tx: Prisma.TransactionClient,
+  bookingId: string,
+  actorId: string | null,
+  type: BookingEventType,
+  metadata?: Prisma.InputJsonValue
+) {
+  await tx.bookingEvent.create({
+    data: {
+      bookingId,
+      actorId,
+      type,
+      metadata: metadata ?? Prisma.JsonNull,
+    },
+  })
 }
 
 async function getBookingForParticipant(bookingId: string, userId: string) {
@@ -214,6 +271,10 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       ownerId: true,
       isAvailable: true,
       dailyPrice: true,
+      itemValue: true,
+      owner: {
+        select: { id: true, stripeAccountId: true },
+      },
     },
   })
 
@@ -238,18 +299,60 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
   const depositAmount = calculateDepositAmount(totalPrice)
+  const commissionAmount = calculateCommission(totalPrice)
+  const ownerPayout = calculateOwnerPayout(totalPrice)
+  const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
 
-  const booking = await prisma.booking.create({
-    data: {
-      listingId: listing.id,
-      renterId,
-      ownerId: listing.ownerId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      totalPrice: new Prisma.Decimal(totalPrice),
-      message: input.message?.trim() || null,
-    } as any,
-    select: bookingSelect as any,
+  const booking = await prisma.$transaction(async (tx) => {
+    const created: any = await tx.booking.create({
+      data: {
+        listingId: listing.id,
+        renterId,
+        ownerId: listing.ownerId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        totalPrice: toDecimal(totalPrice),
+        depositAmount: toDecimal(depositAmount),
+        commissionAmount: toDecimal(commissionAmount),
+        ownerPayout: toDecimal(ownerPayout),
+        insuranceOptIn: Boolean(input.insuranceOptIn),
+        insuranceFee: toDecimal(insuranceFee),
+        message: input.message?.trim() || null,
+      } as any,
+      select: bookingSelect as any,
+    })
+
+    await createBookingEvent(tx, created.id, renterId, BookingEventType.STATUS_CHANGE, {
+      status: created.status,
+    })
+
+    return created
+  })
+
+  const paymentIntent = await createPaymentIntent(booking, booking.renter.stripeCustomerId)
+  const paymentStatus = getMockAuthorizedPaymentStatus()
+
+  const bookingWithPayment: any = await prisma.$transaction(async (tx) => {
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: {
+        stripePaymentIntentId: paymentIntent.id,
+        paymentStatus,
+        version: { increment: 1 },
+      },
+    })
+
+    await createBookingEvent(tx, booking.id, renterId, BookingEventType.PAYMENT_INTENT_CREATED, {
+      paymentIntentId: paymentIntent.id,
+      status: paymentIntent.status,
+      clientSecret: paymentIntent.client_secret,
+      paymentStatus,
+    })
+
+    return tx.booking.findUniqueOrThrow({
+      where: { id: booking.id },
+      select: bookingSelect as any,
+    })
   })
 
   void notifyUser({
@@ -260,7 +363,10 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     data: { bookingId: booking.id, listingId: listing.id },
   })
 
-  return toBookingResponse(booking)
+  return {
+    ...toBookingResponse(bookingWithPayment),
+    paymentClientSecret: paymentIntent.client_secret ?? null,
+  }
 }
 
 export async function getBookingById(bookingId: string, userId: string) {
@@ -319,14 +425,41 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
 
   if (nextStatus === 'ACCEPTED') {
     await ensureNoOverlap(booking.listingId, booking.id)
+    const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
+    if (!stripeAccountId) {
+      throw new Error('OWNER_STRIPE_ACCOUNT_REQUIRED')
+    }
+
+    if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
+      throw new Error('PAYMENT_NOT_AUTHORIZED')
+    }
   }
 
   if (nextStatus !== 'COMPLETED') {
-    const updated: any = await prisma.booking.update({
-      where: { id: booking.id },
-      data: { status: nextStatus },
-      select: bookingSelect as any,
+    const updated: any = await prisma.$transaction(async (tx) => {
+      const result = await tx.booking.updateMany({
+        where: { id: booking.id, version: booking.version },
+        data: { status: nextStatus, version: { increment: 1 } },
+      })
+
+      if (result.count !== 1) {
+        throw new Error('BOOKING_VERSION_CONFLICT')
+      }
+
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
+        from: booking.status,
+        to: nextStatus,
+      })
+
+      return tx.booking.findUniqueOrThrow({
+        where: { id: booking.id },
+        select: bookingSelect as any,
+      })
     })
+
+    if (nextStatus === 'CANCELLED') {
+      void handleCancellationPayment(booking, actorId)
+    }
 
     if (nextStatus === 'ACCEPTED') {
       void notifyUser({
@@ -363,12 +496,27 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   }
 
   const completed = await prisma.$transaction(async (tx) => {
-    const completedBooking: any = await tx.booking.update({
-      where: { id: booking.id },
+    const result = await tx.booking.updateMany({
+      where: { id: booking.id, version: booking.version },
       data: {
         status: nextStatus,
         completedAt: new Date(),
+        paymentStatus: booking.paymentStatus === PaymentStatus.CAPTURED ? PaymentStatus.PAYOUT_PENDING : booking.paymentStatus,
+        version: { increment: 1 },
       },
+    })
+
+    if (result.count !== 1) {
+      throw new Error('BOOKING_VERSION_CONFLICT')
+    }
+
+    await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
+      from: booking.status,
+      to: nextStatus,
+    })
+
+    const completedBooking: any = await tx.booking.findUniqueOrThrow({
+      where: { id: booking.id },
       select: bookingSelect as any,
     })
 
@@ -400,3 +548,65 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
 
   return toBookingResponse(completed, actorId)
 }
+
+async function ensureOwnerStripeAccount(ownerId: string) {
+  const owner = await prisma.user.findUnique({
+    where: { id: ownerId },
+    select: { stripeAccountId: true },
+  })
+
+  if (owner?.stripeAccountId) return owner.stripeAccountId
+
+  const devAccountId = process.env.DEV_STRIPE_ACCOUNT_ID
+  if (!devAccountId || process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  await prisma.user.update({
+    where: { id: ownerId },
+    data: { stripeAccountId: devAccountId },
+  })
+
+  return devAccountId
+}
+
+function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
+  const fee = Math.min(25, Math.max(5, Number(totalPrice) * 0.05))
+  return toCents(fee)
+}
+
+async function handleCancellationPayment(booking: any, actorId: string) {
+  try {
+    if (booking.status === 'PENDING') {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: { paymentStatus: PaymentStatus.REFUND_PENDING },
+      })
+      await cancelPaymentIntent(booking)
+      return
+    }
+
+    if (booking.status === 'ACCEPTED') {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: { paymentStatus: PaymentStatus.CAPTURE_PENDING },
+      })
+      await capturePaymentIntent(booking, calculateCancellationFeeCents(booking.totalPrice))
+      return
+    }
+  } catch (error) {
+    await prisma.bookingEvent.create({
+      data: {
+        bookingId: booking.id,
+        actorId,
+        type: BookingEventType.ERROR,
+        metadata: {
+          action: 'cancel_payment',
+          message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+        },
+      },
+    })
+  }
+}
+
+export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect }

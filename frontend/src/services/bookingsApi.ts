@@ -18,6 +18,7 @@ export type CreateBookingPayload = {
   startDate: string
   endDate: string
   message?: string
+  insuranceOptIn?: boolean
 }
 
 export async function createBooking(data: CreateBookingPayload): Promise<Booking> {
@@ -73,4 +74,35 @@ export function activateBooking(id: string) {
 
 export function completeBooking(id: string) {
   return patchBooking(`/bookings/${id}/complete`, () => mockCompleteBooking(id))
+}
+
+export async function uploadHandoffPhotos(id: string, phase: 'pickup' | 'return', photoUrls: string[]): Promise<Booking> {
+  if (DEMO_MODE) return mockGetBooking(id)
+
+  const res = await api.post(`/bookings/${id}/photos`, { phase, photoUrls })
+  return res.data
+}
+
+export async function uploadHandoffPhotoImage(id: string, uri: string): Promise<string> {
+  if (DEMO_MODE) return 'https://demo-image-url.com/photo.jpg'
+
+  const formData = new FormData()
+  const filename = uri.split('/').pop() ?? 'photo.jpg'
+  const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg'
+  const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg'
+
+  formData.append('image', { uri, name: filename, type: mimeType } as any)
+
+  const res = await api.post(`/bookings/${id}/photos/upload`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+
+  return res.data.url
+}
+
+export async function zoinkTap(id: string, phase: 'pickup' | 'return'): Promise<Booking> {
+  if (DEMO_MODE) return mockGetBooking(id)
+
+  const res = await api.post(`/bookings/${id}/zoink-tap`, { phase })
+  return res.data
 }

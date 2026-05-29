@@ -23,7 +23,7 @@ function handleError(res: Response, error: unknown) {
 
 export async function createListing(req: Request, res: Response) {
   const ownerId = (req as any).userId
-  const { title, description, category, dailyPrice, latitude, longitude, city, address } = req.body
+  const { title, description, category, dailyPrice, itemValue, latitude, longitude, city, address } = req.body
 
   if (!title || !description || !category || dailyPrice == null || latitude == null || longitude == null || !city) {
     return res.status(400).json({ error: 'Missing required fields.' })
@@ -35,6 +35,7 @@ export async function createListing(req: Request, res: Response) {
       description,
       category,
       dailyPrice: Number(dailyPrice),
+      itemValue: itemValue != null ? Number(itemValue) : undefined,
       latitude: Number(latitude),
       longitude: Number(longitude),
       city,
@@ -170,7 +171,7 @@ export async function getMyListings(req: Request, res: Response) {
 export async function updateListing(req: Request, res: Response) {
   const ownerId = (req as any).userId as string
   const id = req.params.id as string
-  const { title, description, category, dailyPrice, latitude, longitude, city, address } = req.body
+  const { title, description, category, dailyPrice, itemValue, latitude, longitude, city, address } = req.body
 
   try {
     const listing = await listingService.updateListing(id, ownerId, {
@@ -178,6 +179,7 @@ export async function updateListing(req: Request, res: Response) {
       description,
       category,
       dailyPrice: dailyPrice != null ? Number(dailyPrice) : undefined,
+      itemValue: itemValue != null ? Number(itemValue) : undefined,
       latitude: latitude != null ? Number(latitude) : undefined,
       longitude: longitude != null ? Number(longitude) : undefined,
       city,
