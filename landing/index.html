@@ -294,7 +294,6 @@
       font-size: 20px;
     }
 
-    /* SVG icon inside quick-icon */
     .quick-icon svg {
       width: 22px;
       height: 22px;
@@ -328,7 +327,6 @@
       object-fit: cover;
     }
 
-    /* Placeholder illustration inside listing image */
     .listing-thumb {
       width: 100%;
       height: 100%;
@@ -419,6 +417,57 @@
     .categories { grid-template-columns: repeat(3, 1fr); }
     .category-card { padding: 18px; min-height: 176px; }
     .category-card:nth-child(2n) .category-icon { background: var(--warning-surface); }
+
+    /* LENDER TRUST BAND */
+    .lender-band {
+      padding: 38px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .lender-band .section-heading {
+      margin-bottom: 28px;
+    }
+
+    .lender-trust-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .lender-trust-item {
+      padding: 20px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      background: var(--gray-50);
+    }
+
+    .lender-trust-icon {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      margin-bottom: 14px;
+      border-radius: 50%;
+      background: var(--green-surface);
+      font-size: 22px;
+    }
+
+    .lender-trust-item h3 {
+      margin-bottom: 6px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .lender-trust-item p {
+      margin-bottom: 0;
+      color: var(--gray-500);
+      font-size: 13px;
+      line-height: 1.55;
+    }
 
     /* CAMPUS BAND */
     .campus-band {
@@ -537,7 +586,7 @@
       .hero, .waitlist { grid-template-columns: 1fr; }
       .hero { gap: 34px; min-height: auto; padding-top: 46px; }
       .phone { margin: 0; }
-      .steps, .categories { grid-template-columns: 1fr 1fr; }
+      .steps, .categories, .lender-trust-grid { grid-template-columns: 1fr 1fr; }
       .section-heading { display: block; }
       .section-copy { margin-top: 10px; }
     }
@@ -549,11 +598,12 @@
       .nav .button { min-height: 42px; padding: 10px 13px; font-size: 14px; }
       .hero-form, .split-fields { grid-template-columns: 1fr; }
       .hero-form .button { width: 100%; }
-      .steps, .categories { grid-template-columns: 1fr; }
+      .steps, .categories, .lender-trust-grid { grid-template-columns: 1fr; }
       .category-card { min-height: auto; }
       .quick-actions { grid-template-columns: repeat(2, 1fr); }
       .footer-inner { display: block; }
       .footer-links { margin-top: 12px; }
+      .lender-band { padding: 22px; }
     }
   </style>
 </head>
@@ -598,28 +648,24 @@
               <div class="quick-actions">
                 <div class="quick-action">
                   <span class="quick-icon">
-                    <!-- List / plus icon -->
                     <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   </span>
                   <span>List</span>
                 </div>
                 <div class="quick-action">
                   <span class="quick-icon">
-                    <!-- Browse / grid icon -->
                     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                   </span>
                   <span>Browse</span>
                 </div>
                 <div class="quick-action">
                   <span class="quick-icon">
-                    <!-- Calendar icon -->
                     <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                   </span>
                   <span>Book</span>
                 </div>
                 <div class="quick-action">
                   <span class="quick-icon">
-                    <!-- Message icon -->
                     <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
                   </span>
                   <span>Chat</span>
@@ -721,6 +767,33 @@
         </div>
       </section>
 
+      <!-- LENDER TRUST SECTION -->
+      <section class="shell" aria-labelledby="lender-title">
+        <div class="lender-band">
+          <div class="section-heading">
+            <h2 id="lender-title">Lend with confidence.</h2>
+            <p class="section-copy">Your stuff is covered. Here's exactly what happens if something goes wrong.</p>
+          </div>
+          <div class="lender-trust-grid">
+            <div class="lender-trust-item">
+              <div class="lender-trust-icon" aria-hidden="true">🔒</div>
+              <h3>Security deposit held upfront</h3>
+              <p>Every rental collects a deposit from the borrower before anything changes hands. It's held securely and only released once you confirm the item came back in good shape.</p>
+            </div>
+            <div class="lender-trust-item">
+              <div class="lender-trust-icon" aria-hidden="true">🛡️</div>
+              <h3>Damage coverage on every rental</h3>
+              <p>A small fee from each rental funds Zoink's damage reserve pool. If something gets returned broken or not at all, you file a claim and we cover it — no haggling with the borrower.</p>
+            </div>
+            <div class="lender-trust-item">
+              <div class="lender-trust-icon" aria-hidden="true">⚖️</div>
+              <h3>Disputes handled by Zoink</h3>
+              <p>Disagreements happen. Our team reviews the handoff photos, chat history, and rental record to make a fair call. You're never left chasing someone down on your own.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="shell" aria-labelledby="campus-title">
         <div class="campus-band">
           <div class="section-heading">
@@ -809,7 +882,7 @@
       tallyWrap.innerHTML = `<iframe class="tally-frame" title="Zoink waitlist" src="${TALLY_FORM_URL}" loading="lazy"></iframe>`;
     }
 
-waitlistForm.addEventListener("submit", (event) => {
+    waitlistForm.addEventListener("submit", (event) => {
       event.preventDefault();
       const data = new FormData(waitlistForm);
       const subject = encodeURIComponent("Zoink waitlist signup");
