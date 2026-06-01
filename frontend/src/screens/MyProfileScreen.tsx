@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   Platform,
   RefreshControl,
@@ -21,7 +22,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect } from '../services/usersApi'
+import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect, StripeConnectStatus } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
@@ -62,7 +63,7 @@ export default function MyProfileScreen() {
     phone: '',
     bio: '',
   })
-  const [stripeStatus, setStripeStatus] = useState<{ detailsSubmitted: boolean; payoutsEnabled: boolean } | null>(null)
+  const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null)
 
   const syncForm = useCallback((nextProfile: MyProfile) => {
     setForm({
@@ -71,6 +72,11 @@ export default function MyProfileScreen() {
       phone: nextProfile.phone ?? '',
       bio: nextProfile.bio ?? '',
     })
+  }, [])
+
+  const refreshStripeStatus = useCallback(async () => {
+    const status = await getStripeConnectStatus()
+    setStripeStatus(status)
   }, [])
 
   const loadProfile = useCallback(async () => {
@@ -89,12 +95,11 @@ export default function MyProfileScreen() {
     }
 
     try {
-      const status = await getStripeConnectStatus()
-      setStripeStatus(status)
+      await refreshStripeStatus()
     } catch (err) {
       // Ignore stripe fetch errors quietly
     }
-  }, [syncForm, user?.id])
+  }, [refreshStripeStatus, syncForm, user?.id])
 
   useFocusEffect(
     useCallback(() => {
@@ -114,6 +119,18 @@ export default function MyProfileScreen() {
         setShowProfilePrompt(true)
       })
   }, [user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshStripeStatus().catch(() => {})
+      }
+    })
+
+    return () => subscription.remove()
+  }, [refreshStripeStatus, user?.id])
 
   async function dismissProfilePrompt() {
     if (user?.id) {
@@ -339,17 +356,32 @@ export default function MyProfileScreen() {
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Payouts</Text>
-          {stripeStatus?.payoutsEnabled ? (
-            <Text style={styles.note}>Your payout account is connected and active. You are ready to earn!</Text>
+          {!stripeStatus?.connected ? (
+            <>
+              <Text style={styles.note}>
+                Connect Stripe to start accepting bookings and receive payouts from your rentals.
+              </Text>
+              <ZoinkButton
+                label="Set up payouts"
+                variant="stamped"
+                onPress={handleSetupPayouts}
+                isLoading={saving}
+              />
+            </>
+          ) : stripeStatus.payoutsEnabled ? (
+            <View style={styles.stripeStatusRow}>
+              <Text style={styles.stripeStatusIcon}>✓</Text>
+              <Text style={styles.stripeReadyText}>Ready to accept bookings</Text>
+            </View>
           ) : (
             <>
               <Text style={styles.note}>
-                Connect your account securely via Stripe to receive payouts from your rentals.
+                Stripe account under review. Finish any remaining details in Stripe to enable payouts.
               </Text>
               <ZoinkButton
-                label={stripeStatus?.detailsSubmitted ? 'Finish Payout Setup' : 'Set up payouts'}
+                label={stripeStatus.detailsSubmitted ? 'Refresh payout status' : 'Finish payout setup'}
                 variant="stamped"
-                onPress={handleSetupPayouts}
+                onPress={stripeStatus.detailsSubmitted ? refreshStripeStatus : handleSetupPayouts}
                 isLoading={saving}
               />
             </>
@@ -607,6 +639,27 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginBottom: 10,
   },
+  stripeStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stripeStatusIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.primary,
+    color: theme.textOnPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 28,
+    textAlign: 'center',
+  },
+  stripeReadyText: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
   signOutButton: {
     marginTop: 18,
     backgroundColor: 'rgba(239, 68, 68, 0.14)',
@@ -628,4 +681,3 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
 })
-

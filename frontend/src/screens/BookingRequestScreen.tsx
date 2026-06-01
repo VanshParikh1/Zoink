@@ -20,6 +20,7 @@ import { Listing } from '../types'
 import { theme } from '../theme/colors'
 import { useStripe } from '@stripe/stripe-react-native'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
+import { useAuth } from '../context/AuthContext'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -106,9 +107,11 @@ function buildMonthDays(monthDate: Date) {
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
+  const { user } = useAuth()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
   const [insuranceOptIn, setInsuranceOptIn] = useState(false)
   const { initPaymentSheet, presentPaymentSheet } = useStripe()
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
@@ -167,19 +170,23 @@ export default function BookingRequestScreen() {
   }
 
   async function handleSubmit() {
+    if (submitting) return
     if (!listing) return
     if (!startDate || !endDate || rentalDays <= 0) {
       Alert.alert('Choose dates', 'Pick a start and end date from the calendar before sending your request.')
       return
     }
 
+    setPaymentError(null)
     setSubmitting(true)
 
     try {
       if (!isStripePublishableKeyConfigured()) {
+        const message = 'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
+        setPaymentError(message)
         Alert.alert(
           'Stripe key missing',
-          'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
+          message
         )
         return
       }
@@ -196,17 +203,20 @@ export default function BookingRequestScreen() {
         const { error: initError } = await initPaymentSheet({
           merchantDisplayName: 'Zoink',
           paymentIntentClientSecret: booking.paymentClientSecret,
+          defaultBillingDetails: { name: user?.firstName },
           allowsDelayedPaymentMethods: true,
           returnURL: 'zoink://stripe-redirect',
         })
 
         if (initError) {
+          setPaymentError(initError.message)
           Alert.alert('Payment Setup Error', initError.message)
           return
         }
 
         const { error: presentError } = await presentPaymentSheet()
         if (presentError) {
+          setPaymentError(presentError.message)
           Alert.alert('Payment Failed or Canceled', presentError.message)
           return
         }
@@ -214,7 +224,9 @@ export default function BookingRequestScreen() {
 
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not create booking request.')
+      const message = err?.response?.data?.error ?? err?.message ?? 'Could not create booking request.'
+      setPaymentError(message)
+      Alert.alert('Error', message)
     } finally {
       setSubmitting(false)
     }
@@ -379,6 +391,8 @@ export default function BookingRequestScreen() {
           <Text style={styles.rowValue}>${depositAmount.toFixed(2)}</Text>
         </View>
       </View>
+
+      {paymentError ? <Text style={styles.errorText}>{paymentError}</Text> : null}
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
         {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
@@ -555,6 +569,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowLabel: { color: theme.textMuted, fontSize: 14 },
   rowValue: { color: theme.text, fontSize: 15, fontWeight: '800' },
+  errorText: { color: theme.danger, fontSize: 14, fontWeight: '800', lineHeight: 20 },
   submitButton: {
     backgroundColor: theme.primary,
     borderRadius: 99,
@@ -569,4 +584,3 @@ const styles = StyleSheet.create({
   },
   submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '800' },
 })
-

@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, and photo-verified synchronized handoff flow are implemented. The remaining major work is real Stripe Connect onboarding, native card collection, end-to-end Stripe sandbox testing, production hardening, and deployment.
+The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding wiring, and PaymentSheet booking flow are implemented. The remaining major work is end-to-end Stripe sandbox testing on a development build, webhook validation with real Stripe CLI secrets, production hardening, and deployment.
 
 ---
 
@@ -38,12 +38,17 @@ Completed:
   - Pickup transition to `ACTIVE`.
   - Return transition to `COMPLETED`.
 - Backend-only Week 7 smoke test for payment and handoff flows without needing two devices.
+- Week 10 Stripe integration wiring:
+  - Stripe Connect account-link onboarding uses `zoink://stripe-return` and `zoink://stripe-refresh` deep links.
+  - Profile payout status refreshes when the app returns active after Stripe onboarding.
+  - Owner acceptance requires `payoutsEnabled`, not only a saved Stripe account id.
+  - PaymentSheet is wired in the renter booking flow with inline error display, loading protection, and billing details.
+  - `frontend/eas.json` includes a development build profile for testing Stripe native modules outside Expo Go.
 
 Still in progress:
 
-- Real Stripe Connect onboarding UI for owners.
-- Stripe React Native card collection and PaymentSheet/CardField integration.
 - Full Stripe sandbox end-to-end testing with real test cards, webhooks, and connected accounts.
+- Installing/running an EAS iOS development build after Expo account login.
 - Admin/support tooling for disputes, after-pickup refunds, and manual intervention.
 - Production deployment and release builds.
 
@@ -97,7 +102,7 @@ RESOLVED
 
 - `Booking.version` is used for optimistic locking.
 - Booking mutations and handoff taps run through Prisma transactions.
-- Owner acceptance requires a Stripe account.
+- Owner acceptance requires a Stripe account with payouts enabled.
 - Local beta/dev can bypass full onboarding with `DEV_STRIPE_ACCOUNT_ID`.
 - Payment operations live in `backend/src/services/paymentService.ts`.
 - Synchronized handoff logic lives in `backend/src/services/handoffService.ts`.
@@ -116,7 +121,25 @@ RESOLVED
   - `PATCH /bookings/:id/cancel`
   - `POST /bookings/:id/photos`
   - `POST /bookings/:id/zoink-tap`
+  - `GET /stripe/connect/status`
   - `POST /stripe/webhook`
+
+### Week 10 Stripe Connect And PaymentSheet
+
+- Stripe Connect onboarding is started from the profile screen and returns through the app deep-link scheme `zoink://`.
+- Connect account status exposes `connected`, `chargesEnabled`, `detailsSubmitted`, and `payoutsEnabled`.
+- The profile screen shows not connected, under review/incomplete, and ready-to-accept-bookings payout states.
+- Booking request submission creates the backend booking and PaymentIntent, initializes Stripe PaymentSheet with the returned `paymentClientSecret`, presents the sheet, and navigates to booking detail after success.
+- PaymentSheet errors are shown inline and via alerts, and the submit action is disabled while payment setup or presentation is running.
+- PaymentSheet must be tested in an EAS development build, not Expo Go.
+
+```bash
+cd frontend
+npx eas-cli login
+npx eas-cli build --profile development --platform ios
+```
+
+Use Stripe test card `4242 4242 4242 4242` with any future expiry and any 3-digit CVC.
 
 ### Cancellation Rules
 
@@ -303,10 +326,10 @@ npx.cmd tsc --noEmit
 | 4 | Listings and photo uploads | Done |
 | 5 | Browse/search/filtering | Done |
 | 6 | Booking requests and messaging | Done |
-| 7 | Payments, insurance, audit logs, synchronized handoff | Backend mostly done; native Stripe UI still needed |
+| 7 | Payments, insurance, audit logs, synchronized handoff | Done |
 | 8 | Reviews and reputation | Done |
 | 9 | Push notifications and UI polish | Done |
-| 10 | Stripe Connect onboarding and real payment UX | Next |
+| 10 | Stripe Connect onboarding and real payment UX | Wired; sandbox/device validation next |
 | 11 | Admin/disputes, testing, security hardening | Upcoming |
 | 12 | Deployment, TestFlight, production readiness | Upcoming |
 
@@ -319,16 +342,17 @@ npx.cmd tsc --noEmit
 - All critical booking transitions use transaction checks against `Booking.version`.
 - `BookingEvent` provides immutable audit logs for payment, handoff, webhook, reconciliation, dispute, and error events.
 - Local development can run in mock Stripe mode by leaving `STRIPE_SECRET_KEY` empty.
-- Real beta/prod requires Stripe Connect onboarding before owners can accept bookings.
+- Real beta/prod requires Stripe Connect onboarding with payouts enabled before owners can accept bookings.
+- Stripe native payment collection requires an EAS development or release build; it will not work in Expo Go.
 - Messaging currently uses polling, which is simpler for MVP and can be upgraded later.
 
 ---
 
 ## Near-Term Roadmap
 
-1. Build Stripe Connect onboarding for owners.
-2. Add Stripe React Native payment collection.
-3. Test complete Stripe sandbox flow with webhooks.
+1. Install and run the EAS iOS development build after Expo account login.
+2. Test PaymentSheet on device with Stripe test cards.
+3. Test complete Stripe sandbox flow with webhooks and connected accounts.
 4. Add admin/support dispute tooling.
 5. Expand automated integration tests for Week 7 race conditions.
 6. Prepare production deployment and TestFlight builds.

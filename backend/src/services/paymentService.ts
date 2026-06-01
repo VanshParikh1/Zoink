@@ -12,8 +12,7 @@ let stripeClient: StripeClient | null | undefined
 function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
   const specificUrl =
     kind === 'return' ? process.env.STRIPE_CONNECT_RETURN_URL : process.env.STRIPE_CONNECT_REFRESH_URL
-  const baseUrl = process.env.FRONTEND_URL
-  const url = specificUrl ?? (baseUrl ? `${baseUrl.replace(/\/$/, '')}/stripe-${kind}` : undefined)
+  const url = specificUrl ?? `zoink://stripe-${kind}`
 
   if (!url) {
     throw new Error('STRIPE_CONNECT_REDIRECT_URL_REQUIRED')
@@ -21,7 +20,11 @@ function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
 
   try {
     const parsed = new URL(url)
-    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && parsed.hostname === 'localhost')) {
+    if (
+      parsed.protocol !== 'zoink:' &&
+      parsed.protocol !== 'https:' &&
+      !(parsed.protocol === 'http:' && parsed.hostname === 'localhost')
+    ) {
       throw new Error('INVALID_PROTOCOL')
     }
   } catch {
@@ -229,11 +232,13 @@ export async function createConnectAccountLink(accountId?: string | null) {
 export async function getConnectAccountStatus(accountId: string) {
   const stripe = getStripe()
   if (!stripe) {
-    return { detailsSubmitted: true, payoutsEnabled: true }
+    return { connected: true, chargesEnabled: true, detailsSubmitted: true, payoutsEnabled: true }
   }
 
   const account = await stripe.accounts.retrieve(accountId)
   return {
+    connected: true,
+    chargesEnabled: account.charges_enabled,
     detailsSubmitted: account.details_submitted,
     payoutsEnabled: account.payouts_enabled,
   }

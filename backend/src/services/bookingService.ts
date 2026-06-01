@@ -16,6 +16,7 @@ import {
   cancelPaymentIntent,
   capturePaymentIntent,
   createPaymentIntent,
+  getConnectAccountStatus,
   getMockAuthorizedPaymentStatus,
   toCents,
   toDecimal,
@@ -555,7 +556,10 @@ async function ensureOwnerStripeAccount(ownerId: string) {
     select: { stripeAccountId: true },
   })
 
-  if (owner?.stripeAccountId) return owner.stripeAccountId
+  if (owner?.stripeAccountId) {
+    const status = await getConnectAccountStatus(owner.stripeAccountId)
+    return status.payoutsEnabled ? owner.stripeAccountId : null
+  }
 
   const devAccountId = process.env.DEV_STRIPE_ACCOUNT_ID
   if (!devAccountId || process.env.NODE_ENV === 'production') {

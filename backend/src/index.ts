@@ -8,6 +8,8 @@ import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
+import { requireAuth } from './middleware/requireAuth'
+import { getStripeConnectStatus } from './middleware/controllers/userController'
 
 dotenv.config()
 
@@ -88,6 +90,8 @@ app.get('/stripe-return', (_req, res) => {
 app.get('/stripe-refresh', (_req, res) => {
   sendStripeConnectRedirectPage(res, 'Payout setup needs another try', 'Your Stripe setup link expired. Open Zoink and start payout setup again.')
 })
+
+app.get('/stripe/connect/status', requireAuth, getStripeConnectStatus)
 
 app.use('/auth', authRouter)
 app.use('/users', usersRouter)
