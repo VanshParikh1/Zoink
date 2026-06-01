@@ -2,7 +2,8 @@
 node_modules/
 
 # Environment variables - NEVER commit these
-.env
+backend/.env
+frontend/.env
 .env.local
 .env.production
 
