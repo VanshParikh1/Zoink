@@ -10,8 +10,13 @@ import {
   createBooking,
   declineBooking,
   getBooking,
+  getHandoffPhotos,
   getIncomingRequests,
   getMyBookings,
+  initiatePickup,
+  initiateReturn,
+  confirmPickup,
+  confirmReturn,
   uploadHandoffPhotos,
   uploadHandoffPhotoImage,
   zoinkTap,
@@ -36,6 +41,11 @@ router.use(requireAuth, requireVerified)
 router.post('/', createBooking)
 router.get('/me', getMyBookings)
 router.get('/requests', getIncomingRequests)
+router.post('/:id/pickup/initiate', initiatePickup)
+router.post('/:id/pickup/confirm', confirmPickup)
+router.post('/:id/return/initiate', initiateReturn)
+router.post('/:id/return/confirm', confirmReturn)
+router.get('/:id/photos', getHandoffPhotos)
 router.get('/:id', getBooking)
 router.patch('/:id/accept', acceptBooking)
 router.patch('/:id/decline', declineBooking)

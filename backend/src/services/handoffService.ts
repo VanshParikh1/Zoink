@@ -1,14 +1,15 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking } from './bookingService'
+import { notifyUser } from './notificationService'
 import { capturePaymentIntent } from './paymentService'
 
-type HandoffPhase = 'pickup' | 'return'
-const TAP_WINDOW_MS = Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5000)
+export type HandoffPhase = 'pickup' | 'return'
+const CONFIRM_WINDOW_MS = Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000)
 
-function isWithinTapWindow(left?: Date | null, right?: Date | null) {
+function isWithinConfirmWindow(left?: Date | null, right?: Date | null) {
   if (!left || !right) return false
-  return Math.abs(left.getTime() - right.getTime()) <= TAP_WINDOW_MS
+  return Math.abs(left.getTime() - right.getTime()) <= CONFIRM_WINDOW_MS
 }
 
 function tapFields(phase: HandoffPhase, isOwner: boolean) {
@@ -29,6 +30,18 @@ function photoField(phase: HandoffPhase) {
   return phase === 'pickup' ? 'pickupPhotos' : 'returnPhotos'
 }
 
+function initiatedField(phase: HandoffPhase) {
+  return phase === 'pickup' ? 'handoffInitiatedAt' : 'returnInitiatedAt'
+}
+
+function pendingStatus(phase: HandoffPhase) {
+  return phase === 'pickup' ? BookingStatus.PICKUP_PENDING : BookingStatus.RETURN_PENDING
+}
+
+function completedStatus(phase: HandoffPhase) {
+  return phase === 'pickup' ? BookingStatus.ACTIVE : BookingStatus.COMPLETED
+}
+
 function toBookingResponse(booking: any) {
   return {
     ...booking,
@@ -40,30 +53,63 @@ function toBookingResponse(booking: any) {
   }
 }
 
-export async function uploadHandoffPhotos(bookingId: string, actorId: string, phase: HandoffPhase, photoUrls: string[]) {
-  if (!Array.isArray(photoUrls) || photoUrls.length === 0) {
-    throw new Error('HANDOFF_PHOTOS_REQUIRED')
+function sanitizePhotoUrls(photoUrls: unknown) {
+  if (!Array.isArray(photoUrls)) {
+    throw new Error('HANDOFF_PHOTOS_COUNT')
   }
 
+  const sanitized = photoUrls.map((url) => String(url).trim()).filter(Boolean)
+  if (sanitized.length < 2 || sanitized.length > 3) {
+    throw new Error('HANDOFF_PHOTOS_COUNT')
+  }
+
+  return sanitized
+}
+
+async function getBooking(bookingId: string) {
   const booking: any = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: bookingSelect as any,
   })
 
   if (!booking) throw new Error('BOOKING_NOT_FOUND')
-  if (booking.ownerId !== actorId && booking.renterId !== actorId) throw new Error('BOOKING_FORBIDDEN')
-  if (phase === 'pickup' && booking.status !== BookingStatus.ACCEPTED) throw new Error('BOOKING_INVALID_TRANSITION')
-  if (phase === 'return' && booking.status !== BookingStatus.ACTIVE) throw new Error('BOOKING_INVALID_TRANSITION')
+  return booking
+}
 
-  const field = photoField(phase)
-  const existing = Array.isArray(booking[field]) ? booking[field] : []
-  const sanitized = photoUrls.map((url) => String(url).trim()).filter(Boolean)
+function assertParticipant(booking: any, actorId: string) {
+  if (booking.ownerId !== actorId && booking.renterId !== actorId) {
+    throw new Error('BOOKING_FORBIDDEN')
+  }
+}
 
+export async function initiateHandoff(bookingId: string, actorId: string, phase: HandoffPhase, photoUrls: unknown) {
+  const photos = sanitizePhotoUrls(photoUrls)
+  const booking = await getBooking(bookingId)
+  assertParticipant(booking, actorId)
+
+  const isOwner = booking.ownerId === actorId
+  const isRenter = booking.renterId === actorId
+
+  if (phase === 'pickup') {
+    if (!isOwner) throw new Error('BOOKING_OWNER_ONLY')
+    if (booking.status !== BookingStatus.ACCEPTED) throw new Error('BOOKING_INVALID_TRANSITION')
+  }
+
+  if (phase === 'return') {
+    if (!isRenter) throw new Error('BOOKING_RENTER_ONLY')
+    if (booking.status !== BookingStatus.ACTIVE) throw new Error('BOOKING_INVALID_TRANSITION')
+  }
+
+  const now = new Date()
   const updated: any = await prisma.$transaction(async (tx) => {
     const result = await tx.booking.updateMany({
       where: { id: booking.id, version: booking.version },
       data: {
-        [field]: [...existing, ...sanitized],
+        [photoField(phase)]: photos,
+        [initiatedField(phase)]: now,
+        [tapFields(phase, true).actorField]: null,
+        [tapFields(phase, false).actorField]: null,
+        status: pendingStatus(phase),
         version: { increment: 1 },
       } as any,
     })
@@ -72,41 +118,59 @@ export async function uploadHandoffPhotos(bookingId: string, actorId: string, ph
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.UPLOAD_PHOTOS, {
       phase,
-      count: sanitized.length,
+      count: photos.length,
+    })
+
+    await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
+      from: booking.status,
+      to: pendingStatus(phase),
     })
 
     return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
   })
 
+  const recipientId = phase === 'pickup' ? booking.renterId : booking.ownerId
+  const body =
+    phase === 'pickup'
+      ? 'Owner has documented the item - time to Zoink It'
+      : 'Renter has documented the return - time to Zoink It'
+
+  void notifyUser({
+    userId: recipientId,
+    type: 'BOOKING_ACCEPTED',
+    title: 'Time to Zoink It',
+    body,
+    data: { bookingId: booking.id, listingId: booking.listingId, phase },
+  })
+
   return toBookingResponse(updated)
 }
 
-export async function registerTap(bookingId: string, actorId: string, phase: HandoffPhase) {
-  const booking: any = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    select: bookingSelect as any,
-  })
-
-  if (!booking) throw new Error('BOOKING_NOT_FOUND')
-
+export async function confirmHandoff(bookingId: string, actorId: string, phase: HandoffPhase) {
+  const booking = await getBooking(bookingId)
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
-  if (!isOwner && !isRenter) throw new Error('BOOKING_FORBIDDEN')
 
-  if (phase === 'pickup' && booking.status !== BookingStatus.ACCEPTED) throw new Error('BOOKING_INVALID_TRANSITION')
-  if (phase === 'return' && booking.status !== BookingStatus.ACTIVE) throw new Error('BOOKING_INVALID_TRANSITION')
+  if (!isOwner && !isRenter) throw new Error('BOOKING_FORBIDDEN')
+  if (booking.status !== pendingStatus(phase) && booking.status !== completedStatus(phase)) {
+    throw new Error('BOOKING_INVALID_TRANSITION')
+  }
 
   const photos = booking[photoField(phase)]
-  if (!Array.isArray(photos) || photos.length === 0) {
+  if (!Array.isArray(photos) || photos.length < 2 || photos.length > 3) {
     throw new Error('HANDOFF_PHOTOS_REQUIRED')
+  }
+
+  if (booking.status === completedStatus(phase)) {
+    return { bothConfirmed: true, booking: toBookingResponse(booking) }
   }
 
   const now = new Date()
   const { actorField, otherField } = tapFields(phase, isOwner)
   const otherTappedAt = booking[otherField] as Date | null
-  const isSynchronized = isWithinTapWindow(now, otherTappedAt)
-  const shouldCapture = phase === 'pickup' && isSynchronized
-  const shouldComplete = phase === 'return' && isSynchronized
+  const bothConfirmed = isWithinConfirmWindow(now, otherTappedAt)
+  const shouldCapture = phase === 'pickup' && bothConfirmed
+  const shouldComplete = phase === 'return' && bothConfirmed
 
   const updated: any = await prisma.$transaction(async (tx) => {
     const data: Prisma.BookingUpdateManyMutationInput = {
@@ -116,11 +180,13 @@ export async function registerTap(bookingId: string, actorId: string, phase: Han
 
     if (shouldCapture) {
       data.status = BookingStatus.ACTIVE
+      data.startDate = now
       data.paymentStatus = PaymentStatus.CAPTURE_PENDING
     }
 
     if (shouldComplete) {
       data.status = BookingStatus.COMPLETED
+      data.endDate = now
       data.completedAt = now
       data.paymentStatus = booking.paymentStatus === PaymentStatus.CAPTURED ? PaymentStatus.PAYOUT_PENDING : booking.paymentStatus
     }
@@ -134,14 +200,14 @@ export async function registerTap(bookingId: string, actorId: string, phase: Han
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.ZOINK_TAP, {
       phase,
-      synchronized: isSynchronized,
+      synchronized: bothConfirmed,
       actorField,
     })
 
-    if (shouldCapture) {
+    if (shouldCapture || shouldComplete) {
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
         from: booking.status,
-        to: BookingStatus.ACTIVE,
+        to: completedStatus(phase),
       })
     }
 
@@ -151,10 +217,6 @@ export async function registerTap(bookingId: string, actorId: string, phase: Han
         select: { id: true, renterId: true, ownerId: true },
       })
       await createReviewObligationsForCompletedBooking(tx, completed)
-      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
-        from: booking.status,
-        to: BookingStatus.COMPLETED,
-      })
     }
 
     return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
@@ -182,5 +244,28 @@ export async function registerTap(bookingId: string, actorId: string, phase: Han
     }
   }
 
-  return toBookingResponse(updated)
+  return { bothConfirmed, booking: toBookingResponse(updated) }
+}
+
+export async function getCompletedHandoffPhotos(bookingId: string, actorId: string) {
+  const booking = await getBooking(bookingId)
+  assertParticipant(booking, actorId)
+
+  if (booking.status !== BookingStatus.COMPLETED) {
+    throw new Error('HANDOFF_PHOTOS_NOT_COMPLETED')
+  }
+
+  return {
+    pickupPhotos: Array.isArray(booking.pickupPhotos) ? booking.pickupPhotos : [],
+    returnPhotos: Array.isArray(booking.returnPhotos) ? booking.returnPhotos : [],
+  }
+}
+
+export async function uploadHandoffPhotos(bookingId: string, actorId: string, phase: HandoffPhase, photoUrls: string[]) {
+  return initiateHandoff(bookingId, actorId, phase, photoUrls)
+}
+
+export async function registerTap(bookingId: string, actorId: string, phase: HandoffPhase) {
+  const result = await confirmHandoff(bookingId, actorId, phase)
+  return result.booking
 }

@@ -15,7 +15,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getMyListings } from '../services/listingsApi'
-import { Listing } from '../types'
+import { getIncomingRequests } from '../services/bookingsApi'
+import { Booking, Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
@@ -25,6 +26,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 export default function MyListingsScreen() {
   const nav = useNavigation<Nav>()
   const [listings, setListings] = useState<Listing[]>([])
+  const [activeBookingsByListing, setActiveBookingsByListing] = useState<Record<string, Booking>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -32,8 +34,15 @@ export default function MyListingsScreen() {
   const fetchListings = useCallback(async () => {
     try {
       setError('')
-      const data = await getMyListings()
+      const [data, ownerBookings] = await Promise.all([getMyListings(), getIncomingRequests()])
+      const activeByListing = ownerBookings.reduce<Record<string, Booking>>((acc, booking) => {
+        if (booking.status === 'ACTIVE' || booking.status === 'PICKUP_PENDING' || booking.status === 'RETURN_PENDING') {
+          acc[booking.listingId] = booking
+        }
+        return acc
+      }, {})
       setListings(data)
+      setActiveBookingsByListing(activeByListing)
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load your listings right now.')
     } finally {
@@ -55,11 +64,16 @@ export default function MyListingsScreen() {
 
   const renderItem = ({ item }: { item: Listing }) => {
     const imageUrl = item.images[0]?.url
+    const activeBooking = activeBookingsByListing[item.id]
 
     return (
       <TouchableOpacity
-        style={styles.card}
-        onPress={() => nav.navigate('ListingDetail', { listingId: item.id })}
+        style={[styles.card, activeBooking && styles.activeCard]}
+        onPress={() =>
+          activeBooking
+            ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
+            : nav.navigate('ListingDetail', { listingId: item.id })
+        }
       >
         {imageUrl ? (
           <Image source={{ uri: imageUrl }} style={styles.image} />
@@ -78,6 +92,14 @@ export default function MyListingsScreen() {
             <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
             <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
           </View>
+          {activeBooking ? (
+            <TouchableOpacity
+              style={styles.activeBadge}
+              onPress={() => nav.navigate('ActiveRental', { bookingId: activeBooking.id })}
+            >
+              <Text style={styles.activeBadgeText}>Active Rental</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <Text style={styles.arrow}>{'>'}</Text>
@@ -172,6 +194,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
+  activeCard: {
+    borderLeftWidth: 5,
+    borderLeftColor: theme.primary,
+    borderColor: theme.primarySurface,
+  },
   image: { width: 70, height: 70, borderRadius: 12, backgroundColor: theme.primarySurface },
   imageFallback: { alignItems: 'center', justifyContent: 'center' },
   cardContent: { flex: 1, marginLeft: 16 },
@@ -182,6 +209,15 @@ const styles = StyleSheet.create({
   availDot: { backgroundColor: theme.primary },
   unavailDot: { backgroundColor: theme.colors.danger },
   statusText: { fontSize: 12, color: theme.textMuted },
+  activeBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderRadius: 999,
+    backgroundColor: theme.primarySurface,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  activeBadgeText: { color: theme.primaryDeep, fontSize: 11, fontWeight: '900' },
   arrow: { fontSize: 24, color: theme.primary, marginLeft: 8 },
   empty: { marginTop: 100, alignItems: 'center' },
   emptyLogo: { marginBottom: 18 },

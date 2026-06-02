@@ -2,9 +2,11 @@ import { BookingStatus } from '@prisma/client'
 
 const allowedTransitions: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['ACCEPTED', 'DECLINED', 'CANCELLED'],
-  ACCEPTED: ['ACTIVE', 'CANCELLED'],
+  ACCEPTED: ['PICKUP_PENDING', 'ACTIVE', 'CANCELLED'],
   DECLINED: [],
-  ACTIVE: ['COMPLETED'],
+  PICKUP_PENDING: ['ACTIVE', 'CANCELLED'],
+  ACTIVE: ['RETURN_PENDING', 'COMPLETED'],
+  RETURN_PENDING: ['COMPLETED'],
   COMPLETED: [],
   CANCELLED: [],
 }

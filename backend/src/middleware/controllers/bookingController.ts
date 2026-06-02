@@ -20,6 +20,10 @@ function handleError(res: Response, error: unknown) {
     PAYMENT_NOT_AUTHORIZED: { status: 409, message: 'Payment authorization is not ready yet.' },
     PAYMENT_INTENT_MISSING: { status: 409, message: 'Payment authorization is missing.' },
     HANDOFF_PHOTOS_REQUIRED: { status: 400, message: 'Upload handoff photos before tapping Zoink It.' },
+    HANDOFF_PHOTOS_COUNT: { status: 400, message: 'photos must contain 2 to 3 Cloudinary URLs.' },
+    HANDOFF_PHOTOS_NOT_COMPLETED: { status: 403, message: 'Photos are only available after the rental is completed' },
+    BOOKING_OWNER_ONLY: { status: 403, message: 'Only the booking owner can initiate pickup.' },
+    BOOKING_RENTER_ONLY: { status: 403, message: 'Only the booking renter can initiate return.' },
   }
 
   const mapped = map[message]
@@ -134,8 +138,68 @@ export async function uploadHandoffPhotos(req: Request, res: Response) {
   }
 
   try {
-    const booking = await handoffService.uploadHandoffPhotos(bookingId, actorId, phase, req.body.photoUrls)
+    const booking = await handoffService.uploadHandoffPhotos(bookingId, actorId, phase, req.body.photoUrls ?? req.body.photos)
     return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function initiatePickup(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  try {
+    const booking = await handoffService.initiateHandoff(bookingId, actorId, 'pickup', req.body.photos)
+    return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function confirmPickup(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  try {
+    const result = await handoffService.confirmHandoff(bookingId, actorId, 'pickup')
+    return res.json(result)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function initiateReturn(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  try {
+    const booking = await handoffService.initiateHandoff(bookingId, actorId, 'return', req.body.photos)
+    return res.json(booking)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function confirmReturn(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  try {
+    const result = await handoffService.confirmHandoff(bookingId, actorId, 'return')
+    return res.json(result)
+  } catch (error) {
+    return handleError(res, error)
+  }
+}
+
+export async function getHandoffPhotos(req: Request, res: Response) {
+  const actorId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  try {
+    const photos = await handoffService.getCompletedHandoffPhotos(bookingId, actorId)
+    return res.json(photos)
   } catch (error) {
     return handleError(res, error)
   }

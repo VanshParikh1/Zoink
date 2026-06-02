@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding wiring, and PaymentSheet booking flow are implemented. The remaining major work is end-to-end Stripe sandbox testing on a development build, webhook validation with real Stripe CLI secrets, production hardening, and deployment.
+The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, and active rental UX are implemented through Week 10. The remaining major work is admin/support tooling, broader automated testing, security hardening, production deployment, and release-build readiness.
 
 ---
 
@@ -32,25 +32,31 @@ Completed:
   - Audit log events through `BookingEvent`.
   - Optimistic locking with `Booking.version`.
 - Photo-verified synchronized handoff:
-  - Pickup photos.
-  - Return photos.
-  - Owner/renter synchronized `Zoink It` taps within a configurable 5-second window.
-  - Pickup transition to `ACTIVE`.
-  - Return transition to `COMPLETED`.
+  - Owner-documented pickup photos.
+  - Renter-documented return photos.
+  - `PICKUP_PENDING` and `RETURN_PENDING` handoff states.
+  - Owner/renter synchronized `Zoink It` confirmations within a configurable 5-minute window.
+  - Pickup confirmation transition to `ACTIVE`.
+  - Return confirmation transition to `COMPLETED`.
+  - Completed rental photo viewing for both pickup and return sets.
 - Backend-only Week 7 smoke test for payment and handoff flows without needing two devices.
-- Week 10 Stripe integration wiring:
+- Week 10 Stripe integration and active rental UX:
   - Stripe Connect account-link onboarding uses `zoink://stripe-return` and `zoink://stripe-refresh` deep links.
   - Profile payout status refreshes when the app returns active after Stripe onboarding.
   - Owner acceptance requires `payoutsEnabled`, not only a saved Stripe account id.
-  - PaymentSheet is wired in the renter booking flow with inline error display, loading protection, and billing details.
+  - PaymentSheet is implemented in the renter booking flow with inline error display, loading protection, and billing details.
   - `frontend/eas.json` includes a development build profile for testing Stripe native modules outside Expo Go.
+  - Active rentals are pinned to the top of the bookings screen.
+  - Owners can reach active rentals from My Listings.
+  - Active Rental screen shows item, dates, other party, deposit, chat, and context-aware handoff/return actions.
+  - Zoink It screen includes the updated outside-ring animation and success ripple.
 
-Still in progress:
+To do next:
 
-- Full Stripe sandbox end-to-end testing with real test cards, webhooks, and connected accounts.
-- Installing/running an EAS iOS development build after Expo account login.
 - Admin/support tooling for disputes, after-pickup refunds, and manual intervention.
-- Production deployment and release builds.
+- Broader automated integration tests around payments, handoff race conditions, reviews, and notifications.
+- Security hardening, rate limiting, abuse reporting, and operational monitoring.
+- Production deployment, TestFlight/release builds, and launch readiness.
 
 ---
 
@@ -67,9 +73,9 @@ List item -> Message renter -> Accept request -> Pickup photos -> Zoink It -> Re
 Booking states:
 
 ```text
-PENDING -> ACCEPTED -> ACTIVE -> COMPLETED
+PENDING -> ACCEPTED -> PICKUP_PENDING -> ACTIVE -> RETURN_PENDING -> COMPLETED
 PENDING -> DECLINED
-PENDING / ACCEPTED -> CANCELLED
+PENDING / ACCEPTED / PICKUP_PENDING -> CANCELLED
 ```
 
 Payment states:
@@ -119,19 +125,27 @@ RESOLVED
   - `PATCH /bookings/:id/accept`
   - `PATCH /bookings/:id/decline`
   - `PATCH /bookings/:id/cancel`
-  - `POST /bookings/:id/photos`
-  - `POST /bookings/:id/zoink-tap`
+  - `POST /bookings/:id/pickup/initiate`
+  - `POST /bookings/:id/pickup/confirm`
+  - `POST /bookings/:id/return/initiate`
+  - `POST /bookings/:id/return/confirm`
+  - `GET /bookings/:id/photos`
+  - `POST /bookings/:id/photos` legacy-compatible handoff photo endpoint
+  - `POST /bookings/:id/zoink-tap` legacy-compatible handoff confirmation endpoint
   - `GET /stripe/connect/status`
   - `POST /stripe/webhook`
 
-### Week 10 Stripe Connect And PaymentSheet
+### Week 10 Stripe Connect, PaymentSheet, And Active Rentals
 
 - Stripe Connect onboarding is started from the profile screen and returns through the app deep-link scheme `zoink://`.
 - Connect account status exposes `connected`, `chargesEnabled`, `detailsSubmitted`, and `payoutsEnabled`.
 - The profile screen shows not connected, under review/incomplete, and ready-to-accept-bookings payout states.
 - Booking request submission creates the backend booking and PaymentIntent, initializes Stripe PaymentSheet with the returned `paymentClientSecret`, presents the sheet, and navigates to booking detail after success.
 - PaymentSheet errors are shown inline and via alerts, and the submit action is disabled while payment setup or presentation is running.
-- PaymentSheet must be tested in an EAS development build, not Expo Go.
+- Active rentals are surfaced prominently for renters in bookings and for owners in My Listings.
+- The Active Rental screen centralizes the live rental details, chat entry point, deposit information, and handoff/return actions.
+- The Zoink It screen uses an outside-only pulse/ripple animation so the logo remains stable.
+- PaymentSheet must be used in an EAS development or release build, not Expo Go.
 
 ```bash
 cd frontend
@@ -245,7 +259,7 @@ STRIPE_CURRENCY=usd
 DEV_STRIPE_ACCOUNT_ID=""
 
 PAYOUT_HOLD_HOURS=24
-ZOINK_TAP_WINDOW_MS=5000
+ZOINK_TAP_WINDOW_MS=300000
 PLATFORM_COMMISSION_RATE=0.15
 INSURANCE_RATE=0.03
 MIN_INSURANCE_FEE=1
@@ -329,7 +343,7 @@ npx.cmd tsc --noEmit
 | 7 | Payments, insurance, audit logs, synchronized handoff | Done |
 | 8 | Reviews and reputation | Done |
 | 9 | Push notifications and UI polish | Done |
-| 10 | Stripe Connect onboarding and real payment UX | Wired; sandbox/device validation next |
+| 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
 | 11 | Admin/disputes, testing, security hardening | Upcoming |
 | 12 | Deployment, TestFlight, production readiness | Upcoming |
 
@@ -350,12 +364,11 @@ npx.cmd tsc --noEmit
 
 ## Near-Term Roadmap
 
-1. Install and run the EAS iOS development build after Expo account login.
-2. Test PaymentSheet on device with Stripe test cards.
-3. Test complete Stripe sandbox flow with webhooks and connected accounts.
-4. Add admin/support dispute tooling.
-5. Expand automated integration tests for Week 7 race conditions.
-6. Prepare production deployment and TestFlight builds.
+1. Add admin/support tooling for disputes, after-pickup refunds, and manual booking/payment intervention.
+2. Expand automated integration tests for payment lifecycle, handoff timing, review obligations, and notification delivery.
+3. Add security hardening: rate limits, abuse reporting, stronger validation, audit review tools, and operational monitoring.
+4. Prepare production deployment infrastructure and environment separation.
+5. Build TestFlight/release builds and complete production readiness checks.
 
 ---
 

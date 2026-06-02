@@ -22,7 +22,9 @@ enum BookingStatus {
   PENDING
   ACCEPTED
   DECLINED
+  PICKUP_PENDING
   ACTIVE
+  RETURN_PENDING
   COMPLETED
   CANCELLED
 }
@@ -211,6 +213,8 @@ model Booking {
   // Zoink It handoff
   pickupPhotos           String[]       @default([])
   returnPhotos           String[]       @default([])
+  handoffInitiatedAt     DateTime?
+  returnInitiatedAt      DateTime?
   ownerPickupTappedAt    DateTime?
   renterPickupTappedAt   DateTime?
   ownerReturnTappedAt    DateTime?
