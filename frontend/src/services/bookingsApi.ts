@@ -83,6 +83,13 @@ export async function uploadHandoffPhotos(id: string, phase: 'pickup' | 'return'
   return res.data
 }
 
+export async function initiateHandoff(id: string, phase: 'pickup' | 'return', photos: string[]): Promise<Booking> {
+  if (DEMO_MODE) return mockGetBooking(id)
+
+  const res = await api.post(`/bookings/${id}/${phase}/initiate`, { photos })
+  return res.data
+}
+
 export async function uploadHandoffPhotoImage(id: string, uri: string): Promise<string> {
   if (DEMO_MODE) return 'https://demo-image-url.com/photo.jpg'
 
@@ -104,5 +111,29 @@ export async function zoinkTap(id: string, phase: 'pickup' | 'return'): Promise<
   if (DEMO_MODE) return mockGetBooking(id)
 
   const res = await api.post(`/bookings/${id}/zoink-tap`, { phase })
+  return res.data
+}
+
+export type HandoffConfirmResult = {
+  bothConfirmed: boolean
+  booking: Booking
+}
+
+export async function confirmHandoff(id: string, phase: 'pickup' | 'return'): Promise<HandoffConfirmResult> {
+  if (DEMO_MODE) {
+    return { bothConfirmed: true, booking: await mockGetBooking(id) }
+  }
+
+  const res = await api.post(`/bookings/${id}/${phase}/confirm`)
+  return res.data
+}
+
+export async function getHandoffPhotos(id: string): Promise<{ pickupPhotos: string[]; returnPhotos: string[] }> {
+  if (DEMO_MODE) {
+    const booking = await mockGetBooking(id)
+    return { pickupPhotos: booking.pickupPhotos ?? [], returnPhotos: booking.returnPhotos ?? [] }
+  }
+
+  const res = await api.get(`/bookings/${id}/photos`)
   return res.data
 }

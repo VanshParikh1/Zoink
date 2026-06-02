@@ -4,7 +4,9 @@ export type BookingStatus =
   | 'PENDING'
   | 'ACCEPTED'
   | 'DECLINED'
+  | 'PICKUP_PENDING'
   | 'ACTIVE'
+  | 'RETURN_PENDING'
   | 'COMPLETED'
   | 'CANCELLED'
 
@@ -125,6 +127,8 @@ export interface Booking {
   payoutSentAt?: string | null
   pickupPhotos: string[]
   returnPhotos: string[]
+  handoffInitiatedAt?: string | null
+  returnInitiatedAt?: string | null
   ownerPickupTappedAt?: string | null
   renterPickupTappedAt?: string | null
   ownerReturnTappedAt?: string | null

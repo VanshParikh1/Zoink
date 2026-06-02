@@ -3,11 +3,11 @@ import prisma from '../utils/prisma'
 import { transferPayout } from './paymentService'
 
 export async function cleanupStaleHandoffs() {
-  const staleBefore = new Date(Date.now() - Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5000))
+  const staleBefore = new Date(Date.now() - Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000))
 
   const result = await prisma.booking.updateMany({
     where: {
-      status: { in: [BookingStatus.ACCEPTED, BookingStatus.ACTIVE] },
+      status: { in: [BookingStatus.PICKUP_PENDING, BookingStatus.RETURN_PENDING] },
       OR: [
         { ownerPickupTappedAt: { lt: staleBefore }, renterPickupTappedAt: null },
         { renterPickupTappedAt: { lt: staleBefore }, ownerPickupTappedAt: null },

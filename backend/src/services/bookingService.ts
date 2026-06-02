@@ -59,6 +59,8 @@ const bookingSelect = {
   payoutSentAt: true,
   pickupPhotos: true,
   returnPhotos: true,
+  handoffInitiatedAt: true,
+  returnInitiatedAt: true,
   ownerPickupTappedAt: true,
   renterPickupTappedAt: true,
   ownerReturnTappedAt: true,
