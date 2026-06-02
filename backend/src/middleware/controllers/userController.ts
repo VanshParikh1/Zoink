@@ -111,7 +111,7 @@ export async function getStripeConnectStatus(req: Request, res: Response) {
   try {
     const accountId = await userService.getStripeAccountId(userId)
     if (!accountId) {
-      return res.json({ detailsSubmitted: false, payoutsEnabled: false })
+      return res.json({ connected: false, chargesEnabled: false, detailsSubmitted: false, payoutsEnabled: false })
     }
 
     const status = await paymentService.getConnectAccountStatus(accountId)

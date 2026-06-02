@@ -74,9 +74,16 @@ export async function onboardStripeConnect(): Promise<{ url: string }> {
   return res.data
 }
 
-export async function getStripeConnectStatus(): Promise<{ detailsSubmitted: boolean; payoutsEnabled: boolean }> {
-  if (DEMO_MODE) return { detailsSubmitted: true, payoutsEnabled: true }
+export type StripeConnectStatus = {
+  connected: boolean
+  chargesEnabled: boolean
+  detailsSubmitted: boolean
+  payoutsEnabled: boolean
+}
 
-  const res = await api.get('/users/me/stripe-connect/status')
+export async function getStripeConnectStatus(): Promise<StripeConnectStatus> {
+  if (DEMO_MODE) return { connected: true, chargesEnabled: true, detailsSubmitted: true, payoutsEnabled: true }
+
+  const res = await api.get('/stripe/connect/status')
   return res.data
 }

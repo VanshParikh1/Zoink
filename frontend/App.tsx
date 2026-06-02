@@ -7,6 +7,7 @@ export default function App() {
   return (
     <StripeProvider
       publishableKey={STRIPE_PUBLISHABLE_KEY}
+      urlScheme="zoink"
     >
       <AuthProvider>
         <Navigation />
