@@ -1,6 +1,6 @@
 # Zoink Codebase Overview
 
-This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It is based on the code present in this repo at the time of writing.
+This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It is based on the code present in this repo at the time of writing
 
 ## 1. Project Overview
 
