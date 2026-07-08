@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
 import listingsRouter from './routes/listings'
@@ -10,6 +11,8 @@ import reviewsRouter from './routes/reviews'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
+import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
+import { reconcileStripePayments } from './services/reconciliationJob'
 
 dotenv.config()
 
@@ -99,6 +102,29 @@ app.use('/listings', listingsRouter)
 app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
 app.use('/reviews', reviewsRouter)
+
+if (process.env.NODE_ENV !== 'test') {
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const handoffs = await cleanupStaleHandoffs()
+      const payouts = await releaseDuePayouts()
+      console.log('Cleanup job completed:', { handoffs, payouts })
+    } catch (error) {
+      console.error('Cleanup job failed:', error)
+    }
+  })
+
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const result = await reconcileStripePayments()
+      console.log('Reconciliation job completed:', result)
+    } catch (error) {
+      console.error('Reconciliation job failed:', error)
+    }
+  })
+
+  console.log('Scheduled cleanup job every 15 minutes and reconciliation job every hour.')
+}
 
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
