@@ -21,8 +21,7 @@ export async function uploadImage(
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
-        public_id: publicId,
-        overwrite: true,
+        ...(publicId ? { public_id: publicId, overwrite: true } : {}),
         resource_type: 'image',
         transformation: isAvatar
           ? [
@@ -35,7 +34,10 @@ export async function uploadImage(
             ],
       },
       (error, result) => {
-        if (error || !result) return reject(error ?? new Error('Cloudinary upload failed'))
+        if (error || !result) {
+          console.error('[Cloudinary] Upload error:', JSON.stringify(error))
+          return reject(error ?? new Error('Cloudinary upload failed'))
+        }
         resolve(result.secure_url)
       }
     )

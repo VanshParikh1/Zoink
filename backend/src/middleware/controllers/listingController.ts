@@ -234,8 +234,8 @@ export async function uploadListingImage(req: Request, res: Response) {
   }
 
   try {
-    const publicId = `listing_${id}_${Date.now()}`
-    const url = await uploadImage(req.file.buffer, 'listings', publicId)
+    // Let Cloudinary auto-generate the public_id to avoid folder permission issues
+    const url = await uploadImage(req.file.buffer, 'listings')
     const image = await listingService.addListingImage(id, ownerId, url)
     return res.status(201).json(image)
   } catch (error) {
