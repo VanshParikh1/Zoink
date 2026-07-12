@@ -19,15 +19,25 @@ export default function HandoffPhotoScreen() {
   const isValid = uris.length === 2 || uris.length === 3
 
   async function choosePhotos() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: 3,
-      quality: 0.82,
-    })
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please allow access to your photo library.')
+        return
+      }
 
-    if (result.canceled) return
-    setUris(result.assets.map((asset) => asset.uri).slice(0, 3))
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: 3,
+        quality: 0.82,
+      })
+
+      if (result.canceled) return
+      setUris(result.assets.map((asset) => asset.uri).slice(0, 3))
+    } catch {
+      Alert.alert('Photo picker error', 'Could not open your photo library right now.')
+    }
   }
 
   async function submit() {

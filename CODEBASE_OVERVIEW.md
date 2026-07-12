@@ -22,7 +22,7 @@ The repository has three main areas:
 | Frontend navigation | `@react-navigation/native`, `@react-navigation/native-stack` |
 | Frontend HTTP | `axios` with a shared interceptor in `frontend/src/services/api.ts` |
 | Frontend auth storage | `expo-secure-store` on native, `localStorage` on web |
-| Frontend images | `expo-image-picker`; assets under `frontend/assets/` |
+| Frontend images | `expo-image-picker`; shared upload part helper in `frontend/src/services/uploadFormData.ts`; assets under `frontend/assets/` |
 | Frontend location | `expo-location` |
 | Frontend notifications | `expo-notifications` |
 | Frontend payments | `@stripe/stripe-react-native`, Stripe PaymentSheet |
@@ -224,10 +224,11 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | File | What It Does | Backend Routes Called / Depends On | Used By |
 |---|---|---|---|
 | `frontend/src/services/api.ts` | Shared axios instance with base URL, auth request interceptor, and 401 token cleanup. | `EXPO_PUBLIC_API_URL`, SecureStore/localStorage. | All real API service wrappers. |
-| `frontend/src/services/listingsApi.ts` | Browse/search, nearby listings, categories, CRUD, availability, image upload/delete; falls back to mocks in demo mode. | `/listings`, `/listings/me`, `/listings/categories`, `/listings/:id/images`. | Listing/search screens. |
-| `frontend/src/services/bookingsApi.ts` | Create/list/detail bookings, accept/decline/cancel/activate/complete, handoff initiation/confirm, photo upload, completed photos. | `/bookings/*`. | Booking, active rental, handoff, Zoink It screens. |
+| `frontend/src/services/uploadFormData.ts` | Builds React Native image upload parts from local URIs, preserving filename extensions where present and mapping common image MIME types including PNG, GIF, HEIC/HEIF, and JPEG fallback. | FormData-compatible `{ uri, name, type }` objects. | `listingsApi`, `bookingsApi`, `usersApi`. |
+| `frontend/src/services/listingsApi.ts` | Browse/search, nearby listings, categories, CRUD, availability, image upload/delete; image uploads use `getImageUploadPart`; falls back to mocks in demo mode. | `/listings`, `/listings/me`, `/listings/categories`, `/listings/:id/images`. | Listing/search screens. |
+| `frontend/src/services/bookingsApi.ts` | Create/list/detail bookings, accept/decline/cancel/activate/complete, handoff initiation/confirm, photo upload, completed photos; handoff photo uploads use `getImageUploadPart`. | `/bookings/*`. | Booking, active rental, handoff, Zoink It screens. |
 | `frontend/src/services/conversationsApi.ts` | Open/list conversations, get messages, send messages. | `/conversations/*`. | Inbox, listing detail, active rental, thread screens. |
-| `frontend/src/services/usersApi.ts` | My/public profile, profile update, avatar upload, push token update, Stripe Connect onboarding/status. | `/users/*`, `/stripe/connect/status`. | Profile screens, push notification sync. |
+| `frontend/src/services/usersApi.ts` | My/public profile, profile update, avatar upload through `getImageUploadPart`, push token update, Stripe Connect onboarding/status. | `/users/*`, `/stripe/connect/status`. | Profile screens, push notification sync. |
 | `frontend/src/services/reviewsApi.ts` | Pending reviews and review submission. | `/reviews/pending`, `/reviews`. | Navigation review gate, review prompt screen. |
 | `frontend/src/services/paymentsApi.ts` | Alternate Connect onboarding call to `/payments/connect-account`. | `DEMO_MODE`, `/payments/connect-account`. | Unclear from current codebase; no screen import found in current scan and backend does not mount `/payments`. |
 | `frontend/src/services/pushNotifications.ts` | Requests notification permission, gets Expo push token, configures Android channel, syncs/clears token through `usersApi`. | Expo notifications/constants, `updateMyPushToken`. | `AuthContext`. |
@@ -268,7 +269,7 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `frontend/src/screens/BookingRequestsScreen.tsx` | Owner incoming booking requests; accept/decline actions. | `getIncomingRequests`, `acceptBooking`, `declineBooking`. |
 | `frontend/src/screens/BookingDetailScreen.tsx` | Booking detail/actions for owner/renter, cancellation, photo viewing, handoff navigation. | `bookingsApi`, `useAuth`. |
 | `frontend/src/screens/ActiveRentalScreen.tsx` | Live rental detail screen with item, dates, other party, deposit, chat, pickup/return actions. | `getBooking`, `openConversation`, `useAuth`. |
-| `frontend/src/screens/HandoffPhotoScreen.tsx` | Requires 2-3 pickup/return photos, uploads each image, then initiates handoff. | `uploadHandoffPhotoImage`, `initiateHandoff`, image picker/camera-related Expo APIs. |
+| `frontend/src/screens/HandoffPhotoScreen.tsx` | Requests media-library permission, requires 2-3 pickup/return photos, uploads each image, handles picker errors, then initiates handoff. | `uploadHandoffPhotoImage`, `initiateHandoff`, image picker Expo APIs. |
 | `frontend/src/screens/ZoinkItScreen.tsx` | Synchronized confirmation screen. Polls booking state, calls `confirmHandoff`, handles success animation and timeout. | `confirmHandoff`, `getBooking`, `useAuth`. |
 | `frontend/src/screens/InboxScreen.tsx` | Conversation inbox. | `conversationsApi`, navigation. |
 | `frontend/src/screens/ConversationThreadScreen.tsx` | Message thread with polling and incremental message fetch; sends messages. | `getConversationMessages`, `sendMessage`, `useAuth`. |
@@ -305,7 +306,7 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 6. `MainAppScreen` provides the main tabs: Home, Search, Inbox, MyProfile, with a central create-listing action.
 7. API calls go through `frontend/src/services/api.ts`, which adds the stored JWT to requests and clears the token on 401 responses.
 8. Demo mode is controlled by `EXPO_PUBLIC_DEMO_MODE`. Service wrappers short-circuit to mock data when enabled.
-9. Image uploads use `FormData`; listing images and avatars are sent to backend Multer endpoints, then uploaded to Cloudinary server-side. Handoff photos are uploaded to `/bookings/:id/photos/upload` and then attached to pickup/return initiation.
+9. Image uploads use `FormData` plus `getImageUploadPart` for consistent filename/MIME metadata. Listing images and avatars are sent to backend Multer endpoints, then uploaded to Cloudinary server-side. Handoff photos are uploaded to `/bookings/:id/photos/upload` and then attached to pickup/return initiation. The API wrappers let axios/React Native set the multipart boundary instead of forcing a manual `Content-Type`.
 10. PaymentSheet is initialized in the booking request flow using Stripe React Native and the backend-created PaymentIntent client secret.
 11. Push token sync runs after a verified non-demo session is active.
 
@@ -395,7 +396,7 @@ Unclear from current codebase: stronger ID verification fields exist on `User` (
 
 ### Creating a Listing
 
-`CreateListingScreen` collects item details, creates a listing through `listingsApi.createListing`, uploads selected photos through `uploadListingImage`, and can set availability. Backend path is `/listings` and `/listings/:id/images` -> `listingController` -> `listingService` -> Prisma `Listing`/`ListingImage` plus Cloudinary.
+`CreateListingScreen` collects item details, creates a listing through `listingsApi.createListing`, uploads selected photos through `uploadListingImage`, and can set availability. Uploads share `getImageUploadPart` for URI filename/MIME handling. Backend path is `/listings` and `/listings/:id/images` -> `listingController` -> `listingService` -> Prisma `Listing`/`ListingImage` plus Cloudinary.
 
 ### Browsing / Searching Listings
 
@@ -411,7 +412,7 @@ Unclear from current codebase: stronger ID verification fields exist on `User` (
 
 ### Pickup / Dropoff Photo Flow
 
-`HandoffPhotoScreen` collects 2-3 photos, uploads images to `/bookings/:id/photos/upload`, then calls pickup/return initiate endpoints. `handoffService.initiateHandoff` sets `PICKUP_PENDING` or `RETURN_PENDING`, stores photo URLs, and notifies the other party.
+`HandoffPhotoScreen` requests media-library permission, collects 2-3 photos, uploads images to `/bookings/:id/photos/upload`, then calls pickup/return initiate endpoints. `handoffService.initiateHandoff` sets `PICKUP_PENDING` or `RETURN_PENDING`, stores photo URLs, and notifies the other party.
 
 ### Zoink It Confirmation
 
@@ -563,7 +564,7 @@ No linting or formatting scripts were found in `package.json` files.
 | Auth protection | `requireAuth` first, then `requireVerified` for marketplace routes. |
 | Error handling | Controllers use local `handleError` helpers and service-thrown string/code errors. No central Express error middleware found. |
 | Validation | Manual checks and parsing in controllers/services. No Zod/Joi/Yup schema layer found. |
-| File upload | Multer memory storage -> controller -> Cloudinary upload helper -> URL saved in DB. |
+| File upload | Frontend `getImageUploadPart` -> `FormData` -> Multer memory storage -> controller -> Cloudinary upload helper -> URL saved in DB. |
 | Booking state | `bookingStateMachine.ts` and service transaction checks enforce transitions. |
 | Payments | Backend is source of truth for pricing/payment states. Stripe webhooks update final states; mock mode exists. |
 | Notifications | Services call `notifyUser`/`sendDirectPush`; notification records are stored and Expo push is attempted. |
@@ -664,7 +665,7 @@ For Stripe PaymentSheet, use an EAS development or release build rather than Exp
 | Listings | `CreateListingScreen.tsx`, `EditListingScreen.tsx`, `ListingDetailScreen.tsx`, `MyListingsScreen.tsx`, `SearchScreen.tsx`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts` | `Listing`, `ListingImage` |
 | Rentals/bookings | `BookingRequestScreen.tsx`, `BookingHistoryScreen.tsx`, `BookingRequestsScreen.tsx`, `BookingDetailScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingStateMachine.ts`, `bookingUtils.ts` | `Booking`, `BookingEvent` |
 | Deposits/payments | `BookingRequestScreen.tsx`, `config/stripe.ts` | `paymentService.ts`, `stripeWebhookController.ts`, `cleanupJob.ts`, `reconciliationJob.ts` | `Booking.paymentStatus`, payment/deposit/payout fields |
-| Handoff photos / Zoink It | `HandoffPhotoScreen.tsx`, `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
+| Handoff photos / Zoink It | `HandoffPhotoScreen.tsx`, `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
 | Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx`, `conversationsApi.ts` | `routes/conversations.ts`, `conversationController.ts`, `conversationService.ts` | `Conversation`, `Message` |
 | Reviews/reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `bookingService.ts` | `Review`, `ReviewObligation`, `UserReputation` |
 | Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts`, relevant feature services | `Notification`, `User.expoPushToken` |

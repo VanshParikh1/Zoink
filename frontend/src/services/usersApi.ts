@@ -1,6 +1,7 @@
 import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
 import { MyProfile, PublicProfile } from '../types'
+import { getImageUploadPart } from './uploadFormData'
 import {
   mockGetMyProfile,
   mockGetPublicProfile,
@@ -45,17 +46,9 @@ export async function uploadMyAvatar(uri: string): Promise<{ id: string; avatarU
   if (DEMO_MODE) return mockUploadMyAvatar(uri)
 
   const formData = new FormData()
-  formData.append('avatar', {
-    uri,
-    name: 'avatar.jpg',
-    type: 'image/jpeg',
-  } as any)
+  formData.append('avatar', getImageUploadPart(uri, 'avatar.jpg') as any)
 
-  const res = await api.post('/users/me/avatar', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  })
+  const res = await api.post('/users/me/avatar', formData)
 
   return res.data
 }
