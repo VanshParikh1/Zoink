@@ -1,5 +1,6 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking } from './bookingService'
 import { notifyUser } from './notificationService'
 import { capturePaymentIntent } from './paymentService'
@@ -55,12 +56,12 @@ function toBookingResponse(booking: any) {
 
 function sanitizePhotoUrls(photoUrls: unknown) {
   if (!Array.isArray(photoUrls)) {
-    throw new Error('HANDOFF_PHOTOS_COUNT')
+    throw new BadRequestError('photos must contain 2 to 3 Cloudinary URLs.')
   }
 
   const sanitized = photoUrls.map((url) => String(url).trim()).filter(Boolean)
   if (sanitized.length < 2 || sanitized.length > 3) {
-    throw new Error('HANDOFF_PHOTOS_COUNT')
+    throw new BadRequestError('photos must contain 2 to 3 Cloudinary URLs.')
   }
 
   return sanitized
@@ -72,13 +73,13 @@ async function getBooking(bookingId: string) {
     select: bookingSelect as any,
   })
 
-  if (!booking) throw new Error('BOOKING_NOT_FOUND')
+  if (!booking) throw new NotFoundError('Booking not found.')
   return booking
 }
 
 function assertParticipant(booking: any, actorId: string) {
   if (booking.ownerId !== actorId && booking.renterId !== actorId) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 }
 
@@ -91,13 +92,13 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
   const isRenter = booking.renterId === actorId
 
   if (phase === 'pickup') {
-    if (!isOwner) throw new Error('BOOKING_OWNER_ONLY')
-    if (booking.status !== BookingStatus.ACCEPTED) throw new Error('BOOKING_INVALID_TRANSITION')
+    if (!isOwner) throw new ForbiddenError('Only the booking owner can initiate pickup.')
+    if (booking.status !== BookingStatus.ACCEPTED) throw new BadRequestError('That booking transition is not allowed.')
   }
 
   if (phase === 'return') {
-    if (!isRenter) throw new Error('BOOKING_RENTER_ONLY')
-    if (booking.status !== BookingStatus.ACTIVE) throw new Error('BOOKING_INVALID_TRANSITION')
+    if (!isRenter) throw new ForbiddenError('Only the booking renter can initiate return.')
+    if (booking.status !== BookingStatus.ACTIVE) throw new BadRequestError('That booking transition is not allowed.')
   }
 
   const now = new Date()
@@ -114,7 +115,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
       } as any,
     })
 
-    if (result.count !== 1) throw new Error('BOOKING_VERSION_CONFLICT')
+    if (result.count !== 1) throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.UPLOAD_PHOTOS, {
       phase,
@@ -151,14 +152,14 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
 
-  if (!isOwner && !isRenter) throw new Error('BOOKING_FORBIDDEN')
+  if (!isOwner && !isRenter) throw new ForbiddenError('You do not have access to this booking.')
   if (booking.status !== pendingStatus(phase) && booking.status !== completedStatus(phase)) {
-    throw new Error('BOOKING_INVALID_TRANSITION')
+    throw new BadRequestError('That booking transition is not allowed.')
   }
 
   const photos = booking[photoField(phase)]
   if (!Array.isArray(photos) || photos.length < 2 || photos.length > 3) {
-    throw new Error('HANDOFF_PHOTOS_REQUIRED')
+    throw new BadRequestError('Upload handoff photos before tapping Zoink It.')
   }
 
   if (booking.status === completedStatus(phase)) {
@@ -196,7 +197,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
       data,
     })
 
-    if (result.count !== 1) throw new Error('BOOKING_VERSION_CONFLICT')
+    if (result.count !== 1) throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.ZOINK_TAP, {
       phase,
@@ -252,7 +253,7 @@ export async function getCompletedHandoffPhotos(bookingId: string, actorId: stri
   assertParticipant(booking, actorId)
 
   if (booking.status !== BookingStatus.COMPLETED) {
-    throw new Error('HANDOFF_PHOTOS_NOT_COMPLETED')
+    throw new ForbiddenError('Photos are only available after the rental is completed')
   }
 
   return {

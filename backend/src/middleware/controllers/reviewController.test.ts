@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import * as reviewService from '../../services/reviewService'
 import { submitReview } from './reviewController'
 import { createMockResponse } from '../../testUtils/httpMocks'
+import { BadRequestError } from '../../utils/errors'
+import { errorHandler } from '../errorHandler'
 
 const originalSubmitReview = reviewService.submitReview
 
@@ -16,8 +18,9 @@ test('submitReview returns 400 when obligationId is missing', async () => {
     body: { scoreA: 5, scoreB: 5, scoreC: 5 },
   }
   const res = createMockResponse()
+  const next = (err: any) => {}
 
-  await submitReview(req, res as any)
+  await submitReview(req, res as any, next)
 
   assert.equal(res.statusCode, 400)
   assert.deepEqual(res.body, { error: 'obligationId is required.' })
@@ -25,7 +28,7 @@ test('submitReview returns 400 when obligationId is missing', async () => {
 
 test('submitReview maps invalid scores to 400', async () => {
   ;(reviewService as any).submitReview = async () => {
-    throw new Error('REVIEW_INVALID_SCORE')
+    throw new BadRequestError('Scores must be whole numbers between 1 and 5.')
   }
 
   const req: any = {
@@ -38,8 +41,14 @@ test('submitReview maps invalid scores to 400', async () => {
     },
   }
   const res = createMockResponse()
+  let nextCalledWith: any = null
+  const next = (err: any) => { nextCalledWith = err }
 
-  await submitReview(req, res as any)
+  await submitReview(req, res as any, next)
+
+  if (nextCalledWith) {
+    errorHandler(nextCalledWith, req, res as any, () => {})
+  }
 
   assert.equal(res.statusCode, 400)
   assert.deepEqual(res.body, {

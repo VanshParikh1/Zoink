@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma'
+import { NotFoundError } from '../utils/errors'
 
 function toNumber(value: unknown) {
   return value == null ? null : Number(value)
@@ -22,7 +23,7 @@ export async function getMe(userId: string) {
       createdAt: true,
     },
   })
-  if (!user) throw new Error('USER_NOT_FOUND')
+  if (!user) throw new NotFoundError('User not found.')
   return user
 }
 
@@ -57,7 +58,7 @@ export async function getPublicProfile(userId: string) {
       },
     },
   })
-  if (!user) throw new Error('USER_NOT_FOUND')
+  if (!user) throw new NotFoundError('User not found.')
   return {
     ...user,
     reputation: user.reputation

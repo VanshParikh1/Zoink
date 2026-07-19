@@ -16,8 +16,9 @@ test('updatePushToken rejects non-string token payloads', async () => {
     body: { expoPushToken: 12345 },
   }
   const res = createMockResponse()
+  const next = (err: any) => {}
 
-  await updatePushToken(req, res as any)
+  await updatePushToken(req, res as any, next)
 
   assert.equal(res.statusCode, 400)
   assert.deepEqual(res.body, {
@@ -37,8 +38,9 @@ test('updatePushToken persists null token clears', async () => {
     body: { expoPushToken: null },
   }
   const res = createMockResponse()
+  const next = (err: any) => {}
 
-  await updatePushToken(req, res as any)
+  await updatePushToken(req, res as any, next)
 
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.body, { id: 'user-1', expoPushToken: null })

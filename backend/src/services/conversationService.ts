@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { sendDirectPush } from './notificationService'
+import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 
 const conversationSelect = {
   id: true,
@@ -92,11 +93,11 @@ async function getConversationForParticipant(conversationId: string, userId: str
   })
 
   if (!conversation) {
-    throw new Error('CONVERSATION_NOT_FOUND')
+    throw new NotFoundError('Conversation not found.')
   }
 
   if (conversation.renterId !== userId && conversation.ownerId !== userId) {
-    throw new Error('CONVERSATION_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this conversation.')
   }
 
   return conversation
@@ -112,11 +113,11 @@ export async function openConversation(currentUserId: string, listingId: string)
   })
 
   if (!listing) {
-    throw new Error('LISTING_NOT_FOUND')
+    throw new NotFoundError('Listing not found.')
   }
 
   if (listing.ownerId === currentUserId) {
-    throw new Error('CONVERSATION_SELF')
+    throw new BadRequestError('You cannot open a conversation with your own listing.')
   }
 
   const conversation = await prisma.conversation.upsert({
@@ -178,7 +179,7 @@ export async function sendMessage(currentUserId: string, conversationId: string,
   const trimmedBody = body.trim()
 
   if (!trimmedBody) {
-    throw new Error('MESSAGE_EMPTY')
+    throw new BadRequestError('Message body cannot be empty.')
   }
 
   const message = await prisma.$transaction(async (tx) => {

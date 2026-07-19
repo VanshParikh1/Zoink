@@ -25,11 +25,11 @@ test('getRentalDays counts both start and end dates', () => {
 test('ensureValidBookingDates rejects invalid ranges and invalid dates', () => {
   assert.throws(
     () => ensureValidBookingDates(new Date('2026-04-28T00:00:00.000Z'), new Date('2026-04-27T00:00:00.000Z')),
-    /BOOKING_INVALID_DATES/
+    /Start and end dates are invalid\./
   )
   assert.throws(
     () => ensureValidBookingDates(new Date('invalid'), new Date('2026-04-27T00:00:00.000Z')),
-    /BOOKING_INVALID_DATES/
+    /Start and end dates are invalid\./
   )
 })
 

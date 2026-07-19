@@ -1,3 +1,5 @@
+import { BadRequestError } from '../utils/errors'
+
 export const BOOKING_DEPOSIT_RATE = 0.3
 
 export function roundCurrency(value: number) {
@@ -14,11 +16,11 @@ export function getRentalDays(startDate: Date, endDate: Date) {
 
 export function ensureValidBookingDates(startDate: Date, endDate: Date) {
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    throw new Error('BOOKING_INVALID_DATES')
+    throw new BadRequestError('Start and end dates are invalid.')
   }
 
   if (endDate < startDate) {
-    throw new Error('BOOKING_INVALID_DATES')
+    throw new BadRequestError('Start and end dates are invalid.')
   }
 }
 

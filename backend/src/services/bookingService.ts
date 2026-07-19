@@ -1,5 +1,6 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
 import prisma from '../utils/prisma'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import {
   BOOKING_DEPOSIT_RATE,
@@ -208,11 +209,11 @@ async function getBookingForParticipant(bookingId: string, userId: string) {
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   if (booking.renterId !== userId && booking.ownerId !== userId) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   return booking
@@ -245,7 +246,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   const overlapping = await prisma.booking.findFirst({
@@ -260,7 +261,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
   })
 
   if (overlapping) {
-    throw new Error('BOOKING_OVERLAP')
+    throw new ConflictError('Those dates overlap with another accepted booking.')
   }
 }
 
@@ -282,21 +283,21 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   })
 
   if (!listing) {
-    throw new Error('LISTING_NOT_FOUND')
+    throw new NotFoundError('Listing not found.')
   }
 
   if (listing.ownerId === renterId) {
-    throw new Error('BOOKING_SELF')
+    throw new BadRequestError('You cannot book your own listing.')
   }
 
   if (!listing.isAvailable) {
-    throw new Error('BOOKING_LISTING_UNAVAILABLE')
+    throw new BadRequestError('This listing is currently unavailable.')
   }
 
   const rentalDays = getRentalDays(input.startDate, input.endDate)
 
   if (rentalDays <= 0) {
-    throw new Error('BOOKING_INVALID_DATES')
+    throw new BadRequestError('Start and end dates are invalid.')
   }
 
   const dailyPrice = Number(listing.dailyPrice)
@@ -404,24 +405,24 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
 
   if (!isOwner && !isRenter) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   if (nextStatus === 'ACCEPTED' || nextStatus === 'DECLINED' || nextStatus === 'ACTIVE' || nextStatus === 'COMPLETED') {
     if (!isOwner) {
-      throw new Error('BOOKING_FORBIDDEN')
+      throw new ForbiddenError('You do not have access to this booking.')
     }
   }
 
   if (nextStatus === 'CANCELLED' && !isOwner && !isRenter) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   assertBookingTransition(booking.status, nextStatus)
@@ -430,11 +431,11 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     await ensureNoOverlap(booking.listingId, booking.id)
     const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
     if (!stripeAccountId) {
-      throw new Error('OWNER_STRIPE_ACCOUNT_REQUIRED')
+      throw new ConflictError('The owner needs to connect Stripe before accepting bookings.')
     }
 
     if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
-      throw new Error('PAYMENT_NOT_AUTHORIZED')
+      throw new ConflictError('Payment authorization is not ready yet.')
     }
   }
 
@@ -446,7 +447,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       })
 
       if (result.count !== 1) {
-        throw new Error('BOOKING_VERSION_CONFLICT')
+        throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
       }
 
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
@@ -510,7 +511,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     })
 
     if (result.count !== 1) {
-      throw new Error('BOOKING_VERSION_CONFLICT')
+      throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
     }
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {

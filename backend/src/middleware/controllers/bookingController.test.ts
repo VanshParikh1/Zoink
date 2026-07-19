@@ -6,6 +6,8 @@ import {
   createBooking,
 } from './bookingController'
 import { createMockResponse } from '../../testUtils/httpMocks'
+import { ConflictError } from '../../utils/errors'
+import { errorHandler } from '../errorHandler'
 
 const originalCreateBooking = bookingService.createBooking
 const originalTransitionBookingStatus = bookingService.transitionBookingStatus
@@ -21,8 +23,9 @@ test('createBooking returns 400 when required fields are missing', async () => {
     body: { listingId: 'listing-1', startDate: '2026-05-01' },
   }
   const res = createMockResponse()
+  const next = (err: any) => {}
 
-  await createBooking(req, res as any)
+  await createBooking(req, res as any, next)
 
   assert.equal(res.statusCode, 400)
   assert.deepEqual(res.body, {
@@ -50,8 +53,9 @@ test('createBooking returns 201 with booking payload from service', async () => 
     },
   }
   const res = createMockResponse()
+  const next = (err: any) => {}
 
-  await createBooking(req, res as any)
+  await createBooking(req, res as any, next)
 
   assert.equal(res.statusCode, 201)
   assert.equal(res.body, booking)
@@ -59,7 +63,7 @@ test('createBooking returns 201 with booking payload from service', async () => 
 
 test('acceptBooking maps overlap errors to 409', async () => {
   ;(bookingService as any).transitionBookingStatus = async () => {
-    throw new Error('BOOKING_OVERLAP')
+    throw new ConflictError('Those dates overlap with another accepted booking.')
   }
 
   const req: any = {
@@ -67,8 +71,14 @@ test('acceptBooking maps overlap errors to 409', async () => {
     params: { id: 'booking-1' },
   }
   const res = createMockResponse()
+  let nextCalledWith: any = null
+  const next = (err: any) => { nextCalledWith = err }
 
-  await acceptBooking(req, res as any)
+  await acceptBooking(req, res as any, next)
+
+  if (nextCalledWith) {
+    errorHandler(nextCalledWith, req, res as any, () => {})
+  }
 
   assert.equal(res.statusCode, 409)
   assert.deepEqual(res.body, {

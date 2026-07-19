@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma'
 import { Prisma } from '@prisma/client'
+import { NotFoundError, ForbiddenError } from '../utils/errors'
 
 // ── Shared select shape ───────────────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ export async function getListingById(id: string) {
     where: { id },
     select: listingSelect,
   })
-  if (!listing) throw new Error('LISTING_NOT_FOUND')
+  if (!listing) throw new NotFoundError('Listing not found.')
   return listing
 }
 
@@ -303,8 +304,8 @@ export async function updateListing(
 ) {
   // Verify ownership first
   const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
-  if (!existing) throw new Error('LISTING_NOT_FOUND')
-  if (existing.ownerId !== ownerId) throw new Error('LISTING_FORBIDDEN')
+  if (!existing) throw new NotFoundError('Listing not found.')
+  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   const cleaned: Record<string, unknown> = Object.fromEntries(
     Object.entries(data).filter(([, v]) => v !== undefined)
@@ -327,8 +328,8 @@ export async function updateListing(
 
 export async function setAvailability(id: string, ownerId: string, isAvailable: boolean) {
   const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
-  if (!existing) throw new Error('LISTING_NOT_FOUND')
-  if (existing.ownerId !== ownerId) throw new Error('LISTING_FORBIDDEN')
+  if (!existing) throw new NotFoundError('Listing not found.')
+  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   return prisma.listing.update({
     where: { id },
@@ -341,8 +342,8 @@ export async function setAvailability(id: string, ownerId: string, isAvailable: 
 
 export async function deleteListing(id: string, ownerId: string) {
   const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
-  if (!existing) throw new Error('LISTING_NOT_FOUND')
-  if (existing.ownerId !== ownerId) throw new Error('LISTING_FORBIDDEN')
+  if (!existing) throw new NotFoundError('Listing not found.')
+  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   await prisma.listing.delete({ where: { id } })
 }
@@ -358,8 +359,8 @@ export async function addListingImage(
     where: { id: listingId },
     select: { ownerId: true, images: { select: { order: true }, orderBy: { order: 'desc' }, take: 1 } },
   })
-  if (!existing) throw new Error('LISTING_NOT_FOUND')
-  if (existing.ownerId !== ownerId) throw new Error('LISTING_FORBIDDEN')
+  if (!existing) throw new NotFoundError('Listing not found.')
+  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   const nextOrder = (existing.images[0]?.order ?? -1) + 1
 
@@ -378,11 +379,11 @@ export async function deleteListingImage(
 ) {
   // Verify listing ownership
   const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { ownerId: true } })
-  if (!listing) throw new Error('LISTING_NOT_FOUND')
-  if (listing.ownerId !== ownerId) throw new Error('LISTING_FORBIDDEN')
+  if (!listing) throw new NotFoundError('Listing not found.')
+  if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   const image = await prisma.listingImage.findUnique({ where: { id: imageId } })
-  if (!image || image.listingId !== listingId) throw new Error('IMAGE_NOT_FOUND')
+  if (!image || image.listingId !== listingId) throw new NotFoundError('Image not found.')
 
   await prisma.listingImage.delete({ where: { id: imageId } })
 

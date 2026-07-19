@@ -13,6 +13,7 @@ import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
 import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
+import { errorHandler } from './middleware/errorHandler'
 
 dotenv.config()
 
@@ -102,6 +103,8 @@ app.use('/listings', listingsRouter)
 app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
 app.use('/reviews', reviewsRouter)
+
+app.use(errorHandler)
 
 if (process.env.NODE_ENV !== 'test') {
   cron.schedule('*/15 * * * *', async () => {

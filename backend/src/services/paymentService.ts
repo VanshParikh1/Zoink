@@ -1,4 +1,5 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
+import { InternalServerError, ConflictError } from '../utils/errors'
 
 const PLATFORM_COMMISSION_RATE = Number(process.env.PLATFORM_COMMISSION_RATE ?? 0.15)
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
@@ -15,7 +16,7 @@ function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
   const url = specificUrl ?? `zoink://stripe-${kind}`
 
   if (!url) {
-    throw new Error('STRIPE_CONNECT_REDIRECT_URL_REQUIRED')
+    throw new InternalServerError('Stripe Connect return and refresh URLs are not configured.')
   }
 
   try {
@@ -28,7 +29,7 @@ function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
       throw new Error('INVALID_PROTOCOL')
     }
   } catch {
-    throw new Error('STRIPE_CONNECT_REDIRECT_URL_INVALID')
+    throw new InternalServerError('Stripe Connect return and refresh URLs must be valid http://localhost or https:// URLs.')
   }
 
   return url
@@ -116,7 +117,7 @@ export async function capturePaymentIntent(
   amountOverrideCents?: number
 ) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
@@ -139,7 +140,7 @@ export async function capturePaymentIntent(
 
 export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
@@ -160,7 +161,7 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
 
 export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
