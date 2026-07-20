@@ -8,7 +8,9 @@ const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
 const api = axios.create({
   baseURL: BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    // Do NOT set a global Content-Type here — axios will set it correctly
+    // per-request (application/json for objects, multipart/form-data with
+    // the correct boundary for FormData). A global override breaks file uploads.
     'ngrok-skip-browser-warning': 'true',
   },
 })

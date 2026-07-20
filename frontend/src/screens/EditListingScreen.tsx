@@ -138,10 +138,12 @@ export default function EditListingScreen() {
 
       setUploadingImg(true)
 
-      const image = await uploadListingImage(listingId, result.assets[0].uri)
-      setListing((prev) => (prev ? { ...prev, images: [...prev.images, image] } : prev))
+      await uploadListingImage(listingId, result.assets[0].uri)
+      // Re-fetch from backend so the UI shows the real persisted Cloudinary URL
+      const updated = await getListing(listingId)
+      setListing(updated)
     } catch {
-      Alert.alert('Upload failed', 'Could not open or upload the photo.')
+      Alert.alert('Upload failed', 'Could not upload the photo.')
     } finally {
       setUploadingImg(false)
     }

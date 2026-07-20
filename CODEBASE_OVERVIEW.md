@@ -35,7 +35,7 @@ The repository has three main areas:
 | Backend payments | Stripe SDK |
 | Database | PostgreSQL |
 | ORM | Prisma 7 with `@prisma/adapter-pg` and `pg` |
-| Validation style | Manual controller/service checks; no schema validation library currently |
+| Validation style | Zod v4 schema validation via `src/middleware/validate.ts` and `src/schemas/*.schema.ts`; `ZodError` flows to the centralized error handler |
 | Testing | Node built-in test runner with `ts-node/register` |
 | Landing page | Static HTML, Tailwind CDN, Lucide CDN, inline CSS/JS |
 
@@ -64,10 +64,18 @@ Zoink/
       middleware/
         requireAuth.ts
         requiredVerified.ts
+        errorHandler.ts
+        validate.ts
         bookingStateMachine.ts
         *.test.ts
         controllers/
       routes/
+      schemas/
+        auth.schema.ts
+        booking.schema.ts
+        handoff.schema.ts
+        listing.schema.ts
+        stripe.schema.ts
       scripts/
       services/
       testUtils/
@@ -140,6 +148,10 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `backend/src/middleware/requiredVerified.ts` | Blocks requests unless JWT payload verification status is `VERIFIED`. | `requireAuth` must run first. | Marketplace, bookings, conversations, reviews, public profile routes. |
 | `backend/src/middleware/bookingStateMachine.ts` | Defines allowed booking status transitions and exports `assertBookingTransition`. | Prisma `BookingStatus`. | `bookingService`; tested by `bookingStateMachine.test.ts`. |
 | `backend/src/middleware/bookingStateMachine.test.ts` | Unit tests allowed/blocked booking transitions. | Node test runner, state machine. | `npm test`. |
+| `backend/src/middleware/errorHandler.ts` | Centralized Express error handler (4-arg signature). Handles `ZodError` first (→ `400 { error, issues[] }`), then `AppError` subclasses (→ mapped status + `{ error }`), then falls back to `500`. Mounted as the last middleware in `src/index.ts`. | `zod`, `AppError` hierarchy in `utils/errors.ts`. | All routes via Express error propagation. |
+| `backend/src/middleware/validate.ts` | Generic `validate(schema)` middleware factory. Accepts a Zod schema shaped as `{ body?, params?, query? }`, runs `safeParse`, replaces `req.body/params/query` with coerced values on success, or calls `next(ZodError)` on failure. | `zod`. | All route files that need input validation. |
+| `backend/src/utils/errors.ts` | `AppError` base class and typed subclasses: `BadRequestError` (400), `UnauthorizedError` (401), `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `TooManyRequestsError` (429), `InternalServerError` (500). | None. | Services, controllers, `errorHandler`. |
+| `backend/src/utils/asyncHandler.ts` | Wraps async route handlers so thrown errors propagate to `next()` without try/catch boilerplate. | None. | All controllers. |
 | `backend/src/utils/prisma.ts` | Creates a PostgreSQL pool, Prisma adapter, and Prisma client. | `DATABASE_URL`, `pg`, `@prisma/adapter-pg`, `@prisma/client`. | All backend services. |
 | `backend/src/utils/cloudinary.ts` | Configures Cloudinary and exports `uploadImage`, `deleteImage`, `extractPublicId`. Applies avatar/listing transformations. | Cloudinary env vars. | Listing and user controllers. |
 | `backend/src/testUtils/httpMocks.ts` | Provides `createMockResponse()` for controller tests. | None. | Controller test files. |
@@ -148,10 +160,10 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 
 | File | Routes | Controllers | Notes |
 |---|---|---|---|
-| `backend/src/routes/auth.ts` | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-otp` | `authController` | Verification routes require auth but not verified status. |
+| `backend/src/routes/auth.ts` | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-otp` | `authController` | Validation: `RegisterSchema`, `LoginSchema`, `VerifyEmailSchema`. Verification routes require auth but not verified status. |
 | `backend/src/routes/users.ts` | `GET/PATCH /users/me`, `PATCH /users/me/push-token`, `POST /users/me/avatar`, `POST /users/me/stripe-connect/onboard`, `GET /users/me/stripe-connect/status`, `GET /users/:id` | `userController` | Public profile route requires verified user. Avatar upload uses Multer memory storage. |
-| `backend/src/routes/listings.ts` | Browse, categories, get by id, own listings, create, update, availability, delete, image upload/delete. | `listingController` | All routes require auth and verified status. |
-| `backend/src/routes/bookings.ts` | Create, my bookings, incoming requests, detail, accept/decline/cancel/activate/complete, pickup/return initiate/confirm, handoff photos, photo upload, legacy `zoink-tap`. | `bookingController` | Router-level auth and verified middleware. |
+| `backend/src/routes/listings.ts` | Browse, categories, get by id, own listings, create, update, availability, delete, image upload/delete. | `listingController` | All routes require auth and verified status. Validation: `BrowseListingsQuerySchema` (with `z.coerce` for numeric params), `CreateListingSchema`, `UpdateListingSchema`, `ToggleAvailabilitySchema`, `ListingIdParamsSchema`, `ListingImageParamsSchema`. |
+| `backend/src/routes/bookings.ts` | Create, my bookings, incoming requests, detail, accept/decline/cancel/activate/complete, pickup/return initiate/confirm, handoff photos, photo upload, `zoink-tap`. | `bookingController` | Router-level auth and verified middleware. Validation: `CreateBookingSchema`, `InitiateHandoffSchema` (photos 2–3 URLs), `ZoinkTapSchema` (strict phase enum), `UploadHandoffPhotosSchema`, `BookingIdParamsSchema`. |
 | `backend/src/routes/conversations.ts` | Open conversation, list my conversations, list messages, send message. | `conversationController` | Router-level auth and verified middleware. |
 | `backend/src/routes/reviews.ts` | `GET /reviews/pending`, `POST /reviews` | `reviewController` | Router-level auth and verified middleware. |
 | `backend/src/routes/payments.ts` | Connect callback, webhook, protected Connect onboarding. | `paymentController`, `stripeWebhookController` | Exists but is not mounted in `backend/src/index.ts`; frontend profile currently uses `/users/me/stripe-connect/onboard` instead. |
@@ -160,15 +172,15 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 
 | File | What It Contains | Calls / Depends On | Used By |
 |---|---|---|---|
-| `backend/src/middleware/controllers/authController.ts` | `register`, `login`, `verifyEmail`, `resendOTP`; maps service errors to JSON responses. | `authService`. | `routes/auth.ts`. |
+| `backend/src/middleware/controllers/authController.ts` | `register`, `login`, `verifyEmail`, `resendOTP`; delegates all structural validation to the Zod middleware layer; maps service errors to JSON responses. | `authService`. | `routes/auth.ts`. |
 | `backend/src/middleware/controllers/userController.ts` | `getMe`, `getPublicProfile`, `updateMe`, `uploadAvatar`, `updatePushToken`, `onboardStripeConnect`, `getStripeConnectStatus`. | `userService`, `paymentService`, `uploadImage`. | `routes/users.ts`, `src/index.ts` for `/stripe/connect/status`. |
-| `backend/src/middleware/controllers/listingController.ts` | Listing CRUD, browse query parsing, categories, availability, listing image upload/delete. | `listingService`, Cloudinary utils, Multer file data. | `routes/listings.ts`. |
-| `backend/src/middleware/controllers/bookingController.ts` | Booking creation/detail/listing, owner actions, cancellation, legacy activate/complete, handoff photo/tap endpoints, upload handoff images. | `bookingService`, `handoffService`, `uploadImage`. | `routes/bookings.ts`. |
+| `backend/src/middleware/controllers/listingController.ts` | Listing CRUD, browse (receives pre-coerced query values), categories, availability, listing image upload/delete. Manual `parseNumber`/`parseBoolean` helpers removed — `BrowseListingsQuerySchema` owns coercion. | `listingService`, Cloudinary utils, Multer file data. | `routes/listings.ts`. |
+| `backend/src/middleware/controllers/bookingController.ts` | Booking creation/detail/listing, owner actions, cancellation, legacy activate/complete, handoff photo/tap endpoints, upload handoff images. Inline required-field guards and `parsePhase` helper removed — validate middleware owns all input checks. | `bookingService`, `handoffService`, `uploadImage`. | `routes/bookings.ts`. |
 | `backend/src/middleware/controllers/conversationController.ts` | Conversation creation, conversation list, message list, send message. | `conversationService`. | `routes/conversations.ts`. |
 | `backend/src/middleware/controllers/reviewController.ts` | Pending review list and review submission. | `reviewService`. | `routes/reviews.ts`. |
 | `backend/src/middleware/controllers/paymentController.ts` | Older/alternate Connect account initiation and callback handling. | `paymentService`, `userService`. | `routes/payments.ts`, but router is not mounted. |
-| `backend/src/middleware/controllers/stripeWebhookController.ts` | Constructs Stripe event, verifies signature when configured, records webhook event, updates booking payment status from payment intent events. | Prisma, Stripe env vars. | Raw webhook routes in `src/index.ts`; also imported by unmounted `routes/payments.ts`. |
-| `*.test.ts` controller files | Unit tests for controller behavior using mocked services/responses. | Node test runner, `httpMocks`, service modules. | `npm test`. |
+| `backend/src/middleware/controllers/stripeWebhookController.ts` | Constructs Stripe event, verifies signature when configured, records webhook event, updates booking payment status from payment intent events. Receives raw `Buffer` body — intentionally excluded from Zod body validation. | Prisma, Stripe env vars. | Raw webhook routes in `src/index.ts`; also imported by unmounted `routes/payments.ts`. |
+| `*.test.ts` controller files | Unit tests for controller behavior using mocked services/responses. `bookingController.test.ts` now exercises the `validate()` + `errorHandler` pipeline and asserts the `{ error, issues }` shape. | Node test runner, `httpMocks`, service modules. | `npm test`. |
 
 ### Backend Services
 
@@ -318,16 +330,28 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 4. Main routers are mounted at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, and `/reviews`.
 5. `requireAuth` validates JWTs and attaches `userId`/`verificationStatus`.
 6. `requireVerified` blocks marketplace routes unless the JWT says the user is verified.
-7. Route files call controller functions.
-8. Controllers parse request input, call services, and map thrown error codes to JSON errors.
-9. Services contain business logic and database access through the shared Prisma client.
-10. Booking/payment/handoff flows also create `BookingEvent` audit records and send notifications where applicable.
-11. Stripe webhooks update booking payment status and create audit events.
+7. `validate(schema)` middleware runs next for routes with request schemas; on Zod failure it calls `next(ZodError)` directly to the error handler.
+8. Route files call controller functions.
+9. Controllers receive pre-validated, type-coerced input from `req.body/params/query` and call services.
+10. Services contain business logic and database access through the shared Prisma client.
+11. Booking/payment/handoff flows also create `BookingEvent` audit records and send notifications where applicable.
+12. Stripe webhooks update booking payment status and create audit events.
 
-Response format is generally plain JSON objects or arrays. Error responses usually look like:
+Response format is generally plain JSON objects or arrays. Successful error responses from `AppError` subclasses look like:
 
 ```json
-{ "error": "Human-readable message or service error mapping." }
+{ "error": "Human-readable message." }
+```
+
+Zod validation failures (400) include a structured issue list:
+
+```json
+{
+  "error": "Validation failed.",
+  "issues": [
+    { "path": "body.startDate", "message": "startDate must be a valid ISO-8601 datetime string." }
+  ]
+}
 ```
 
 ## 7. Database / Prisma
@@ -453,11 +477,13 @@ Unclear from current codebase. Dispute fields exist on `Booking`, and README men
 
 ```text
 routes/*.ts
-  -> middleware/controllers/*.ts
+  -> validate(schema)           # Zod middleware — coerces + guards input
+  -> middleware/controllers/*.ts # receives clean req.body/params/query
     -> services/*.ts
       -> utils/prisma.ts
       -> Prisma models in schema.prisma
       -> payment/email/cloudinary/notification utilities as needed
+  -> middleware/errorHandler.ts  # catches ZodError + AppError + unknown
 ```
 
 ### Reused Frontend Components
@@ -562,8 +588,8 @@ No linting or formatting scripts were found in `package.json` files.
 |---|---|
 | Backend layering | Routes are thin, controllers translate HTTP, services hold business logic and Prisma access. |
 | Auth protection | `requireAuth` first, then `requireVerified` for marketplace routes. |
-| Error handling | Controllers use local `handleError` helpers and service-thrown string/code errors. No central Express error middleware found. |
-| Validation | Manual checks and parsing in controllers/services. No Zod/Joi/Yup schema layer found. |
+| Error handling | Centralized `errorHandler.ts` (Phase 4) handles `ZodError` → 400, `AppError` subclasses → mapped status, unknown → 500. All controllers use `asyncHandler` to propagate errors to it. |
+| Validation | Zod v4 schemas in `src/schemas/*.schema.ts`; `validate(schema)` middleware in `src/middleware/validate.ts` coerces and validates `req.body/params/query` before controllers run. `ZodError` flows to the centralized error handler. |
 | File upload | Frontend `getImageUploadPart` -> `FormData` -> Multer memory storage -> controller -> Cloudinary upload helper -> URL saved in DB. |
 | Booking state | `bookingStateMachine.ts` and service transaction checks enforce transitions. |
 | Payments | Backend is source of truth for pricing/payment states. Stripe webhooks update final states; mock mode exists. |
@@ -583,8 +609,8 @@ No linting or formatting scripts were found in `package.json` files.
 | Scheduled jobs | `cleanupJob.ts` and `reconciliationJob.ts` exist but are not scheduled from the server entrypoint. Payout release/reconciliation may require manual execution or future scheduler wiring. |
 | Admin/disputes | Dispute fields exist, but no admin/support routes or screens were found. |
 | ID verification | User fields for ID photo/selfie/manual review exist, but no current submission/review flow was found. |
-| Validation | Manual validation is spread across controllers/services. A schema validator could reduce drift. |
-| Error handling | Error mapping is repeated per controller. Centralized error handling could simplify consistency. |
+| Validation | ~~Resolved~~ — Zod v4 schema layer added in Phase 5: `src/schemas/*.schema.ts` + `src/middleware/validate.ts`. |
+| Error handling | ~~Resolved~~ — Centralized `errorHandler.ts` added in Phase 4; extended for `ZodError` in Phase 5. |
 | Tests | Backend has targeted tests, but broad integration tests for auth, listings, payments, handoffs, notifications, and reviews appear limited. Frontend test setup was not found. |
 | Type drift | Frontend types are separate from Prisma/backend response types, so API changes can drift silently. |
 | Demo mode env casing | `DEMO_MODE` checks `EXPO_PUBLIC_DEMO_MODE === 'true'`; uppercase `TRUE` will not enable demo mode. |
@@ -660,12 +686,13 @@ For Stripe PaymentSheet, use an EAS development or release build rather than Exp
 
 | Feature | Frontend Files | Backend Files | Database |
 |---|---|---|---|
-| Auth/login/register | `AuthContext.tsx`, `LoginScreen.tsx`, `RegisterScreen.tsx`, `VerifyEmailScreen.tsx` | `routes/auth.ts`, `authController.ts`, `authService.ts`, `requireAuth.ts` | `User`, `VerificationToken` |
+| Auth/login/register | `AuthContext.tsx`, `LoginScreen.tsx`, `RegisterScreen.tsx`, `VerifyEmailScreen.tsx` | `routes/auth.ts`, `authController.ts`, `authService.ts`, `requireAuth.ts`, `schemas/auth.schema.ts` | `User`, `VerificationToken` |
 | Verification | `VerificationGateScreen.tsx`, `VerifyEmailScreen.tsx` | `authService.ts`, `requiredVerified.ts` | `VerificationStatus`, `VerificationToken` |
-| Listings | `CreateListingScreen.tsx`, `EditListingScreen.tsx`, `ListingDetailScreen.tsx`, `MyListingsScreen.tsx`, `SearchScreen.tsx`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts` | `Listing`, `ListingImage` |
-| Rentals/bookings | `BookingRequestScreen.tsx`, `BookingHistoryScreen.tsx`, `BookingRequestsScreen.tsx`, `BookingDetailScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingStateMachine.ts`, `bookingUtils.ts` | `Booking`, `BookingEvent` |
-| Deposits/payments | `BookingRequestScreen.tsx`, `config/stripe.ts` | `paymentService.ts`, `stripeWebhookController.ts`, `cleanupJob.ts`, `reconciliationJob.ts` | `Booking.paymentStatus`, payment/deposit/payout fields |
-| Handoff photos / Zoink It | `HandoffPhotoScreen.tsx`, `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
+| Listings | `CreateListingScreen.tsx`, `EditListingScreen.tsx`, `ListingDetailScreen.tsx`, `MyListingsScreen.tsx`, `SearchScreen.tsx`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts`, `schemas/listing.schema.ts` | `Listing`, `ListingImage` |
+| Rentals/bookings | `BookingRequestScreen.tsx`, `BookingHistoryScreen.tsx`, `BookingRequestsScreen.tsx`, `BookingDetailScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingStateMachine.ts`, `bookingUtils.ts`, `schemas/booking.schema.ts` | `Booking`, `BookingEvent` |
+| Deposits/payments | `BookingRequestScreen.tsx`, `config/stripe.ts` | `paymentService.ts`, `stripeWebhookController.ts`, `cleanupJob.ts`, `reconciliationJob.ts`, `schemas/stripe.schema.ts` | `Booking.paymentStatus`, payment/deposit/payout fields |
+| Handoff photos / Zoink It | `HandoffPhotoScreen.tsx`, `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts`, `schemas/handoff.schema.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
+| Input validation | N/A (handled server-side) | `src/middleware/validate.ts`, `src/schemas/*.schema.ts`, `src/middleware/errorHandler.ts` | N/A |
 | Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx`, `conversationsApi.ts` | `routes/conversations.ts`, `conversationController.ts`, `conversationService.ts` | `Conversation`, `Message` |
 | Reviews/reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `bookingService.ts` | `Review`, `ReviewObligation`, `UserReputation` |
 | Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts`, relevant feature services | `Notification`, `User.expoPushToken` |
