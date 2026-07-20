@@ -25,6 +25,7 @@ model User {
   expoPushToken       String?
   stripeCustomerId    String?
   stripeAccountId     String?
+  role                Role                @default(USER)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   bookingsAsOwner     Booking[]           @relation("OwnerBookings")
@@ -39,6 +40,8 @@ model User {
   reviewsGiven        Review[]            @relation("ReviewsGiven")
   reputation          UserReputation?
   verificationTokens  VerificationToken[]
+  raisedDisputes      Dispute[]           @relation("RaisedDisputes")
+  resolvedDisputes    Dispute[]           @relation("ResolvedDisputes")
 
   @@map("users")
 }
@@ -120,6 +123,7 @@ model Booking {
   renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
   reviewObligations     ReviewObligation[]
   reviews               Review[]
+  disputes              Dispute[]
 
   @@map("bookings")
 }
@@ -247,6 +251,31 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+model Dispute {
+  id              String         @id @default(uuid())
+  bookingId       String
+  raisedByUserId  String
+  reason          DisputeReason
+  description     String
+  status          DisputeStatus  @default(OPEN)
+  resolutionNotes String?
+  resolvedByAdminId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  resolvedAt      DateTime?
+
+  booking         Booking        @relation(fields: [bookingId], references: [id])
+  raisedByUser    User           @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
+  resolvedByAdmin User?          @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
+
+  @@map("disputes")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
 enum VerificationStatus {
   PENDING
   SUBMITTED
@@ -280,7 +309,18 @@ enum PaymentStatus {
 enum DisputeStatus {
   NONE
   OPEN
-  RESOLVED
+  UNDER_REVIEW
+  RESOLVED_REFUND
+  RESOLVED_NO_ACTION
+  DISMISSED
+}
+
+enum DisputeReason {
+  ITEM_DAMAGED
+  ITEM_NOT_RETURNED
+  ITEM_NOT_AS_DESCRIBED
+  PAYMENT_ISSUE
+  OTHER
 }
 
 enum BookingEventType {

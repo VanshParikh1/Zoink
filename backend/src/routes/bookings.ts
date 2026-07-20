@@ -2,6 +2,14 @@ import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
+import { validate } from '../middleware/validate'
+import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
+import {
+  InitiateHandoffSchema,
+  ZoinkTapSchema,
+  UploadHandoffPhotosSchema,
+  BookingIdParamsSchema as HandoffBookingIdParamsSchema,
+} from '../schemas/handoff.schema'
 import {
   acceptBooking,
   activateBooking,
@@ -38,22 +46,27 @@ const upload = multer({
 
 router.use(requireAuth, requireVerified)
 
-router.post('/', createBooking)
+// Booking CRUD
+router.post('/', validate(CreateBookingSchema), createBooking)
 router.get('/me', getMyBookings)
 router.get('/requests', getIncomingRequests)
-router.post('/:id/pickup/initiate', initiatePickup)
-router.post('/:id/pickup/confirm', confirmPickup)
-router.post('/:id/return/initiate', initiateReturn)
-router.post('/:id/return/confirm', confirmReturn)
-router.get('/:id/photos', getHandoffPhotos)
-router.get('/:id', getBooking)
-router.patch('/:id/accept', acceptBooking)
-router.patch('/:id/decline', declineBooking)
-router.patch('/:id/cancel', cancelBooking)
-router.patch('/:id/activate', activateBooking)
-router.patch('/:id/complete', completeBooking)
-router.post('/:id/photos', uploadHandoffPhotos)
+
+// Handoff / Zoink It — highest risk, validated strictly
+router.post('/:id/pickup/initiate', validate(InitiateHandoffSchema), initiatePickup)
+router.post('/:id/pickup/confirm', validate(HandoffBookingIdParamsSchema), confirmPickup)
+router.post('/:id/return/initiate', validate(InitiateHandoffSchema), initiateReturn)
+router.post('/:id/return/confirm', validate(HandoffBookingIdParamsSchema), confirmReturn)
+router.post('/:id/photos', validate(UploadHandoffPhotosSchema), uploadHandoffPhotos)
 router.post('/:id/photos/upload', upload.single('image'), uploadHandoffPhotoImage)
-router.post('/:id/zoink-tap', zoinkTap)
+router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
+
+// Read / state-transition routes (param-only)
+router.get('/:id/photos', validate(HandoffBookingIdParamsSchema), getHandoffPhotos)
+router.get('/:id', validate(BookingIdParamsSchema), getBooking)
+router.patch('/:id/accept', validate(BookingIdParamsSchema), acceptBooking)
+router.patch('/:id/decline', validate(BookingIdParamsSchema), declineBooking)
+router.patch('/:id/cancel', validate(BookingIdParamsSchema), cancelBooking)
+router.patch('/:id/activate', validate(BookingIdParamsSchema), activateBooking)
+router.patch('/:id/complete', validate(BookingIdParamsSchema), completeBooking)
 
 export default router

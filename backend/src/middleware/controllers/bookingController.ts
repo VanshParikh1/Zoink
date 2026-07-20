@@ -7,18 +7,14 @@ import { asyncHandler } from '../../utils/asyncHandler'
 
 export const createBooking = asyncHandler(async (req: Request, res: Response) => {
   const renterId = (req as any).userId as string
-  const { listingId, startDate, endDate, message } = req.body
-
-  if (!listingId || !startDate || !endDate) {
-    return res.status(400).json({ error: 'listingId, startDate, and endDate are required.' })
-  }
+  const { listingId, startDate, endDate, message, insuranceOptIn } = req.body
 
   const booking = await bookingService.createBooking(renterId, {
     listingId,
     startDate: new Date(startDate),
     endDate: new Date(endDate),
     message,
-    insuranceOptIn: Boolean(req.body.insuranceOptIn),
+    insuranceOptIn: Boolean(insuranceOptIn),
   })
 
   return res.status(201).json(booking)
@@ -74,18 +70,11 @@ export const completeBooking = asyncHandler(async (req: Request, res: Response) 
   return transitionBooking(req, res, 'COMPLETED')
 })
 
-function parsePhase(value: unknown) {
-  return value === 'pickup' || value === 'return' ? value : null
-}
 
 export const uploadHandoffPhotos = asyncHandler(async (req: Request, res: Response) => {
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string
-  const phase = parsePhase(req.body.phase)
-
-  if (!phase) {
-    return res.status(400).json({ error: 'phase must be pickup or return.' })
-  }
+  const phase = req.body.phase as 'pickup' | 'return'
 
   const booking = await handoffService.uploadHandoffPhotos(bookingId, actorId, phase, req.body.photoUrls ?? req.body.photos)
   return res.json(booking)
@@ -147,11 +136,7 @@ export const uploadHandoffPhotoImage = asyncHandler(async (req: Request, res: Re
 export const zoinkTap = asyncHandler(async (req: Request, res: Response) => {
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string
-  const phase = parsePhase(req.body.phase)
-
-  if (!phase) {
-    return res.status(400).json({ error: 'phase must be pickup or return.' })
-  }
+  const phase = req.body.phase as 'pickup' | 'return'
 
   const booking = await handoffService.registerTap(bookingId, actorId, phase)
   return res.json(booking)

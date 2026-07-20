@@ -10,10 +10,6 @@ export const createListing = asyncHandler(async (req: Request, res: Response) =>
   const ownerId = (req as any).userId
   const { title, description, category, dailyPrice, itemValue, latitude, longitude, city, address } = req.body
 
-  if (!title || !description || !category || dailyPrice == null || latitude == null || longitude == null || !city) {
-    return res.status(400).json({ error: 'Missing required fields.' })
-  }
-
   const listing = await listingService.createListing(ownerId, {
     title,
     description,
@@ -28,69 +24,24 @@ export const createListing = asyncHandler(async (req: Request, res: Response) =>
   return res.status(201).json(listing)
 })
 
-function parseNumber(value: unknown) {
-  if (typeof value !== 'string' || value.trim() === '') return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : NaN
-}
-
-function parseBoolean(value: unknown) {
-  if (typeof value !== 'string') return undefined
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return undefined
-}
 
 // ── GET /listings ─────────────────────────────────────────────────────────────
 
 export const browseListings = asyncHandler(async (req: Request, res: Response) => {
-  const query = typeof req.query.q === 'string' ? req.query.q : undefined
-  const category = typeof req.query.category === 'string' ? req.query.category : undefined
-  const city = typeof req.query.city === 'string' ? req.query.city : undefined
-  const minPrice = parseNumber(req.query.minPrice)
-  const maxPrice = parseNumber(req.query.maxPrice)
-  const latitude = parseNumber(req.query.latitude)
-  const longitude = parseNumber(req.query.longitude)
-  const radiusKm = parseNumber(req.query.radiusKm)
-  const limit = parseNumber(req.query.limit)
-  const offset = parseNumber(req.query.offset)
-  const includeUnavailable = parseBoolean(req.query.includeUnavailable)
-
-  if ([minPrice, maxPrice, latitude, longitude, radiusKm, limit, offset].some((value) => value !== undefined && Number.isNaN(value))) {
-    return res.status(400).json({ error: 'Query parameters must be valid numbers.' })
-  }
-
-  if ((latitude == null) !== (longitude == null)) {
-    return res.status(400).json({ error: 'latitude and longitude must be provided together.' })
-  }
-
-  if (radiusKm != null && latitude == null) {
-    return res.status(400).json({ error: 'radiusKm requires latitude and longitude.' })
-  }
-
-  if (minPrice != null && minPrice < 0) {
-    return res.status(400).json({ error: 'minPrice cannot be negative.' })
-  }
-
-  if (maxPrice != null && maxPrice < 0) {
-    return res.status(400).json({ error: 'maxPrice cannot be negative.' })
-  }
-
-  if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
-    return res.status(400).json({ error: 'minPrice cannot be greater than maxPrice.' })
-  }
-
-  if (radiusKm != null && radiusKm <= 0) {
-    return res.status(400).json({ error: 'radiusKm must be greater than 0.' })
-  }
-
-  if (limit != null && limit <= 0) {
-    return res.status(400).json({ error: 'limit must be greater than 0.' })
-  }
-
-  if (offset != null && offset < 0) {
-    return res.status(400).json({ error: 'offset cannot be negative.' })
-  }
+  // req.query has already been coerced and validated by BrowseListingsQuerySchema
+  const {
+    q: query,
+    category,
+    city,
+    minPrice,
+    maxPrice,
+    latitude,
+    longitude,
+    radiusKm,
+    limit,
+    offset,
+    includeUnavailable,
+  } = req.query as any
 
   const result = await listingService.browseListings({
     query,
@@ -107,6 +58,7 @@ export const browseListings = asyncHandler(async (req: Request, res: Response) =
   })
   return res.json(result)
 })
+
 
 // ── GET /listings/categories ──────────────────────────────────────────────────
 
@@ -159,13 +111,10 @@ export const toggleAvailability = asyncHandler(async (req: Request, res: Respons
   const id = req.params.id as string
   const { isAvailable } = req.body
 
-  if (typeof isAvailable !== 'boolean') {
-    return res.status(400).json({ error: 'isAvailable must be a boolean.' })
-  }
-
   const result = await listingService.setAvailability(id, ownerId, isAvailable)
   return res.json(result)
 })
+
 
 // ── DELETE /listings/:id ──────────────────────────────────────────────────────
 

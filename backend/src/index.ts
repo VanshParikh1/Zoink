@@ -8,6 +8,8 @@ import listingsRouter from './routes/listings'
 import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
+import disputesRouter from './routes/disputes'
+import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
@@ -103,6 +105,8 @@ app.use('/listings', listingsRouter)
 app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
 app.use('/reviews', reviewsRouter)
+app.use('/disputes', disputesRouter)
+app.use('/admin', adminRouter)
 
 app.use(errorHandler)
 

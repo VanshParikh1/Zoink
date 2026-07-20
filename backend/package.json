@@ -30,7 +30,8 @@
     "node-cron": "^4.6.0",
     "pg": "^8.20.0",
     "stripe": "^18.5.0",
-    "stripe-cli": "^0.1.0"
+    "stripe-cli": "^0.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

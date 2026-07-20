@@ -26,9 +26,9 @@ function generateOTP(): string {
   return crypto.randomInt(100000, 999999).toString()
 }
 
-function signJWT(userId: string, verificationStatus: string, email: string, firstName: string): string {
+function signJWT(userId: string, verificationStatus: string, email: string, firstName: string, role: string): string {
   return jwt.sign(
-    { userId, verificationStatus, email, firstName },
+    { userId, verificationStatus, email, firstName, role },
     process.env.JWT_SECRET!,
     { expiresIn: '30d' }
   )
@@ -75,8 +75,8 @@ export async function registerUser(
   await sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
-  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
 // ── Login ─────────────────────────────────────────────────────────────────────
@@ -95,8 +95,8 @@ export async function loginUser(email: string, password: string) {
   }
 
   // 3. Return JWT
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
-  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
 // ── Verify OTP ────────────────────────────────────────────────────────────────
@@ -133,9 +133,9 @@ export async function verifyOTP(userId: string, code: string) {
   ])
 
   // Return a fresh JWT with updated verificationStatus
-  // Re-fetch user to get email + firstName for the new token
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true } })
-  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName)
+  // Re-fetch user to get email + firstName + role for the new token
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true, role: true } })
+  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role)
   return { token: token2 }
 }
 
