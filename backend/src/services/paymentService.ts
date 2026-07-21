@@ -1,5 +1,7 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
 import { InternalServerError, ConflictError } from '../utils/errors'
+import prisma from '../utils/prisma'
+
 
 const PLATFORM_COMMISSION_RATE = Number(process.env.PLATFORM_COMMISSION_RATE ?? 0.15)
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
@@ -159,7 +161,7 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
   )
 }
 
-export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number) {
+export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number, db: typeof prisma = prisma) {
   if (!booking.stripePaymentIntentId) {
     throw new ConflictError('Payment authorization is missing.')
   }

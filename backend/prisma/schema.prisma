@@ -111,6 +111,7 @@ model Booking {
   disputeStatus         DisputeStatus      @default(NONE)
   disputedAt            DateTime?
   disputeReason         String?
+  disputes          Dispute[]
   renterId              String
   ownerId               String
   listingId             String
@@ -123,8 +124,6 @@ model Booking {
   renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
   reviewObligations     ReviewObligation[]
   reviews               Review[]
-  disputes              Dispute[]
-
   @@map("bookings")
 }
 
@@ -139,6 +138,7 @@ model BookingEvent {
 
   @@map("booking_events")
 }
+
 
 model Conversation {
   id        String    @id @default(uuid())

@@ -1,7 +1,9 @@
 import React from 'react'
-import { View, StyleSheet, Dimensions, Platform } from 'react-native'
+// 1. Added TouchableOpacity and Text imports
+import { View, StyleSheet, Dimensions, Platform, TouchableOpacity, Text } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { theme } from '../theme/colors'
+import { useAuth } from '../context/AuthContext'
 
 const { width: W, height: H } = Dimensions.get('window')
 
@@ -15,6 +17,8 @@ interface Props {
  * Three organic circles at balanced positions, blurred into soft ambient glows.
  */
 export default function ScreenBackground({ children, style }: Props) {
+  const { logout } = useAuth()
+
   return (
     <View style={[styles.container, style]}>
       {/* Colored circles */}
@@ -33,6 +37,15 @@ export default function ScreenBackground({ children, style }: Props) {
       />
 
       {children}
+
+      {__DEV__ && (
+        <TouchableOpacity
+          onPress={() => logout()}
+          style={styles.devLogoutButton}
+        >
+          <Text style={styles.devLogoutText}>Force Logout</Text>
+        </TouchableOpacity>
+      )}
     </View>
   )
 }
@@ -55,7 +68,7 @@ const styles = StyleSheet.create({
   blobA: {
     width: BLOB_SIZE_A,
     height: BLOB_SIZE_A,
-    backgroundColor: 'rgba(109, 216, 50, 0.28)', // logo green tint
+    backgroundColor: 'rgba(109, 216, 50, 0.28)',
     top: 40,
     right: -50,
   },
@@ -63,7 +76,7 @@ const styles = StyleSheet.create({
   blobB: {
     width: 320,
     height: 320,
-    backgroundColor: 'rgba(109, 216, 50, 0.20)', // slightly softer
+    backgroundColor: 'rgba(109, 216, 50, 0.20)',
     bottom: -80,
     left: -80,
   },
@@ -71,8 +84,25 @@ const styles = StyleSheet.create({
   blobC: {
     width: 250,
     height: 250,
-    backgroundColor: 'rgba(109, 216, 50, 0.16)', // slightly softer
+    backgroundColor: 'rgba(109, 216, 50, 0.16)',
     top: '45%',
     right: -40,
+  },
+
+  // 2. Added missing dev button styles
+  devLogoutButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    backgroundColor: 'rgba(255, 0, 0, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    zIndex: 999,
+  },
+  devLogoutText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 })

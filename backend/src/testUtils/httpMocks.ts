@@ -14,3 +14,14 @@ export function createMockResponse() {
 
   return response
 }
+
+export function createMockRequest(options: Partial<any> = {}) {
+  return {
+    body: {},
+    params: {},
+    query: {},
+    headers: {},
+    ...options,
+  } as any
+}
+

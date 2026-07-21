@@ -4,6 +4,11 @@ import * as disputeService from '../../services/disputeService'
 import prisma from '../../utils/prisma'
 import { DisputeStatus } from '@prisma/client'
 
+interface AuthenticatedRequest extends Request {
+  userId?: string
+  role?: string
+}
+
 export const listDisputes = asyncHandler(async (req: Request, res: Response) => {
   const { status } = req.query as { status?: DisputeStatus }
 
@@ -21,7 +26,11 @@ export const listDisputes = asyncHandler(async (req: Request, res: Response) => 
 })
 
 export const getDisputeDetail = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params
+  const id = req.params.id as string
+
+  if (!id) {
+    return res.status(400).json({ error: 'Dispute ID is required' })
+  }
 
   const dispute = await prisma.dispute.findUnique({
     where: { id },
@@ -50,10 +59,18 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
   res.json(dispute)
 })
 
-export const resolveDispute = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params
+export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const id = req.params.id as string
   const { status, resolutionNotes } = req.body
-  const adminId = (req as any).userId
+  const adminId = req.userId
+
+  if (!adminId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  if (!status || !Object.values(DisputeStatus).includes(status)) {
+    return res.status(400).json({ error: 'Invalid or missing dispute status' })
+  }
 
   const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes)
   res.json(dispute)

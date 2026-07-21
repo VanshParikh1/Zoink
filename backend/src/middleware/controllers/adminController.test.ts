@@ -31,7 +31,7 @@ describe('Admin and Dispute Tests', () => {
     const req = createMockRequest({ role: 'ADMIN' })
     let error: any = null
     let nextCalled = false
-    const next = (err?: any) => { 
+    const next = (err?: any) => {
       error = err
       nextCalled = true
     }
@@ -43,29 +43,26 @@ describe('Admin and Dispute Tests', () => {
   })
 
   test('resolveDispute triggers refund and rolls back on Stripe failure', async () => {
-    // Mock Prisma behavior to ensure it doesn't actually hit the DB
     const mockDispute = { id: 'd-1', status: 'OPEN', bookingId: 'b-1', booking: { id: 'b-1', totalPrice: 100 } }
-    mock.method(prisma.dispute, 'findUnique', async () => mockDispute)
-    
-    let transactionCalled = false
-    mock.method(prisma, '$transaction', async () => {
-      transactionCalled = true
-    })
 
-    // Mock Stripe refund to fail
+    const mockDb: any = {
+      dispute: { findUnique: async () => mockDispute },
+      $transaction: async () => { transactionCalled = true },
+    }
+    let transactionCalled = false
+
     mock.method(paymentService, 'refundPaymentIntent', async () => {
       throw new Error('Stripe network error')
     })
 
     try {
-      await disputeService.resolveDispute('d-1', 'admin-1', 'RESOLVED_REFUND', 'Refunded')
+      await disputeService.resolveDispute('d-1', 'admin-1', 'RESOLVED_REFUND', 'Refunded', mockDb)
       assert.fail('Expected error to be thrown')
     } catch (err: any) {
       assert.strictEqual(err.statusCode, 500)
       assert.ok(err.message.includes('Failed to refund payment via Stripe: Stripe network error'))
     }
 
-    // Ensure transaction (DB update) was never called
     assert.strictEqual(transactionCalled, false)
   })
 })
