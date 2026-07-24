@@ -462,7 +462,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     })
 
     if (nextStatus === 'CANCELLED') {
-      void handleCancellationPayment(booking, actorId)
+      await handleCancellationPayment(booking, actorId)
     }
 
     if (nextStatus === 'ACCEPTED') {
@@ -578,6 +578,12 @@ async function ensureOwnerStripeAccount(ownerId: string) {
 }
 
 function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
+  // Cancellation fees disabled for launch (product decision — no fee by default).
+  // Tiered fee calculation below is retained for a planned future feature:
+  // an owner-toggleable "cancellation fee" option, following the same pattern
+  // as Listing.insuranceOptIn. Do not delete this logic.
+  return 0
+  // --- retained tiered logic, currently unreachable, for future opt-in feature ---
   const fee = Math.min(25, Math.max(5, Number(totalPrice) * 0.05))
   return toCents(fee)
 }
@@ -594,25 +600,55 @@ async function handleCancellationPayment(booking: any, actorId: string) {
     }
 
     if (booking.status === 'ACCEPTED') {
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: PaymentStatus.CAPTURE_PENDING },
-      })
-      await capturePaymentIntent(booking, calculateCancellationFeeCents(booking.totalPrice))
+      const feeCents = calculateCancellationFeeCents(booking.totalPrice)
+
+      // Stripe rejects amount_to_capture: 0 — capturing is only valid for a
+      // nonzero fee. With fees disabled for launch, feeCents is always 0, so
+      // this falls through to a full release, same as the PENDING branch.
+      // This keeps the fee-charging path intact and automatically reactivates
+      // if calculateCancellationFeeCents starts returning a nonzero value.
+      if (feeCents > 0) {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: PaymentStatus.CAPTURE_PENDING },
+        })
+        await capturePaymentIntent(booking, feeCents)
+      } else {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: PaymentStatus.REFUND_PENDING },
+        })
+        await cancelPaymentIntent(booking)
+      }
       return
     }
   } catch (error) {
-    await prisma.bookingEvent.create({
-      data: {
-        bookingId: booking.id,
-        actorId,
-        type: BookingEventType.ERROR,
-        metadata: {
-          action: 'cancel_payment',
-          message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+    // The booking's CANCELLED status has already committed by the time this
+    // runs — this only records the refund/capture failure for the audit
+    // trail. A failure to write that audit record shouldn't turn an already-
+    // successful cancellation into a 500, so it's logged rather than thrown.
+    try {
+      await prisma.bookingEvent.create({
+        data: {
+          bookingId: booking.id,
+          actorId,
+          type: BookingEventType.ERROR,
+          metadata: {
+            action: 'cancel_payment',
+            message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+          },
         },
-      },
-    })
+      })
+    } catch (auditError) {
+      console.error(
+        '[Cancellation] Failed to write cancel_payment audit event for booking',
+        booking.id,
+        '— original payment error:',
+        error,
+        '— audit write error:',
+        auditError
+      )
+    }
   }
 }
 

@@ -4,7 +4,7 @@ This document explains the current Zoink repository so a new developer can under
 
 ## 1. Project Overview
 
-Zoink is a student-focused peer-to-peer rental marketplace where users can rent items from other verified students. The app supports university email registration and OTP verification, listing creation with images, browse/search, booking requests, renter/owner messaging, Stripe-based payment and payout flows, photo-backed pickup/return handoffs, reviews, push notifications, and a static marketing/waitlist landing page.
+Zoink is a student-focused peer-to-peer rental marketplace where users can rent items from other verified students. The app supports university email registration and OTP verification, listing creation with images, browse/search, booking requests, renter/owner messaging, Stripe-based payment and payout flows, photo-backed pickup/return handoffs, reviews, push notifications, a backend admin/dispute-resolution API (role-based, no frontend yet), and a static marketing/waitlist landing page.
 
 The repository has three main areas:
 
@@ -36,7 +36,9 @@ The repository has three main areas:
 | Database | PostgreSQL |
 | ORM | Prisma 7 with `@prisma/adapter-pg` and `pg` |
 | Validation style | Zod v4 schema validation via `src/middleware/validate.ts` and `src/schemas/*.schema.ts`; `ZodError` flows to the centralized error handler |
-| Testing | Node built-in test runner with `ts-node/register` |
+| Testing | Node built-in test runner with `ts-node/register` (unit tests); `supertest` + a real Postgres test DB + Stripe test mode (integration tests in `backend/src/integration-tests/`) |
+| Scheduled jobs | `node-cron`, registered in `backend/src/index.ts` (skipped when `NODE_ENV=test`) |
+| Authorization roles | `Role` enum (`USER`/`ADMIN`) on `User`, embedded in the JWT, enforced by `requireAdmin` middleware |
 | Landing page | Static HTML, Tailwind CDN, Lucide CDN, inline CSS/JS |
 
 ## 3. Folder Structure
@@ -45,15 +47,15 @@ The repository has three main areas:
 Zoink/
   .gitignore
   README.md
+  package.json
   package-lock.json
   CODEBASE_OVERVIEW.md
   backend/
     .env
-    app.json
+    .env.test
     nodemon.json
     package.json
     prisma.config.ts
-    stripe.ts
     tsconfig.json
     prisma/
       schema.prisma
@@ -63,6 +65,7 @@ Zoink/
       index.ts
       middleware/
         requireAuth.ts
+        requireAdmin.ts
         requiredVerified.ts
         errorHandler.ts
         validate.ts
@@ -73,11 +76,13 @@ Zoink/
       schemas/
         auth.schema.ts
         booking.schema.ts
+        dispute.schema.ts
         handoff.schema.ts
         listing.schema.ts
         stripe.schema.ts
       scripts/
       services/
+      integration-tests/
       testUtils/
       utils/
   frontend/
@@ -111,23 +116,23 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 
 | File | What It Does | Depends On | Used By / Notes |
 |---|---|---|---|
-| `.gitignore` | Defines ignored development files. | None. | Git only. |
+| `.gitignore` | Defines ignored development files. Ignores `backend/.env` and `frontend/.env`, but not `backend/.env.test`. | None. | Git only. `backend/.env.test` currently shows as untracked rather than ignored — see risks section. |
 | `README.md` | High-level product status, setup commands, flows, and roadmap. | None. | Developer-facing overview. |
-| `package-lock.json` | Empty/minimal root npm lock metadata. | npm. | No root `package.json` is present, so root scripts are unclear from current codebase. |
+| `package.json` | Root convenience scripts (`dev:backend`, `dev:frontend`, `build:backend`, `test:backend`, `typecheck:backend`, `typecheck:frontend`) that shell out into `backend/` and `frontend/`. No dependencies of its own. | npm. | Root-level `npm run <script>` from either sub-project. |
+| `package-lock.json` | Root npm lockfile for the root `package.json` (no dependencies to lock). | npm. | npm install bookkeeping. |
 | `CODEBASE_OVERVIEW.md` | This living codebase documentation. | Repository scan. | Developers. |
 
 ### Backend Config Files
 
 | File | What It Does | Depends On | Used By / Notes |
 |---|---|---|---|
-| `backend/package.json` | Defines backend dependencies and scripts: `dev`, `build`, `start`, `test`, `smoke:week7`; configures Prisma seed. | npm, TypeScript, Prisma, Express. | Backend development and CI-style commands. |
+| `backend/package.json` | Defines backend dependencies and scripts: `dev`, `build`, `start`, `test`, `test:integration`, `smoke:week7`; configures Prisma seed. Adds `node-cron` (runtime) and `supertest`/`@types/supertest` (dev, integration tests). | npm, TypeScript, Prisma, Express. | Backend development and CI-style commands. |
 | `backend/package-lock.json` | Backend dependency lockfile. | npm. | Important for reproducible installs, but internals are generated. |
 | `backend/tsconfig.json` | TypeScript config targeting ES2020 CommonJS, outputting to `dist/`, strict mode enabled. | TypeScript. | `npm run build`. |
 | `backend/nodemon.json` | Watches `src`, ignores `dist`, `node_modules`, and tests, runs `ts-node src/index.ts`. | nodemon, ts-node. | `npm run dev`. |
 | `backend/prisma.config.ts` | Loads `.env`, points Prisma to `backend/prisma/schema.prisma`, configures datasource URL and seed command. | `dotenv`, `@prisma/config`, `DATABASE_URL`. | Prisma CLI. |
-| `backend/app.json` | Present in backend root. Unclear from current codebase; not imported by backend source. | Unclear. | Worth checking whether this is stale. |
-| `backend/stripe.ts` | Creates a Stripe client from `STRIPE_SECRET_KEY`. | Stripe SDK. | Unclear from current codebase; main services create/use Stripe internally instead. Possible stale helper. |
 | `backend/.env` | Backend environment variables for database, JWT, email, Cloudinary, Stripe, payout settings. | Runtime config. | Do not commit real secrets. See risks section. |
+| `backend/.env.test` | Backend environment variables for the integration test run, pointed at a separate `zoink_test` database and Stripe test-mode keys. | Runtime config. | `npm run test:integration`. Currently **not** covered by `.gitignore` — see risks section. |
 
 ### Backend Prisma Files
 
@@ -138,18 +143,21 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `backend/prisma/migrations/20260428151800_init/migration.sql` | Initial schema migration: core enums, users, listings, bookings, conversations, messages, reviews, reputations, notifications, verification tokens. | PostgreSQL. | Applied by Prisma migrations. |
 | `backend/prisma/migrations/20260524000000_week7_payments_handoff/migration.sql` | Adds payment statuses, dispute statuses, booking event types, listing `itemValue`, booking payment/deposit/insurance/handoff/dispute columns, and `booking_events`. | PostgreSQL. | Supports payment lifecycle and audit logs. |
 | `backend/prisma/migrations/20260602000000_zoink_it_handoff/migration.sql` | Adds `PICKUP_PENDING` and `RETURN_PENDING` booking statuses plus handoff initiation timestamps. | PostgreSQL. | Supports synchronized Zoink It handoff states. |
+| `backend/prisma/migrations/20260721000000_add_role_and_disputes/migration.sql` | Adds `Role` enum, `User.role`, expands `DisputeStatus` to 6 values, adds `DisputeReason` enum and the `disputes` table with FKs to `bookings`/`users`. | PostgreSQL. | Supports the admin/dispute feature. **Bug:** the generated SQL runs `ALTER TABLE "disputes" ALTER COLUMN "status" ...` (inside the `DisputeStatus` `AlterEnum` block) before the later `CREATE TABLE "disputes"` statement, so `prisma migrate deploy` fails on a database that doesn't already have a `disputes` table. |
+| `backend/prisma/migrations/20260721000000_add_role_and_disputes/apply_to_test_db.sql` | Manually reordered version of the same migration (creates the `disputes` table before altering its `status` column) plus a manual `_prisma_migrations` insert so Prisma treats it as applied. | PostgreSQL. | Workaround used to seed the `zoink_test` database for integration tests until the migration itself is fixed. Not a Prisma-generated migration file. |
 
 ### Backend Entry, Middleware, Utils, and Test Helpers
 
 | File | What It Does | Depends On | Used By / Notes |
 |---|---|---|---|
-| `backend/src/index.ts` | Express server entrypoint. Loads env, configures CORS, Stripe raw webhooks, JSON body parsing, health routes, Stripe Connect return pages, and mounts `auth`, `users`, `listings`, `bookings`, `conversations`, and `reviews` routers. | Express, route files, `stripeWebhook`, `requireAuth`, `getStripeConnectStatus`. | `nodemon` and production `dist/index.js`. Does not currently mount `routes/payments.ts`. |
-| `backend/src/middleware/requireAuth.ts` | Reads `Authorization: Bearer <token>`, verifies JWT with `JWT_SECRET`, attaches `userId` and `verificationStatus` to `req`. | `jsonwebtoken`, `JWT_SECRET`. | Protected routes. |
-| `backend/src/middleware/requiredVerified.ts` | Blocks requests unless JWT payload verification status is `VERIFIED`. | `requireAuth` must run first. | Marketplace, bookings, conversations, reviews, public profile routes. |
+| `backend/src/index.ts` | Express server entrypoint. Loads `.env` (skipped when `NODE_ENV=test`), configures CORS, Stripe raw webhooks (mounted at both `/stripe/webhook` and `/api/stripe/webhook`), JSON body parsing, health routes, Stripe Connect return pages, and mounts `auth`, `users`, `listings`, `bookings`, `conversations`, `reviews`, `disputes`, and `admin` routers. Registers `node-cron` jobs (stale-handoff cleanup + payout release every 15 min, Stripe reconciliation hourly) and skips both the cron registration and `app.listen()` when `NODE_ENV=test` so `supertest` can drive the exported `app` directly. | Express, route files, `stripeWebhook`, `requireAuth`, `getStripeConnectStatus`, `node-cron`, `cleanupJob`, `reconciliationJob`. | `nodemon` and production `dist/index.js`; also imported directly by integration tests via `setup.ts`. |
+| `backend/src/middleware/requireAuth.ts` | Reads `Authorization: Bearer <token>`, verifies JWT with `JWT_SECRET`, attaches `userId`, `verificationStatus`, and `role` (defaults to `USER` if absent from the token) to `req`. | `jsonwebtoken`, `JWT_SECRET`. | Protected routes. |
+| `backend/src/middleware/requireAdmin.ts` | Rejects the request with a `ForbiddenError` (403) unless `req.role === 'ADMIN'`. Must run after `requireAuth`. | `requireAuth`, `utils/errors.ts`. | `routes/admin.ts`. |
+| `backend/src/middleware/requiredVerified.ts` | Blocks requests unless JWT payload verification status is `VERIFIED`. | `requireAuth` must run first. | Marketplace, bookings, conversations, reviews, disputes, public profile routes. |
 | `backend/src/middleware/bookingStateMachine.ts` | Defines allowed booking status transitions and exports `assertBookingTransition`. | Prisma `BookingStatus`. | `bookingService`; tested by `bookingStateMachine.test.ts`. |
 | `backend/src/middleware/bookingStateMachine.test.ts` | Unit tests allowed/blocked booking transitions. | Node test runner, state machine. | `npm test`. |
 | `backend/src/middleware/errorHandler.ts` | Centralized Express error handler (4-arg signature). Handles `ZodError` first (→ `400 { error, issues[] }`), then `AppError` subclasses (→ mapped status + `{ error }`), then falls back to `500`. Mounted as the last middleware in `src/index.ts`. | `zod`, `AppError` hierarchy in `utils/errors.ts`. | All routes via Express error propagation. |
-| `backend/src/middleware/validate.ts` | Generic `validate(schema)` middleware factory. Accepts a Zod schema shaped as `{ body?, params?, query? }`, runs `safeParse`, replaces `req.body/params/query` with coerced values on success, or calls `next(ZodError)` on failure. | `zod`. | All route files that need input validation. |
+| `backend/src/middleware/validate.ts` | Generic `validate(schema)` middleware factory. Accepts a Zod schema shaped as `{ body?, params?, query? }`, runs `safeParse`, replaces `req.body/params/query` with coerced values on success, or calls `next(ZodError)` on failure. On Express 5, `req.query` is a getter-only accessor with no setter, so direct assignment throws; the `query` branch instead uses `Object.defineProperty(req, 'query', { value, writable: true, configurable: true, enumerable: true })` to redefine it as an own writable property. `req.body`/`req.params` are plain properties (set by body-parser/the router) and don't need this. | `zod`. | All route files that need input validation. |
 | `backend/src/utils/errors.ts` | `AppError` base class and typed subclasses: `BadRequestError` (400), `UnauthorizedError` (401), `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `TooManyRequestsError` (429), `InternalServerError` (500). | None. | Services, controllers, `errorHandler`. |
 | `backend/src/utils/asyncHandler.ts` | Wraps async route handlers so thrown errors propagate to `next()` without try/catch boilerplate. | None. | All controllers. |
 | `backend/src/utils/prisma.ts` | Creates a PostgreSQL pool, Prisma adapter, and Prisma client. | `DATABASE_URL`, `pg`, `@prisma/adapter-pg`, `@prisma/client`. | All backend services. |
@@ -166,7 +174,8 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `backend/src/routes/bookings.ts` | Create, my bookings, incoming requests, detail, accept/decline/cancel/activate/complete, pickup/return initiate/confirm, handoff photos, photo upload, `zoink-tap`. | `bookingController` | Router-level auth and verified middleware. Validation: `CreateBookingSchema`, `InitiateHandoffSchema` (photos 2–3 URLs), `ZoinkTapSchema` (strict phase enum), `UploadHandoffPhotosSchema`, `BookingIdParamsSchema`. |
 | `backend/src/routes/conversations.ts` | Open conversation, list my conversations, list messages, send message. | `conversationController` | Router-level auth and verified middleware. |
 | `backend/src/routes/reviews.ts` | `GET /reviews/pending`, `POST /reviews` | `reviewController` | Router-level auth and verified middleware. |
-| `backend/src/routes/payments.ts` | Connect callback, webhook, protected Connect onboarding. | `paymentController`, `stripeWebhookController` | Exists but is not mounted in `backend/src/index.ts`; frontend profile currently uses `/users/me/stripe-connect/onboard` instead. |
+| `backend/src/routes/disputes.ts` | `POST /disputes`, `GET /disputes`, `GET /disputes/:id` | `disputeController` | Router-level auth and verified middleware. Validation: `CreateDisputeSchema`, `DisputeIdParamsSchema`. |
+| `backend/src/routes/admin.ts` | `GET /admin/disputes`, `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve` | `adminController` | Router-level `requireAuth` + `requireAdmin`. Validation: `AdminListDisputesQuerySchema`, `DisputeIdParamsSchema`, `ResolveDisputeSchema`. |
 
 ### Backend Controllers
 
@@ -178,27 +187,29 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `backend/src/middleware/controllers/bookingController.ts` | Booking creation/detail/listing, owner actions, cancellation, legacy activate/complete, handoff photo/tap endpoints, upload handoff images. Inline required-field guards and `parsePhase` helper removed — validate middleware owns all input checks. | `bookingService`, `handoffService`, `uploadImage`. | `routes/bookings.ts`. |
 | `backend/src/middleware/controllers/conversationController.ts` | Conversation creation, conversation list, message list, send message. | `conversationService`. | `routes/conversations.ts`. |
 | `backend/src/middleware/controllers/reviewController.ts` | Pending review list and review submission. | `reviewService`. | `routes/reviews.ts`. |
-| `backend/src/middleware/controllers/paymentController.ts` | Older/alternate Connect account initiation and callback handling. | `paymentService`, `userService`. | `routes/payments.ts`, but router is not mounted. |
-| `backend/src/middleware/controllers/stripeWebhookController.ts` | Constructs Stripe event, verifies signature when configured, records webhook event, updates booking payment status from payment intent events. Receives raw `Buffer` body — intentionally excluded from Zod body validation. | Prisma, Stripe env vars. | Raw webhook routes in `src/index.ts`; also imported by unmounted `routes/payments.ts`. |
-| `*.test.ts` controller files | Unit tests for controller behavior using mocked services/responses. `bookingController.test.ts` now exercises the `validate()` + `errorHandler` pipeline and asserts the `{ error, issues }` shape. | Node test runner, `httpMocks`, service modules. | `npm test`. |
+| `backend/src/middleware/controllers/disputeController.ts` | `createDispute` (renter/owner opens a dispute), `getDispute` (admin or booking participant only), `getMyDisputes`. | `disputeService`, Prisma. | `routes/disputes.ts`. |
+| `backend/src/middleware/controllers/adminController.ts` | `listDisputes` (optional status filter), `getDisputeDetail`, `resolveDispute` (validates target status, delegates to `disputeService.resolveDispute`). | `disputeService`, Prisma. | `routes/admin.ts`. |
+| `backend/src/middleware/controllers/stripeWebhookController.ts` | Constructs Stripe event, verifies signature when configured, records webhook event, updates booking payment status from payment intent events. Receives raw `Buffer` body — intentionally excluded from Zod body validation. | Prisma, Stripe env vars. | Raw webhook routes in `src/index.ts` (`/stripe/webhook` and `/api/stripe/webhook`). |
+| `*.test.ts` controller files | Unit tests for controller behavior using mocked services/responses, including `adminController.test.ts` and `disputeController.test.ts`. `bookingController.test.ts` now exercises the `validate()` + `errorHandler` pipeline and asserts the `{ error, issues }` shape. | Node test runner, `httpMocks`, service modules. | `npm test`. |
 
 ### Backend Services
 
 | File | What It Contains | Calls / Depends On | Used By |
 |---|---|---|---|
 | `backend/src/services/authService.ts` | Email domain allowlist, OTP generation, JWT signing, registration, login, OTP verification/resend, SES email sending. | Prisma, bcrypt, JWT, crypto, AWS SES, auth env vars. | `authController`. |
-| `backend/src/services/userService.ts` | Profile reads/updates, avatar URL update, Expo push token update, Stripe account ID getters/setters, public profile/reputation formatting. | Prisma. | `userController`, `paymentController`. |
+| `backend/src/services/userService.ts` | Profile reads/updates, avatar URL update, Expo push token update, Stripe account ID getters/setters, public profile/reputation formatting. | Prisma. | `userController`. |
 | `backend/src/services/listingService.ts` | Listing create/read/update/delete, image add/delete, availability, category list, browse/search with location/distance filtering. | Prisma, raw SQL for distance. | `listingController`. |
-| `backend/src/services/bookingService.ts` | Booking creation, totals/deposits, payment intent setup, owner request handling, state transitions, cancellation fee rules, review obligation creation, response formatting. | Prisma, `bookingStateMachine`, `bookingUtils`, `paymentService`, `notificationService`, `bookingEventService`. | `bookingController`, `handoffService`. |
+| `backend/src/services/bookingService.ts` | Booking creation, totals/deposits, payment intent setup, owner request handling, state transitions, cancellation handling, review obligation creation, response formatting. `calculateCancellationFeeCents()` currently short-circuits to `return 0` — cancellation fees are disabled for launch (product decision); the original tiered clamp($5, $25, totalPrice × 5%) logic is retained below the early return, unreachable, for a planned owner opt-in "cancellation fee" feature (same pattern as `Listing.insuranceOptIn`). `handleCancellationPayment()` is awaited end-to-end by `transitionBookingStatus` (not fire-and-forget); when the fee is 0 it calls `cancelPaymentIntent` (full release) instead of `capturePaymentIntent` with a zero amount, since Stripe rejects `amount_to_capture: 0`. A failure to write the `cancel_payment` audit `BookingEvent` is caught separately and logged, not thrown, since the booking's `CANCELLED` status has already committed by that point. | Prisma, `bookingStateMachine`, `bookingUtils`, `paymentService`, `notificationService`, `bookingEventService`. | `bookingController`, `handoffService`. |
 | `backend/src/services/bookingUtils.ts` | Currency rounding, rental day count, date validation, deposit calculation. | None. | `bookingService`; tested by `bookingUtils.test.ts`. |
 | `backend/src/services/bookingEventService.ts` | Creates immutable booking audit events. | Prisma, Prisma JSON types. | Booking/payment/handoff flows. |
 | `backend/src/services/handoffService.ts` | Pickup/return photo initiation, synchronized confirmations, tap registration, completed photo retrieval. Enforces participant checks and confirmation windows. | Prisma, `bookingService`, `paymentService`, `notificationService`. | `bookingController`. |
 | `backend/src/services/paymentService.ts` | Stripe/mocked payment behavior, cents/decimal helpers, commission, insurance, owner payout calculations, PaymentIntent auth/capture/cancel/refund, transfers, Connect onboarding/status. | Stripe SDK, payment env vars. | `bookingService`, `handoffService`, `userController`, jobs. |
 | `backend/src/services/conversationService.ts` | Opens or finds a conversation for listing/renter, lists conversations, fetches messages, sends messages, sends direct push notifications. | Prisma, `notificationService`. | `conversationController`. |
 | `backend/src/services/reviewService.ts` | Pending reviews, review submission, score validation, user reputation recomputation, notifications. | Prisma, `notificationService`. | `reviewController`. |
+| `backend/src/services/disputeService.ts` | `createDispute` (validates the requester is a booking participant, blocks a second open dispute, writes a `DISPUTE_OPENED` `BookingEvent`, sets `Booking.disputeStatus = OPEN`); `resolveDispute` (refunds via Stripe on `RESOLVED_REFUND`, then transactionally updates the dispute, the booking's `disputeStatus`, and writes a `DISPUTE_RESOLVED` `BookingEvent`). | Prisma, `paymentService.refundPaymentIntent`. | `disputeController`, `adminController`. |
 | `backend/src/services/notificationService.ts` | Creates DB notifications and sends Expo push notifications when a token exists. | Prisma, Expo push endpoint, `EXPO_ACCESS_TOKEN`. | Booking, conversation, review services. |
-| `backend/src/services/cleanupJob.ts` | Helpers for stale handoff cleanup and releasing due payouts. | Prisma, payment/handoff env vars, `paymentService`. | Not scheduled from `src/index.ts`; manual/import usage only unless wired elsewhere. |
-| `backend/src/services/reconciliationJob.ts` | Reconciles Stripe payment state against local bookings. | Prisma, Stripe env vars. | Not scheduled from `src/index.ts`; manual/import usage only unless wired elsewhere. |
+| `backend/src/services/cleanupJob.ts` | Helpers for stale handoff cleanup and releasing due payouts (`releaseDuePayouts` only selects bookings with `disputeStatus: 'NONE'`). | Prisma, payment/handoff env vars, `paymentService`. | Scheduled every 15 minutes via `node-cron` in `src/index.ts` (skipped when `NODE_ENV=test`); also importable directly. |
+| `backend/src/services/reconciliationJob.ts` | Reconciles Stripe payment state against local bookings. | Prisma, Stripe env vars. | Scheduled hourly via `node-cron` in `src/index.ts` (skipped when `NODE_ENV=test`); also importable directly. |
 | `backend/src/services/*.test.ts` | Unit tests, currently including booking utility tests. | Node test runner. | `npm test`. |
 
 ### Backend Script Files
@@ -206,6 +217,17 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | File | What It Does | Depends On | Used By |
 |---|---|---|---|
 | `backend/src/scripts/week7SmokeFlow.ts` | Runs a backend-only smoke flow for users, listing, booking, payment authorization, pickup/return photos, synchronized taps, and final state checks. | Prisma/services/env. | `npm run smoke:week7`. |
+
+### Backend Integration Tests
+
+| File | What It Does | Depends On | Used By |
+|---|---|---|---|
+| `backend/src/integration-tests/README.md` | Explains setup (`zoink_test` DB, `.env.test`, Stripe test-mode network access), the truncate-and-reseed test isolation strategy, and why transaction-per-test isn't used (the `pg` pool can hand the test setup and the code under test different connections). | None. | Developers running `npm run test:integration`. |
+| `backend/src/integration-tests/setup.ts` | Shared test utilities: `truncateAllTables`, `createTestUser`, `createTestListing`, `futureDates`, `buildSignedWebhookPayload`, `signTestJwt`, `checkStripeConnectivity`, `getApp` (imports the real `app` from `src/index.ts`). | Prisma, `jsonwebtoken`, Stripe, `src/index.ts`. | All `*.integration.test.ts` files. |
+| `backend/src/integration-tests/bookingLifecycle.integration.test.ts` | Full happy path over real HTTP via `supertest`: create → accept → pickup handoff → `ACTIVE` → return handoff → `COMPLETED` → review obligations → `PAYOUT_PENDING`. Plus validation, overlap detection, and access-control checks. `giveOwnerStripeAccount()` reads a real account id from `process.env.DEV_STRIPE_ACCOUNT_ID` (a fully-onboarded, `payouts_enabled: true` Stripe Express test-mode Connect account) and throws immediately if it's unset — accept-flow tests make a real `stripe.accounts.retrieve` call that a fake id would fail. | `supertest`, `setup.ts`, real Postgres + Stripe test mode. | `npm run test:integration`. |
+| `backend/src/integration-tests/bookingCancellation.integration.test.ts` | Cancellation behavior at each booking stage (`PENDING`/`ACCEPTED`/`PICKUP_PENDING`), invalid-cancellation rejections, and HTTP status codes. Same `DEV_STRIPE_ACCOUNT_ID` requirement/fail-fast as `bookingLifecycle.integration.test.ts` for `giveOwnerStripeAccount()`. Since cancellation fees are disabled for launch (see `bookingService.ts`), the original tiered-fee assertions (`cancellation fee is clamped to $5 minimum`, `...$25 maximum`, `...5% for a mid-range rental`) are kept but marked `{ skip: '...' }` with a reason pointing back to `calculateCancellationFeeCents()`, ready to re-enable if the opt-in feature ships; a new `cancel from ACCEPTED status — fees disabled for launch` describe block asserts the current $0-fee behavior (full payment-intent release, same as the `PENDING` branch) across cheap/expensive/mid-range rentals. | `supertest`, `setup.ts`. | `npm run test:integration`. |
+| `backend/src/integration-tests/disputeResolution.integration.test.ts` | `disputeService.createDispute`/`resolveDispute` at the service and HTTP layer; all three resolution outcomes; the admin-only resolve endpoint; `BookingEvent` audit trail. | `supertest`, `setup.ts`, `disputeService`. | `npm run test:integration`. |
+| `backend/src/integration-tests/stripeWebhooks.integration.test.ts` | Synthetic signed webhook events posted to `/stripe/webhook`; signature verification, unknown event types, replay idempotency. | `supertest`, `setup.ts`, Stripe webhook signing. | `npm run test:integration`. |
 
 ### Frontend Config and App Shell
 
@@ -242,7 +264,6 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `frontend/src/services/conversationsApi.ts` | Open/list conversations, get messages, send messages. | `/conversations/*`. | Inbox, listing detail, active rental, thread screens. |
 | `frontend/src/services/usersApi.ts` | My/public profile, profile update, avatar upload through `getImageUploadPart`, push token update, Stripe Connect onboarding/status. | `/users/*`, `/stripe/connect/status`. | Profile screens, push notification sync. |
 | `frontend/src/services/reviewsApi.ts` | Pending reviews and review submission. | `/reviews/pending`, `/reviews`. | Navigation review gate, review prompt screen. |
-| `frontend/src/services/paymentsApi.ts` | Alternate Connect onboarding call to `/payments/connect-account`. | `DEMO_MODE`, `/payments/connect-account`. | Unclear from current codebase; no screen import found in current scan and backend does not mount `/payments`. |
 | `frontend/src/services/pushNotifications.ts` | Requests notification permission, gets Expo push token, configures Android channel, syncs/clears token through `usersApi`. | Expo notifications/constants, `updateMyPushToken`. | `AuthContext`. |
 | `frontend/src/services/mockListings.ts` | Demo-mode listing data and fake listing CRUD/image behavior. | Types. | `listingsApi`. |
 | `frontend/src/services/mockProfiles.ts` | Demo-mode public/my profile data and profile/avatar updates. | Types. | `usersApi`. |
@@ -324,18 +345,19 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 
 ## 6. Backend Flow
 
-1. `backend/src/index.ts` loads `.env`, creates an Express app, enables CORS, registers raw Stripe webhook endpoints before JSON parsing, then enables `express.json()`.
+1. `backend/src/index.ts` loads `.env` (skipped when `NODE_ENV=test`), creates an Express app, enables CORS, registers raw Stripe webhook endpoints (`/stripe/webhook` and `/api/stripe/webhook`) before JSON parsing, then enables `express.json()`.
 2. Health/root routes return simple JSON.
 3. Stripe Connect return/refresh pages serve small HTML responses that link back to `zoink://`.
-4. Main routers are mounted at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, and `/reviews`.
-5. `requireAuth` validates JWTs and attaches `userId`/`verificationStatus`.
-6. `requireVerified` blocks marketplace routes unless the JWT says the user is verified.
+4. Main routers are mounted at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, `/reviews`, `/disputes`, and `/admin`.
+5. `requireAuth` validates JWTs and attaches `userId`/`verificationStatus`/`role`.
+6. `requireVerified` blocks marketplace/dispute routes unless the JWT says the user is verified; `requireAdmin` blocks `/admin/*` routes unless the JWT role is `ADMIN`.
 7. `validate(schema)` middleware runs next for routes with request schemas; on Zod failure it calls `next(ZodError)` directly to the error handler.
 8. Route files call controller functions.
 9. Controllers receive pre-validated, type-coerced input from `req.body/params/query` and call services.
 10. Services contain business logic and database access through the shared Prisma client.
-11. Booking/payment/handoff flows also create `BookingEvent` audit records and send notifications where applicable.
+11. Booking/payment/handoff/dispute flows also create `BookingEvent` audit records and send notifications where applicable.
 12. Stripe webhooks update booking payment status and create audit events.
+13. Outside of test mode (`NODE_ENV=test`), `node-cron` jobs run stale-handoff cleanup + payout release every 15 minutes and Stripe reconciliation hourly.
 
 Response format is generally plain JSON objects or arrays. Successful error responses from `AppError` subclasses look like:
 
@@ -363,10 +385,12 @@ Zod validation failures (400) include a structured issue list:
 | Enum | Values / Purpose |
 |---|---|
 | `VerificationStatus` | `PENDING`, `SUBMITTED`, `VERIFIED`, `FAILED`. |
+| `Role` | `USER`, `ADMIN`. Drives `requireAdmin` authorization. |
 | `BookingStatus` | `PENDING`, `ACCEPTED`, `DECLINED`, `PICKUP_PENDING`, `ACTIVE`, `RETURN_PENDING`, `COMPLETED`, `CANCELLED`. |
 | `PaymentStatus` | Payment authorization, capture, refund, payout, and failure states. |
-| `DisputeStatus` | `NONE`, `OPEN`, `RESOLVED`. |
-| `BookingEventType` | Audit event categories for status, payment, payout, handoff, disputes, webhooks, reconciliation, errors. |
+| `DisputeStatus` | `NONE`, `OPEN`, `UNDER_REVIEW`, `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, `DISMISSED`. Used by both `Booking.disputeStatus` and `Dispute.status`. |
+| `DisputeReason` | `ITEM_DAMAGED`, `ITEM_NOT_RETURNED`, `ITEM_NOT_AS_DESCRIBED`, `PAYMENT_ISSUE`, `OTHER`. |
+| `BookingEventType` | Audit event categories for status, payment, payout, handoff, disputes (`DISPUTE_OPENED`, `DISPUTE_RESOLVED`), webhooks, reconciliation, errors. |
 | `NotificationType` | Booking/payment/review/verification notification categories. |
 | `ReviewRole` | `RENTER` or `LENDER`. |
 | `ReviewObligationStatus` | `PENDING` or `SUBMITTED`. |
@@ -375,12 +399,13 @@ Zod validation failures (400) include a structured issue list:
 
 | Model | Purpose | Important Relationships |
 |---|---|---|
-| `User` | Account, profile, verification, push token, Stripe customer/account IDs. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens. |
+| `User` | Account, profile, verification, role, push token, Stripe customer/account IDs. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; raised disputes (`raisedDisputes`); disputes resolved as admin (`resolvedDisputes`). |
 | `VerificationToken` | OTP codes for student email verification. | Belongs to `User`, cascade delete. |
 | `Listing` | Rentable item with title, description, category, price, value, availability, location. | Belongs to owner `User`; has images, bookings, conversations. |
 | `ListingImage` | Image URL and display order for listings. | Belongs to `Listing`, cascade delete. |
-| `Booking` | Rental request and lifecycle state, dates, pricing, payment, handoff photos/taps, disputes. | Belongs to renter, owner, listing; has reviews, obligations, events. |
-| `BookingEvent` | Immutable audit trail for booking/payment/handoff changes. | Belongs to `Booking`, cascade delete. |
+| `Booking` | Rental request and lifecycle state, dates, pricing, payment, handoff photos/taps, dispute status. | Belongs to renter, owner, listing; has reviews, obligations, events, `Dispute` records. |
+| `BookingEvent` | Immutable audit trail for booking/payment/handoff/dispute changes. | Belongs to `Booking`, cascade delete. |
+| `Dispute` | A single dispute raised on a booking: reason, description, status, resolution notes, resolving admin. | Belongs to `Booking`; `raisedByUser` and optional `resolvedByAdmin` both reference `User`. |
 | `Conversation` | Chat thread for one listing and renter/owner pair. | Unique by `listingId + renterId`; has messages. |
 | `Message` | Chat message body and sender. | Belongs to conversation and sender. |
 | `Review` | Post-rental score/comment by one user for another. | Unique by `bookingId + reviewerId`; tied to obligation. |
@@ -394,7 +419,7 @@ Zod validation failures (400) include a structured issue list:
 2. `AuthContext.register` posts to `/auth/register` unless demo mode is enabled.
 3. `authController.register` calls `authService.registerUser`.
 4. `authService.registerUser` checks allowed email domain, hashes the password, creates a user, creates an OTP verification token, sends an email through SES, and returns a JWT plus user data.
-5. The JWT includes at least `userId`, `verificationStatus`, `email`, and `firstName` based on the frontend parser and service signing function.
+5. The JWT includes `userId`, `verificationStatus`, `email`, `firstName`, and `role` (`USER` or `ADMIN`) based on the frontend parser and service signing function; `requireAuth` defaults `role` to `USER` if a token predates this field.
 6. The frontend stores the token under `zoink_jwt` and routes unverified users to the verification stack.
 7. `VerifyEmailScreen` posts the six-digit code to `/auth/verify-email`.
 8. `authService.verifyOTP` validates token ownership, expiry, and used status, marks the user verified, and returns a new `VERIFIED` JWT.
@@ -454,9 +479,13 @@ Unclear from current codebase: stronger ID verification fields exist on `User` (
 
 After completed rentals, backend creates review obligations. `Navigation` checks pending reviews before loading the main app. `ReviewPromptScreen` submits scores/comments and loads the next pending review if any.
 
+### Disputes
+
+`disputeController.createDispute` -> `disputeService.createDispute` (participant check, one-open-dispute-per-booking check, `DISPUTE_OPENED` `BookingEvent`, sets `Booking.disputeStatus = OPEN`) -> `POST /disputes`. Renter or owner can view their own disputes (`GET /disputes`) or a specific one they're party to (`GET /disputes/:id`). No frontend screen currently calls these routes.
+
 ### Admin / Moderation
 
-Unclear from current codebase. Dispute fields exist on `Booking`, and README mentions admin/support tooling as future work, but no admin routes/screens were found.
+Backend-implemented, no frontend UI. `User.role` (`USER`/`ADMIN`) is carried in the JWT and enforced by `requireAdmin`. Admins list/inspect disputes (`GET /admin/disputes`, `GET /admin/disputes/:id`) and resolve them (`PATCH /admin/disputes/:id/resolve` -> `disputeService.resolveDispute`), which issues a Stripe refund on `RESOLVED_REFUND`, updates `Booking.disputeStatus`, and writes a `DISPUTE_RESOLVED` `BookingEvent`. There is no admin route/screen to change a user's `role` — it must currently be set directly in the database or via `prisma/seed.ts`-style scripting.
 
 ## 10. How Files Interact
 
@@ -471,7 +500,7 @@ Unclear from current codebase. Dispute fields exist on `Booking`, and README men
 | `conversationsApi.ts` | `/conversations`, `/conversations/me`, `/conversations/:id/messages` |
 | `usersApi.ts` | `/users/me`, `/users/:id`, `/users/me/avatar`, `/users/me/push-token`, `/users/me/stripe-connect/onboard`, `/stripe/connect/status` |
 | `reviewsApi.ts` | `/reviews/pending`, `/reviews` |
-| `paymentsApi.ts` | `/payments/connect-account`, but route is not currently mounted. |
+| *(none)* | `/disputes`, `/disputes/:id`, `/admin/disputes`, `/admin/disputes/:id`, `/admin/disputes/:id/resolve` — implemented backend routes with no frontend caller yet. |
 
 ### Backend Layering Pattern
 
@@ -510,7 +539,7 @@ routes/*.ts
 
 ## 11. Environment Variables
 
-Do not commit real secret values. The repo contains `.env` files with sensitive-looking values; rotate any exposed keys if this repo has been shared.
+Do not commit real secret values. The repo contains `.env` files with sensitive-looking values; rotate any exposed keys if this repo has been shared. `.gitignore` covers `backend/.env` and `frontend/.env` but **not** `backend/.env.test`, which is currently untracked rather than ignored — see the Gaps section.
 
 ### Backend
 
@@ -528,10 +557,10 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 | `CLOUDINARY_CLOUD_NAME` | `utils/cloudinary.ts` | Cloudinary account. |
 | `CLOUDINARY_API_KEY` | `utils/cloudinary.ts` | Cloudinary credential. |
 | `CLOUDINARY_API_SECRET` | `utils/cloudinary.ts` | Cloudinary credential. |
-| `STRIPE_SECRET_KEY` | `paymentService.ts`, `stripeWebhookController.ts`, `reconciliationJob.ts`, `stripe.ts` | Stripe server API key; empty can trigger mock mode in payment service. |
+| `STRIPE_SECRET_KEY` | `paymentService.ts`, `stripeWebhookController.ts`, `reconciliationJob.ts`, `disputeService.ts` | Stripe server API key; empty can trigger mock mode in payment service. In `.env.test`, must start with `sk_test_` (enforced by `integration-tests/setup.ts`). |
 | `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. |
 | `STRIPE_CURRENCY` | `paymentService.ts` | PaymentIntent/Stripe currency. |
-| `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed/smoke script | Local/dev owner payout account override. |
+| `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed/smoke script, `integration-tests/bookingLifecycle.integration.test.ts`, `integration-tests/bookingCancellation.integration.test.ts` | Local/dev owner payout account override. In `.env.test`, must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests call the live Stripe Connect API (`accounts.retrieve`) against it, and the test helpers now throw immediately if it's unset rather than falling back to a fake id like `acct_mock_test`. |
 | `STRIPE_CONNECT_RETURN_URL` | `paymentService.ts` | Stripe Connect return URL. |
 | `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | Stripe Connect refresh URL. |
 | `PAYOUT_HOLD_HOURS` | `cleanupJob.ts` | Delay before releasing owner payouts. |
@@ -541,7 +570,7 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 | `MIN_INSURANCE_FEE` | `paymentService.ts` | Minimum insurance fee. |
 | `MAX_INSURANCE_FEE` | `paymentService.ts` | Maximum insurance fee. |
 | `EXPO_ACCESS_TOKEN` | `notificationService.ts` | Optional Expo push service access token. |
-| `NODE_ENV` | `bookingService.ts` | Development/production conditional behavior. |
+| `NODE_ENV` | `bookingService.ts`, `src/index.ts`, `utils/prisma.ts` | Development/production conditional behavior. When `test`, `src/index.ts` skips `dotenv.config()`, skips cron job registration, and skips `app.listen()` (so `supertest` can drive the exported `app`). |
 
 ### Frontend
 
@@ -561,7 +590,8 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 | `npm run dev` | Start backend with nodemon and ts-node. |
 | `npm run build` | Compile TypeScript to `dist/`. |
 | `npm start` | Run compiled backend from `dist/index.js`. Requires build first. |
-| `npm test` | Run Node tests for services, middleware, and controllers. |
+| `npm test` | Run Node unit tests for services, middleware, and controllers (`src/integration-tests/` is excluded). |
+| `npm run test:integration` | Run `src/integration-tests/*.integration.test.ts` against a real `zoink_test` Postgres DB and Stripe test mode; requires `backend/.env.test` and applied migrations. Runs with `--test-concurrency=1` since tests truncate shared tables. |
 | `npm run smoke:week7` | Run payment/handoff smoke flow. |
 | `npx prisma migrate dev` | Apply migrations locally and generate Prisma client. |
 | `npx prisma generate` | Generate Prisma client. |
@@ -587,7 +617,7 @@ No linting or formatting scripts were found in `package.json` files.
 | Pattern | Current Implementation |
 |---|---|
 | Backend layering | Routes are thin, controllers translate HTTP, services hold business logic and Prisma access. |
-| Auth protection | `requireAuth` first, then `requireVerified` for marketplace routes. |
+| Auth protection | `requireAuth` first, then `requireVerified` for marketplace/dispute routes, or `requireAdmin` for `/admin/*` routes. |
 | Error handling | Centralized `errorHandler.ts` (Phase 4) handles `ZodError` → 400, `AppError` subclasses → mapped status, unknown → 500. All controllers use `asyncHandler` to propagate errors to it. |
 | Validation | Zod v4 schemas in `src/schemas/*.schema.ts`; `validate(schema)` middleware in `src/middleware/validate.ts` coerces and validates `req.body/params/query` before controllers run. `ZodError` flows to the centralized error handler. |
 | File upload | Frontend `getImageUploadPart` -> `FormData` -> Multer memory storage -> controller -> Cloudinary upload helper -> URL saved in DB. |
@@ -603,20 +633,25 @@ No linting or formatting scripts were found in `package.json` files.
 
 | Area | Observation |
 |---|---|
-| Secrets | `.env` files contain real-looking credentials/keys. If committed or shared, rotate them and move to untracked/local secret management. |
-| Mounted routes | `backend/src/routes/payments.ts` exists but is not mounted in `backend/src/index.ts`. `frontend/src/services/paymentsApi.ts` calls `/payments/connect-account`, which appears unreachable. |
-| Duplicate Stripe Connect paths | Current profile flow uses `/users/me/stripe-connect/onboard` and `/stripe/connect/status`; `paymentsApi.ts` and `routes/payments.ts` look stale or alternate. |
-| Scheduled jobs | `cleanupJob.ts` and `reconciliationJob.ts` exist but are not scheduled from the server entrypoint. Payout release/reconciliation may require manual execution or future scheduler wiring. |
-| Admin/disputes | Dispute fields exist, but no admin/support routes or screens were found. |
+| Secrets | `backend/.env` and `frontend/.env` contain real-looking credentials/keys and are gitignored — rotate them if this repo has been shared. `backend/.env.test` is **not** gitignored (see next row). |
+| `.env.test` not ignored | `.gitignore` only lists `backend/.env`, `frontend/.env`, `.env.local`, `.env.production`. `backend/.env.test` shows as untracked in `git status`, meaning it will be committed if staged with a broad `git add`. Add it to `.gitignore` and rotate any keys already exposed; only `sk_test_...` Stripe keys should ever live there. |
+| Migration ordering bug | `backend/prisma/migrations/20260721000000_add_role_and_disputes/migration.sql` alters the `disputes.status` column before `CREATE TABLE "disputes"` runs, so `prisma migrate deploy` fails on a fresh database. `apply_to_test_db.sql` is a manually reordered workaround used only for the test DB; production/new-dev databases would need the same fix or a corrected migration. |
+| Payout permanently blocked after dispute resolution | `cleanupJob.releaseDuePayouts` only selects bookings with `disputeStatus: 'NONE'`. Since `disputeService.resolveDispute` sets `disputeStatus` to `RESOLVED_REFUND`/`RESOLVED_NO_ACTION`/`DISMISSED` (never back to `NONE`), a booking that ever had a dispute — even a dismissed one — never becomes eligible for automatic payout release again. |
+| Admin/disputes frontend | Backend dispute-filing (`/disputes`) and admin resolution (`/admin/disputes/*`) routes are fully implemented and covered by integration tests, but no frontend screen calls them yet — renters/owners can't file a dispute from the app, and there's no admin UI. There's also no route/screen to change a user's `Role`. |
+| Frontend dispute type drift | `frontend/src/types/index.ts` still types `disputeStatus` as `'NONE' \| 'OPEN' \| 'RESOLVED'`, but the backend `DisputeStatus` enum now has six values (`NONE`, `OPEN`, `UNDER_REVIEW`, `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, `DISMISSED`). Any frontend code branching on this field needs updating before disputes are surfaced in the app. |
 | ID verification | User fields for ID photo/selfie/manual review exist, but no current submission/review flow was found. |
 | Validation | ~~Resolved~~ — Zod v4 schema layer added in Phase 5: `src/schemas/*.schema.ts` + `src/middleware/validate.ts`. |
 | Error handling | ~~Resolved~~ — Centralized `errorHandler.ts` added in Phase 4; extended for `ZodError` in Phase 5. |
-| Tests | Backend has targeted tests, but broad integration tests for auth, listings, payments, handoffs, notifications, and reviews appear limited. Frontend test setup was not found. |
-| Type drift | Frontend types are separate from Prisma/backend response types, so API changes can drift silently. |
+| Scheduled jobs | ~~Resolved~~ — `cleanupJob.ts` and `reconciliationJob.ts` are now registered with `node-cron` in `backend/src/index.ts` (skipped only when `NODE_ENV=test`). |
+| Unmounted payments route | ~~Resolved~~ — `backend/src/routes/payments.ts`, `paymentController.ts`, `backend/app.json`, `backend/stripe.ts`, and `frontend/src/services/paymentsApi.ts` have all been removed. Stripe Connect flows exclusively through `/users/me/stripe-connect/*` and `/stripe/connect/status` now. |
+| Tests | Unit tests cover services/middleware/controllers; integration tests (`backend/src/integration-tests/`) now cover booking lifecycle, cancellation, disputes, and Stripe webhooks end-to-end via `supertest` against a real Postgres test DB and Stripe test mode. Handoff race conditions, review-obligation edge cases, and notification delivery are still not covered by integration tests. Frontend test setup was not found. |
+| Cancellation fees disabled for launch | `bookingService.calculateCancellationFeeCents()` is short-circuited to always `return 0` (product decision — no fee at launch). The original tiered clamp($5, $25, totalPrice × 5%) logic is retained but unreachable, for a planned owner opt-in "cancellation fee" feature (same pattern as `Listing.insuranceOptIn`, not yet implemented — there's no `Listing`-level toggle or schema field for it yet). `README.md`'s "Cancellation Rules" section reflects the current fee-free behavior; the tiered-fee integration tests are skipped (not deleted) with a reason pointing back here. |
+| `req.query` fix (Express 5) | `validate.ts` previously did `req.query = data.query`, which throws on Express 5 since `req.query` is a getter-only accessor with no setter. Fixed via `Object.defineProperty`. Resolved, documented here as a note for anyone touching that middleware again. |
+| Integration test Stripe account (resolved) | `giveOwnerStripeAccount()` in both `bookingLifecycle.integration.test.ts` and `bookingCancellation.integration.test.ts` used to fall back to the fake id `'acct_mock_test'`, which caused live `StripePermissionError`s (403) on every accept/pickup/cancellation test once a real `sk_test_...` key was present in `.env.test`. Both now read a real Connect account id from `DEV_STRIPE_ACCOUNT_ID` and throw immediately if it's unset. See the `DEV_STRIPE_ACCOUNT_ID` env var row above. |
+| Type drift | Frontend types are separate from Prisma/backend response types, so API changes can drift silently (see the dispute-status drift above for a concrete current example). |
 | Demo mode env casing | `DEMO_MODE` checks `EXPO_PUBLIC_DEMO_MODE === 'true'`; uppercase `TRUE` will not enable demo mode. |
-| Root package | Root has a lockfile but no root `package.json`; unclear whether this is intentional. |
+| Duplicate webhook mount | `/stripe/webhook` and `/api/stripe/webhook` both route to the same `stripeWebhook` handler in `backend/src/index.ts`; confirm which path the live Stripe webhook endpoint is configured against, since only one is likely intentional. |
 | Encoding | Some source comments/output show mojibake characters from earlier non-ASCII text. Worth cleaning for readability. |
-| Backend `app.json` and `stripe.ts` | Present but not clearly used by the active app flow. |
 
 ## 15. Developer Onboarding Guide
 
@@ -682,6 +717,21 @@ npm start
 
 For Stripe PaymentSheet, use an EAS development or release build rather than Expo Go.
 
+9. Optional — set up integration tests:
+
+```bash
+createdb zoink_test
+DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/zoink_test" npx prisma migrate deploy
+```
+
+Create `backend/.env.test` pointed at `zoink_test` with `sk_test_...` Stripe keys (see `backend/src/integration-tests/README.md`), **and set `DEV_STRIPE_ACCOUNT_ID` to a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id** — accept-flow and cancellation tests call the live Stripe Connect API against it and now fail fast with a clear error if it's missing, then:
+
+```bash
+npm run test:integration
+```
+
+Note the migration ordering bug above — `migrate deploy` on a fresh `zoink_test` DB may fail on the `20260721000000_add_role_and_disputes` migration; apply `apply_to_test_db.sql` manually if so.
+
 ### Where to Edit Common Features
 
 | Feature | Frontend Files | Backend Files | Database |
@@ -695,6 +745,7 @@ For Stripe PaymentSheet, use an EAS development or release build rather than Exp
 | Input validation | N/A (handled server-side) | `src/middleware/validate.ts`, `src/schemas/*.schema.ts`, `src/middleware/errorHandler.ts` | N/A |
 | Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx`, `conversationsApi.ts` | `routes/conversations.ts`, `conversationController.ts`, `conversationService.ts` | `Conversation`, `Message` |
 | Reviews/reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `bookingService.ts` | `Review`, `ReviewObligation`, `UserReputation` |
+| Disputes/admin | None yet — no frontend screens or API wrapper exist | `routes/disputes.ts`, `routes/admin.ts`, `disputeController.ts`, `adminController.ts`, `disputeService.ts`, `requireAdmin.ts`, `schemas/dispute.schema.ts` | `Dispute`, `Booking.disputeStatus`, `User.role` |
 | Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts`, relevant feature services | `Notification`, `User.expoPushToken` |
 | UI theme | `theme/colors.ts`, shared components, screen styles | Not applicable | Not applicable |
 | Landing page | `landing/index.html`, `landing/assets/*` | Not applicable | Not applicable |

@@ -17,7 +17,13 @@ import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 
-dotenv.config()
+// Load .env only when not in test mode — integration tests load .env.test
+// via setup.ts before this module is imported. Running dotenv.config() here
+// during tests would overwrite DATABASE_URL (and other vars) back to the dev
+// values from .env, breaking the test DB connection.
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config()
+}
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -133,17 +139,22 @@ if (process.env.NODE_ENV !== 'test') {
   console.log('Scheduled cleanup job every 15 minutes and reconciliation job every hour.')
 }
 
-const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
-})
+// Don't start the HTTP server when running under the test suite — supertest
+// binds its own ephemeral port by calling app.listen() internally. Starting
+// the server here would race with other test files and hit EADDRINUSE.
+if (process.env.NODE_ENV !== 'test') {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
+  })
 
-server.on('error', (e: any) => {
-  if (e.code === 'EADDRINUSE') {
-    console.error(`\n❌ Port ${PORT} is already in use! Please kill the process using it.`)
-    process.exit(1)
-  } else {
-    console.error('Server error:', e)
-  }
-})
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(`\n❌ Port ${PORT} is already in use! Please kill the process using it.`)
+      process.exit(1)
+    } else {
+      console.error('Server error:', e)
+    }
+  })
+}
 
 export default app

@@ -32,7 +32,16 @@ export function validate(schema: ZodSchema) {
 
     if (data.body !== undefined) req.body = data.body
     if (data.params !== undefined) req.params = data.params as any
-    if (data.query !== undefined) req.query = data.query as any
+    if (data.query !== undefined) {
+      // req.query is a getter-only accessor on Express 5's Request prototype;
+      // direct assignment throws, so redefine it as an own writable property.
+      Object.defineProperty(req, 'query', {
+        value: data.query,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      })
+    }
 
     next()
   }

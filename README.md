@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, and active rental UX are implemented through Week 10. The remaining major work is admin/support tooling, broader automated testing, security hardening, production deployment, and release-build readiness.
+The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, active rental UX, and a backend admin/dispute API are implemented through Week 10. The remaining major work is an admin/support UI, broader automated testing coverage, security hardening, production deployment, and release-build readiness.
 
 ---
 
@@ -50,11 +50,20 @@ Completed:
   - Owners can reach active rentals from My Listings.
   - Active Rental screen shows item, dates, other party, deposit, chat, and context-aware handoff/return actions.
   - Zoink It screen includes the updated outside-ring animation and success ripple.
+- Backend admin/dispute system:
+  - `Role` (`USER` / `ADMIN`) added to `User`, carried in the JWT, and enforced by `requireAdmin`.
+  - Renter or owner can open a dispute on a booking (`POST /disputes`) with a reason and description; one open dispute per booking at a time.
+  - Admins list, inspect, and resolve disputes (`GET /admin/disputes`, `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve`).
+  - Resolving with `RESOLVED_REFUND` triggers a Stripe refund of the booking automatically; all resolutions are transactional and logged as `BookingEvent`s.
+  - Cleanup and reconciliation jobs are now actually scheduled with `node-cron` (cleanup every 15 minutes, reconciliation hourly) — no longer manual-only.
+- Backend integration test suite (`backend/src/integration-tests/`) using `supertest` against a real Postgres test database and Stripe test mode, covering booking lifecycle, cancellation, disputes, and Stripe webhooks — now running against a real Stripe Connect test account (`DEV_STRIPE_ACCOUNT_ID`) instead of a fake account id, and with cancellation payment handling fully awaited (no longer fire-and-forget) so the audit-log write always completes before the request returns.
+- Cancellation fees disabled for launch as a product decision — cancelling an accepted booking now fully releases the payment hold with no fee, instead of the previous tiered 5%/$5–$25 fee. See Cancellation Rules below.
 
 To do next:
 
-- Admin/support tooling for disputes, after-pickup refunds, and manual intervention.
-- Broader automated integration tests around payments, handoff race conditions, reviews, and notifications.
+- Admin/support UI (no frontend dispute-filing or admin dashboard screens exist yet; the backend API is implemented — see above).
+- After-pickup refund policy beyond the dispute-resolution refund path.
+- Broader automated integration tests around handoff race conditions, reviews, and notifications (payments/cancellation/disputes/webhooks are now covered).
 - Security hardening, rate limiting, abuse reporting, and operational monitoring.
 - Production deployment, TestFlight/release builds, and launch readiness.
 
@@ -92,12 +101,22 @@ PAID_OUT
 FAILED
 ```
 
-Dispute states:
+Dispute states (`Booking.disputeStatus` and `Dispute.status`):
 
 ```text
 NONE
 OPEN
-RESOLVED
+UNDER_REVIEW
+RESOLVED_REFUND
+RESOLVED_NO_ACTION
+DISMISSED
+```
+
+User roles (`User.role`, carried in the JWT):
+
+```text
+USER
+ADMIN
 ```
 
 ---
@@ -109,7 +128,7 @@ RESOLVED
 - `Booking.version` is used for optimistic locking.
 - Booking mutations and handoff taps run through Prisma transactions.
 - Owner acceptance requires a Stripe account with payouts enabled.
-- Local beta/dev can bypass full onboarding with `DEV_STRIPE_ACCOUNT_ID`.
+- Local beta/dev can bypass full onboarding with `DEV_STRIPE_ACCOUNT_ID`. For `backend/.env.test`, this must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account — the accept-flow and cancellation integration tests call the live Stripe Connect API against it and fail fast with a clear error if it's unset, rather than silently falling back to a fake account id.
 - Payment operations live in `backend/src/services/paymentService.ts`.
 - Synchronized handoff logic lives in `backend/src/services/handoffService.ts`.
 - Stripe webhook handling lives in `backend/src/middleware/controllers/stripeWebhookController.ts`.
@@ -133,7 +152,21 @@ RESOLVED
   - `POST /bookings/:id/photos` legacy-compatible handoff photo endpoint
   - `POST /bookings/:id/zoink-tap` legacy-compatible handoff confirmation endpoint
   - `GET /stripe/connect/status`
-  - `POST /stripe/webhook`
+  - `POST /stripe/webhook` (also mounted at `POST /api/stripe/webhook`)
+
+### Disputes And Admin
+
+- `Role` enum (`USER` / `ADMIN`) lives on `User` and is embedded in the signed JWT; `requireAdmin` middleware rejects non-admins with 403.
+- User-facing dispute routes (auth + verified required):
+  - `POST /disputes` — renter or owner opens a dispute (`reason`, `description`); rejected if an unresolved dispute already exists for that booking.
+  - `GET /disputes` — the caller's own disputes.
+  - `GET /disputes/:id` — dispute detail; admins or the booking's renter/owner only.
+- Admin-only routes (auth + `requireAdmin` required):
+  - `GET /admin/disputes` — list, optional `status` filter.
+  - `GET /admin/disputes/:id` — detail with booking and user context.
+  - `PATCH /admin/disputes/:id/resolve` — sets `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, or `DISMISSED`. `RESOLVED_REFUND` also issues a Stripe refund for the booking's total price. Every resolution runs in a transaction and writes a `DISPUTE_RESOLVED` `BookingEvent`.
+- Dispute service logic lives in `backend/src/services/disputeService.ts`; routes/controllers in `backend/src/routes/disputes.ts` + `admin.ts` and `backend/src/middleware/controllers/disputeController.ts` + `adminController.ts`.
+- No frontend screens exist yet for filing or resolving disputes — this is currently a backend-only, API-level feature.
 
 ### Week 10 Stripe Connect, PaymentSheet, And Active Rentals
 
@@ -158,15 +191,16 @@ Use Stripe test card `4242 4242 4242 4242` with any future expiry and any 3-digi
 ### Cancellation Rules
 
 - Before owner acceptance: authorization hold is released, no charge.
-- After acceptance but before pickup: 5% cancellation fee, minimum `$5.00`, capped at `$25.00`.
+- After acceptance but before pickup: **no cancellation fee** — the authorization hold is fully released, same as pre-acceptance cancellation. This is a launch product decision, not a technical limitation: the original tiered fee logic (5% of total, minimum `$5.00`, capped at `$25.00`) is still implemented in `bookingService.calculateCancellationFeeCents()` but is currently unreachable behind an unconditional `return 0`, retained for a planned owner opt-in "cancellation fee" feature (following the same pattern as the existing per-listing `insuranceOptIn` toggle).
 - After pickup: no automatic refund. Admin/support intervention required.
 
 ### Payout Rules
 
 - Owner payout is held in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS`.
 - Default hold is 24 hours.
-- Payout is blocked if a dispute is open.
+- Payout is blocked unless `Booking.disputeStatus` is `NONE` — note that this means a booking whose dispute was resolved (`RESOLVED_REFUND` / `RESOLVED_NO_ACTION` / `DISMISSED`) still won't release automatically, since `disputeStatus` isn't reset back to `NONE` after resolution.
 - Once released, the backend creates a Stripe Transfer and marks the booking `PAID_OUT`.
+- The release job (`releaseDuePayouts` in `cleanupJob.ts`) and stale-handoff cleanup now run automatically via `node-cron` inside `backend/src/index.ts` (cleanup every 15 minutes, payouts checked in the same job), and `reconciliationJob.ts` runs hourly — none of these require manual invocation outside of tests (`NODE_ENV=test` skips the cron registration).
 
 ### Local Smoke Test
 
@@ -199,6 +233,8 @@ It forces mock Stripe mode, so it does not charge a real card.
 | Email | AWS SES |
 | Payments | Stripe |
 | Push notifications | Expo Push Notifications |
+| Scheduled jobs | `node-cron` (cleanup/payout release every 15 min, Stripe reconciliation hourly) |
+| Integration testing | `supertest` + Node's built-in test runner against a real Postgres test DB and Stripe test mode |
 
 ---
 
@@ -278,6 +314,8 @@ For frontend demo mode:
 EXPO_PUBLIC_DEMO_MODE=true
 ```
 
+For backend integration tests, create a separate `zoink_test` Postgres database and a `backend/.env.test` pointed at it (see `backend/src/integration-tests/README.md`). **`backend/.env.test` is not currently listed in `.gitignore`** (only `backend/.env` and `frontend/.env` are) — treat any keys in it as exposed and avoid putting live Stripe keys there; use `sk_test_...` values only. `DEV_STRIPE_ACCOUNT_ID` in `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests make live Stripe Connect API calls against it and fail immediately with a clear error if it's missing.
+
 ---
 
 ## Project Structure
@@ -319,7 +357,10 @@ npm.cmd run build
 npm.cmd test
 npx.cmd prisma validate
 npm.cmd run smoke:week7
+npm.cmd run test:integration
 ```
+
+`test:integration` requires a running `zoink_test` Postgres database with migrations applied and a `backend/.env.test` file (see `backend/src/integration-tests/README.md`). Note the `20260721000000_add_role_and_disputes` migration's generated `migration.sql` alters the `disputes` table's `status` column before that table is created, so it fails on a fresh database with `prisma migrate deploy`; `backend/prisma/migrations/20260721000000_add_role_and_disputes/apply_to_test_db.sql` is a manually reordered version used to seed the test DB until the migration itself is fixed.
 
 Frontend:
 
@@ -344,7 +385,7 @@ npx.cmd tsc --noEmit
 | 8 | Reviews and reputation | Done |
 | 9 | Push notifications and UI polish | Done |
 | 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
-| 11 | Admin/disputes, testing, security hardening | Upcoming |
+| 11 | Admin/disputes backend, integration testing, security hardening | Backend admin/disputes and integration tests done; admin/support UI and security hardening upcoming |
 | 12 | Deployment, TestFlight, production readiness | Upcoming |
 
 ---
@@ -359,13 +400,15 @@ npx.cmd tsc --noEmit
 - Real beta/prod requires Stripe Connect onboarding with payouts enabled before owners can accept bookings.
 - Stripe native payment collection requires an EAS development or release build; it will not work in Expo Go.
 - Messaging currently uses polling, which is simpler for MVP and can be upgraded later.
+- Authorization is role-based (`User.role`, `USER` / `ADMIN`), read from the JWT and enforced with `requireAdmin`; there is no admin frontend yet, so admin actions currently require calling the API directly.
+- Disputes are modeled as their own `Dispute` records (not just a status flag) so a booking has an auditable history of who raised what and how it was resolved.
 
 ---
 
 ## Near-Term Roadmap
 
-1. Add admin/support tooling for disputes, after-pickup refunds, and manual booking/payment intervention.
-2. Expand automated integration tests for payment lifecycle, handoff timing, review obligations, and notification delivery.
+1. Build an admin/support UI on top of the existing dispute API, and extend the dispute-resolution refund path to broader after-pickup refund/intervention cases.
+2. Expand automated integration tests for handoff timing, review obligations, and notification delivery (payment lifecycle, cancellation, disputes, and webhooks now have integration coverage).
 3. Add security hardening: rate limits, abuse reporting, stronger validation, audit review tools, and operational monitoring.
 4. Prepare production deployment infrastructure and environment separation.
 5. Build TestFlight/release builds and complete production readiness checks.
