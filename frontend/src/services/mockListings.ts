@@ -1,4 +1,4 @@
-import { BrowseListingsResult, Listing, ListingImage, User } from '../types'
+import { BrowseListingsResult, ListingBrowseItem, ListingImage, User } from '../types'
 import type { BrowseListingsParams, CreateListingPayload, UpdateListingPayload } from './listingsApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 
@@ -6,13 +6,14 @@ const demoOwner: User = toDemoUser(demoProfile)
 const otherOwner: User = toDemoUser(publicProfiles['demo-user-2'])
 const thirdOwner: User = toDemoUser(publicProfiles['demo-user-3'])
 
-let listings: Listing[] = [
+let listings: ListingBrowseItem[] = [
   {
     id: 'demo-listing-1',
     title: 'Sony Bluetooth Speaker',
     description: 'Loud portable speaker for parties, picnics, and study room events. Comes fully charged.',
     category: 'Audio/Video',
-    dailyPrice: 12,
+    dailyPrice: '12',
+    itemValue: '0',
     isAvailable: true,
     latitude: 43.6532,
     longitude: -79.3832,
@@ -28,6 +29,7 @@ let listings: Listing[] = [
       },
     ],
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     distanceKm: 1.4,
   },
   {
@@ -35,7 +37,8 @@ let listings: Listing[] = [
     title: 'Canon DSLR Camera Kit',
     description: 'Beginner-friendly DSLR with lens, charger, SD card, and padded bag. Great for class projects.',
     category: 'Cameras',
-    dailyPrice: 24,
+    dailyPrice: '24',
+    itemValue: '0',
     isAvailable: true,
     latitude: 43.6629,
     longitude: -79.3957,
@@ -51,6 +54,7 @@ let listings: Listing[] = [
       },
     ],
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     distanceKm: 2.2,
   },
   {
@@ -58,7 +62,8 @@ let listings: Listing[] = [
     title: 'Cordless Drill Set',
     description: 'Compact drill with bits. Perfect for furniture assembly and small dorm projects.',
     category: 'Tools',
-    dailyPrice: 9,
+    dailyPrice: '9',
+    itemValue: '0',
     isAvailable: true,
     latitude: 43.657,
     longitude: -79.38,
@@ -74,6 +79,7 @@ let listings: Listing[] = [
       },
     ],
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     distanceKm: 0.8,
   },
   {
@@ -81,7 +87,8 @@ let listings: Listing[] = [
     title: 'Camping Chair + Lantern Bundle',
     description: 'Foldable chair and rechargeable lantern combo for beach nights, campus events, or quick weekend trips.',
     category: 'Outdoors',
-    dailyPrice: 11,
+    dailyPrice: '11',
+    itemValue: '0',
     isAvailable: true,
     latitude: 43.6487,
     longitude: -79.3861,
@@ -97,6 +104,7 @@ let listings: Listing[] = [
       },
     ],
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     distanceKm: 3.1,
   },
 ]
@@ -128,11 +136,11 @@ export async function mockBrowseListings({
         return false
       }
 
-      if (minPrice != null && listing.dailyPrice < minPrice) {
+      if (minPrice != null && Number(listing.dailyPrice) < minPrice) {
         return false
       }
 
-      if (maxPrice != null && listing.dailyPrice > maxPrice) {
+      if (maxPrice != null && Number(listing.dailyPrice) > maxPrice) {
         return false
       }
 
@@ -152,15 +160,19 @@ export async function mockGetListingCategories() {
 }
 
 export async function mockCreateListing(data: CreateListingPayload) {
-  const listing: Listing = {
+  const listing: ListingBrowseItem = {
     id: `demo-listing-${Date.now()}`,
     ...data,
+    address: data.address ?? null,
+    dailyPrice: String(data.dailyPrice),
+    itemValue: '0',
     isAvailable: true,
     ownerId: demoOwner.id,
     owner: demoOwner,
     images: [],
     createdAt: new Date().toISOString(),
-    distanceKm: 0,
+    updatedAt: new Date().toISOString(),
+    distanceKm: null,
   }
 
   listings = [listing, ...listings]
@@ -179,7 +191,11 @@ export async function mockGetMyListings() {
 
 export async function mockUpdateListing(id: string, data: UpdateListingPayload) {
   const existing = await mockGetListing(id)
-  const updated = { ...existing, ...data }
+  const updated = {
+    ...existing,
+    ...data,
+    dailyPrice: data.dailyPrice != null ? String(data.dailyPrice) : existing.dailyPrice,
+  }
 
   listings = listings.map((listing) => (listing.id === id ? updated : listing))
   return updated

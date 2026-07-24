@@ -32,10 +32,8 @@ let conversations: Conversation[] = [
       id: 'demo-listing-1',
       title: 'Sony Bluetooth Speaker',
       category: 'Audio/Video',
-      dailyPrice: 12,
+      dailyPrice: '12',
       city: 'Toronto',
-      address: 'Downtown campus',
-      isAvailable: true,
       images: [],
     },
     renterId: demoUser.id,
@@ -102,10 +100,10 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   const endDate = new Date(data.endDate)
   const msPerDay = 1000 * 60 * 60 * 24
   const rentalDays = Math.round((endDate.getTime() - startDate.getTime()) / msPerDay) + 1
-  const totalPrice = Number((listing.dailyPrice * rentalDays).toFixed(2))
+  const totalPrice = Number((Number(listing.dailyPrice) * rentalDays).toFixed(2))
   const depositAmount = Number((totalPrice * 0.3).toFixed(2))
   const insuranceFee = data.insuranceOptIn && listing.itemValue
-    ? Number(Math.min(50, Math.max(1, listing.itemValue * 0.03)).toFixed(2))
+    ? Number(Math.min(50, Math.max(1, Number(listing.itemValue) * 0.03)).toFixed(2))
     : 0
   const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
 
@@ -130,6 +128,8 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     payoutSentAt: null,
     pickupPhotos: [],
     returnPhotos: [],
+    handoffInitiatedAt: null,
+    returnInitiatedAt: null,
     ownerPickupTappedAt: null,
     renterPickupTappedAt: null,
     ownerReturnTappedAt: null,
@@ -137,14 +137,18 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     disputeStatus: 'NONE',
     disputedAt: null,
     disputeReason: null,
-    message: data.message,
+    message: data.message ?? null,
     renterId: demoUser.id,
     renter: demoUser,
     ownerId: listing.ownerId,
     owner: listing.owner,
     listingId: listing.id,
     listing: toListingPreview(listing),
+    reviewObligations: [],
+    pendingReview: null,
+    completedAt: null,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 
   bookings = [booking, ...bookings]
@@ -245,7 +249,7 @@ export async function mockSubmitReview(data: SubmitReviewPayload): Promise<Submi
       scoreA: data.scoreA,
       scoreB: data.scoreB,
       scoreC: data.scoreC,
-      comment: data.comment,
+      comment: data.comment ?? null,
       createdAt: new Date().toISOString(),
     },
     pendingRemaining: pendingReviews.length,

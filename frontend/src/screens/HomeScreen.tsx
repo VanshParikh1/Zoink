@@ -16,7 +16,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import { Listing } from '../types'
+import { ListingBrowseItem } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
 import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
@@ -31,7 +31,7 @@ export default function HomeScreen() {
   const { user, logout } = useAuth()
   const nav = useNavigation<Nav>()
 
-  const [listings, setListings] = useState<Listing[]>([])
+  const [listings, setListings] = useState<ListingBrowseItem[]>([])
   const [coords, setCoords] = useState(DEFAULT_COORDS)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -100,7 +100,7 @@ export default function HomeScreen() {
     fetchListings(coords)
   }
 
-  const renderListing = ({ item }: { item: Listing }) => {
+  const renderListing = ({ item }: { item: ListingBrowseItem }) => {
     const imageUrl = item.images[0]?.url
 
     return (

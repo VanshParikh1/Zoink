@@ -1,4 +1,5 @@
 import { Prisma, ReviewRole, ReviewObligationStatus } from '@prisma/client'
+import type { PendingReviewResponse, SubmitReviewResult } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
@@ -117,7 +118,7 @@ function assertScore(value: number) {
   }
 }
 
-export async function getPendingReviews(userId: string) {
+export async function getPendingReviews(userId: string): Promise<PendingReviewResponse[]> {
   const obligations = await prisma.reviewObligation.findMany({
     where: {
       userId,
@@ -190,7 +191,7 @@ export async function getPendingReviews(userId: string) {
   })
 }
 
-export async function submitReview(userId: string, input: SubmitReviewInput) {
+export async function submitReview(userId: string, input: SubmitReviewInput): Promise<SubmitReviewResult> {
   assertScore(input.scoreA)
   assertScore(input.scoreB)
   assertScore(input.scoreC)
@@ -312,6 +313,10 @@ export async function submitReview(userId: string, input: SubmitReviewInput) {
 
   return {
     ...result,
+    review: {
+      ...result.review,
+      createdAt: result.review.createdAt.toISOString(),
+    },
     reviewee,
     booking: {
       id: obligation.booking.id,

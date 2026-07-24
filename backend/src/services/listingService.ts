@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma'
 import { Prisma } from '@prisma/client'
+import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
 import { NotFoundError, ForbiddenError } from '../utils/errors'
 
 // ── Shared select shape ───────────────────────────────────────────────────────
@@ -32,6 +33,16 @@ const listingSelect = {
     select: { id: true, url: true, order: true },
     orderBy: { order: 'asc' as const },
   },
+}
+
+function toListingResponse(listing: Prisma.ListingGetPayload<{ select: typeof listingSelect }>): ListingResponse {
+  return {
+    ...listing,
+    dailyPrice: listing.dailyPrice.toString(),
+    itemValue: listing.itemValue.toString(),
+    createdAt: listing.createdAt.toISOString(),
+    updatedAt: listing.updatedAt.toISOString(),
+  }
 }
 
 const EARTH_RADIUS_KM = 6371
@@ -96,7 +107,7 @@ export type CreateListingInput = {
   address?: string
 }
 
-export async function createListing(ownerId: string, data: CreateListingInput) {
+export async function createListing(ownerId: string, data: CreateListingInput): Promise<ListingResponse> {
   const listing = await prisma.listing.create({
     data: {
       ...data,
@@ -106,33 +117,34 @@ export async function createListing(ownerId: string, data: CreateListingInput) {
     },
     select: listingSelect,
   })
-  return listing
+  return toListingResponse(listing)
 }
 
 // ── Get single listing ────────────────────────────────────────────────────────
 
-export async function getListingById(id: string) {
+export async function getListingById(id: string): Promise<ListingResponse> {
   const listing = await prisma.listing.findUnique({
     where: { id },
     select: listingSelect,
   })
   if (!listing) throw new NotFoundError('Listing not found.')
-  return listing
+  return toListingResponse(listing)
 }
 
 // ── Get my listings ───────────────────────────────────────────────────────────
 
-export async function getMyListings(ownerId: string) {
-  return prisma.listing.findMany({
+export async function getMyListings(ownerId: string): Promise<ListingResponse[]> {
+  const listings = await prisma.listing.findMany({
     where: { ownerId },
     select: listingSelect,
     orderBy: { createdAt: 'desc' },
   })
+  return listings.map(toListingResponse)
 }
 
 // ── Browse/search listings ────────────────────────────────────────────────────
 
-export async function browseListings(input: BrowseListingsInput) {
+export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
   const {
     query,
     category,
@@ -256,7 +268,7 @@ export async function browseListings(input: BrowseListingsInput) {
         if (!listing) return null
 
         return {
-          ...listing,
+          ...toListingResponse(listing),
           distanceKm: distanceById.get(id) ?? null,
         }
       })
@@ -301,7 +313,7 @@ export async function updateListing(
   id: string,
   ownerId: string,
   data: UpdateListingInput
-) {
+): Promise<ListingResponse> {
   // Verify ownership first
   const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
@@ -317,11 +329,12 @@ export async function updateListing(
     cleaned.itemValue = new Prisma.Decimal(cleaned.itemValue as number)
   }
 
-  return prisma.listing.update({
+  const listing = await prisma.listing.update({
     where: { id },
     data: cleaned,
     select: listingSelect,
   })
+  return toListingResponse(listing)
 }
 
 // ── Toggle availability ───────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
+import type { BookingResponse, PendingReviewResponse, UserSummary } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
@@ -135,7 +136,17 @@ export type CreateBookingInput = {
   insuranceOptIn?: boolean
 }
 
-function mapPendingReviewForUser(booking: any, userId?: string) {
+function toUserSummary(user: any): UserSummary {
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    avatarUrl: user.avatarUrl,
+    verificationStatus: user.verificationStatus,
+  }
+}
+
+function mapPendingReviewForUser(booking: any, userId?: string): PendingReviewResponse | null {
   if (!userId || !Array.isArray(booking.reviewObligations)) {
     return null
   }
@@ -154,14 +165,7 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
     status: obligation.status,
     scoreLabels: scoreLabelsForRole(obligation.reviewerRole),
     createdAt: obligation.createdAt,
-    targetUserId: obligation.targetUserId,
-    listingTitle: booking.listing.title,
-    reviewee: {
-      id: reviewee.id,
-      firstName: reviewee.firstName,
-      lastName: reviewee.lastName,
-      avatarUrl: reviewee.avatarUrl,
-    },
+    reviewee: toUserSummary(reviewee),
     booking: {
       id: booking.id,
       startDate: booking.startDate,
@@ -172,15 +176,49 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
   }
 }
 
-function toBookingResponse(booking: any, userId?: string) {
+function toBookingResponse(booking: any, userId?: string): BookingResponse {
   const totalPrice = Number(booking.totalPrice)
   return {
-    ...booking,
+    id: booking.id,
+    status: booking.status,
+    version: booking.version,
+    startDate: booking.startDate,
+    endDate: booking.endDate,
     totalPrice,
+    message: booking.message,
+    paymentStatus: booking.paymentStatus,
     depositAmount: Number(booking.depositAmount ?? calculateDepositAmount(totalPrice)),
     commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
+    insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
+    stripePaymentIntentId: booking.stripePaymentIntentId,
+    stripeChargeId: booking.stripeChargeId,
+    stripeTransferId: booking.stripeTransferId,
+    paidAt: booking.paidAt,
+    refundedAt: booking.refundedAt,
+    payoutSentAt: booking.payoutSentAt,
+    pickupPhotos: booking.pickupPhotos,
+    returnPhotos: booking.returnPhotos,
+    handoffInitiatedAt: booking.handoffInitiatedAt,
+    returnInitiatedAt: booking.returnInitiatedAt,
+    ownerPickupTappedAt: booking.ownerPickupTappedAt,
+    renterPickupTappedAt: booking.renterPickupTappedAt,
+    ownerReturnTappedAt: booking.ownerReturnTappedAt,
+    renterReturnTappedAt: booking.renterReturnTappedAt,
+    disputeStatus: booking.disputeStatus,
+    disputedAt: booking.disputedAt,
+    disputeReason: booking.disputeReason,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    listingId: booking.listingId,
+    completedAt: booking.completedAt,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt,
+    listing: booking.listing,
+    renter: toUserSummary(booking.renter),
+    owner: toUserSummary(booking.owner),
+    reviewObligations: booking.reviewObligations,
     pendingReview: mapPendingReviewForUser(booking, userId),
   }
 }
@@ -265,7 +303,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
   }
 }
 
-export async function createBooking(renterId: string, input: CreateBookingInput) {
+export async function createBooking(renterId: string, input: CreateBookingInput): Promise<BookingResponse> {
   ensureValidBookingDates(input.startDate, input.endDate)
 
   const listing = await prisma.listing.findUnique({
@@ -373,12 +411,12 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   }
 }
 
-export async function getBookingById(bookingId: string, userId: string) {
+export async function getBookingById(bookingId: string, userId: string): Promise<BookingResponse> {
   const booking = await getBookingForParticipant(bookingId, userId)
   return toBookingResponse(booking, userId)
 }
 
-export async function getMyBookings(renterId: string) {
+export async function getMyBookings(renterId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
     select: bookingSelect as any,
@@ -388,7 +426,7 @@ export async function getMyBookings(renterId: string) {
   return bookings.map((booking: any) => toBookingResponse(booking, renterId))
 }
 
-export async function getIncomingRequests(ownerId: string) {
+export async function getIncomingRequests(ownerId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
     select: bookingSelect as any,
@@ -398,7 +436,7 @@ export async function getIncomingRequests(ownerId: string) {
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
 }
 
-export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus) {
+export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus): Promise<BookingResponse> {
   const booking: any = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: bookingSelect as any,

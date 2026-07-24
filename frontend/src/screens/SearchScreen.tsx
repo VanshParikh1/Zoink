@@ -20,7 +20,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
 import SearchBar from '../components/SearchBar'
-import { Listing } from '../types'
+import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -29,9 +29,9 @@ const SCREEN_WIDTH = Dimensions.get('window').width
 const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
 // Global in-memory cache for recently viewed items across the session
-let sessionRecentlyViewed: Listing[] = []
+let sessionRecentlyViewed: ListingBrowseItem[] = []
 
-function MiniProfile({ owner }: { owner: Listing['owner'] }) {
+function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
   const name = `${owner.firstName} ${owner.lastName}`
   const initials = `${owner.firstName?.[0] || ''}${owner.lastName?.[0] || ''}`.toUpperCase()
   return (
@@ -50,7 +50,7 @@ function MiniProfile({ owner }: { owner: Listing['owner'] }) {
   )
 }
 
-function GlassCardVertical({ item, onPress }: { item: Listing; onPress: () => void }) {
+function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
     <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
@@ -80,7 +80,7 @@ function GlassCardVertical({ item, onPress }: { item: Listing; onPress: () => vo
   )
 }
 
-function GlassCardHorizontal({ item, onPress }: { item: Listing; onPress: () => void }) {
+function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
     <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
@@ -111,9 +111,9 @@ export default function SearchScreen() {
   const [isResultsState, setIsResultsState] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('All')
 
-  const [trending, setTrending] = useState<Listing[]>([])
-  const [recent, setRecent] = useState<Listing[]>([])
-  const [results, setResults] = useState<Listing[]>([])
+  const [trending, setTrending] = useState<ListingBrowseItem[]>([])
+  const [recent, setRecent] = useState<ListingBrowseItem[]>([])
+  const [results, setResults] = useState<ListingBrowseItem[]>([])
 
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
@@ -186,7 +186,7 @@ export default function SearchScreen() {
     }
   }, [query, selectedCategory, isResultsState, fadeAnim, translateAnim])
 
-  const handleListingPress = (item: Listing) => {
+  const handleListingPress = (item: ListingBrowseItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     Keyboard.dismiss()
 

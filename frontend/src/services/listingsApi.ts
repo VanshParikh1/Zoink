@@ -1,5 +1,5 @@
 import api from './api'
-import { BrowseListingsResult, Listing, ListingImage } from '../types'
+import { BrowseListingsResult, Listing, ListingBrowseItem, ListingImage } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
 import { getImageUploadPart } from './uploadFormData'
 import {
@@ -36,7 +36,7 @@ export async function getNearbyListings({
   lat,
   lng,
   radius = 25,
-}: NearbyListingsParams): Promise<Listing[]> {
+}: NearbyListingsParams): Promise<ListingBrowseItem[]> {
   if (DEMO_MODE) return mockGetNearbyListings()
 
   const res = await api.get('/listings', {
@@ -81,8 +81,8 @@ export async function browseListings({
 
   return {
     items: res.data.items ?? [],
-    total: res.data.total ?? res.data.items?.length ?? 0,
-    hasMore: res.data.hasMore ?? false,
+    total: res.data.meta?.total ?? res.data.items?.length ?? 0,
+    hasMore: res.data.meta?.hasMore ?? false,
   }
 }
 

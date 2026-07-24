@@ -116,13 +116,10 @@ export const publicProfiles: Record<string, PublicProfile> = {
 export function toDemoUser(profile: PublicProfile | MyProfile): User {
   return {
     id: profile.id,
-    email: 'email' in profile ? profile.email : `${profile.firstName.toLowerCase()}@zoink.app`,
     firstName: profile.firstName,
     lastName: profile.lastName,
     avatarUrl: profile.avatarUrl,
-    bio: profile.bio,
     verificationStatus: profile.verificationStatus,
-    createdAt: profile.createdAt,
   }
 }
 

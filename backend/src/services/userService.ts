@@ -1,3 +1,4 @@
+import type { MyProfileResponse, PublicProfileResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError } from '../utils/errors'
 
@@ -7,7 +8,7 @@ function toNumber(value: unknown) {
 
 // ── Own profile ───────────────────────────────────────────────────────────────
 
-export async function getMe(userId: string) {
+export async function getMe(userId: string): Promise<MyProfileResponse> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -24,12 +25,16 @@ export async function getMe(userId: string) {
     },
   })
   if (!user) throw new NotFoundError('User not found.')
-  return user
+  return {
+    ...user,
+    verifiedAt: user.verifiedAt?.toISOString() ?? null,
+    createdAt: user.createdAt.toISOString(),
+  }
 }
 
 // ── Public profile (safe fields only — no email, no phone) ───────────────────
 
-export async function getPublicProfile(userId: string) {
+export async function getPublicProfile(userId: string): Promise<PublicProfileResponse> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -61,6 +66,8 @@ export async function getPublicProfile(userId: string) {
   if (!user) throw new NotFoundError('User not found.')
   return {
     ...user,
+    verifiedAt: user.verifiedAt?.toISOString() ?? null,
+    createdAt: user.createdAt.toISOString(),
     reputation: user.reputation
       ? {
         ...user.reputation,
@@ -72,6 +79,7 @@ export async function getPublicProfile(userId: string) {
         lenderAccuracyAvg: toNumber(user.reputation.lenderAccuracyAvg),
         lenderConditionAvg: toNumber(user.reputation.lenderConditionAvg),
         lenderCommunicationAvg: toNumber(user.reputation.lenderCommunicationAvg),
+        updatedAt: user.reputation.updatedAt.toISOString(),
       }
       : null,
   }

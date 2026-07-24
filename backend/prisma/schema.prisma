@@ -3,6 +3,13 @@ generator client {
   previewFeatures = ["driverAdapters"]
 }
 
+generator typescriptInterfaces {
+  provider    = "prisma-generator-typescript-interfaces"
+  output      = "../../packages/shared/generated/prisma-models.ts"
+  dateType    = "string"
+  decimalType = "string"
+}
+
 datasource db {
   provider = "postgresql"
 }

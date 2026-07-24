@@ -1,6 +1,21 @@
+import dotenv from 'dotenv'
+
+// Load .env only when not in test mode — integration tests load .env.test
+// via setup.ts before this module is imported. Running dotenv.config() here
+// during tests would overwrite DATABASE_URL (and other vars) back to the dev
+// values from .env, breaking the test DB connection.
+//
+// This must run before any of the imports below: several of them
+// (routers -> controllers -> services -> utils/prisma.ts) construct the
+// Prisma connection Pool at module-load time using process.env.DATABASE_URL,
+// so if dotenv.config() ran after those imports, the Pool would be built
+// with an empty DATABASE_URL.
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config()
+}
+
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
@@ -16,14 +31,6 @@ import { getStripeConnectStatus } from './middleware/controllers/userController'
 import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
-
-// Load .env only when not in test mode — integration tests load .env.test
-// via setup.ts before this module is imported. Running dotenv.config() here
-// during tests would overwrite DATABASE_URL (and other vars) back to the dev
-// values from .env, breaking the test DB connection.
-if (process.env.NODE_ENV !== 'test') {
-  dotenv.config()
-}
 
 const app = express()
 const PORT = process.env.PORT || 3000

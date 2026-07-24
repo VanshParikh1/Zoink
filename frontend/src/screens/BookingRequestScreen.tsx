@@ -142,7 +142,7 @@ export default function BookingRequestScreen() {
   )
   const rentalDays = useMemo(() => getRentalDays(startDate, endDate), [endDate, startDate])
   const totalPrice = useMemo(
-    () => (listing && rentalDays > 0 ? Number((listing.dailyPrice * rentalDays).toFixed(2)) : 0),
+    () => (listing && rentalDays > 0 ? Number((Number(listing.dailyPrice) * rentalDays).toFixed(2)) : 0),
     [listing, rentalDays]
   )
   const depositAmount = useMemo(() => Number((totalPrice * 0.3).toFixed(2)), [totalPrice])

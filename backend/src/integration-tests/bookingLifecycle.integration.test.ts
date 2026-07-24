@@ -759,7 +759,7 @@ describe('booking data access', () => {
     // pendingReview should be populated for the renter
     assert.ok(result.pendingReview, 'pendingReview should be set for renter')
     assert.equal(result.pendingReview.reviewerRole, 'RENTER')
-    assert.equal(result.pendingReview.targetUserId, owner.id)
+    assert.equal(result.pendingReview.reviewee.id, owner.id)
     // Score labels differ by role
     assert.ok('scoreAKey' in result.pendingReview.scoreLabels)
   })
