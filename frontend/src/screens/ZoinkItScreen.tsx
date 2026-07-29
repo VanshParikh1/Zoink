@@ -1,12 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated, Alert, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Animated,
+  Alert,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native'
 import * as Haptics from 'expo-haptics'
+import * as ImagePicker from 'expo-image-picker'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
-import { confirmHandoff, getBooking } from '../services/bookingsApi'
+import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
 import { useAuth } from '../context/AuthContext'
+import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -29,9 +42,23 @@ export default function ZoinkItScreen() {
   const statusOpacity = useRef(new Animated.Value(1)).current
   const successHandled = useRef(false)
 
+  // Photo picking/editing — merged in from what used to be a separate HandoffPhotoScreen.
+  const [pickerUris, setPickerUris] = useState<string[]>([])
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+
   const pendingStatus = mode === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
-  const isReady = booking?.status === pendingStatus
+  const startStatus = mode === 'pickup' ? 'ACCEPTED' : 'ACTIVE'
+  const isOwner = booking?.ownerId === user?.id
+  const isRenter = booking?.renterId === user?.id
+  const isUploader = mode === 'pickup' ? isOwner : isRenter
+  const isDocumented = booking?.status === pendingStatus
+  const isReady = isDocumented
   const locked = !isReady || pressed || success
+  const existingPhotos = booking ? (mode === 'pickup' ? booking.pickupPhotos : booking.returnPhotos) ?? [] : []
+  const needsFirstSubmission = isUploader && booking?.status === startStatus
+  const showPickerUI = needsFirstSubmission || editing
+  const isPickerValid = pickerUris.length === 2 || pickerUris.length === 3
   const otherParty = booking
     ? booking.ownerId === user?.id
       ? booking.renter
@@ -146,6 +173,91 @@ export default function ZoinkItScreen() {
     }
   }
 
+  async function choosePhotos() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please allow access to your photo library.')
+        return
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: 3,
+        quality: 0.82,
+      })
+
+      if (result.canceled) return
+      setPickerUris(result.assets.map((asset) => asset.uri).slice(0, 3))
+    } catch {
+      Alert.alert('Photo picker error', 'Could not open your photo library right now.')
+    }
+  }
+
+  async function submitPhotos() {
+    if (!isPickerValid) return
+
+    setSaving(true)
+    try {
+      const uploaded = await Promise.all(pickerUris.map((uri) => uploadHandoffPhotoImage(bookingId, uri)))
+      const updated = await initiateHandoff(bookingId, mode, uploaded)
+      setBooking(updated)
+      setPickerUris([])
+      setEditing(false)
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error ?? 'Could not submit photos.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!booking) {
+    return (
+      <View style={styles.screen}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    )
+  }
+
+  if (showPickerUI) {
+    return (
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.pickerContent}>
+          <TouchableOpacity
+            onPress={() => (editing ? setEditing(false) : nav.goBack())}
+            disabled={saving}
+          >
+            <Text style={styles.backText}>{editing ? 'Cancel' : 'Back'}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.title}>{mode === 'pickup' ? 'Document the Item' : 'Document the Return'}</Text>
+
+          <TouchableOpacity style={styles.uploadArea} onPress={choosePhotos} disabled={saving}>
+            <Text style={styles.uploadText}>{pickerUris.length ? 'Change photos' : 'Select photos'}</Text>
+            <Text style={styles.uploadSubtext}>{pickerUris.length}/3 selected</Text>
+          </TouchableOpacity>
+
+          {pickerUris.length > 0 ? (
+            <View style={styles.thumbnailRow}>
+              {pickerUris.map((uri) => (
+                <Image key={uri} source={{ uri }} style={styles.thumbnail} />
+              ))}
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.submitButton, (!isPickerValid || saving) && styles.submitButtonDisabled]}
+            onPress={submitPhotos}
+            disabled={!isPickerValid || saving}
+          >
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitText}>Submit</Text>}
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    )
+  }
+
   const statusText = success
     ? 'Zoinked'
     : timedOut
@@ -185,6 +297,20 @@ export default function ZoinkItScreen() {
           },
         ]}
       />
+
+      {existingPhotos.length > 0 ? (
+        <View style={styles.existingPhotosRow}>
+          {existingPhotos.map((url) => (
+            <Image key={url} source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+          ))}
+        </View>
+      ) : null}
+
+      {isUploader && !pressed && !success ? (
+        <TouchableOpacity onPress={() => setEditing(true)} style={styles.editPhotosButton}>
+          <Text style={styles.editPhotosText}>Edit Photos</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <View style={styles.buttonStage}>
         {isReady && !success ? (
@@ -234,6 +360,38 @@ const styles = StyleSheet.create({
     padding: 24,
     overflow: 'hidden',
   },
+  pickerContent: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 18, width: '100%' },
+  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  title: { color: '#111114', fontSize: 28, fontWeight: '900' },
+  uploadArea: {
+    minHeight: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#111114',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  uploadText: { color: '#111114', fontSize: 16, fontWeight: '900' },
+  uploadSubtext: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
+  thumbnailRow: { flexDirection: 'row', gap: 10 },
+  thumbnail: { width: 96, height: 96, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
+  submitButton: {
+    minHeight: 54,
+    borderRadius: 8,
+    backgroundColor: '#111114',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 'auto',
+  },
+  submitButtonDisabled: { backgroundColor: '#E0E0E0' },
+  submitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  existingPhotosRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  existingPhoto: { width: 84, height: 84, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
+  editPhotosButton: { marginBottom: 24 },
+  editPhotosText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
   buttonStage: {
     width: 270,
     height: 270,

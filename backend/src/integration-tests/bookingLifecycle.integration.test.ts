@@ -33,6 +33,19 @@ import * as bookingService from '../services/bookingService'
 import * as handoffService from '../services/handoffService'
 import { PaymentStatus, BookingStatus } from '@prisma/client'
 
+// notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
+// from the caller's perspective — it does its own async DB lookup before writing the
+// Notification row, so it can land after the awaited call that triggered it returns.
+// Tests asserting on notification counts need to poll rather than check immediately.
+async function waitFor(check: () => Promise<boolean>, { timeoutMs = 1000, intervalMs = 25 } = {}) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await check()) return true
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  return false
+}
+
 // ── Module-level state shared across all tests in this file ──────────────────
 let stripeAvailable = false
 let owner: { id: string; email: string; token: string }
@@ -353,6 +366,128 @@ describe('pickup handoff', () => {
     )
   })
 
+  test('initiateHandoff rejects a phase that has not been reached yet', async () => {
+    const db = getTestPrisma()
+    const { startDate, endDate } = futureDates(1, 1)
+    const pendingBooking = await db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: 40,
+        depositAmount: 12,
+        commissionAmount: 6,
+        ownerPayout: 34,
+        insuranceFee: 0,
+        status: BookingStatus.PENDING,
+        paymentStatus: PaymentStatus.AUTHORIZED,
+      },
+    })
+    await assert.rejects(
+      () => handoffService.initiateHandoff(pendingBooking.id, owner.id, 'pickup', [
+        'https://res.cloudinary.com/test/image/upload/photo1.jpg',
+        'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      ]),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        assert.match(err.message, /not allowed/i)
+        return true
+      }
+    )
+  })
+
+  test('owner can resubmit pickup photos while PICKUP_PENDING without re-notifying the renter', async () => {
+    const booking = await makeAcceptedBooking()
+    const firstPhotos = [
+      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
+      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+    ]
+    const db = getTestPrisma()
+    // makeAcceptedBooking() also fires an (also fire-and-forget) "Booking accepted"
+    // notification, so scope to the phase-specific "Time to Zoink It" notification
+    // rather than a raw count — otherwise this races against that unrelated write.
+    const countZoinkItNotifications = async () => {
+      const rows = await db.notification.findMany({ where: { userId: renter.id } })
+      return rows.filter((n: any) => n.data && (n.data as any).phase === 'pickup').length
+    }
+
+    // Booking creation and owner-acceptance each write their own STATUS_CHANGE event
+    // for this same booking, so baseline against that instead of assuming 0.
+    const statusChangeBaseline = await db.bookingEvent.count({ where: { bookingId: booking.id, type: 'STATUS_CHANGE' } })
+
+    const first = await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', firstPhotos)
+    assert.equal(first.status, BookingStatus.PICKUP_PENDING)
+
+    const gotFirstNotification = await waitFor(async () => (await countZoinkItNotifications()) === 1)
+    assert.ok(gotFirstNotification, 'first submission should notify the renter exactly once')
+
+    const revisedPhotos = [
+      'https://res.cloudinary.com/test/image/upload/photo1-retake.jpg',
+      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      'https://res.cloudinary.com/test/image/upload/photo3-new.jpg',
+    ]
+    const edited = await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', revisedPhotos)
+
+    assert.equal(edited.status, BookingStatus.PICKUP_PENDING, 'status should not change on a photo edit')
+    assert.deepEqual(edited.pickupPhotos, revisedPhotos, 'photos should be updated to the resubmitted set')
+
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.deepEqual(persisted.pickupPhotos, revisedPhotos)
+    assert.equal(persisted.status, BookingStatus.PICKUP_PENDING)
+
+    // Give any (incorrect) duplicate notification a chance to land, then confirm the count held.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(await countZoinkItNotifications(), 1, 'resubmitting photos should not send another notification')
+
+    const statusChangeEventsAfter = await db.bookingEvent.count({ where: { bookingId: booking.id, type: 'STATUS_CHANGE' } })
+    assert.equal(
+      statusChangeEventsAfter,
+      statusChangeBaseline + 1,
+      'only the first submission should record a STATUS_CHANGE event, not the edit'
+    )
+
+    const uploadEvents = await db.bookingEvent.findMany({
+      where: { bookingId: booking.id, type: 'UPLOAD_PHOTOS' },
+    })
+    assert.equal(uploadEvents.length, 2, 'both the initial submission and the edit should be audit-logged')
+  })
+
+  test('resubmitting photos after one party has already tapped does not clear that tap', async () => {
+    const booking = await makeAcceptedBooking()
+    const photos = [
+      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
+      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+    ]
+    await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
+
+    const ownerTap = await handoffService.confirmHandoff(booking.id, owner.id, 'pickup')
+    assert.equal(ownerTap.bothConfirmed, false)
+
+    const db = getTestPrisma()
+    const afterTap = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.ok(afterTap.ownerPickupTappedAt, 'owner tap should be recorded before the edit')
+
+    const revisedPhotos = [
+      'https://res.cloudinary.com/test/image/upload/photo1-retake.jpg',
+      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+    ]
+    await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', revisedPhotos)
+
+    const afterEdit = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.ok(afterEdit.ownerPickupTappedAt, 'owner tap should survive a photo edit')
+    assert.equal(
+      afterEdit.ownerPickupTappedAt?.getTime(),
+      afterTap.ownerPickupTappedAt?.getTime(),
+      'the tap timestamp itself should be untouched by the edit'
+    )
+
+    // The renter can still tap afterwards and complete the synchronized confirmation.
+    const renterTap = await handoffService.confirmHandoff(booking.id, renter.id, 'pickup')
+    assert.equal(renterTap.bothConfirmed, true, 'the pre-edit tap should still count toward synchronization')
+  })
+
   test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async () => {
     const booking = await makeAcceptedBooking()
     const photos = [
@@ -449,6 +584,35 @@ describe('return handoff and completion', () => {
         return true
       }
     )
+  })
+
+  test('renter can resubmit return photos while RETURN_PENDING without re-notifying the owner', async () => {
+    const booking = await makeActiveBooking()
+    const firstPhotos = [
+      'https://res.cloudinary.com/test/image/upload/return1.jpg',
+      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+    ]
+    const db = getTestPrisma()
+    const countZoinkItNotifications = async () => {
+      const rows = await db.notification.findMany({ where: { userId: owner.id } })
+      return rows.filter((n: any) => n.data && (n.data as any).phase === 'return').length
+    }
+
+    await handoffService.initiateHandoff(booking.id, renter.id, 'return', firstPhotos)
+    const gotFirstNotification = await waitFor(async () => (await countZoinkItNotifications()) === 1)
+    assert.ok(gotFirstNotification, 'first submission should notify the owner exactly once')
+
+    const revisedPhotos = [
+      'https://res.cloudinary.com/test/image/upload/return1-retake.jpg',
+      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+    ]
+    const edited = await handoffService.initiateHandoff(booking.id, renter.id, 'return', revisedPhotos)
+
+    assert.equal(edited.status, BookingStatus.RETURN_PENDING)
+    assert.deepEqual(edited.returnPhotos, revisedPhotos)
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(await countZoinkItNotifications(), 1, 'resubmitting return photos should not send another notification')
   })
 
   test('both tap Zoink It for return → COMPLETED, review obligations created, paymentStatus PAYOUT_PENDING', async () => {

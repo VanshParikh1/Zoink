@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   devLogoutButton: {
     position: 'absolute',
     top: 50,
-    left: 20,
+    right: 20,
     backgroundColor: 'rgba(255, 0, 0, 0.8)',
     paddingHorizontal: 12,
     paddingVertical: 6,

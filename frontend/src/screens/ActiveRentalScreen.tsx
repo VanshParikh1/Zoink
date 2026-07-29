@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Animated, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Feather } from '@expo/vector-icons'
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBooking } from '../services/bookingsApi'
@@ -51,9 +51,11 @@ export default function ActiveRentalScreen() {
     }
   }, [nav, route.params.bookingId])
 
-  useEffect(() => {
-    loadBooking()
-  }, [loadBooking])
+  useFocusEffect(
+    useCallback(() => {
+      loadBooking()
+    }, [loadBooking])
+  )
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -104,13 +106,13 @@ export default function ActiveRentalScreen() {
 
   const action =
     isOwner && booking.status === 'ACCEPTED'
-      ? { label: 'Start Handoff', onPress: () => nav.navigate('HandoffPhoto', { bookingId: booking.id, mode: 'pickup' }) }
-      : isRenter && booking.status === 'PICKUP_PENDING'
-        ? { label: 'Go to Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
+      ? { label: 'Start Handoff', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
+      : booking.status === 'PICKUP_PENDING'
+        ? { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
         : isRenter && booking.status === 'ACTIVE'
-          ? { label: 'Start Return', onPress: () => nav.navigate('HandoffPhoto', { bookingId: booking.id, mode: 'return' }) }
-          : isOwner && booking.status === 'RETURN_PENDING'
-            ? { label: 'Go to Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' }) }
+          ? { label: 'Start Return', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' }) }
+          : booking.status === 'RETURN_PENDING'
+            ? { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' }) }
             : booking.status === 'COMPLETED'
               ? { label: 'View Rental Summary', onPress: () => nav.navigate('BookingDetail', { bookingId: booking.id }) }
               : null

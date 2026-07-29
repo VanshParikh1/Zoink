@@ -50,6 +50,9 @@ Completed:
   - Owners can reach active rentals from My Listings.
   - Active Rental screen shows item, dates, other party, deposit, chat, and context-aware handoff/return actions.
   - Zoink It screen includes the updated outside-ring animation and success ripple.
+  - Handoff photo capture and the Zoink It confirmation tap are now one screen (`ZoinkItScreen`) instead of a separate photo-upload screen followed by a navigation hop — `HandoffPhotoScreen` has been removed. Photos can be added, previewed, and edited (re-submitted) at any point before the synchronized confirmation tap; `backend/src/services/handoffService.ts`'s `initiateHandoff` distinguishes the first submission (which transitions booking status, writes the audit event, and notifies the other party) from a later edit (which only updates the stored photos) so re-editing doesn't spam a second notification or a misleading status-change event.
+  - `ActiveRentalScreen`/`BookingDetailScreen` show a single "Zoink It" action once a handoff phase is pending, for either party (not just the one waiting on the other) — closes a gap where the person who initiated the phase had no way back into the confirmation screen if they navigated away before tapping.
+  - Listing photos and rental pickup/return photos open in a full-screen, swipeable, pinch-to-zoom photo viewer (`PhotoViewerScreen`, `react-native-zoom-toolkit` + `react-native-gesture-handler` + `react-native-reanimated`) instead of a static crop. It's a real navigator screen (`presentation: 'fullScreenModal'`), not React Native's `Modal` component — gesture-handler's `GestureDetector`-based components are unreliable inside an actual `Modal` (a separate native view hierarchy), especially on Android.
 - Backend admin/dispute system:
   - `Role` (`USER` / `ADMIN`) added to `User`, carried in the JWT, and enforced by `requireAdmin`.
   - Renter or owner can open a dispute on a booking (`POST /disputes`) with a reason and description; one open dispute per booking at a time.
@@ -152,7 +155,7 @@ ADMIN
   - `POST /bookings/:id/photos` legacy-compatible handoff photo endpoint
   - `POST /bookings/:id/zoink-tap` legacy-compatible handoff confirmation endpoint
   - `GET /stripe/connect/status`
-  - `POST /stripe/webhook` (also mounted at `POST /api/stripe/webhook`)
+  - `POST /stripe/webhook` (also mounted at `POST /api/stripe/webhook`) — see "Stripe Webhooks (local dev)" under Getting Started for the `stripe listen` command; forwarding to `/webhook` instead of `/stripe/webhook` is a common mistake and fails silently (every event 404s, but the CLI doesn't treat that as fatal).
 
 ### Disputes And Admin
 
@@ -233,6 +236,7 @@ It forces mock Stripe mode, so it does not charge a real card.
 | Email | AWS SES |
 | Payments | Stripe |
 | Push notifications | Expo Push Notifications |
+| Gestures/animation | `react-native-gesture-handler`, `react-native-reanimated` + `react-native-worklets`, `react-native-zoom-toolkit` (pinch-to-zoom photo viewer) — versions pinned exactly to Expo SDK 54's compatible set; see "Native dependency versions" below before touching them |
 | Scheduled jobs | `node-cron` (cleanup/payout release every 15 min, Stripe reconciliation hourly) |
 | Integration testing | `supertest` + Node's built-in test runner against a real Postgres test DB and Stripe test mode |
 
@@ -256,6 +260,14 @@ Backend health check:
 http://localhost:3000/health
 ```
 
+### Stripe Webhooks (local dev)
+
+```bash
+stripe listen --forward-to localhost:3000/stripe/webhook
+```
+
+The path must be `/stripe/webhook` (or `/api/stripe/webhook`), **not** `/webhook` — the backend doesn't mount anything at `/webhook`, so events forwarded there get a `404` from every single event with no obvious error on the app side. This is easy to get wrong since Stripe's own docs/examples often default to `/webhook`. Symptoms of hitting the wrong path: `Booking.paymentStatus` stays stuck at `PENDING_AUTH` forever (the `payment_intent.amount_capturable_updated` event that flips it to `AUTHORIZED` never arrives), which then blocks owner acceptance with `'Payment authorization is not ready yet.'` even though Stripe shows the charge as succeeded. If this happens, fix the `--forward-to` path and use `stripe events resend <event_id>` (event IDs are visible in the `stripe listen` terminal output) to redeliver the missed events instead of re-doing the whole booking/payment flow.
+
 ### Frontend
 
 ```bash
@@ -265,6 +277,16 @@ npx expo start
 ```
 
 Scan the QR code with Expo Go, or run on simulator/device from Expo.
+
+### Native dependency versions (frontend)
+
+This is an npm workspace (root `package.json` → `backend`, `frontend`, `packages/shared`), and `frontend/metro.config.js` sets `resolver.disableHierarchicalLookup = true` with a flat `nodeModulesPaths` (`frontend/node_modules`, root `node_modules`) — a deliberate choice for monorepo hygiene, but it means Metro can **only** see those two paths and never a package's own private nested `node_modules`. If npm ever gives a package (e.g. `react-native-reanimated`) a private nested copy of a dependency instead of hoisting it to the workspace root — which happens whenever two packages need incompatible versions of the same dependency — Metro cannot resolve it, even though Node itself could. This produced a real, hard-to-diagnose `NoSuchMethodError` this project hit once (`semver`: `@babel/core` wants `^6.x`, virtually everything else including `react-native-reanimated` wants `7.x`; resolved by adding `"semver": "7.8.5"` to the root `package.json`'s `overrides` block, unifying everyone onto one root-level copy).
+
+Practical guidance when touching frontend native dependencies:
+- Always run `npm install` from the **repo root**, not `npm install --workspace=frontend <pkg>` — the latter can leave a package nested under `frontend/node_modules` instead of hoisted to root, and that nested placement gets "baked into" `package-lock.json` and silently reproduced by every future `npm install` until the lockfile is regenerated from scratch.
+- After any native dependency change, sanity-check: `ls frontend/node_modules` should not exist (or should be empty/near-empty) — anything showing up there is a sign of the hoisting problem above.
+- Use `npx expo install <package>` (not plain `npm install`) to pick versions compatible with the current Expo SDK — but note it only pins the package you name; transitive dependencies with no explicit version (like `expo-font`, pulled in by `@expo/vector-icons` with an unbounded `>=` peer range) can still drift to an incompatible version and need an explicit pin of their own.
+- If something goes wrong mid-dependency-change and `npm install` seems to "not take" a fix, don't fight it incrementally — `rm -rf node_modules frontend/node_modules backend/node_modules packages/shared/node_modules package-lock.json && npm install` from the root forces a fully fresh resolution rather than npm trying to preserve a possibly-corrupted existing lockfile structure.
 
 ---
 
@@ -293,6 +315,8 @@ STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
 STRIPE_CURRENCY=usd
 DEV_STRIPE_ACCOUNT_ID=""
+STRIPE_CONNECT_RETURN_URL=""
+STRIPE_CONNECT_REFRESH_URL=""
 
 PAYOUT_HOLD_HOURS=24
 ZOINK_TAP_WINDOW_MS=300000
@@ -307,6 +331,8 @@ For local frontend API access, create `frontend/.env`:
 ```env
 EXPO_PUBLIC_API_URL="http://your-local-ip:3000"
 ```
+
+**ngrok drift:** if you're testing on a real device through ngrok instead of a local IP, `EXPO_PUBLIC_API_URL` must point at the current ngrok tunnel and `backend/.env`'s `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` must point at `<ngrok-url>/stripe-return` and `<ngrok-url>/stripe-refresh` respectively (these serve the HTML pages in `backend/src/index.ts` that redirect into the `zoink://` deep link — see `paymentService.ts`'s `getStripeConnectRedirectUrl`). ngrok issues a new URL every session, so **all three** of these need updating (and the backend restarted) each time the tunnel restarts — not just `EXPO_PUBLIC_API_URL`. If `STRIPE_CONNECT_RETURN_URL`/`REFRESH_URL` are left unset, Stripe Connect onboarding (`POST /users/me/stripe-connect/onboard`) fails outright rather than degrading gracefully, since Stripe's API rejects the code's fallback `zoink://` URI scheme as an invalid `return_url`/`refresh_url`.
 
 For frontend demo mode:
 

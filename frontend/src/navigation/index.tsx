@@ -25,9 +25,9 @@ import ConversationThreadScreen from '../screens/ConversationThreadScreen'
 import ReviewPromptScreen from '../screens/ReviewPromptScreen'
 import MyProfileScreen from '../screens/MyProfileScreen'
 import PublicProfileScreen from '../screens/PublicProfileScreen'
-import HandoffPhotoScreen from '../screens/HandoffPhotoScreen'
 import ZoinkItScreen from '../screens/ZoinkItScreen'
 import ActiveRentalScreen from '../screens/ActiveRentalScreen'
+import PhotoViewerScreen from '../screens/PhotoViewerScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -44,8 +44,8 @@ export type RootStackParamList = {
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
   ActiveRental: { bookingId: string }
-  HandoffPhoto: { bookingId: string; mode: 'pickup' | 'return' }
   ZoinkIt: { bookingId: string; mode: 'pickup' | 'return' }
+  PhotoViewer: { photos: string[]; initialIndex: number }
   ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
   MyProfile: undefined
@@ -91,8 +91,12 @@ function VerifiedAppStack() {
       <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
       <Stack.Screen name="ActiveRental" component={ActiveRentalScreen} />
-      <Stack.Screen name="HandoffPhoto" component={HandoffPhotoScreen} />
       <Stack.Screen name="ZoinkIt" component={ZoinkItScreen} />
+      <Stack.Screen
+        name="PhotoViewer"
+        component={PhotoViewerScreen}
+        options={{ presentation: 'fullScreenModal', animation: 'fade' }}
+      />
       <Stack.Screen 
         name="ReviewPrompt" 
         component={ReviewPromptScreen} 

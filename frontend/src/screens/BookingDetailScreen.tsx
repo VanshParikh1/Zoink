@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -11,6 +11,9 @@ import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
+
+// Mirrors modalScreen's horizontal padding (24 * 2) so thumbnails fill the width evenly.
+const PHOTO_PREVIEW_WIDTH = Dimensions.get('window').width - 48
 
 export default function BookingDetailScreen() {
   const nav = useNavigation<Nav>()
@@ -184,7 +187,7 @@ export default function BookingDetailScreen() {
           {isOwner && booking.status === 'ACCEPTED' ? (
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={() => nav.navigate('HandoffPhoto', { bookingId: booking.id, mode: 'pickup' })}
+              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
               disabled={busy}
             >
               <Text style={styles.primaryText}>Start Handoff</Text>
@@ -194,30 +197,30 @@ export default function BookingDetailScreen() {
           {isRenter && booking.status === 'ACTIVE' ? (
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={() => nav.navigate('HandoffPhoto', { bookingId: booking.id, mode: 'return' })}
+              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' })}
               disabled={busy}
             >
               <Text style={styles.primaryText}>Start Return</Text>
             </TouchableOpacity>
           ) : null}
 
-          {isRenter && booking.status === 'PICKUP_PENDING' ? (
+          {booking.status === 'PICKUP_PENDING' ? (
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
               disabled={busy}
             >
-              <Text style={styles.secondaryText}>Waiting for owner to document...</Text>
+              <Text style={styles.secondaryText}>Zoink It</Text>
             </TouchableOpacity>
           ) : null}
 
-          {isOwner && booking.status === 'RETURN_PENDING' ? (
+          {booking.status === 'RETURN_PENDING' ? (
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' })}
               disabled={busy}
             >
-              <Text style={styles.secondaryText}>Waiting for renter to document...</Text>
+              <Text style={styles.secondaryText}>Zoink It</Text>
             </TouchableOpacity>
           ) : null}
 
@@ -263,8 +266,13 @@ export default function BookingDetailScreen() {
             <Text style={styles.modalTitle}>Pickup Photos ({handoffPhotos?.pickupPhotos.length ?? 0})</Text>
             <View style={styles.photoColumn}>
               {(handoffPhotos?.pickupPhotos ?? []).length > 0 ? (
-                (handoffPhotos?.pickupPhotos ?? []).map((url) => (
-                  <Image key={url} source={{ uri: url }} style={styles.photoPreview} resizeMode="cover" />
+                (handoffPhotos?.pickupPhotos ?? []).map((url, idx) => (
+                  <TouchableOpacity
+                    key={url}
+                    onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.pickupPhotos, initialIndex: idx })}
+                  >
+                    <Image source={{ uri: url }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
+                  </TouchableOpacity>
                 ))
               ) : (
                 <Text style={styles.emptyPhotosText}>No pickup photos found.</Text>
@@ -273,8 +281,13 @@ export default function BookingDetailScreen() {
             <Text style={styles.modalTitle}>Return Photos ({handoffPhotos?.returnPhotos.length ?? 0})</Text>
             <View style={styles.photoColumn}>
               {(handoffPhotos?.returnPhotos ?? []).length > 0 ? (
-                (handoffPhotos?.returnPhotos ?? []).map((url) => (
-                  <Image key={url} source={{ uri: url }} style={styles.photoPreview} resizeMode="cover" />
+                (handoffPhotos?.returnPhotos ?? []).map((url, idx) => (
+                  <TouchableOpacity
+                    key={url}
+                    onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.returnPhotos, initialIndex: idx })}
+                  >
+                    <Image source={{ uri: url }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
+                  </TouchableOpacity>
                 ))
               ) : (
                 <Text style={styles.emptyPhotosText}>No return photos found.</Text>
@@ -344,13 +357,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   secondaryText: { color: theme.text, fontSize: 15, fontWeight: '800', textAlign: 'center' },
-  modalScreen: { flex: 1, backgroundColor: '#FFFFFF', padding: 24, paddingTop: 64 },
+  modalScreen: { flex: 1, backgroundColor: '#000000', padding: 24, paddingTop: 64 },
   modalContent: { gap: 16, paddingBottom: 32 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  modalHeading: { color: '#111114', fontSize: 28, fontWeight: '900' },
-  closeText: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
-  modalTitle: { color: '#111114', fontSize: 20, fontWeight: '900' },
+  modalHeading: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' },
+  closeText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  modalTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900' },
   photoColumn: { gap: 12, minHeight: 24 },
-  photoPreview: { width: '100%', height: 220, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
-  emptyPhotosText: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
+  photoPreview: { width: PHOTO_PREVIEW_WIDTH, height: 220, borderRadius: 8, backgroundColor: '#000000' },
+  emptyPhotosText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '700' },
 })

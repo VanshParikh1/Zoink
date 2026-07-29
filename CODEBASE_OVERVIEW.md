@@ -27,6 +27,7 @@ The repository has three main areas:
 | Frontend notifications | `expo-notifications` |
 | Frontend payments | `@stripe/stripe-react-native`, Stripe PaymentSheet |
 | Frontend styling | React Native `StyleSheet`, shared colors in `frontend/src/theme/colors.ts`, Expo linear gradients/blur |
+| Frontend gestures/animation | `react-native-gesture-handler`, `react-native-reanimated` + `react-native-worklets`, `react-native-zoom-toolkit` (pinch-to-zoom `PhotoViewerScreen`) — versions pinned exactly to Expo SDK 54's compatible set (`node_modules/expo/bundledNativeModules.json`); see README's "Native dependency versions" note before changing them |
 | Backend API | Node.js, Express 5, TypeScript |
 | Backend auth | JWT via `jsonwebtoken`, password hashing via `bcryptjs` |
 | Backend upload handling | `multer` memory storage |
@@ -300,10 +301,10 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 | `frontend/src/screens/BookingRequestScreen.tsx` | Renter booking request form, insurance/payment setup, Stripe PaymentSheet path, creates booking. | `bookingsApi`, Stripe React Native, `stripe` config. |
 | `frontend/src/screens/BookingHistoryScreen.tsx` | Renter booking history with active rentals pinned. | `getMyBookings`, navigation. |
 | `frontend/src/screens/BookingRequestsScreen.tsx` | Owner incoming booking requests; accept/decline actions. | `getIncomingRequests`, `acceptBooking`, `declineBooking`. |
-| `frontend/src/screens/BookingDetailScreen.tsx` | Booking detail/actions for owner/renter, cancellation, photo viewing, handoff navigation. | `bookingsApi`, `useAuth`. |
+| `frontend/src/screens/BookingDetailScreen.tsx` | Booking detail/actions for owner/renter, cancellation, photo viewing (navigates to `PhotoViewerScreen`), handoff navigation. | `bookingsApi`, `useAuth`. |
 | `frontend/src/screens/ActiveRentalScreen.tsx` | Live rental detail screen with item, dates, other party, deposit, chat, pickup/return actions. | `getBooking`, `openConversation`, `useAuth`. |
-| `frontend/src/screens/HandoffPhotoScreen.tsx` | Requests media-library permission, requires 2-3 pickup/return photos, uploads each image, handles picker errors, then initiates handoff. | `uploadHandoffPhotoImage`, `initiateHandoff`, image picker Expo APIs. |
-| `frontend/src/screens/ZoinkItScreen.tsx` | Synchronized confirmation screen. Polls booking state, calls `confirmHandoff`, handles success animation and timeout. | `confirmHandoff`, `getBooking`, `useAuth`. |
+| `frontend/src/screens/ZoinkItScreen.tsx` | Combined handoff photo capture + synchronized confirmation screen (absorbed the former `HandoffPhotoScreen`, now removed). Requests media-library permission, requires 2-3 photos, uploads and calls `initiateHandoff`; photos can be re-picked/resubmitted (calls `initiateHandoff` again) any time before the phase is confirmed. Once photos exist, polls booking state and calls `confirmHandoff` for the synchronized tap, with success animation and timeout. | `uploadHandoffPhotoImage`, `initiateHandoff`, `confirmHandoff`, `getBooking`, image picker Expo APIs, `useAuth`. |
+| `frontend/src/screens/PhotoViewerScreen.tsx` | Full-screen, swipeable, pinch-to-zoom photo viewer used for both listing photos and rental pickup/return photos. Takes `{ photos: string[], initialIndex: number }` route params; renders `react-native-zoom-toolkit`'s `Gallery`. Registered as a real navigator screen (`presentation: 'fullScreenModal'`), not React Native's `Modal` — `GestureDetector`-based components are unreliable inside an actual `Modal`'s separate native view hierarchy, especially on Android. | `react-native-zoom-toolkit` (`Gallery`, `fitContainer`). |
 | `frontend/src/screens/InboxScreen.tsx` | Conversation inbox. | `conversationsApi`, navigation. |
 | `frontend/src/screens/ConversationThreadScreen.tsx` | Message thread with polling and incremental message fetch; sends messages. | `getConversationMessages`, `sendMessage`, `useAuth`. |
 | `frontend/src/screens/MyProfileScreen.tsx` | Own profile display/edit, avatar upload, payout status, Stripe onboarding, profile prompt, logout. | `usersApi`, `AuthContext`, image picker, AppState. |
@@ -345,9 +346,9 @@ Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.ex
 
 ## 6. Backend Flow
 
-1. `backend/src/index.ts` loads `.env` (skipped when `NODE_ENV=test`), creates an Express app, enables CORS, registers raw Stripe webhook endpoints (`/stripe/webhook` and `/api/stripe/webhook`) before JSON parsing, then enables `express.json()`.
+1. `backend/src/index.ts` loads `.env` (skipped when `NODE_ENV=test`), creates an Express app, enables CORS, registers raw Stripe webhook endpoints (`/stripe/webhook` and `/api/stripe/webhook`) before JSON parsing, then enables `express.json()`. Local dev must run `stripe listen --forward-to localhost:3000/stripe/webhook` (not `/webhook`, which 404s on every event with no obvious failure signal) — see README's "Stripe Webhooks (local dev)". A misconfigured path here leaves `Booking.paymentStatus` stuck at `PENDING_AUTH` (see `stripeWebhookController.ts`'s `updateBookingFromEvent`), which then blocks owner acceptance via the `paymentStatus === AUTHORIZED || CAPTURED` check in `bookingService.ts`.
 2. Health/root routes return simple JSON.
-3. Stripe Connect return/refresh pages serve small HTML responses that link back to `zoink://`.
+3. Stripe Connect return/refresh pages (`/stripe-return`, `/stripe-refresh`) serve small HTML responses that link back to `zoink://`. These page URLs — not the `zoink://` scheme itself — are what get passed to Stripe as `return_url`/`refresh_url` (via `STRIPE_CONNECT_RETURN_URL`/`STRIPE_CONNECT_REFRESH_URL`, required env vars); Stripe's account-link API only accepts `http(s)://` redirect URLs, so `paymentService.ts`'s `getStripeConnectRedirectUrl` fails fast with a config error if either var is unset rather than falling back to an invalid `zoink://` URI.
 4. Main routers are mounted at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, `/reviews`, `/disputes`, and `/admin`.
 5. `requireAuth` validates JWTs and attaches `userId`/`verificationStatus`/`role`.
 6. `requireVerified` blocks marketplace/dispute routes unless the JWT says the user is verified; `requireAdmin` blocks `/admin/*` routes unless the JWT role is `ADMIN`.
@@ -459,13 +460,11 @@ Unclear from current codebase: stronger ID verification fields exist on `User` (
 
 `BookingRequestsScreen` or `BookingDetailScreen` calls accept/decline endpoints. `bookingService.transitionBookingStatus` enforces the state machine and payment/payout prerequisites.
 
-### Pickup / Dropoff Photo Flow
+### Pickup / Dropoff Photo Flow And Zoink It Confirmation
 
-`HandoffPhotoScreen` requests media-library permission, collects 2-3 photos, uploads images to `/bookings/:id/photos/upload`, then calls pickup/return initiate endpoints. `handoffService.initiateHandoff` sets `PICKUP_PENDING` or `RETURN_PENDING`, stores photo URLs, and notifies the other party.
+`ZoinkItScreen` handles both photo capture and confirmation in one screen (the former separate `HandoffPhotoScreen` has been removed). It requests media-library permission, collects 2-3 photos, uploads images to `/bookings/:id/photos/upload`, then calls the pickup/return initiate endpoint. `handoffService.initiateHandoff` distinguishes the *first* submission — which sets `PICKUP_PENDING`/`RETURN_PENDING`, stores photo URLs, writes a `STATUS_CHANGE` audit event, and notifies the other party — from a later *edit* (calling initiate again while already in the pending status, allowed up until the phase is confirmed), which only updates the stored photos and logs an `UPLOAD_PHOTOS` event marked `edited: true`; it does not re-transition status, re-notify, or reset any tap already registered.
 
-### Zoink It Confirmation
-
-`ZoinkItScreen` polls booking state and calls `confirmHandoff`. Backend `handoffService.confirmHandoff` records owner/renter tap timestamps. If both confirm within `ZOINK_TAP_WINDOW_MS`, pickup moves to `ACTIVE`; return moves to `COMPLETED`, triggers payment/payout/review updates.
+Once photos exist, the same screen polls booking state and calls `confirmHandoff` for the synchronized tap. Backend `handoffService.confirmHandoff` records owner/renter tap timestamps. If both confirm within `ZOINK_TAP_WINDOW_MS`, pickup moves to `ACTIVE`; return moves to `COMPLETED`, triggers payment/payout/review updates. `ActiveRentalScreen`/`BookingDetailScreen` show a single "Zoink It" action once a phase is pending, for either party — not just whichever party didn't initiate it.
 
 ### Deposits and Payments
 
@@ -561,8 +560,8 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 | `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. |
 | `STRIPE_CURRENCY` | `paymentService.ts` | PaymentIntent/Stripe currency. |
 | `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed/smoke script, `integration-tests/bookingLifecycle.integration.test.ts`, `integration-tests/bookingCancellation.integration.test.ts` | Local/dev owner payout account override. In `.env.test`, must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests call the live Stripe Connect API (`accounts.retrieve`) against it, and the test helpers now throw immediately if it's unset rather than falling back to a fake id like `acct_mock_test`. |
-| `STRIPE_CONNECT_RETURN_URL` | `paymentService.ts` | Stripe Connect return URL. |
-| `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | Stripe Connect refresh URL. |
+| `STRIPE_CONNECT_RETURN_URL` | `paymentService.ts` | Required. Must be an `http://localhost` or `https://` URL pointing at the backend's `/stripe-return` page (e.g. `<ngrok-url>/stripe-return`) — not the `zoink://` scheme itself, which Stripe's account-link API rejects. Missing/invalid values throw immediately instead of falling back. When testing through ngrok, must be updated (and the backend restarted) every time the tunnel URL changes, same as `EXPO_PUBLIC_API_URL`. |
+| `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | Required. Same rules as `STRIPE_CONNECT_RETURN_URL`, pointing at `/stripe-refresh`. |
 | `PAYOUT_HOLD_HOURS` | `cleanupJob.ts` | Delay before releasing owner payouts. |
 | `ZOINK_TAP_WINDOW_MS` | `handoffService.ts`, `cleanupJob.ts` | Confirmation window for synchronized taps/stale handoff cleanup. |
 | `PLATFORM_COMMISSION_RATE` | `paymentService.ts` | Platform commission calculation. |
@@ -576,7 +575,7 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 
 | Variable | Used In | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | `services/api.ts` | Backend base URL. |
+| `EXPO_PUBLIC_API_URL` | `services/api.ts` | Backend base URL. When testing through ngrok, changes every tunnel session — see `STRIPE_CONNECT_RETURN_URL`/`REFRESH_URL` above, which must be updated in lockstep. |
 | `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `config/stripe.ts`, booking request flow | Stripe frontend publishable key. |
 | `EXPO_PUBLIC_DEMO_MODE` | `config/demoMode.ts` | Enables mock frontend data when exactly `true`. Note: current code checks lowercase string equality. |
 
@@ -741,7 +740,8 @@ Note the migration ordering bug above — `migrate deploy` on a fresh `zoink_tes
 | Listings | `CreateListingScreen.tsx`, `EditListingScreen.tsx`, `ListingDetailScreen.tsx`, `MyListingsScreen.tsx`, `SearchScreen.tsx`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts`, `schemas/listing.schema.ts` | `Listing`, `ListingImage` |
 | Rentals/bookings | `BookingRequestScreen.tsx`, `BookingHistoryScreen.tsx`, `BookingRequestsScreen.tsx`, `BookingDetailScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingStateMachine.ts`, `bookingUtils.ts`, `schemas/booking.schema.ts` | `Booking`, `BookingEvent` |
 | Deposits/payments | `BookingRequestScreen.tsx`, `config/stripe.ts` | `paymentService.ts`, `stripeWebhookController.ts`, `cleanupJob.ts`, `reconciliationJob.ts`, `schemas/stripe.schema.ts` | `Booking.paymentStatus`, payment/deposit/payout fields |
-| Handoff photos / Zoink It | `HandoffPhotoScreen.tsx`, `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts`, `schemas/handoff.schema.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
+| Handoff photos / Zoink It | `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts`, `schemas/handoff.schema.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
+| Photo viewing (listings + handoff) | `PhotoViewerScreen.tsx`, `ListingDetailScreen.tsx`, `BookingDetailScreen.tsx` | N/A (frontend-only) | N/A |
 | Input validation | N/A (handled server-side) | `src/middleware/validate.ts`, `src/schemas/*.schema.ts`, `src/middleware/errorHandler.ts` | N/A |
 | Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx`, `conversationsApi.ts` | `routes/conversations.ts`, `conversationController.ts`, `conversationService.ts` | `Conversation`, `Message` |
 | Reviews/reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `bookingService.ts` | `Review`, `ReviewObligation`, `UserReputation` |

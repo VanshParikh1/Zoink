@@ -50,7 +50,8 @@
           "merchantIdentifier": "merchant.com.zoink.app",
           "enableGooglePay": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

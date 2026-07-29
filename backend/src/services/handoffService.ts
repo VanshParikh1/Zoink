@@ -90,29 +90,36 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
+  const startStatus = phase === 'pickup' ? BookingStatus.ACCEPTED : BookingStatus.ACTIVE
 
-  if (phase === 'pickup') {
-    if (!isOwner) throw new ForbiddenError('Only the booking owner can initiate pickup.')
-    if (booking.status !== BookingStatus.ACCEPTED) throw new BadRequestError('That booking transition is not allowed.')
-  }
+  if (phase === 'pickup' && !isOwner) throw new ForbiddenError('Only the booking owner can initiate pickup.')
+  if (phase === 'return' && !isRenter) throw new ForbiddenError('Only the booking renter can initiate return.')
 
-  if (phase === 'return') {
-    if (!isRenter) throw new ForbiddenError('Only the booking renter can initiate return.')
-    if (booking.status !== BookingStatus.ACTIVE) throw new BadRequestError('That booking transition is not allowed.')
+  // First submission moves the booking into the pending phase and notifies the
+  // other party. Once already pending, the same person can resubmit photos
+  // (e.g. to fix a bad shot) without re-triggering those one-time side effects —
+  // taps, if any were already registered, are intentionally left alone.
+  const isFirstSubmission = booking.status === startStatus
+  const isPhotoEdit = booking.status === pendingStatus(phase)
+  if (!isFirstSubmission && !isPhotoEdit) {
+    throw new BadRequestError('That booking transition is not allowed.')
   }
 
   const now = new Date()
   const updated: any = await prisma.$transaction(async (tx) => {
+    const data: any = {
+      [photoField(phase)]: photos,
+      version: { increment: 1 },
+    }
+
+    if (isFirstSubmission) {
+      data[initiatedField(phase)] = now
+      data.status = pendingStatus(phase)
+    }
+
     const result = await tx.booking.updateMany({
       where: { id: booking.id, version: booking.version },
-      data: {
-        [photoField(phase)]: photos,
-        [initiatedField(phase)]: now,
-        [tapFields(phase, true).actorField]: null,
-        [tapFields(phase, false).actorField]: null,
-        status: pendingStatus(phase),
-        version: { increment: 1 },
-      } as any,
+      data,
     })
 
     if (result.count !== 1) throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
@@ -120,29 +127,34 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.UPLOAD_PHOTOS, {
       phase,
       count: photos.length,
+      edited: !isFirstSubmission,
     })
 
-    await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
-      from: booking.status,
-      to: pendingStatus(phase),
-    })
+    if (isFirstSubmission) {
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
+        from: booking.status,
+        to: pendingStatus(phase),
+      })
+    }
 
     return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
   })
 
-  const recipientId = phase === 'pickup' ? booking.renterId : booking.ownerId
-  const body =
-    phase === 'pickup'
-      ? 'Owner has documented the item - time to Zoink It'
-      : 'Renter has documented the return - time to Zoink It'
+  if (isFirstSubmission) {
+    const recipientId = phase === 'pickup' ? booking.renterId : booking.ownerId
+    const body =
+      phase === 'pickup'
+        ? 'Owner has documented the item - time to Zoink It'
+        : 'Renter has documented the return - time to Zoink It'
 
-  void notifyUser({
-    userId: recipientId,
-    type: 'BOOKING_ACCEPTED',
-    title: 'Time to Zoink It',
-    body,
-    data: { bookingId: booking.id, listingId: booking.listingId, phase },
-  })
+    void notifyUser({
+      userId: recipientId,
+      type: 'BOOKING_ACCEPTED',
+      title: 'Time to Zoink It',
+      body,
+      data: { bookingId: booking.id, listingId: booking.listingId, phase },
+    })
+  }
 
   return toBookingResponse(updated)
 }
