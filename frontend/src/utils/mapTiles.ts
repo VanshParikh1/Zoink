@@ -1,0 +1,57 @@
+export const TILE_SIZE = 256
+
+export function toTileFloat(latitude: number, longitude: number, zoom: number) {
+  const n = 2 ** zoom
+  const latRad = (latitude * Math.PI) / 180
+  const x = ((longitude + 180) / 360) * n
+  const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
+  return { x, y }
+}
+
+export function tileFloatToLatLon(x: number, y: number, zoom: number) {
+  const n = 2 ** zoom
+  const longitude = (x / n) * 360 - 180
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)))
+  const latitude = (latRad * 180) / Math.PI
+  return { latitude, longitude }
+}
+
+export type MapTile = { key: string; uri: string; left: number; top: number }
+
+// Builds the set of OSM tiles needed to fill a width x height viewport centered
+// on (centerLat, centerLon), plus each tile's pixel offset within that viewport.
+export function buildTileGrid(
+  centerLat: number,
+  centerLon: number,
+  zoom: number,
+  width: number,
+  height: number,
+  radius = 1
+): MapTile[] {
+  if (!width || !height) return []
+
+  const center = toTileFloat(centerLat, centerLon, zoom)
+  const centerTileX = Math.floor(center.x)
+  const centerTileY = Math.floor(center.y)
+  const worldPxX = center.x * TILE_SIZE
+  const worldPxY = center.y * TILE_SIZE
+  const tileCount = 2 ** zoom
+
+  const tiles: MapTile[] = []
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      const tileY = centerTileY + dy
+      if (tileY < 0 || tileY >= tileCount) continue
+      const rawTileX = centerTileX + dx
+      const tileX = ((rawTileX % tileCount) + tileCount) % tileCount
+
+      tiles.push({
+        key: `${dx}-${dy}`,
+        uri: `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`,
+        left: rawTileX * TILE_SIZE - worldPxX + width / 2,
+        top: tileY * TILE_SIZE - worldPxY + height / 2,
+      })
+    }
+  }
+  return tiles
+}

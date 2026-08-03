@@ -3,6 +3,7 @@ node_modules/
 
 # Environment variables - NEVER commit these
 backend/.env
+backend/.env.test
 frontend/.env
 .env.local
 .env.production
@@ -12,6 +13,7 @@ backend/prisma/migrations/migration_lock.toml
 # Build outputs
 dist/
 build/
+packages/shared/generated/
 
 # Expo
 .expo/
@@ -29,3 +31,4 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.claude/launch.json

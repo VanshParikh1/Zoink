@@ -158,7 +158,7 @@ export default function MyProfileScreen() {
     try {
       setUploading(true)
       const uploaded = await uploadMyAvatar(result.assets[0].uri)
-      setProfile((current) => (current ? { ...current, avatarUrl: uploaded.avatarUrl } : current))
+      setProfile((current) => (current ? { ...current, avatarUrl: uploaded.avatarUrl ?? current.avatarUrl } : current))
     } catch (err: any) {
       Alert.alert('Upload failed', err?.response?.data?.error ?? 'Could not update your avatar.')
     } finally {
@@ -222,8 +222,8 @@ export default function MyProfileScreen() {
       ...profile,
       firstName: form.firstName || profile.firstName,
       lastName: form.lastName || profile.lastName,
-      phone: form.phone || undefined,
-      bio: form.bio || undefined,
+      phone: form.phone || null,
+      bio: form.bio || null,
     }
     : profile
 
@@ -353,6 +353,21 @@ export default function MyProfileScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {user?.role === 'ADMIN' ? (
+          <View style={styles.quickActionsPanel}>
+            <Text style={styles.panelTitle}>Admin</Text>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('AdminDisputes')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>Review disputes</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Payouts</Text>

@@ -1,4 +1,7 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
+import { InternalServerError, ConflictError } from '../utils/errors'
+import prisma from '../utils/prisma'
+
 
 const PLATFORM_COMMISSION_RATE = Number(process.env.PLATFORM_COMMISSION_RATE ?? 0.15)
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
@@ -10,25 +13,25 @@ type StripeClient = any
 let stripeClient: StripeClient | null | undefined
 
 function getStripeConnectRedirectUrl(kind: 'return' | 'refresh') {
-  const specificUrl =
-    kind === 'return' ? process.env.STRIPE_CONNECT_RETURN_URL : process.env.STRIPE_CONNECT_REFRESH_URL
-  const url = specificUrl ?? `zoink://stripe-${kind}`
+  const envVar = kind === 'return' ? 'STRIPE_CONNECT_RETURN_URL' : 'STRIPE_CONNECT_REFRESH_URL'
+  const url = process.env[envVar]
 
   if (!url) {
-    throw new Error('STRIPE_CONNECT_REDIRECT_URL_REQUIRED')
+    throw new InternalServerError(`${envVar} is not configured.`)
   }
 
+  let parsed: URL
   try {
-    const parsed = new URL(url)
-    if (
-      parsed.protocol !== 'zoink:' &&
-      parsed.protocol !== 'https:' &&
-      !(parsed.protocol === 'http:' && parsed.hostname === 'localhost')
-    ) {
-      throw new Error('INVALID_PROTOCOL')
-    }
+    parsed = new URL(url)
   } catch {
-    throw new Error('STRIPE_CONNECT_REDIRECT_URL_INVALID')
+    throw new InternalServerError(`${envVar} must be a valid http://localhost or https:// URL.`)
+  }
+
+  // Stripe's account-link API only accepts http(s) return/refresh URLs, not custom
+  // schemes like zoink:// — the deep link back into the app happens one hop later,
+  // via the HTML page these URLs serve (see /stripe-return and /stripe-refresh in index.ts).
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && parsed.hostname === 'localhost')) {
+    throw new InternalServerError(`${envVar} must be a valid http://localhost or https:// URL.`)
   }
 
   return url
@@ -101,7 +104,7 @@ export async function createPaymentIntent(
   return stripe.paymentIntents.create(
     {
       amount,
-      currency: process.env.STRIPE_CURRENCY ?? 'usd',
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
       customer: stripeCustomerId ?? undefined,
       capture_method: 'manual',
       automatic_payment_methods: { enabled: true },
@@ -116,7 +119,7 @@ export async function capturePaymentIntent(
   amountOverrideCents?: number
 ) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
@@ -139,7 +142,7 @@ export async function capturePaymentIntent(
 
 export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
@@ -158,9 +161,9 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
   )
 }
 
-export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number) {
+export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number, db: typeof prisma = prisma) {
   if (!booking.stripePaymentIntentId) {
-    throw new Error('PAYMENT_INTENT_MISSING')
+    throw new ConflictError('Payment authorization is missing.')
   }
 
   const stripe = getStripe()
@@ -199,7 +202,7 @@ export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | '
   return stripe.transfers.create(
     {
       amount,
-      currency: process.env.STRIPE_CURRENCY ?? 'usd',
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
       destination: stripeAccountId,
       metadata: { bookingId: booking.id },
     },

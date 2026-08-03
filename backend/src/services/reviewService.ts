@@ -1,6 +1,8 @@
 import { Prisma, ReviewRole, ReviewObligationStatus } from '@prisma/client'
+import type { PendingReviewResponse, SubmitReviewResult } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 
 type SubmitReviewInput = {
   obligationId: string
@@ -112,11 +114,11 @@ async function recomputeUserReputation(tx: Prisma.TransactionClient, userId: str
 
 function assertScore(value: number) {
   if (!Number.isInteger(value) || value < 1 || value > 5) {
-    throw new Error('REVIEW_INVALID_SCORE')
+    throw new BadRequestError('Scores must be whole numbers between 1 and 5.')
   }
 }
 
-export async function getPendingReviews(userId: string) {
+export async function getPendingReviews(userId: string): Promise<PendingReviewResponse[]> {
   const obligations = await prisma.reviewObligation.findMany({
     where: {
       userId,
@@ -189,7 +191,7 @@ export async function getPendingReviews(userId: string) {
   })
 }
 
-export async function submitReview(userId: string, input: SubmitReviewInput) {
+export async function submitReview(userId: string, input: SubmitReviewInput): Promise<SubmitReviewResult> {
   assertScore(input.scoreA)
   assertScore(input.scoreB)
   assertScore(input.scoreC)
@@ -236,19 +238,19 @@ export async function submitReview(userId: string, input: SubmitReviewInput) {
   })
 
   if (!obligation) {
-    throw new Error('REVIEW_OBLIGATION_NOT_FOUND')
+    throw new NotFoundError('Review prompt not found.')
   }
 
   if (obligation.userId !== userId) {
-    throw new Error('REVIEW_FORBIDDEN')
+    throw new ForbiddenError('You cannot submit this review.')
   }
 
   if (obligation.status !== ReviewObligationStatus.PENDING || obligation.submittedReviewId) {
-    throw new Error('REVIEW_ALREADY_SUBMITTED')
+    throw new ConflictError('This review has already been submitted.')
   }
 
   if (obligation.booking.status !== 'COMPLETED') {
-    throw new Error('REVIEW_BOOKING_NOT_COMPLETED')
+    throw new BadRequestError('This rental is not ready for review yet.')
   }
 
   const comment = input.comment?.trim() || null
@@ -311,6 +313,10 @@ export async function submitReview(userId: string, input: SubmitReviewInput) {
 
   return {
     ...result,
+    review: {
+      ...result.review,
+      createdAt: result.review.createdAt.toISOString(),
+    },
     reviewee,
     booking: {
       id: obligation.booking.id,

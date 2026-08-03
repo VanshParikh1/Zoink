@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --test --require ts-node/register src/services/*.test.ts src/middleware/*.test.ts src/middleware/controllers/*.test.ts",
+    "test:integration": "NODE_ENV=test DATABASE_URL=postgresql://vansh:yea.gurt67@localhost:5432/zoink_test node --test --test-concurrency=1 --require ts-node/register src/integration-tests/*.integration.test.ts",
     "smoke:week7": "ts-node src/scripts/week7SmokeFlow.ts"
   },
   "keywords": [],
@@ -16,7 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-ses": "^3.1029.0",
     "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@prisma/client": "^7.9.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.6",
@@ -25,9 +26,12 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
+    "nanoid": "^3.3.7",
+    "node-cron": "^4.6.0",
     "pg": "^8.20.0",
     "stripe": "^18.5.0",
-    "stripe-cli": "^0.1.0"
+    "stripe-cli": "^0.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -37,8 +41,11 @@
     "@types/multer": "^2.1.0",
     "@types/node": "^25.5.0",
     "@types/pg": "^8.18.0",
+    "@types/supertest": "^7.2.1",
     "nodemon": "^3.1.14",
     "prisma": "^7.5.0",
+    "prisma-generator-typescript-interfaces": "^3.1.0",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },

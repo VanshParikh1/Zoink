@@ -34,13 +34,14 @@ type User = {
   email: string
   firstName: string
   verificationStatus: 'PENDING' | 'SUBMITTED' | 'VERIFIED' | 'FAILED'
+  role: 'USER' | 'ADMIN'
 }
 
 type AuthContextType = {
   user: User | null
   token: string | null
   isLoading: boolean
-  register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>
+  register: (email: string, password: string, firstName: string, lastName: string, phone: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   setVerified: (newToken: string) => void
@@ -83,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [token, user])
 
-  async function register(email: string, password: string, firstName: string, lastName: string) {
+  async function register(email: string, password: string, firstName: string, lastName: string, phone: string) {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, {
         ...DEMO_USER,
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const res = await api.post('/auth/register', { email, password, firstName, lastName })
+    const res = await api.post('/auth/register', { email, password, firstName, lastName, phone })
     await saveSession(res.data.token, res.data.user)
   }
 
@@ -158,5 +159,6 @@ function parseJWT(token: string): User {
     email: json.email ?? '',
     firstName: json.firstName ?? '',
     verificationStatus: json.verificationStatus,
+    role: json.role === 'ADMIN' ? 'ADMIN' : 'USER',
   }
 }

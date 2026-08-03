@@ -4,6 +4,7 @@ import { requireVerified } from '../middleware/requiredVerified'
 import {
   getConversationMessages,
   getMyConversations,
+  markConversationRead,
   openConversation,
   sendMessage,
 } from '../middleware/controllers/conversationController'
@@ -16,5 +17,6 @@ router.post('/', openConversation)
 router.get('/me', getMyConversations)
 router.get('/:id/messages', getConversationMessages)
 router.post('/:id/messages', sendMessage)
+router.post('/:id/read', markConversationRead)
 
 export default router

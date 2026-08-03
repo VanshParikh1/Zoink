@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.frontend",
+      "bundleIdentifier": "com.zoink.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -30,7 +30,7 @@
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.anonymous.frontend"
+      "package": "com.zoink.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,12 +45,21 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Zoink uses your location to show nearby listings and to set an accurate pickup location for items you list.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
         "@stripe/stripe-react-native",
         {
           "merchantIdentifier": "merchant.com.zoink.app",
           "enableGooglePay": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

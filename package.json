@@ -1,0 +1,23 @@
+{
+  "name": "zoink",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "packages/shared"
+  ],
+  "overrides": {
+    "react-native": "0.81.5",
+    "expo": "~54.0.33",
+    "semver": "7.8.5"
+  },
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "build:backend": "cd backend && npm run build",
+    "test:backend": "cd backend && npm test",
+    "typecheck:backend": "cd backend && npx tsc --noEmit",
+    "typecheck:frontend": "cd frontend && npx tsc --noEmit",
+    "generate": "cd backend && npx prisma generate"
+  }
+}

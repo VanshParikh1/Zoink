@@ -1,9 +1,9 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
+import type { BookingResponse, PendingReviewResponse, UserSummary } from '@zoink/shared'
 import prisma from '../utils/prisma'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import {
-  BOOKING_DEPOSIT_RATE,
-  calculateDepositAmount,
   ensureValidBookingDates,
   getRentalDays,
   roundCurrency,
@@ -134,7 +134,17 @@ export type CreateBookingInput = {
   insuranceOptIn?: boolean
 }
 
-function mapPendingReviewForUser(booking: any, userId?: string) {
+function toUserSummary(user: any): UserSummary {
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    avatarUrl: user.avatarUrl,
+    verificationStatus: user.verificationStatus,
+  }
+}
+
+function mapPendingReviewForUser(booking: any, userId?: string): PendingReviewResponse | null {
   if (!userId || !Array.isArray(booking.reviewObligations)) {
     return null
   }
@@ -153,14 +163,7 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
     status: obligation.status,
     scoreLabels: scoreLabelsForRole(obligation.reviewerRole),
     createdAt: obligation.createdAt,
-    targetUserId: obligation.targetUserId,
-    listingTitle: booking.listing.title,
-    reviewee: {
-      id: reviewee.id,
-      firstName: reviewee.firstName,
-      lastName: reviewee.lastName,
-      avatarUrl: reviewee.avatarUrl,
-    },
+    reviewee: toUserSummary(reviewee),
     booking: {
       id: booking.id,
       startDate: booking.startDate,
@@ -171,15 +174,49 @@ function mapPendingReviewForUser(booking: any, userId?: string) {
   }
 }
 
-function toBookingResponse(booking: any, userId?: string) {
+function toBookingResponse(booking: any, userId?: string): BookingResponse {
   const totalPrice = Number(booking.totalPrice)
   return {
-    ...booking,
+    id: booking.id,
+    status: booking.status,
+    version: booking.version,
+    startDate: booking.startDate,
+    endDate: booking.endDate,
     totalPrice,
-    depositAmount: Number(booking.depositAmount ?? calculateDepositAmount(totalPrice)),
+    message: booking.message,
+    paymentStatus: booking.paymentStatus,
+    depositAmount: Number(booking.depositAmount),
     commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
+    insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
+    stripePaymentIntentId: booking.stripePaymentIntentId,
+    stripeChargeId: booking.stripeChargeId,
+    stripeTransferId: booking.stripeTransferId,
+    paidAt: booking.paidAt,
+    refundedAt: booking.refundedAt,
+    payoutSentAt: booking.payoutSentAt,
+    pickupPhotos: booking.pickupPhotos,
+    returnPhotos: booking.returnPhotos,
+    handoffInitiatedAt: booking.handoffInitiatedAt,
+    returnInitiatedAt: booking.returnInitiatedAt,
+    ownerPickupTappedAt: booking.ownerPickupTappedAt,
+    renterPickupTappedAt: booking.renterPickupTappedAt,
+    ownerReturnTappedAt: booking.ownerReturnTappedAt,
+    renterReturnTappedAt: booking.renterReturnTappedAt,
+    disputeStatus: booking.disputeStatus,
+    disputedAt: booking.disputedAt,
+    disputeReason: booking.disputeReason,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    listingId: booking.listingId,
+    completedAt: booking.completedAt,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt,
+    listing: booking.listing,
+    renter: toUserSummary(booking.renter),
+    owner: toUserSummary(booking.owner),
+    reviewObligations: booking.reviewObligations,
     pendingReview: mapPendingReviewForUser(booking, userId),
   }
 }
@@ -208,11 +245,11 @@ async function getBookingForParticipant(bookingId: string, userId: string) {
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   if (booking.renterId !== userId && booking.ownerId !== userId) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   return booking
@@ -245,7 +282,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   const overlapping = await prisma.booking.findFirst({
@@ -260,11 +297,11 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
   })
 
   if (overlapping) {
-    throw new Error('BOOKING_OVERLAP')
+    throw new ConflictError('Those dates overlap with another accepted booking.')
   }
 }
 
-export async function createBooking(renterId: string, input: CreateBookingInput) {
+export async function createBooking(renterId: string, input: CreateBookingInput): Promise<BookingResponse> {
   ensureValidBookingDates(input.startDate, input.endDate)
 
   const listing = await prisma.listing.findUnique({
@@ -275,6 +312,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       isAvailable: true,
       dailyPrice: true,
       itemValue: true,
+      depositAmount: true,
       owner: {
         select: { id: true, stripeAccountId: true },
       },
@@ -282,26 +320,26 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   })
 
   if (!listing) {
-    throw new Error('LISTING_NOT_FOUND')
+    throw new NotFoundError('Listing not found.')
   }
 
   if (listing.ownerId === renterId) {
-    throw new Error('BOOKING_SELF')
+    throw new BadRequestError('You cannot book your own listing.')
   }
 
   if (!listing.isAvailable) {
-    throw new Error('BOOKING_LISTING_UNAVAILABLE')
+    throw new BadRequestError('This listing is currently unavailable.')
   }
 
   const rentalDays = getRentalDays(input.startDate, input.endDate)
 
   if (rentalDays <= 0) {
-    throw new Error('BOOKING_INVALID_DATES')
+    throw new BadRequestError('Start and end dates are invalid.')
   }
 
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
-  const depositAmount = calculateDepositAmount(totalPrice)
+  const depositAmount = Number(listing.depositAmount)
   const commissionAmount = calculateCommission(totalPrice)
   const ownerPayout = calculateOwnerPayout(totalPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
@@ -372,12 +410,12 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   }
 }
 
-export async function getBookingById(bookingId: string, userId: string) {
+export async function getBookingById(bookingId: string, userId: string): Promise<BookingResponse> {
   const booking = await getBookingForParticipant(bookingId, userId)
   return toBookingResponse(booking, userId)
 }
 
-export async function getMyBookings(renterId: string) {
+export async function getMyBookings(renterId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
     select: bookingSelect as any,
@@ -387,7 +425,7 @@ export async function getMyBookings(renterId: string) {
   return bookings.map((booking: any) => toBookingResponse(booking, renterId))
 }
 
-export async function getIncomingRequests(ownerId: string) {
+export async function getIncomingRequests(ownerId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
     select: bookingSelect as any,
@@ -397,31 +435,31 @@ export async function getIncomingRequests(ownerId: string) {
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
 }
 
-export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus) {
+export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus): Promise<BookingResponse> {
   const booking: any = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: bookingSelect as any,
   })
 
   if (!booking) {
-    throw new Error('BOOKING_NOT_FOUND')
+    throw new NotFoundError('Booking not found.')
   }
 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
 
   if (!isOwner && !isRenter) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   if (nextStatus === 'ACCEPTED' || nextStatus === 'DECLINED' || nextStatus === 'ACTIVE' || nextStatus === 'COMPLETED') {
     if (!isOwner) {
-      throw new Error('BOOKING_FORBIDDEN')
+      throw new ForbiddenError('You do not have access to this booking.')
     }
   }
 
   if (nextStatus === 'CANCELLED' && !isOwner && !isRenter) {
-    throw new Error('BOOKING_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this booking.')
   }
 
   assertBookingTransition(booking.status, nextStatus)
@@ -430,11 +468,11 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     await ensureNoOverlap(booking.listingId, booking.id)
     const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
     if (!stripeAccountId) {
-      throw new Error('OWNER_STRIPE_ACCOUNT_REQUIRED')
+      throw new ConflictError('The owner needs to connect Stripe before accepting bookings.')
     }
 
     if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
-      throw new Error('PAYMENT_NOT_AUTHORIZED')
+      throw new ConflictError('Payment authorization is not ready yet.')
     }
   }
 
@@ -446,7 +484,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       })
 
       if (result.count !== 1) {
-        throw new Error('BOOKING_VERSION_CONFLICT')
+        throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
       }
 
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
@@ -461,7 +499,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     })
 
     if (nextStatus === 'CANCELLED') {
-      void handleCancellationPayment(booking, actorId)
+      await handleCancellationPayment(booking, actorId)
     }
 
     if (nextStatus === 'ACCEPTED') {
@@ -510,7 +548,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     })
 
     if (result.count !== 1) {
-      throw new Error('BOOKING_VERSION_CONFLICT')
+      throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
     }
 
     await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
@@ -577,6 +615,12 @@ async function ensureOwnerStripeAccount(ownerId: string) {
 }
 
 function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
+  // Cancellation fees disabled for launch (product decision — no fee by default).
+  // Tiered fee calculation below is retained for a planned future feature:
+  // an owner-toggleable "cancellation fee" option, following the same pattern
+  // as Listing.insuranceOptIn. Do not delete this logic.
+  return 0
+  // --- retained tiered logic, currently unreachable, for future opt-in feature ---
   const fee = Math.min(25, Math.max(5, Number(totalPrice) * 0.05))
   return toCents(fee)
 }
@@ -593,25 +637,55 @@ async function handleCancellationPayment(booking: any, actorId: string) {
     }
 
     if (booking.status === 'ACCEPTED') {
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: PaymentStatus.CAPTURE_PENDING },
-      })
-      await capturePaymentIntent(booking, calculateCancellationFeeCents(booking.totalPrice))
+      const feeCents = calculateCancellationFeeCents(booking.totalPrice)
+
+      // Stripe rejects amount_to_capture: 0 — capturing is only valid for a
+      // nonzero fee. With fees disabled for launch, feeCents is always 0, so
+      // this falls through to a full release, same as the PENDING branch.
+      // This keeps the fee-charging path intact and automatically reactivates
+      // if calculateCancellationFeeCents starts returning a nonzero value.
+      if (feeCents > 0) {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: PaymentStatus.CAPTURE_PENDING },
+        })
+        await capturePaymentIntent(booking, feeCents)
+      } else {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: PaymentStatus.REFUND_PENDING },
+        })
+        await cancelPaymentIntent(booking)
+      }
       return
     }
   } catch (error) {
-    await prisma.bookingEvent.create({
-      data: {
-        bookingId: booking.id,
-        actorId,
-        type: BookingEventType.ERROR,
-        metadata: {
-          action: 'cancel_payment',
-          message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+    // The booking's CANCELLED status has already committed by the time this
+    // runs — this only records the refund/capture failure for the audit
+    // trail. A failure to write that audit record shouldn't turn an already-
+    // successful cancellation into a 500, so it's logged rather than thrown.
+    try {
+      await prisma.bookingEvent.create({
+        data: {
+          bookingId: booking.id,
+          actorId,
+          type: BookingEventType.ERROR,
+          metadata: {
+            action: 'cancel_payment',
+            message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+          },
         },
-      },
-    })
+      })
+    } catch (auditError) {
+      console.error(
+        '[Cancellation] Failed to write cancel_payment audit event for booking',
+        booking.id,
+        '— original payment error:',
+        error,
+        '— audit write error:',
+        auditError
+      )
+    }
   }
 }
 

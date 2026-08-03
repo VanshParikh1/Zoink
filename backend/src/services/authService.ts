@@ -2,6 +2,13 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import prisma from '../utils/prisma'
+import {
+  BadRequestError,
+  ConflictError,
+  UnauthorizedError,
+  NotFoundError,
+  TooManyRequestsError,
+} from '../utils/errors'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -19,9 +26,9 @@ function generateOTP(): string {
   return crypto.randomInt(100000, 999999).toString()
 }
 
-function signJWT(userId: string, verificationStatus: string, email: string, firstName: string): string {
+function signJWT(userId: string, verificationStatus: string, email: string, firstName: string, role: string): string {
   return jwt.sign(
-    { userId, verificationStatus, email, firstName },
+    { userId, verificationStatus, email, firstName, role },
     process.env.JWT_SECRET!,
     { expiresIn: '30d' }
   )
@@ -33,17 +40,18 @@ export async function registerUser(
   email: string,
   password: string,
   firstName: string,
-  lastName: string
+  lastName: string,
+  phone: string
 ) {
   // 1. Check domain
   if (!isEmailDomainAllowed(email)) {
-    throw new Error('EMAIL_DOMAIN_NOT_ALLOWED')
+    throw new BadRequestError('Email domain not allowed. Please use your university email.')
   }
 
   // 2. Check if email already exists
   const existing = await prisma.user.findUnique({ where: { email } })
   if (existing) {
-    throw new Error('EMAIL_ALREADY_EXISTS')
+    throw new ConflictError('An account with this email already exists.')
   }
 
   // 3. Hash password
@@ -51,7 +59,7 @@ export async function registerUser(
 
   // 4. Create user
   const user = await prisma.user.create({
-    data: { email, passwordHash, firstName, lastName },
+    data: { email, passwordHash, firstName, lastName, phone },
   })
 
   // 5. Generate and store OTP
@@ -68,8 +76,8 @@ export async function registerUser(
   await sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
-  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
 // ── Login ─────────────────────────────────────────────────────────────────────
@@ -78,18 +86,18 @@ export async function loginUser(email: string, password: string) {
   // 1. Find user
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user) {
-    throw new Error('INVALID_CREDENTIALS')
+    throw new UnauthorizedError('Invalid email or password.')
   }
 
   // 2. Check password
   const valid = await bcrypt.compare(password, user.passwordHash)
   if (!valid) {
-    throw new Error('INVALID_CREDENTIALS')
+    throw new UnauthorizedError('Invalid email or password.')
   }
 
   // 3. Return JWT
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName)
-  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus } }
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
 // ── Verify OTP ────────────────────────────────────────────────────────────────
@@ -102,15 +110,15 @@ export async function verifyOTP(userId: string, code: string) {
   })
 
   if (!token) {
-    throw new Error('OTP_NOT_FOUND')
+    throw new BadRequestError('No verification code found. Please request a new one.')
   }
 
   if (token.code !== code) {
-    throw new Error('OTP_INVALID')
+    throw new BadRequestError('Incorrect verification code.')
   }
 
   if (token.expiresAt < new Date()) {
-    throw new Error('OTP_EXPIRED')
+    throw new BadRequestError('Verification code has expired. Please request a new one.')
   }
 
   // Mark token as used and update user status in a transaction
@@ -126,9 +134,9 @@ export async function verifyOTP(userId: string, code: string) {
   ])
 
   // Return a fresh JWT with updated verificationStatus
-  // Re-fetch user to get email + firstName for the new token
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true } })
-  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName)
+  // Re-fetch user to get email + firstName + role for the new token
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true, role: true } })
+  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role)
   return { token: token2 }
 }
 
@@ -136,8 +144,8 @@ export async function verifyOTP(userId: string, code: string) {
 
 export async function resendOTP(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (!user) throw new Error('USER_NOT_FOUND')
-  if (user.verificationStatus === 'VERIFIED') throw new Error('ALREADY_VERIFIED')
+  if (!user) throw new NotFoundError('User not found.')
+  if (user.verificationStatus === 'VERIFIED') throw new BadRequestError('Your account is already verified.')
 
   // Rate limit: block if a token was created in the last 60 seconds
   const recentToken = await prisma.verificationToken.findFirst({
@@ -146,7 +154,7 @@ export async function resendOTP(userId: string) {
       createdAt: { gt: new Date(Date.now() - 60 * 1000) },
     },
   })
-  if (recentToken) throw new Error('RESEND_TOO_SOON')
+  if (recentToken) throw new TooManyRequestsError('Please wait 60 seconds before requesting a new code.')
 
   const code = generateOTP()
   const expiresAt = new Date(

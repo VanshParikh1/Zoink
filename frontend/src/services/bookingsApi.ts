@@ -1,6 +1,7 @@
 import api from './api'
 import { Booking } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
+import { getImageUploadPart } from './uploadFormData'
 import {
   mockAcceptBooking,
   mockActivateBooking,
@@ -94,15 +95,10 @@ export async function uploadHandoffPhotoImage(id: string, uri: string): Promise<
   if (DEMO_MODE) return 'https://demo-image-url.com/photo.jpg'
 
   const formData = new FormData()
-  const filename = uri.split('/').pop() ?? 'photo.jpg'
-  const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg'
-  const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg'
 
-  formData.append('image', { uri, name: filename, type: mimeType } as any)
+  formData.append('image', getImageUploadPart(uri) as any)
 
-  const res = await api.post(`/bookings/${id}/photos/upload`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  const res = await api.post(`/bookings/${id}/photos/upload`, formData)
 
   return res.data.url
 }

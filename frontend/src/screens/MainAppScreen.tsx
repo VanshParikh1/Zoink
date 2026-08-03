@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native'
 import { BlurView } from 'expo-blur'
-import { Feather } from '@expo/vector-icons'
+import { Feather } from '@expo/vector-icons';
 import ScreenBackground from '../components/ScreenBackground'
 import * as Haptics from 'expo-haptics'
 import { RouteProp, useRoute } from '@react-navigation/native'

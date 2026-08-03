@@ -8,7 +8,6 @@ import {
   FlatList,
   Image,
   RefreshControl,
-  ScrollView,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
@@ -16,7 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import { Listing } from '../types'
+import { ListingBrowseItem } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
 import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
@@ -25,18 +24,16 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 5000
-const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
 
 export default function HomeScreen() {
   const { user, logout } = useAuth()
   const nav = useNavigation<Nav>()
 
-  const [listings, setListings] = useState<Listing[]>([])
+  const [listings, setListings] = useState<ListingBrowseItem[]>([])
   const [coords, setCoords] = useState(DEFAULT_COORDS)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('All')
 
   const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
     try {
@@ -100,7 +97,7 @@ export default function HomeScreen() {
     fetchListings(coords)
   }
 
-  const renderListing = ({ item }: { item: Listing }) => {
+  const renderListing = ({ item }: { item: ListingBrowseItem }) => {
     const imageUrl = item.images[0]?.url
 
     return (
@@ -138,10 +135,6 @@ export default function HomeScreen() {
     )
   }
 
-  const filteredListings = listings.filter(
-    (l) => selectedCategory === 'All' || l.category.toLowerCase() === selectedCategory.toLowerCase()
-  )
-
   if (loading) {
     return (
       <View style={styles.loadingScreen}>
@@ -154,7 +147,7 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1 }}>
       <FlatList
-        data={filteredListings}
+        data={listings}
         keyExtractor={(item) => item.id}
         renderItem={renderListing}
         numColumns={2}
@@ -237,28 +230,6 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* ── Category chips ── */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContainer}>
-              {CATEGORIES.map((cat) => {
-                const isSelected = selectedCategory === cat
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    activeOpacity={0.75}
-                    style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                      setSelectedCategory(cat)
-                    }}
-                  >
-                    <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </ScrollView>
-
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         }
@@ -266,7 +237,7 @@ export default function HomeScreen() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No listings found</Text>
             <Text style={styles.emptyText}>
-              Try another category or pull to refresh.
+              Nothing nearby right now — pull to refresh.
             </Text>
           </View>
         }
@@ -360,28 +331,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
   },
-  // ── Category chips ──────────────────────────────────────
-  chipsScroll: { marginHorizontal: -16, marginBottom: 18 },
-  chipsContainer: { paddingHorizontal: 16, gap: 8, flexDirection: 'row' },
-  chip: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  chipSelected: {
-    backgroundColor: theme.primarySurface,
-    borderColor: theme.borderFocus,
-    borderTopColor: 'rgba(22, 255, 110, 0.4)',
-  },
-  chipUnselected: { 
-    backgroundColor: theme.surfaceSubdued,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
-  },
-  chipTextSelected: { color: theme.primary, fontWeight: '600', fontSize: 14 },
-  chipTextUnselected: { color: theme.textMuted, fontWeight: '400', fontSize: 14 },
   errorText: { marginTop: 14, color: theme.colors.danger, fontSize: 13 },
   // ── Listing grid ──────────────────────────────────────
   rowWrapper: { gap: 14, justifyContent: 'space-between', marginBottom: 14 },

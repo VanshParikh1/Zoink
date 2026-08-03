@@ -1,6 +1,8 @@
 import { Request, Response } from 'express'
 import { BookingEventType, PaymentStatus } from '@prisma/client'
 import prisma from '../../utils/prisma'
+import { asyncHandler } from '../../utils/asyncHandler'
+import { BadRequestError, InternalServerError } from '../../utils/errors'
 
 type StripeEvent = {
   id: string
@@ -77,13 +79,13 @@ async function updateBookingFromEvent(event: StripeEvent) {
   })
 }
 
-export async function stripeWebhook(req: Request, res: Response) {
+export const stripeWebhook = asyncHandler(async (req: Request, res: Response) => {
   let event: StripeEvent
 
   try {
     event = constructEvent(req)
   } catch (error) {
-    return res.status(400).json({ error: 'Invalid Stripe webhook signature.' })
+    throw new BadRequestError('Invalid Stripe webhook signature.')
   }
 
   try {
@@ -91,6 +93,6 @@ export async function stripeWebhook(req: Request, res: Response) {
     return res.json({ received: true })
   } catch (error) {
     console.error('Stripe webhook handling failed:', error)
-    return res.status(500).json({ error: 'Webhook handling failed.' })
+    throw new InternalServerError('Webhook handling failed.')
   }
-}
+})

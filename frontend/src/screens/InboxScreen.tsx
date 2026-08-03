@@ -114,7 +114,7 @@ export default function InboxScreen() {
                     {new Date(item.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </Text>
                 </View>
-                <Text style={styles.cardPrice}>${item.listing.dailyPrice} / day</Text>
+                <Text style={styles.cardPrice}>${Number(item.listing.dailyPrice).toFixed(2)} / day</Text>
                 <Text style={[styles.cardMeta, item.unread && styles.cardMetaUnread]} numberOfLines={2}>
                   {item.lastMessage?.body ?? 'Conversation ready to start'}
                 </Text>

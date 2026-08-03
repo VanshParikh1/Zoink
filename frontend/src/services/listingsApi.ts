@@ -1,6 +1,7 @@
 import api from './api'
-import { BrowseListingsResult, Listing, ListingImage } from '../types'
+import { BrowseListingsResult, Listing, ListingBrowseItem, ListingImage } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
+import { getImageUploadPart } from './uploadFormData'
 import {
   mockBrowseListings,
   mockCreateListing,
@@ -35,7 +36,7 @@ export async function getNearbyListings({
   lat,
   lng,
   radius = 25,
-}: NearbyListingsParams): Promise<Listing[]> {
+}: NearbyListingsParams): Promise<ListingBrowseItem[]> {
   if (DEMO_MODE) return mockGetNearbyListings()
 
   const res = await api.get('/listings', {
@@ -80,8 +81,8 @@ export async function browseListings({
 
   return {
     items: res.data.items ?? [],
-    total: res.data.total ?? res.data.items?.length ?? 0,
-    hasMore: res.data.hasMore ?? false,
+    total: res.data.meta?.total ?? res.data.items?.length ?? 0,
+    hasMore: res.data.meta?.hasMore ?? false,
   }
 }
 
@@ -97,6 +98,7 @@ export type CreateListingPayload = {
   description: string
   category: string
   dailyPrice: number
+  depositAmount?: number
   latitude: number
   longitude: number
   city: string
@@ -153,15 +155,10 @@ export async function uploadListingImage(listingId: string, uri: string): Promis
   if (DEMO_MODE) return mockUploadListingImage(listingId, uri)
 
   const formData = new FormData()
-  const filename = uri.split('/').pop() ?? 'photo.jpg'
-  const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg'
-  const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg'
 
-  formData.append('image', { uri, name: filename, type: mimeType } as any)
+  formData.append('image', getImageUploadPart(uri) as any)
 
-  const res = await api.post(`/listings/${listingId}/images`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  const res = await api.post(`/listings/${listingId}/images`, formData)
 
   return res.data
 }

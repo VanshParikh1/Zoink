@@ -4,6 +4,7 @@ import { DEMO_MODE } from '../config/demoMode'
 import {
   mockGetConversationMessages,
   mockGetMyConversations,
+  mockMarkConversationRead,
   mockOpenConversation,
   mockSendMessage,
 } from './mockWeek6'
@@ -30,6 +31,12 @@ export async function getConversationMessages(conversationId: string, after?: st
   })
 
   return res.data
+}
+
+export async function markConversationRead(conversationId: string): Promise<void> {
+  if (DEMO_MODE) return mockMarkConversationRead(conversationId)
+
+  await api.post(`/conversations/${conversationId}/read`)
 }
 
 export async function sendMessage(conversationId: string, body: string): Promise<Message> {

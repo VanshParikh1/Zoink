@@ -15,7 +15,7 @@ import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getConversationMessages, sendMessage } from '../services/conversationsApi'
+import { getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
 import { Message } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
@@ -63,13 +63,15 @@ export default function ConversationThreadScreen() {
   useFocusEffect(
     useCallback(() => {
       loadMessages()
+      markConversationRead(route.params.conversationId).catch(() => {})
 
       const intervalId = setInterval(() => {
         loadMessages(true)
+        markConversationRead(route.params.conversationId).catch(() => {})
       }, 4000)
 
       return () => clearInterval(intervalId)
-    }, [loadMessages])
+    }, [loadMessages, route.params.conversationId])
   )
 
   async function handleSend() {

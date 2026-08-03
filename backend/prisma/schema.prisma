@@ -1,15 +1,290 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"]
+}
+
+generator typescriptInterfaces {
+  provider    = "prisma-generator-typescript-interfaces"
+  output      = "../../packages/shared/generated/prisma-models.ts"
+  dateType    = "string"
+  decimalType = "string"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-// ─────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────
+model User {
+  id                  String              @id @default(uuid())
+  email               String              @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  phone               String
+  avatarUrl           String?
+  bio                 String?
+  verificationStatus  VerificationStatus  @default(PENDING)
+  verificationId      String?
+  verifiedAt          DateTime?
+  idPhotoUrl          String?
+  selfieUrl           String?
+  idSubmittedAt       DateTime?
+  expoPushToken       String?
+  stripeCustomerId    String?
+  stripeAccountId     String?
+  role                Role                @default(USER)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  bookingsAsOwner     Booking[]           @relation("OwnerBookings")
+  bookingsAsRenter    Booking[]           @relation("RenterBookings")
+  ownerConversations  Conversation[]      @relation("OwnerConversations")
+  renterConversations Conversation[]      @relation("RenterConversations")
+  listings            Listing[]
+  messages            Message[]
+  notifications       Notification[]
+  reviewObligations   ReviewObligation[]  @relation("ReviewObligations")
+  reviewsReceived     Review[]            @relation("ReviewsReceived")
+  reviewsGiven        Review[]            @relation("ReviewsGiven")
+  reputation          UserReputation?
+  verificationTokens  VerificationToken[]
+  raisedDisputes      Dispute[]           @relation("RaisedDisputes")
+  resolvedDisputes    Dispute[]           @relation("ResolvedDisputes")
+
+  @@map("users")
+}
+
+model Listing {
+  id            String         @id @default(uuid())
+  title         String
+  description   String
+  category      String
+  dailyPrice    Decimal        @db.Decimal(10, 2)
+  itemValue     Decimal        @default(0) @db.Decimal(10, 2)
+  depositAmount Decimal        @default(0) @db.Decimal(10, 2)
+  isAvailable   Boolean        @default(true)
+  latitude      Float
+  longitude     Float
+  city          String
+  address       String?
+  ownerId       String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  bookings      Booking[]
+  conversations Conversation[]
+  images        ListingImage[]
+  owner         User           @relation(fields: [ownerId], references: [id])
+
+  @@map("listings")
+}
+
+model ListingImage {
+  id        String   @id @default(uuid())
+  url       String
+  order     Int      @default(0)
+  listingId String
+  createdAt DateTime @default(now())
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("listing_images")
+}
+
+model Booking {
+  id                    String             @id @default(uuid())
+  status                BookingStatus      @default(PENDING)
+  version               Int                @default(0)
+  startDate             DateTime
+  endDate               DateTime
+  totalPrice            Decimal            @db.Decimal(10, 2)
+  message               String?
+  paymentStatus         PaymentStatus      @default(PENDING_AUTH)
+  depositAmount         Decimal            @default(0) @db.Decimal(10, 2)
+  commissionAmount      Decimal            @default(0) @db.Decimal(10, 2)
+  ownerPayout           Decimal            @default(0) @db.Decimal(10, 2)
+  insuranceOptIn        Boolean            @default(false)
+  insuranceFee          Decimal            @default(0) @db.Decimal(10, 2)
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+  stripeTransferId      String?
+  paidAt                DateTime?
+  refundedAt            DateTime?
+  payoutSentAt          DateTime?
+  pickupPhotos          String[]           @default([])
+  returnPhotos          String[]           @default([])
+  handoffInitiatedAt    DateTime?
+  returnInitiatedAt     DateTime?
+  ownerPickupTappedAt   DateTime?
+  renterPickupTappedAt  DateTime?
+  ownerReturnTappedAt   DateTime?
+  renterReturnTappedAt  DateTime?
+  disputeStatus         DisputeStatus      @default(NONE)
+  disputedAt            DateTime?
+  disputeReason         String?
+  disputes          Dispute[]
+  renterId              String
+  ownerId               String
+  listingId             String
+  completedAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  events                BookingEvent[]
+  listing               Listing            @relation(fields: [listingId], references: [id])
+  owner                 User               @relation("OwnerBookings", fields: [ownerId], references: [id])
+  renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
+  reviewObligations     ReviewObligation[]
+  reviews               Review[]
+  @@map("bookings")
+}
+
+model BookingEvent {
+  id        String           @id @default(uuid())
+  bookingId String
+  actorId   String?
+  type      BookingEventType
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_events")
+}
+
+
+model Conversation {
+  id               String    @id @default(uuid())
+  listingId        String
+  renterId         String
+  ownerId          String
+  createdAt        DateTime  @default(now())
+  renterLastReadAt DateTime?
+  ownerLastReadAt  DateTime?
+  listing          Listing   @relation(fields: [listingId], references: [id])
+  owner            User      @relation("OwnerConversations", fields: [ownerId], references: [id])
+  renter           User      @relation("RenterConversations", fields: [renterId], references: [id])
+  messages         Message[]
+
+  @@unique([listingId, renterId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  senderId       String
+  body           String
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+model Review {
+  id           String            @id @default(uuid())
+  reviewerRole ReviewRole
+  scoreA       Int
+  scoreB       Int
+  scoreC       Int
+  comment      String?
+  reviewerId   String
+  revieweeId   String
+  bookingId    String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  obligation   ReviewObligation?
+  booking      Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reviewee     User              @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  reviewer     User              @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+
+  @@unique([bookingId, reviewerId])
+  @@map("reviews")
+}
+
+model ReviewObligation {
+  id                String                 @id @default(uuid())
+  bookingId         String
+  userId            String
+  targetUserId      String
+  reviewerRole      ReviewRole
+  status            ReviewObligationStatus @default(PENDING)
+  submittedReviewId String?                @unique
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  booking           Booking                @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  submittedReview   Review?                @relation(fields: [submittedReviewId], references: [id])
+  user              User                   @relation("ReviewObligations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, userId])
+  @@map("review_obligations")
+}
+
+model UserReputation {
+  userId                 String   @id
+  reviewsReceivedCount   Int      @default(0)
+  rentalsCompletedCount  Int      @default(0)
+  overallRenterRating    Decimal? @db.Decimal(4, 2)
+  overallLenderRating    Decimal? @db.Decimal(4, 2)
+  renterReliabilityAvg   Decimal? @db.Decimal(4, 2)
+  renterCareAvg          Decimal? @db.Decimal(4, 2)
+  renterCommunicationAvg Decimal? @db.Decimal(4, 2)
+  lenderAccuracyAvg      Decimal? @db.Decimal(4, 2)
+  lenderConditionAvg     Decimal? @db.Decimal(4, 2)
+  lenderCommunicationAvg Decimal? @db.Decimal(4, 2)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_reputations")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  data      Json?
+  userId    String
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model VerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  code      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("verification_tokens")
+}
+
+model Dispute {
+  id              String         @id @default(uuid())
+  bookingId       String
+  raisedByUserId  String
+  reason          DisputeReason
+  description     String
+  status          DisputeStatus  @default(OPEN)
+  resolutionNotes String?
+  resolvedByAdminId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  resolvedAt      DateTime?
+
+  booking         Booking        @relation(fields: [bookingId], references: [id])
+  raisedByUser    User           @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
+  resolvedByAdmin User?          @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
+
+  @@map("disputes")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
 
 enum VerificationStatus {
   PENDING
@@ -21,8 +296,8 @@ enum VerificationStatus {
 enum BookingStatus {
   PENDING
   ACCEPTED
-  DECLINED
   PICKUP_PENDING
+  DECLINED
   ACTIVE
   RETURN_PENDING
   COMPLETED
@@ -44,7 +319,18 @@ enum PaymentStatus {
 enum DisputeStatus {
   NONE
   OPEN
-  RESOLVED
+  UNDER_REVIEW
+  RESOLVED_REFUND
+  RESOLVED_NO_ACTION
+  DISMISSED
+}
+
+enum DisputeReason {
+  ITEM_DAMAGED
+  ITEM_NOT_RETURNED
+  ITEM_NOT_AS_DESCRIBED
+  PAYMENT_ISSUE
+  OTHER
 }
 
 enum BookingEventType {
@@ -83,303 +369,4 @@ enum ReviewRole {
 enum ReviewObligationStatus {
   PENDING
   SUBMITTED
-}
-
-// ─────────────────────────────────────────
-// USER
-// ─────────────────────────────────────────
-
-model User {
-  id                  String             @id @default(uuid())
-  email               String             @unique
-  passwordHash        String
-  firstName           String
-  lastName            String
-  phone               String?
-  avatarUrl           String?
-  bio                 String?
-
-  // Verification
-  verificationStatus  VerificationStatus @default(PENDING)
-  verificationId      String?            // Stripe session ID — populated later
-  verifiedAt          DateTime?
-  verificationTokens  VerificationToken[]
-
-
-  // ID submission (MVP manual review)
-  idPhotoUrl          String?            // S3 private URL
-  selfieUrl           String?            // S3 private URL
-  idSubmittedAt       DateTime?
-
-  // Expo push notifications
-  expoPushToken       String?
-
-  // Stripe
-  stripeCustomerId    String?
-  stripeAccountId     String?            // For payouts to owners
-
-  // Timestamps
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-
-  // Relations
-  listings            Listing[]
-  bookingsAsRenter    Booking[]          @relation("RenterBookings")
-  bookingsAsOwner     Booking[]          @relation("OwnerBookings")
-  renterConversations Conversation[]     @relation("RenterConversations")
-  ownerConversations  Conversation[]     @relation("OwnerConversations")
-  messages            Message[]
-  reviewsGiven        Review[]           @relation("ReviewsGiven")
-  reviewsReceived     Review[]           @relation("ReviewsReceived")
-  reviewObligations   ReviewObligation[] @relation("ReviewObligations")
-  reputation          UserReputation?
-  notifications       Notification[]
-
-  @@map("users")
-}
-
-// ─────────────────────────────────────────
-// LISTING
-// ─────────────────────────────────────────
-
-model Listing {
-  id            String       @id @default(uuid())
-  title         String
-  description   String
-  category      String
-  dailyPrice    Decimal      @db.Decimal(10, 2)
-  itemValue     Decimal      @default(0) @db.Decimal(10, 2)
-  isAvailable   Boolean      @default(true)
-
-  // Location
-  latitude      Float
-  longitude     Float
-  city          String
-  address       String?
-
-  // Relations
-  ownerId       String
-  owner         User         @relation(fields: [ownerId], references: [id])
-  images        ListingImage[]
-  bookings      Booking[]
-  conversations Conversation[]
-
-  // Timestamps
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
-  @@map("listings")
-}
-
-model ListingImage {
-  id          String   @id @default(uuid())
-  url         String
-  order       Int      @default(0)
-  listingId   String
-  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-
-  @@map("listing_images")
-}
-
-// ─────────────────────────────────────────
-// BOOKING
-// ─────────────────────────────────────────
-
-model Booking {
-  id              String        @id @default(uuid())
-  status          BookingStatus @default(PENDING)
-  version         Int           @default(0)
-
-  startDate       DateTime
-  endDate         DateTime
-  totalPrice      Decimal       @db.Decimal(10, 2)
-  message         String?       // Optional message from renter
-
-  // Payment
-  paymentStatus          PaymentStatus  @default(PENDING_AUTH)
-  depositAmount          Decimal        @default(0) @db.Decimal(10, 2)
-  commissionAmount       Decimal        @default(0) @db.Decimal(10, 2)
-  ownerPayout            Decimal        @default(0) @db.Decimal(10, 2)
-  insuranceOptIn         Boolean        @default(false)
-  insuranceFee           Decimal        @default(0) @db.Decimal(10, 2)
-  stripePaymentIntentId  String?
-  stripeChargeId         String?
-  stripeTransferId       String?
-  paidAt                 DateTime?
-  refundedAt             DateTime?
-  payoutSentAt           DateTime?
-
-  // Zoink It handoff
-  pickupPhotos           String[]       @default([])
-  returnPhotos           String[]       @default([])
-  handoffInitiatedAt     DateTime?
-  returnInitiatedAt      DateTime?
-  ownerPickupTappedAt    DateTime?
-  renterPickupTappedAt   DateTime?
-  ownerReturnTappedAt    DateTime?
-  renterReturnTappedAt   DateTime?
-
-  // Disputes
-  disputeStatus          DisputeStatus  @default(NONE)
-  disputedAt             DateTime?
-  disputeReason          String?
-
-  // Relations
-  renterId        String
-  renter          User          @relation("RenterBookings", fields: [renterId], references: [id])
-  ownerId         String
-  owner           User          @relation("OwnerBookings", fields: [ownerId], references: [id])
-  listingId       String
-  listing         Listing       @relation(fields: [listingId], references: [id])
-  completedAt     DateTime?
-  reviews         Review[]
-  reviewObligations ReviewObligation[]
-  events          BookingEvent[]
-
-  // Timestamps
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  @@map("bookings")
-}
-
-model BookingEvent {
-  id        String           @id @default(uuid())
-  bookingId String
-  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  actorId   String?
-  type      BookingEventType
-  metadata  Json?
-  createdAt DateTime         @default(now())
-
-  @@map("booking_events")
-}
-
-// ─────────────────────────────────────────
-// CONVERSATION + MESSAGE
-// ─────────────────────────────────────────
-
-model Conversation {
-  id         String    @id @default(uuid())
-  listingId  String
-  listing    Listing   @relation(fields: [listingId], references: [id])
-  renterId   String
-  renter     User      @relation("RenterConversations", fields: [renterId], references: [id])
-  ownerId    String
-  owner      User      @relation("OwnerConversations", fields: [ownerId], references: [id])
-  messages   Message[]
-  createdAt  DateTime  @default(now())
-
-  @@unique([listingId, renterId])
-  @@map("conversations")
-}
-
-model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderId       String
-  sender         User         @relation(fields: [senderId], references: [id])
-  body           String
-  createdAt      DateTime     @default(now())
-
-  @@map("messages")
-}
-
-// ─────────────────────────────────────────
-// REVIEW
-// ─────────────────────────────────────────
-
-model Review {
-  id           String      @id @default(uuid())
-  reviewerRole ReviewRole
-  scoreA       Int
-  scoreB       Int
-  scoreC       Int
-  comment      String?
-
-  // Relations
-  reviewerId   String
-  reviewer     User        @relation("ReviewsGiven", fields: [reviewerId], references: [id])
-  revieweeId   String
-  reviewee     User        @relation("ReviewsReceived", fields: [revieweeId], references: [id])
-  bookingId    String
-  booking      Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  obligation   ReviewObligation?
-
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  @@unique([bookingId, reviewerId])
-
-  @@map("reviews")
-}
-
-model ReviewObligation {
-  id                String                 @id @default(uuid())
-  bookingId         String
-  booking           Booking                @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  userId            String
-  user              User                   @relation("ReviewObligations", fields: [userId], references: [id], onDelete: Cascade)
-  targetUserId      String
-  reviewerRole      ReviewRole
-  status            ReviewObligationStatus @default(PENDING)
-  submittedReviewId String?                @unique
-  submittedReview   Review?                @relation(fields: [submittedReviewId], references: [id])
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-
-  @@unique([bookingId, userId])
-  @@map("review_obligations")
-}
-
-model UserReputation {
-  userId                    String   @id
-  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reviewsReceivedCount      Int      @default(0)
-  rentalsCompletedCount     Int      @default(0)
-  overallRenterRating       Decimal? @db.Decimal(4, 2)
-  overallLenderRating       Decimal? @db.Decimal(4, 2)
-  renterReliabilityAvg      Decimal? @db.Decimal(4, 2)
-  renterCareAvg             Decimal? @db.Decimal(4, 2)
-  renterCommunicationAvg    Decimal? @db.Decimal(4, 2)
-  lenderAccuracyAvg         Decimal? @db.Decimal(4, 2)
-  lenderConditionAvg        Decimal? @db.Decimal(4, 2)
-  lenderCommunicationAvg    Decimal? @db.Decimal(4, 2)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
-
-  @@map("user_reputations")
-}
-
-// ─────────────────────────────────────────
-// NOTIFICATION
-// ─────────────────────────────────────────
-
-model Notification {
-  id        String           @id @default(uuid())
-  type      NotificationType
-  title     String
-  body      String
-  read      Boolean          @default(false)
-  data      Json?            // Extra payload (bookingId, listingId etc)
-
-  userId    String
-  user      User             @relation(fields: [userId], references: [id])
-
-  createdAt DateTime         @default(now())
-
-  @@map("notifications")
-}
-model VerificationToken {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  code      String
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime @default(now())
-
-  @@map("verification_tokens")
 }

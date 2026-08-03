@@ -11,7 +11,6 @@ import {
   Share,
   Dimensions,
   FlatList,
-  Modal,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
@@ -44,7 +43,6 @@ export default function ListingDetailScreen() {
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
   const [activeImg, setActiveImg] = useState(0)
-  const [fullImage, setFullImage] = useState<string | null>(null)
 
   const isOwner = listing?.ownerId === user?.id
 
@@ -173,9 +171,17 @@ export default function ListingDetailScreen() {
                   const idx = Math.round(event.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 80))
                   setActiveImg(idx)
                 }}
-                renderItem={({ item }) => (
+                renderItem={({ item, index }) => (
                   <View style={{ width: SCREEN_WIDTH - 80 }}>
-                    <TouchableOpacity activeOpacity={0.9} onPress={() => setFullImage(item.url)}>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() =>
+                        nav.navigate('PhotoViewer', {
+                          photos: listing.images.map((img) => img.url),
+                          initialIndex: index,
+                        })
+                      }
+                    >
                       <Image source={{ uri: item.url }} style={styles.carouselImage} resizeMode="cover" />
                     </TouchableOpacity>
                   </View>
@@ -304,20 +310,6 @@ export default function ListingDetailScreen() {
         </View>
       )}
 
-      {/* Full screen image viewer */}
-      <Modal visible={!!fullImage} transparent={true} animationType="fade">
-        <View style={styles.fullImageContainer}>
-          <TouchableOpacity 
-            style={styles.fullImageCloseBtn} 
-            onPress={() => setFullImage(null)}
-          >
-            <Text style={styles.floatingBtnText}>Close</Text>
-          </TouchableOpacity>
-          {fullImage && (
-            <Image source={{ uri: fullImage }} style={styles.fullImage} resizeMode="contain" />
-          )}
-        </View>
-      </Modal>
     </ScreenBackground>
   )
 }
@@ -470,17 +462,5 @@ const styles = StyleSheet.create({
   rentBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
   rentBtnDisabled: { backgroundColor: theme.primarySurface },
   rentBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
-  fullImageContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center' },
-  fullImage: { width: '100%', height: '80%' },
-  fullImageCloseBtn: {
-    position: 'absolute',
-    top: 60,
-    right: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
-    zIndex: 10,
-  },
 })
 

@@ -1,24 +1,42 @@
+import dotenv from 'dotenv'
+
+// Load .env only when not in test mode — integration tests load .env.test
+// via setup.ts before this module is imported. Running dotenv.config() here
+// during tests would overwrite DATABASE_URL (and other vars) back to the dev
+// values from .env, breaking the test DB connection.
+//
+// This must run before any of the imports below: several of them
+// (routers -> controllers -> services -> utils/prisma.ts) construct the
+// Prisma connection Pool at module-load time using process.env.DATABASE_URL,
+// so if dotenv.config() ran after those imports, the Pool would be built
+// with an empty DATABASE_URL.
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config()
+}
+
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
+import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
 import listingsRouter from './routes/listings'
 import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
+import disputesRouter from './routes/disputes'
+import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
-
-dotenv.config()
+import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
+import { reconcileStripePayments } from './services/reconciliationJob'
+import { errorHandler } from './middleware/errorHandler'
 
 const app = express()
 const PORT = process.env.PORT || 3000
 
 app.use(cors())
 app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
 app.use(express.json())
 
 app.get('/', (req, res) => {
@@ -99,18 +117,50 @@ app.use('/listings', listingsRouter)
 app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
 app.use('/reviews', reviewsRouter)
+app.use('/disputes', disputesRouter)
+app.use('/admin', adminRouter)
 
-const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
-})
+app.use(errorHandler)
 
-server.on('error', (e: any) => {
-  if (e.code === 'EADDRINUSE') {
-    console.error(`\n❌ Port ${PORT} is already in use! Please kill the process using it.`)
-    process.exit(1)
-  } else {
-    console.error('Server error:', e)
-  }
-})
+if (process.env.NODE_ENV !== 'test') {
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const handoffs = await cleanupStaleHandoffs()
+      const payouts = await releaseDuePayouts()
+      console.log('Cleanup job completed:', { handoffs, payouts })
+    } catch (error) {
+      console.error('Cleanup job failed:', error)
+    }
+  })
+
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const result = await reconcileStripePayments()
+      console.log('Reconciliation job completed:', result)
+    } catch (error) {
+      console.error('Reconciliation job failed:', error)
+    }
+  })
+
+  console.log('Scheduled cleanup job every 15 minutes and reconciliation job every hour.')
+}
+
+// Don't start the HTTP server when running under the test suite — supertest
+// binds its own ephemeral port by calling app.listen() internally. Starting
+// the server here would race with other test files and hit EADDRINUSE.
+if (process.env.NODE_ENV !== 'test') {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Zoink API running on port ${PORT} across all interfaces (0.0.0.0)`)
+  })
+
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(`\n❌ Port ${PORT} is already in use! Please kill the process using it.`)
+      process.exit(1)
+    } else {
+      console.error('Server error:', e)
+    }
+  })
+}
 
 export default app

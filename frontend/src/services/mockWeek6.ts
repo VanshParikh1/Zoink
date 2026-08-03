@@ -1,5 +1,6 @@
-import { Booking, BookingStatus, Conversation, ListingPreview, Message, PendingReview, SubmittedReviewResult, User } from '../types'
+import { Booking, BookingStatus, Conversation, Dispute, ListingPreview, Message, PendingReview, SubmittedReviewResult, User } from '../types'
 import { CreateBookingPayload } from './bookingsApi'
+import { CreateDisputePayload } from './disputesApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 import { SubmitReviewPayload } from './reviewsApi'
 import { mockGetListing } from './mockListings'
@@ -23,6 +24,7 @@ function toListingPreview(listing: Awaited<ReturnType<typeof mockGetListing>>): 
 
 let bookings: Booking[] = []
 let pendingReviews: PendingReview[] = []
+let disputes: Dispute[] = []
 
 let conversations: Conversation[] = [
   {
@@ -32,10 +34,8 @@ let conversations: Conversation[] = [
       id: 'demo-listing-1',
       title: 'Sony Bluetooth Speaker',
       category: 'Audio/Video',
-      dailyPrice: 12,
+      dailyPrice: '12',
       city: 'Toronto',
-      address: 'Downtown campus',
-      isAvailable: true,
       images: [],
     },
     renterId: demoUser.id,
@@ -102,10 +102,10 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   const endDate = new Date(data.endDate)
   const msPerDay = 1000 * 60 * 60 * 24
   const rentalDays = Math.round((endDate.getTime() - startDate.getTime()) / msPerDay) + 1
-  const totalPrice = Number((listing.dailyPrice * rentalDays).toFixed(2))
-  const depositAmount = Number((totalPrice * 0.3).toFixed(2))
+  const totalPrice = Number((Number(listing.dailyPrice) * rentalDays).toFixed(2))
+  const depositAmount = Number(listing.depositAmount ?? 0)
   const insuranceFee = data.insuranceOptIn && listing.itemValue
-    ? Number(Math.min(50, Math.max(1, listing.itemValue * 0.03)).toFixed(2))
+    ? Number(Math.min(50, Math.max(1, Number(listing.itemValue) * 0.03)).toFixed(2))
     : 0
   const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
 
@@ -130,6 +130,8 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     payoutSentAt: null,
     pickupPhotos: [],
     returnPhotos: [],
+    handoffInitiatedAt: null,
+    returnInitiatedAt: null,
     ownerPickupTappedAt: null,
     renterPickupTappedAt: null,
     ownerReturnTappedAt: null,
@@ -137,14 +139,18 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     disputeStatus: 'NONE',
     disputedAt: null,
     disputeReason: null,
-    message: data.message,
+    message: data.message ?? null,
     renterId: demoUser.id,
     renter: demoUser,
     ownerId: listing.ownerId,
     owner: listing.owner,
     listingId: listing.id,
     listing: toListingPreview(listing),
+    reviewObligations: [],
+    pendingReview: null,
+    completedAt: null,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 
   bookings = [booking, ...bookings]
@@ -245,7 +251,7 @@ export async function mockSubmitReview(data: SubmitReviewPayload): Promise<Submi
       scoreA: data.scoreA,
       scoreB: data.scoreB,
       scoreC: data.scoreC,
-      comment: data.comment,
+      comment: data.comment ?? null,
       createdAt: new Date().toISOString(),
     },
     pendingRemaining: pendingReviews.length,
@@ -258,6 +264,58 @@ export async function mockSubmitReview(data: SubmitReviewPayload): Promise<Submi
       },
     },
   }
+}
+
+const UNRESOLVED_DISPUTE_STATUSES = ['OPEN', 'UNDER_REVIEW']
+
+export async function mockCreateDispute(data: CreateDisputePayload): Promise<Dispute> {
+  const booking = bookings.find((item) => item.id === data.bookingId)
+  if (!booking) throw new Error('Booking not found.')
+
+  if (booking.renterId !== demoUser.id && booking.ownerId !== demoUser.id) {
+    throw new Error('Only the renter or owner can open a dispute for this booking.')
+  }
+
+  const existing = disputes.find(
+    (item) => item.bookingId === data.bookingId && UNRESOLVED_DISPUTE_STATUSES.includes(item.status)
+  )
+  if (existing) {
+    throw new Error('An open dispute already exists for this booking.')
+  }
+
+  const now = new Date().toISOString()
+  const dispute: Dispute = {
+    id: `demo-dispute-${Date.now()}`,
+    bookingId: data.bookingId,
+    raisedByUserId: demoUser.id,
+    reason: data.reason,
+    description: data.description,
+    status: 'OPEN',
+    resolutionNotes: null,
+    resolvedByAdminId: null,
+    createdAt: now,
+    updatedAt: now,
+    resolvedAt: null,
+  }
+
+  disputes = [dispute, ...disputes]
+  booking.disputeStatus = 'OPEN'
+  booking.disputeReason = data.reason
+  booking.disputedAt = now
+
+  return dispute
+}
+
+export async function mockGetMyDisputes(): Promise<Dispute[]> {
+  return disputes
+    .filter((item) => item.raisedByUserId === demoUser.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+}
+
+export async function mockGetDispute(id: string): Promise<Dispute> {
+  const dispute = disputes.find((item) => item.id === id)
+  if (!dispute) throw new Error('Dispute not found.')
+  return dispute
 }
 
 export async function mockOpenConversation(listingId: string) {
@@ -287,6 +345,12 @@ export async function mockOpenConversation(listingId: string) {
 
 export async function mockGetMyConversations() {
   return [...conversations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+}
+
+export async function mockMarkConversationRead(conversationId: string) {
+  conversations = conversations.map((conversation) =>
+    conversation.id === conversationId ? { ...conversation, unread: false } : conversation
+  )
 }
 
 export async function mockGetConversationMessages(conversationId: string, after?: string) {

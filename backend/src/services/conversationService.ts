@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client'
+import type { ConversationResponse, MessageResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { sendDirectPush } from './notificationService'
+import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 
 const conversationSelect = {
   id: true,
@@ -14,6 +16,7 @@ const conversationSelect = {
       title: true,
       category: true,
       city: true,
+      dailyPrice: true,
       images: {
         select: { id: true, url: true, order: true },
         orderBy: { order: 'asc' as const },
@@ -48,6 +51,8 @@ const conversationSelect = {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
   },
+  renterLastReadAt: true,
+  ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
 
 const messageInclude = {
@@ -62,8 +67,17 @@ const messageInclude = {
   },
 } satisfies Prisma.MessageInclude
 
-function toConversationSummary(conversation: any, currentUserId: string) {
+function toConversationSummary(conversation: any, currentUserId: string): ConversationResponse {
   const lastMessage = conversation.messages[0] ?? null
+  const lastReadAt = conversation.renterId === currentUserId
+    ? conversation.renterLastReadAt
+    : conversation.ownerLastReadAt
+
+  const unread = Boolean(
+    lastMessage &&
+    lastMessage.senderId !== currentUserId &&
+    (!lastReadAt || new Date(lastMessage.createdAt) > new Date(lastReadAt))
+  )
 
   return {
     id: conversation.id,
@@ -76,11 +90,11 @@ function toConversationSummary(conversation: any, currentUserId: string) {
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt ?? conversation.createdAt,
     lastMessage,
-    unread: Boolean(lastMessage && lastMessage.senderId !== currentUserId),
+    unread,
   }
 }
 
-function toMessage(message: any) {
+function toMessage(message: any): MessageResponse {
   return {
     ...message,
   }
@@ -92,17 +106,17 @@ async function getConversationForParticipant(conversationId: string, userId: str
   })
 
   if (!conversation) {
-    throw new Error('CONVERSATION_NOT_FOUND')
+    throw new NotFoundError('Conversation not found.')
   }
 
   if (conversation.renterId !== userId && conversation.ownerId !== userId) {
-    throw new Error('CONVERSATION_FORBIDDEN')
+    throw new ForbiddenError('You do not have access to this conversation.')
   }
 
   return conversation
 }
 
-export async function openConversation(currentUserId: string, listingId: string) {
+export async function openConversation(currentUserId: string, listingId: string): Promise<ConversationResponse> {
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
     select: {
@@ -112,11 +126,11 @@ export async function openConversation(currentUserId: string, listingId: string)
   })
 
   if (!listing) {
-    throw new Error('LISTING_NOT_FOUND')
+    throw new NotFoundError('Listing not found.')
   }
 
   if (listing.ownerId === currentUserId) {
-    throw new Error('CONVERSATION_SELF')
+    throw new BadRequestError('You cannot open a conversation with your own listing.')
   }
 
   const conversation = await prisma.conversation.upsert({
@@ -138,7 +152,7 @@ export async function openConversation(currentUserId: string, listingId: string)
   return toConversationSummary(conversation, currentUserId)
 }
 
-export async function getMyConversations(currentUserId: string) {
+export async function getMyConversations(currentUserId: string): Promise<ConversationResponse[]> {
   const conversations = await prisma.conversation.findMany({
     where: {
       OR: [{ renterId: currentUserId }, { ownerId: currentUserId }],
@@ -150,7 +164,7 @@ export async function getMyConversations(currentUserId: string) {
   return conversations.map((conversation: any) => toConversationSummary(conversation, currentUserId))
 }
 
-export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string) {
+export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {
   await getConversationForParticipant(conversationId, currentUserId)
 
   const afterMessage = afterId
@@ -173,12 +187,22 @@ export async function getConversationMessages(currentUserId: string, conversatio
   return messages.map((message: any) => toMessage(message))
 }
 
-export async function sendMessage(currentUserId: string, conversationId: string, body: string) {
+export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {
+  const conversation = await getConversationForParticipant(conversationId, currentUserId)
+  const isRenter = conversation.renterId === currentUserId
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: isRenter ? { renterLastReadAt: new Date() } : { ownerLastReadAt: new Date() },
+  })
+}
+
+export async function sendMessage(currentUserId: string, conversationId: string, body: string): Promise<MessageResponse> {
   const conversation = await getConversationForParticipant(conversationId, currentUserId)
   const trimmedBody = body.trim()
 
   if (!trimmedBody) {
-    throw new Error('MESSAGE_EMPTY')
+    throw new BadRequestError('Message body cannot be empty.')
   }
 
   const message = await prisma.$transaction(async (tx) => {
