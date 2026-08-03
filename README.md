@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-The project is in active MVP development. The core marketplace, booking, messaging (with real per-user read tracking), reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, active rental UX, owner-configured deposits, and a full dispute-filing/resolution flow (backend API + frontend for both renters/owners and admins) are implemented. The remaining major work is a way to actually grant the admin role, broader automated testing coverage, security hardening, production deployment, and release-build readiness.
+The project is in active MVP development. The core marketplace, booking, messaging (with real per-user read tracking), reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, active rental UX, owner-configured deposits, and a full dispute-filing/resolution flow (backend API + frontend for both renters/owners and admins) are implemented. The remaining major work is broader automated testing coverage, security hardening, production deployment, and release-build readiness.
 
 ---
 
@@ -181,7 +181,7 @@ ADMIN
 - Frontend now exists for both sides:
   - `FileDisputeScreen` (reason picker + description, min 10 characters) — reached from `BookingDetailScreen`'s "Report a Problem" action, `frontend/src/services/disputesApi.ts`.
   - `AdminDisputesScreen` (status-filterable list) and `AdminDisputeDetailScreen` (booking/photo context, refund/no-action/dismiss with required resolution notes) — reached from `MyProfileScreen`'s "Admin" panel, shown only when `user.role === 'ADMIN'`, `frontend/src/services/adminApi.ts`.
-  - There's still no in-app way to make someone an admin in the first place — `User.role` has to be set directly in the database or via `prisma/seed.ts`-style scripting.
+  - There's still no in-app way to make someone an admin — instead use the `admin:grant`/`admin:revoke` CLI script (see "Managing the Admin Role" under Environment Variables) rather than editing the database or `prisma/seed.ts` by hand.
 
 ### Week 10 Stripe Connect, PaymentSheet, And Active Rentals
 
@@ -353,6 +353,22 @@ EXPO_PUBLIC_DEMO_MODE=true
 ```
 
 For backend integration tests, create a separate `zoink_test` Postgres database and a `backend/.env.test` pointed at it (see `backend/src/integration-tests/README.md`). `backend/.env.test` is listed in `.gitignore` alongside `backend/.env` and `frontend/.env` — still, only `sk_test_...` Stripe keys should ever live there. `DEV_STRIPE_ACCOUNT_ID` in `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests make live Stripe Connect API calls against it and fail immediately with a clear error if it's missing.
+
+### Managing the Admin Role
+
+There's no in-app UI for making someone an admin. Instead of editing the database or `prisma/seed.ts` by hand, use the `backend/src/scripts/manageAdminRole.ts` CLI script:
+
+```bash
+cd backend
+npm run admin:grant -- --email=someone@mail.utoronto.ca
+npm run admin:revoke -- --email=someone@mail.utoronto.ca
+```
+
+- Looks the user up by email (case-insensitive) against the existing `User` table — it never creates a user. If no match is found, it prints an error and exits non-zero.
+- `admin:grant` sets `role = ADMIN`; if the user is already an admin it prints a no-op message instead of erroring.
+- `admin:revoke` sets `role = USER`, but first counts current admins — if the target is the last remaining admin, it refuses and tells you to grant another admin first, so you can't accidentally lock everyone out of `/admin/disputes`.
+- On success it prints the user id, email, and role transition (e.g. `USER -> ADMIN`).
+- Uses the same DB-as-injectable-parameter pattern as `disputeService.ts` (`db: typeof prisma = prisma`), so its core logic is covered by `backend/src/scripts/manageAdminRole.test.ts` against a mocked db rather than a real database.
 
 ---
 
