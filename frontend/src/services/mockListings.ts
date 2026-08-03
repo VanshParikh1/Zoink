@@ -14,6 +14,7 @@ let listings: ListingBrowseItem[] = [
     category: 'Audio/Video',
     dailyPrice: '12',
     itemValue: '0',
+    depositAmount: '0',
     isAvailable: true,
     latitude: 43.6532,
     longitude: -79.3832,
@@ -39,6 +40,7 @@ let listings: ListingBrowseItem[] = [
     category: 'Cameras',
     dailyPrice: '24',
     itemValue: '0',
+    depositAmount: '0',
     isAvailable: true,
     latitude: 43.6629,
     longitude: -79.3957,
@@ -64,6 +66,7 @@ let listings: ListingBrowseItem[] = [
     category: 'Tools',
     dailyPrice: '9',
     itemValue: '0',
+    depositAmount: '0',
     isAvailable: true,
     latitude: 43.657,
     longitude: -79.38,
@@ -89,6 +92,7 @@ let listings: ListingBrowseItem[] = [
     category: 'Outdoors',
     dailyPrice: '11',
     itemValue: '0',
+    depositAmount: '0',
     isAvailable: true,
     latitude: 43.6487,
     longitude: -79.3861,
@@ -166,6 +170,7 @@ export async function mockCreateListing(data: CreateListingPayload) {
     address: data.address ?? null,
     dailyPrice: String(data.dailyPrice),
     itemValue: '0',
+    depositAmount: data.depositAmount != null ? String(data.depositAmount) : '0',
     isAvailable: true,
     ownerId: demoOwner.id,
     owner: demoOwner,
@@ -195,6 +200,7 @@ export async function mockUpdateListing(id: string, data: UpdateListingPayload) 
     ...existing,
     ...data,
     dailyPrice: data.dailyPrice != null ? String(data.dailyPrice) : existing.dailyPrice,
+    depositAmount: data.depositAmount != null ? String(data.depositAmount) : existing.depositAmount,
   }
 
   listings = listings.map((listing) => (listing.id === id ? updated : listing))

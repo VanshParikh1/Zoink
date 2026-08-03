@@ -66,7 +66,7 @@ beforeEach(async () => {
   // directly on the owner record instead.
   owner = await createTestUser({ firstName: 'Owner', stripeAccountId: null })
   renter = await createTestUser({ firstName: 'Renter' })
-  const listing = await createTestListing(owner.id, { dailyPrice: 20, itemValue: 200 })
+  const listing = await createTestListing(owner.id, { dailyPrice: 20, itemValue: 200, depositAmount: 18 })
   listingId = listing.id
 })
 
@@ -119,7 +119,7 @@ describe('createBooking', () => {
     assert.equal(result.ownerId, owner.id)
     assert.equal(result.listingId, listingId)
     assert.equal(result.totalPrice, 60) // 3 days × $20
-    assert.equal(result.depositAmount, 18) // 30% of $60
+    assert.equal(result.depositAmount, 18) // the listing's configured deposit, not a computed rate
     assert.ok(result.commissionAmount > 0, 'commission should be positive')
     assert.ok(result.ownerPayout > 0, 'ownerPayout should be positive')
     assert.equal(result.insuranceFee, 0)

@@ -354,6 +354,21 @@ export default function MyProfileScreen() {
           </View>
         </View>
 
+        {user?.role === 'ADMIN' ? (
+          <View style={styles.quickActionsPanel}>
+            <Text style={styles.panelTitle}>Admin</Text>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('AdminDisputes')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>Review disputes</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Payouts</Text>
           {!stripeStatus?.connected ? (

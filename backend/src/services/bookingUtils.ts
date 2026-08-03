@@ -1,7 +1,5 @@
 import { BadRequestError } from '../utils/errors'
 
-export const BOOKING_DEPOSIT_RATE = 0.3
-
 export function roundCurrency(value: number) {
   return Math.round(value * 100) / 100
 }
@@ -22,8 +20,4 @@ export function ensureValidBookingDates(startDate: Date, endDate: Date) {
   if (endDate < startDate) {
     throw new BadRequestError('Start and end dates are invalid.')
   }
-}
-
-export function calculateDepositAmount(totalPrice: number) {
-  return roundCurrency(totalPrice * BOOKING_DEPOSIT_RATE)
 }

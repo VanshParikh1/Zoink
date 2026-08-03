@@ -37,8 +37,9 @@
  *   createdb zoink_test
  *   DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/zoink_test" \
  *     npx prisma migrate deploy
- *   # Then apply the latest migration manually if needed:
- *   psql ... -f prisma/migrations/20260721000000_add_role_and_disputes/apply_to_test_db.sql
+ *   # 20260721000000_add_role_and_disputes previously had a statement-ordering bug that
+ *   # made `migrate deploy` fail on a fresh DB, requiring a manual apply_to_test_db.sql
+ *   # workaround. That's fixed now — a plain `migrate deploy` is sufficient.
  *
  * .env.test must contain:
  *   DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/zoink_test
@@ -175,6 +176,7 @@ export async function createTestUser(overrides: {
   email?: string
   firstName?: string
   lastName?: string
+  phone?: string
   role?: Role
   stripeAccountId?: string | null
 } = {}): Promise<{ id: string; email: string; token: string }> {
@@ -188,6 +190,7 @@ export async function createTestUser(overrides: {
       passwordHash: hash,
       firstName: overrides.firstName ?? 'Test',
       lastName: overrides.lastName ?? 'User',
+      phone: overrides.phone ?? '+14165550100',
       verificationStatus: VerificationStatus.VERIFIED,
       role: overrides.role ?? Role.USER,
       stripeAccountId: overrides.stripeAccountId !== undefined ? overrides.stripeAccountId : null,
@@ -202,6 +205,7 @@ export async function createTestListing(ownerId: string, overrides: {
   title?: string
   dailyPrice?: number
   itemValue?: number
+  depositAmount?: number
   isAvailable?: boolean
 } = {}): Promise<{ id: string }> {
   const listing = await prisma.listing.create({
@@ -211,6 +215,7 @@ export async function createTestListing(ownerId: string, overrides: {
       category: 'Electronics',
       dailyPrice: new Prisma.Decimal(overrides.dailyPrice ?? 10),
       itemValue: new Prisma.Decimal(overrides.itemValue ?? 100),
+      depositAmount: new Prisma.Decimal(overrides.depositAmount ?? 0),
       isAvailable: overrides.isAvailable ?? true,
       latitude: 43.6629,
       longitude: -79.3957,

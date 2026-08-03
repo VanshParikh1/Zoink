@@ -27,13 +27,14 @@ export default function RegisterScreen() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleRegister() {
     setError('')
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !lastName || !email || !phone || !password) {
       setError('Please fill in all fields.')
       return
     }
@@ -43,7 +44,7 @@ export default function RegisterScreen() {
     }
     setLoading(true)
     try {
-      await register(email.trim().toLowerCase(), password, firstName.trim(), lastName.trim())
+      await register(email.trim().toLowerCase(), password, firstName.trim(), lastName.trim(), phone.trim())
     } catch (e: any) {
       setError(e.response?.data?.error || 'Something went wrong.')
     } finally {
@@ -99,6 +100,14 @@ export default function RegisterScreen() {
               keyboardType="email-address"
               value={email}
               onChangeText={setEmail}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone number"
+              placeholderTextColor={theme.textDisabled}
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
             />
             <TextInput
               style={styles.input}

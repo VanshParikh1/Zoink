@@ -104,7 +104,7 @@ export async function createPaymentIntent(
   return stripe.paymentIntents.create(
     {
       amount,
-      currency: process.env.STRIPE_CURRENCY ?? 'usd',
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
       customer: stripeCustomerId ?? undefined,
       capture_method: 'manual',
       automatic_payment_methods: { enabled: true },
@@ -202,7 +202,7 @@ export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | '
   return stripe.transfers.create(
     {
       amount,
-      currency: process.env.STRIPE_CURRENCY ?? 'usd',
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
       destination: stripeAccountId,
       metadata: { bookingId: booking.id },
     },

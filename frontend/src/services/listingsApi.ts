@@ -98,6 +98,7 @@ export type CreateListingPayload = {
   description: string
   category: string
   dailyPrice: number
+  depositAmount?: number
   latitude: number
   longitude: number
   city: string

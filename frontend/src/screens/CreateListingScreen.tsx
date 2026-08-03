@@ -17,7 +17,9 @@ import {
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
+import DraggableLocationMap from '../components/DraggableLocationMap'
 import * as ImagePicker from 'expo-image-picker'
+import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -56,6 +58,8 @@ const DEFAULT_CITY = 'Toronto'
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const TOTAL_STEPS = 5
 
+type LocationStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
+
 function getProgress(step: Step) {
   return (step / TOTAL_STEPS) * 100
 }
@@ -75,11 +79,89 @@ export default function CreateListingScreen() {
     city: DEFAULT_CITY,
     address: '',
   })
+  const [deviceCoords, setDeviceCoords] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle')
+  const [pinOverride, setPinOverride] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [locationQuery, setLocationQuery] = useState('')
+  const [locationSearching, setLocationSearching] = useState(false)
+  const [locationSearchError, setLocationSearchError] = useState('')
+
+  const effectiveCoords = pinOverride ?? deviceCoords
 
   useEffect(() => {
     nav.setOptions({ gestureEnabled: false })
     return () => nav.setOptions({ gestureEnabled: true })
   }, [nav])
+
+  const refreshLocation = async (autofill: boolean) => {
+    setLocationStatus('loading')
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync()
+      if (permission.status !== 'granted') {
+        setLocationStatus('denied')
+        return
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      })
+      const nextCoords = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      }
+      setDeviceCoords(nextCoords)
+      setLocationStatus('granted')
+
+      if (autofill) {
+        try {
+          const [place] = await Location.reverseGeocodeAsync(nextCoords)
+          if (place) {
+            const city = place.city || place.subregion || place.region || ''
+            const address = [place.streetNumber, place.street].filter(Boolean).join(' ')
+            if (city) updateForm('city', city)
+            if (address) updateForm('address', address)
+          }
+        } catch {
+          // Reverse geocoding is a nice-to-have; keep the raw coords either way.
+        }
+      }
+    } catch {
+      setLocationStatus('error')
+    }
+  }
+
+  useEffect(() => {
+    if (step === 4 && locationStatus === 'idle') {
+      refreshLocation(!formData.city.trim() || formData.city === DEFAULT_CITY)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  function useCurrentLocation() {
+    setPinOverride(null)
+    refreshLocation(false)
+  }
+
+  async function searchLocation() {
+    const query = locationQuery.trim()
+    if (!query) return
+
+    setLocationSearching(true)
+    setLocationSearchError('')
+    try {
+      const [result] = await Location.geocodeAsync(query)
+      if (!result) {
+        setLocationSearchError('Could not find that place. Try a different search.')
+        return
+      }
+      setPinOverride({ latitude: result.latitude, longitude: result.longitude })
+    } catch {
+      setLocationSearchError('Could not find that place. Try a different search.')
+    } finally {
+      setLocationSearching(false)
+    }
+  }
 
   const progressFillStyle = useMemo(
     () => ({ width: `${getProgress(step)}%` as const }),
@@ -181,21 +263,37 @@ export default function CreateListingScreen() {
     }
   }
 
+  async function geocodeTypedLocation() {
+    const query = [formData.address.trim(), formData.city.trim()].filter(Boolean).join(', ')
+    if (!query) return null
+
+    try {
+      const [result] = await Location.geocodeAsync(query)
+      if (!result) return null
+      return { latitude: result.latitude, longitude: result.longitude }
+    } catch {
+      return null
+    }
+  }
+
   async function handleGoLive() {
     if (loading) return
 
     setLoading(true)
 
     try {
+      const coords = effectiveCoords ?? (await geocodeTypedLocation()) ?? DEFAULT_COORDS
+
       const listing = await createListing({
         title: formData.title.trim(),
         description: formData.description.trim(),
         category: formData.category,
         dailyPrice: parsedDailyPrice,
+        depositAmount: formData.deposit.trim() ? parsedDeposit : undefined,
         city: formData.city.trim(),
         address: formData.address.trim() || undefined,
-        latitude: DEFAULT_COORDS.latitude,
-        longitude: DEFAULT_COORDS.longitude,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
       })
 
       if (!formData.availableNow) {
@@ -404,6 +502,53 @@ export default function CreateListingScreen() {
         <Text style={styles.header}>Set your location</Text>
         <Text style={styles.subheader}>Help renters find your item. Only the city is shown publicly.</Text>
 
+        <View style={styles.mapCard}>
+          <View style={styles.locationSearchRow}>
+            <TextInput
+              style={styles.locationSearchInput}
+              placeholder="Search a place, e.g. University of Toronto"
+              placeholderTextColor={theme.textDisabled}
+              value={locationQuery}
+              onChangeText={setLocationQuery}
+              onSubmitEditing={searchLocation}
+              returnKeyType="search"
+            />
+            <TouchableOpacity
+              style={styles.locationSearchButton}
+              onPress={searchLocation}
+              disabled={locationSearching}
+            >
+              {locationSearching ? (
+                <ActivityIndicator size="small" color={theme.textOnPrimary} />
+              ) : (
+                <Text style={styles.locationSearchButtonText}>Go</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {locationSearchError ? <Text style={styles.locationSearchError}>{locationSearchError}</Text> : null}
+
+          <DraggableLocationMap
+            latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
+            longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
+            onChange={setPinOverride}
+          />
+          <Text style={styles.mapCaption}>
+            {locationStatus === 'loading' && !effectiveCoords
+              ? 'Finding your location… drag the circle or search to set it manually.'
+              : locationStatus === 'denied' && !effectiveCoords
+              ? 'Location permission denied — drag the circle or search to set your spot.'
+              : 'Drag the circle to the exact spot you want renters to see.'}
+          </Text>
+
+          {pinOverride ? (
+            <View style={styles.locationLinksRow}>
+              <TouchableOpacity onPress={useCurrentLocation}>
+                <Text style={styles.locationLink}>Use my current location</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>City *</Text>
           <TextInput
@@ -596,6 +741,61 @@ const styles = StyleSheet.create({
   },
   fieldGroup: {
     marginBottom: 22,
+  },
+  mapCard: {
+    marginBottom: 22,
+  },
+  mapCaption: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  locationLinksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    marginTop: 8,
+  },
+  locationLink: {
+    color: theme.primaryDeep,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  locationSearchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  locationSearchInput: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: theme.text,
+    fontSize: 14,
+  },
+  locationSearchButton: {
+    minWidth: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.primary,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+  },
+  locationSearchButtonText: {
+    color: theme.textOnPrimary,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  locationSearchError: {
+    color: theme.colors.danger,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 10,
   },
   label: {
     color: theme.text,

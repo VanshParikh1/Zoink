@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily. Think cameras, speakers, tools, sports gear, and event equipment, with verification, messaging, payments, and handoff protection built into the rental flow.
 
-The project is in active MVP development. The core marketplace, booking, messaging, reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, active rental UX, and a backend admin/dispute API are implemented through Week 10. The remaining major work is an admin/support UI, broader automated testing coverage, security hardening, production deployment, and release-build readiness.
+The project is in active MVP development. The core marketplace, booking, messaging (with real per-user read tracking), reviews, push notifications, backend payment lifecycle, optional checkout insurance, photo-verified synchronized handoff flow, Stripe Connect onboarding, PaymentSheet booking flow, active rental UX, owner-configured deposits, and a full dispute-filing/resolution flow (backend API + frontend for both renters/owners and admins) are implemented. The remaining major work is a way to actually grant the admin role, broader automated testing coverage, security hardening, production deployment, and release-build readiness.
 
 ---
 
@@ -59,16 +59,25 @@ Completed:
   - Admins list, inspect, and resolve disputes (`GET /admin/disputes`, `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve`).
   - Resolving with `RESOLVED_REFUND` triggers a Stripe refund of the booking automatically; all resolutions are transactional and logged as `BookingEvent`s.
   - Cleanup and reconciliation jobs are now actually scheduled with `node-cron` (cleanup every 15 minutes, reconciliation hourly) — no longer manual-only.
-- Backend integration test suite (`backend/src/integration-tests/`) using `supertest` against a real Postgres test database and Stripe test mode, covering booking lifecycle, cancellation, disputes, and Stripe webhooks — now running against a real Stripe Connect test account (`DEV_STRIPE_ACCOUNT_ID`) instead of a fake account id, and with cancellation payment handling fully awaited (no longer fire-and-forget) so the audit-log write always completes before the request returns.
+- Backend integration test suite (`backend/src/integration-tests/`) using `supertest` against a real Postgres test database and Stripe test mode, covering booking lifecycle, cancellation, disputes, and Stripe webhooks — now running against a real Stripe Connect test account (`DEV_STRIPE_ACCOUNT_ID`) instead of a fake account id, and with cancellation payment handling fully awaited (no longer fire-and-forget) so the audit-log write always completes before the request returns. A new `payoutRelease.integration.test.ts` covers `releaseDuePayouts()` directly against a real Stripe Connect test account.
 - Cancellation fees disabled for launch as a product decision — cancelling an accepted booking now fully releases the payment hold with no fee, instead of the previous tiered 5%/$5–$25 fee. See Cancellation Rules below.
+- **Admin/dispute frontend** — previously backend-only (see "Disputes And Admin" below): `FileDisputeScreen` lets a renter or owner report a problem on a booking (`BookingDetailScreen` shows a "Report a Problem" action once the booking is `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` and there's no active dispute already, plus a banner while one is open/under review and the outcome once resolved). `AdminDisputesScreen` (filterable list) and `AdminDisputeDetailScreen` (booking/photo context + refund / no-action / dismiss resolution) give admins a UI on top of the existing `/admin/disputes*` API. `MyProfileScreen` shows an "Admin" quick-action linking to `AdminDisputes` only when `user.role === 'ADMIN'` — the JWT's `role` claim is now decoded into `AuthContext.user` (it wasn't before). **There is still no UI to grant a user the `ADMIN` role itself** — that remains DB/script-only.
+- **Owner-configured listing deposits**: `Listing.depositAmount` is now a real column, set by the owner in `CreateListingScreen`/`EditListingScreen` (optional, defaults to `0`). Booking creation (`bookingService.createBooking`) now uses the listing's configured deposit instead of auto-calculating 30% of the rental total — `BOOKING_DEPOSIT_RATE`/`calculateDepositAmount()` have been removed from `bookingUtils.ts`. `BookingRequestScreen`'s deposit display was updated to match.
+- **Phone number required at registration**: `RegisterSchema` now requires and validates a 10-digit Canadian/NANP phone number (accepts common formats like `(416) 555-0192`, normalizes to `+1XXXXXXXXXX` before storing), and `User.phone` is a required column (backfilled by the `20260730000000_make_phone_required` migration for any pre-existing rows). `RegisterScreen` collects it.
+- **Messaging unread state actually clears now.** It previously never did: "unread" was computed purely as "the last message wasn't sent by me," with no concept of having viewed the thread, so a conversation stayed highlighted after you opened and read it — it would only stop once you sent a reply yourself. Fixed with real per-participant read tracking: `Conversation.renterLastReadAt` / `ownerLastReadAt`, a new `POST /conversations/:id/read` endpoint, and `ConversationThreadScreen` calling it on open and on every poll tick while the thread stays focused.
+- **Listing location now uses real device GPS and a draggable map**, replacing a bug where `CreateListingScreen` silently submitted a hardcoded Toronto coordinate for every listing regardless of the typed city/address. `frontend/app.json` was also missing the `expo-location` config plugin entirely, meaning there was no `NSLocationWhenInUseUsageDescription` in iOS's Info.plist — location permission prompts were likely failing silently on-device for this *and* the pre-existing `HomeScreen`/`SearchScreen` GPS usage. Now: the location step requests GPS, falls back to a place-name search (`Location.geocodeAsync`) or manual placement if permission is denied, and shows a draggable OpenStreetMap tile view (`DraggableLocationMap`, `frontend/src/utils/mapTiles.ts` — hand-rolled slippy-map tile math, no map SDK/API key) with a translucent green circle marking the chosen spot; dragging it (or searching a place name, e.g. "University of Toronto") sets the exact coordinate submitted with the listing. Uses raw `tile.openstreetmap.org` tiles directly, which is fine for low-traffic dev/demo use but is against OSM's tile usage policy at real production scale — swap to a commercial tile provider before that matters.
+- `HomeScreen`/`SearchScreen` "nearby listings" radius bug fixed: it was `50`km, which silently hid every seeded/demo listing whenever the test device's real GPS position was more than 50km from where the data was seeded. Now `5000`km on both screens. `HomeScreen` also dropped its own category-chip filter (redundant with `SearchScreen`'s), and `SearchScreen` gained a proper "no results" empty state and category-label thumbnail fallback.
+- Misc backend fixes: `STRIPE_CURRENCY` default corrected from `usd` to `cad` (was silently mismatched with the documented example); the duplicate `/api/stripe/webhook` mount was removed (only `/stripe/webhook` is used anywhere, and Stripe's dashboard had nothing configured against the other path); `disputeService.resolveDispute` now sets `Booking.paymentStatus` to `REFUNDED` (+ `refundedAt`) on `RESOLVED_REFUND` instead of leaving it stale at `CAPTURED`/`PAYOUT_PENDING` — this was a known follow-up from the payout-eligibility fix below.
+- Build/release prep: `@stripe/stripe-react-native` bumped `0.50.3` → `0.61.0`; `frontend/eas.json` gained a `submit.production.ios` block with an App Store Connect app id; `frontend/package.json`'s `ios`/`android` scripts switched from Expo Go (`expo start --ios`) to native dev-client builds (`expo run:ios`/`expo run:android`) — none of this has been verified end-to-end (no TestFlight submission or fresh device build confirmed yet).
 
 To do next:
 
-- Admin/support UI (no frontend dispute-filing or admin dashboard screens exist yet; the backend API is implemented — see above).
+- Give admins a way to grant the `ADMIN` role to a user — currently DB/script-only, which blocks anyone from actually reaching the new admin dispute UI without direct database access.
 - After-pickup refund policy beyond the dispute-resolution refund path.
-- Broader automated integration tests around handoff race conditions, reviews, and notifications (payments/cancellation/disputes/webhooks are now covered).
+- Broader automated integration tests around handoff race conditions, reviews, and notifications (payments/cancellation/disputes/webhooks/payout-release are now covered).
 - Security hardening, rate limiting, abuse reporting, and operational monitoring.
-- Production deployment, TestFlight/release builds, and launch readiness.
+- Verify the native build/release changes above actually produce a working TestFlight build, then complete production deployment and launch readiness.
+- Swap the listing-location map off raw `tile.openstreetmap.org` tiles before real-world traffic (see location note above).
 
 ---
 
@@ -155,7 +164,7 @@ ADMIN
   - `POST /bookings/:id/photos` legacy-compatible handoff photo endpoint
   - `POST /bookings/:id/zoink-tap` legacy-compatible handoff confirmation endpoint
   - `GET /stripe/connect/status`
-  - `POST /stripe/webhook` (also mounted at `POST /api/stripe/webhook`) — see "Stripe Webhooks (local dev)" under Getting Started for the `stripe listen` command; forwarding to `/webhook` instead of `/stripe/webhook` is a common mistake and fails silently (every event 404s, but the CLI doesn't treat that as fatal).
+  - `POST /stripe/webhook` — see "Stripe Webhooks (local dev)" under Getting Started for the `stripe listen` command; forwarding to `/webhook` instead of `/stripe/webhook` is a common mistake and fails silently (every event 404s, but the CLI doesn't treat that as fatal).
 
 ### Disputes And Admin
 
@@ -169,7 +178,10 @@ ADMIN
   - `GET /admin/disputes/:id` — detail with booking and user context.
   - `PATCH /admin/disputes/:id/resolve` — sets `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, or `DISMISSED`. `RESOLVED_REFUND` also issues a Stripe refund for the booking's total price. Every resolution runs in a transaction and writes a `DISPUTE_RESOLVED` `BookingEvent`.
 - Dispute service logic lives in `backend/src/services/disputeService.ts`; routes/controllers in `backend/src/routes/disputes.ts` + `admin.ts` and `backend/src/middleware/controllers/disputeController.ts` + `adminController.ts`.
-- No frontend screens exist yet for filing or resolving disputes — this is currently a backend-only, API-level feature.
+- Frontend now exists for both sides:
+  - `FileDisputeScreen` (reason picker + description, min 10 characters) — reached from `BookingDetailScreen`'s "Report a Problem" action, `frontend/src/services/disputesApi.ts`.
+  - `AdminDisputesScreen` (status-filterable list) and `AdminDisputeDetailScreen` (booking/photo context, refund/no-action/dismiss with required resolution notes) — reached from `MyProfileScreen`'s "Admin" panel, shown only when `user.role === 'ADMIN'`, `frontend/src/services/adminApi.ts`.
+  - There's still no in-app way to make someone an admin in the first place — `User.role` has to be set directly in the database or via `prisma/seed.ts`-style scripting.
 
 ### Week 10 Stripe Connect, PaymentSheet, And Active Rentals
 
@@ -266,7 +278,7 @@ http://localhost:3000/health
 stripe listen --forward-to localhost:3000/stripe/webhook
 ```
 
-The path must be `/stripe/webhook` (or `/api/stripe/webhook`), **not** `/webhook` — the backend doesn't mount anything at `/webhook`, so events forwarded there get a `404` from every single event with no obvious error on the app side. This is easy to get wrong since Stripe's own docs/examples often default to `/webhook`. Symptoms of hitting the wrong path: `Booking.paymentStatus` stays stuck at `PENDING_AUTH` forever (the `payment_intent.amount_capturable_updated` event that flips it to `AUTHORIZED` never arrives), which then blocks owner acceptance with `'Payment authorization is not ready yet.'` even though Stripe shows the charge as succeeded. If this happens, fix the `--forward-to` path and use `stripe events resend <event_id>` (event IDs are visible in the `stripe listen` terminal output) to redeliver the missed events instead of re-doing the whole booking/payment flow.
+The path must be `/stripe/webhook`, **not** `/webhook` — the backend doesn't mount anything at `/webhook`, so events forwarded there get a `404` from every single event with no obvious error on the app side. This is easy to get wrong since Stripe's own docs/examples often default to `/webhook`. Symptoms of hitting the wrong path: `Booking.paymentStatus` stays stuck at `PENDING_AUTH` forever (the `payment_intent.amount_capturable_updated` event that flips it to `AUTHORIZED` never arrives), which then blocks owner acceptance with `'Payment authorization is not ready yet.'` even though Stripe shows the charge as succeeded. If this happens, fix the `--forward-to` path and use `stripe events resend <event_id>` (event IDs are visible in the `stripe listen` terminal output) to redeliver the missed events instead of re-doing the whole booking/payment flow.
 
 ### Frontend
 
@@ -313,7 +325,7 @@ CLOUDINARY_API_SECRET=
 
 STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
-STRIPE_CURRENCY=usd
+STRIPE_CURRENCY=cad
 DEV_STRIPE_ACCOUNT_ID=""
 STRIPE_CONNECT_RETURN_URL=""
 STRIPE_CONNECT_REFRESH_URL=""
@@ -340,7 +352,7 @@ For frontend demo mode:
 EXPO_PUBLIC_DEMO_MODE=true
 ```
 
-For backend integration tests, create a separate `zoink_test` Postgres database and a `backend/.env.test` pointed at it (see `backend/src/integration-tests/README.md`). **`backend/.env.test` is not currently listed in `.gitignore`** (only `backend/.env` and `frontend/.env` are) — treat any keys in it as exposed and avoid putting live Stripe keys there; use `sk_test_...` values only. `DEV_STRIPE_ACCOUNT_ID` in `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests make live Stripe Connect API calls against it and fail immediately with a clear error if it's missing.
+For backend integration tests, create a separate `zoink_test` Postgres database and a `backend/.env.test` pointed at it (see `backend/src/integration-tests/README.md`). `backend/.env.test` is listed in `.gitignore` alongside `backend/.env` and `frontend/.env` — still, only `sk_test_...` Stripe keys should ever live there. `DEV_STRIPE_ACCOUNT_ID` in `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests make live Stripe Connect API calls against it and fail immediately with a clear error if it's missing.
 
 ---
 
@@ -386,7 +398,7 @@ npm.cmd run smoke:week7
 npm.cmd run test:integration
 ```
 
-`test:integration` requires a running `zoink_test` Postgres database with migrations applied and a `backend/.env.test` file (see `backend/src/integration-tests/README.md`). Note the `20260721000000_add_role_and_disputes` migration's generated `migration.sql` alters the `disputes` table's `status` column before that table is created, so it fails on a fresh database with `prisma migrate deploy`; `backend/prisma/migrations/20260721000000_add_role_and_disputes/apply_to_test_db.sql` is a manually reordered version used to seed the test DB until the migration itself is fixed.
+`test:integration` requires a running `zoink_test` Postgres database with migrations applied and a `backend/.env.test` file (see `backend/src/integration-tests/README.md`). The `20260721000000_add_role_and_disputes` migration's ordering bug (an `ALTER TABLE "disputes"` that ran before `CREATE TABLE "disputes"`, failing `prisma migrate deploy` on a fresh database) is now fixed directly in `migration.sql`; the old `apply_to_test_db.sql` workaround is obsolete and kept only for historical reference.
 
 Frontend:
 
@@ -411,8 +423,8 @@ npx.cmd tsc --noEmit
 | 8 | Reviews and reputation | Done |
 | 9 | Push notifications and UI polish | Done |
 | 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
-| 11 | Admin/disputes backend, integration testing, security hardening | Backend admin/disputes and integration tests done; admin/support UI and security hardening upcoming |
-| 12 | Deployment, TestFlight, production readiness | Upcoming |
+| 11 | Admin/disputes backend + frontend, integration testing, security hardening | Backend and frontend admin/disputes done (no UI to grant the admin role yet); integration tests expanded (payout release now covered); security hardening upcoming |
+| 12 | Deployment, TestFlight, production readiness | In progress — EAS submit config and native (non-Expo-Go) build scripts added, not yet verified end-to-end |
 
 ---
 
@@ -425,19 +437,20 @@ npx.cmd tsc --noEmit
 - Local development can run in mock Stripe mode by leaving `STRIPE_SECRET_KEY` empty.
 - Real beta/prod requires Stripe Connect onboarding with payouts enabled before owners can accept bookings.
 - Stripe native payment collection requires an EAS development or release build; it will not work in Expo Go.
-- Messaging currently uses polling, which is simpler for MVP and can be upgraded later.
-- Authorization is role-based (`User.role`, `USER` / `ADMIN`), read from the JWT and enforced with `requireAdmin`; there is no admin frontend yet, so admin actions currently require calling the API directly.
+- Messaging currently uses polling, which is simpler for MVP and can be upgraded later. Read state is tracked per participant (`Conversation.renterLastReadAt`/`ownerLastReadAt`), set via `POST /conversations/:id/read`, rather than inferring "unread" from who sent the last message.
+- Authorization is role-based (`User.role`, `USER` / `ADMIN`), read from the JWT and enforced with `requireAdmin`; the admin frontend now exists (dispute review/resolution), but granting the role itself still requires calling the database or seed script directly.
 - Disputes are modeled as their own `Dispute` records (not just a status flag) so a booking has an auditable history of who raised what and how it was resolved.
 
 ---
 
 ## Near-Term Roadmap
 
-1. Build an admin/support UI on top of the existing dispute API, and extend the dispute-resolution refund path to broader after-pickup refund/intervention cases.
-2. Expand automated integration tests for handoff timing, review obligations, and notification delivery (payment lifecycle, cancellation, disputes, and webhooks now have integration coverage).
+1. Add a way to grant/revoke the `ADMIN` role from within the app (or at least an internal tool), and extend the dispute-resolution refund path to broader after-pickup refund/intervention cases.
+2. Expand automated integration tests for handoff timing, review obligations, and notification delivery (payment lifecycle, cancellation, disputes, webhooks, and payout release now have integration coverage).
 3. Add security hardening: rate limits, abuse reporting, stronger validation, audit review tools, and operational monitoring.
 4. Prepare production deployment infrastructure and environment separation.
-5. Build TestFlight/release builds and complete production readiness checks.
+5. Verify the in-progress native build changes (EAS submit config, `expo run:ios`/`run:android` scripts, Stripe SDK bump) actually produce a working build, then complete TestFlight/release readiness checks.
+6. Move the listing-location map off raw OpenStreetMap tiles onto a provider suitable for production traffic before launch.
 
 ---
 

@@ -145,7 +145,7 @@ export default function BookingRequestScreen() {
     () => (listing && rentalDays > 0 ? Number((Number(listing.dailyPrice) * rentalDays).toFixed(2)) : 0),
     [listing, rentalDays]
   )
-  const depositAmount = useMemo(() => Number((totalPrice * 0.3).toFixed(2)), [totalPrice])
+  const depositAmount = Number(listing?.depositAmount ?? 0)
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return

@@ -7,4 +7,5 @@ export const DEMO_USER = {
   email: 'demo@zoink.app',
   firstName: 'Mihir',
   verificationStatus: 'VERIFIED' as const,
+  role: 'USER' as const,
 }

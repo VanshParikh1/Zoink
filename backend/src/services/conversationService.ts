@@ -51,6 +51,8 @@ const conversationSelect = {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
   },
+  renterLastReadAt: true,
+  ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
 
 const messageInclude = {
@@ -67,6 +69,15 @@ const messageInclude = {
 
 function toConversationSummary(conversation: any, currentUserId: string): ConversationResponse {
   const lastMessage = conversation.messages[0] ?? null
+  const lastReadAt = conversation.renterId === currentUserId
+    ? conversation.renterLastReadAt
+    : conversation.ownerLastReadAt
+
+  const unread = Boolean(
+    lastMessage &&
+    lastMessage.senderId !== currentUserId &&
+    (!lastReadAt || new Date(lastMessage.createdAt) > new Date(lastReadAt))
+  )
 
   return {
     id: conversation.id,
@@ -79,7 +90,7 @@ function toConversationSummary(conversation: any, currentUserId: string): Conver
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt ?? conversation.createdAt,
     lastMessage,
-    unread: Boolean(lastMessage && lastMessage.senderId !== currentUserId),
+    unread,
   }
 }
 
@@ -174,6 +185,16 @@ export async function getConversationMessages(currentUserId: string, conversatio
   })
 
   return messages.map((message: any) => toMessage(message))
+}
+
+export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {
+  const conversation = await getConversationForParticipant(conversationId, currentUserId)
+  const isRenter = conversation.renterId === currentUserId
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: isRenter ? { renterLastReadAt: new Date() } : { ownerLastReadAt: new Date() },
+  })
 }
 
 export async function sendMessage(currentUserId: string, conversationId: string, body: string): Promise<MessageResponse> {

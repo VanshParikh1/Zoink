@@ -37,7 +37,6 @@ const PORT = process.env.PORT || 3000
 
 app.use(cors())
 app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
 app.use(express.json())
 
 app.get('/', (req, res) => {

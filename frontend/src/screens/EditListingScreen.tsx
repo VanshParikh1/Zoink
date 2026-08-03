@@ -57,6 +57,7 @@ export default function EditListingScreen() {
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [dailyPrice, setDailyPrice] = useState('')
+  const [deposit, setDeposit] = useState('')
   const [city, setCity] = useState('')
   const [address, setAddress] = useState('')
 
@@ -72,6 +73,7 @@ export default function EditListingScreen() {
           setDescription(data.description)
           setCategory(data.category)
           setDailyPrice(String(Number(data.dailyPrice)))
+          setDeposit(Number(data.depositAmount) ? String(Number(data.depositAmount)) : '')
           setCity(data.city)
           setAddress(data.address ?? '')
         } catch {
@@ -98,6 +100,12 @@ export default function EditListingScreen() {
       return
     }
 
+    const parsedDeposit = deposit.trim() ? parseFloat(deposit) : 0
+    if (deposit.trim() && (isNaN(parsedDeposit) || parsedDeposit < 0)) {
+      Alert.alert('Invalid deposit', 'Deposit must be zero or more.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -106,6 +114,7 @@ export default function EditListingScreen() {
         description: description.trim(),
         category,
         dailyPrice: price,
+        depositAmount: deposit.trim() ? parsedDeposit : 0,
         city: city.trim(),
         address: address.trim() || undefined,
       })
@@ -251,6 +260,19 @@ export default function EditListingScreen() {
             style={[styles.input, { flex: 1 }]}
             value={dailyPrice}
             onChangeText={setDailyPrice}
+            placeholderTextColor={theme.textDisabled}
+            keyboardType="decimal-pad"
+          />
+        </View>
+
+        <Text style={styles.label}>Deposit <Text style={styles.optional}>(optional)</Text></Text>
+        <View style={styles.priceRow}>
+          <Text style={styles.currency}>$</Text>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={deposit}
+            onChangeText={setDeposit}
+            placeholder="0"
             placeholderTextColor={theme.textDisabled}
             keyboardType="decimal-pad"
           />

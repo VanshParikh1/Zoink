@@ -40,7 +40,8 @@ export async function registerUser(
   email: string,
   password: string,
   firstName: string,
-  lastName: string
+  lastName: string,
+  phone: string
 ) {
   // 1. Check domain
   if (!isEmailDomainAllowed(email)) {
@@ -58,7 +59,7 @@ export async function registerUser(
 
   // 4. Create user
   const user = await prisma.user.create({
-    data: { email, passwordHash, firstName, lastName },
+    data: { email, passwordHash, firstName, lastName, phone },
   })
 
   // 5. Generate and store OTP

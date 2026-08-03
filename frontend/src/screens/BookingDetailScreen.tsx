@@ -5,9 +5,27 @@ import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { acceptBooking, cancelBooking, declineBooking, getBooking, getHandoffPhotos } from '../services/bookingsApi'
+import { getMyDisputes } from '../services/disputesApi'
 import { useAuth } from '../context/AuthContext'
-import { Booking } from '../types'
+import { Booking, Dispute, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
+
+const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
+const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
+const RESOLVED_DISPUTE_STATUSES: DisputeStatus[] = ['RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED']
+
+function disputeActiveLabel(status: DisputeStatus) {
+  if (status === 'OPEN') return 'Dispute submitted — awaiting review'
+  if (status === 'UNDER_REVIEW') return 'Dispute under review'
+  return null
+}
+
+function disputeOutcomeLabel(status: DisputeStatus) {
+  if (status === 'RESOLVED_REFUND') return 'Dispute resolved: refund issued'
+  if (status === 'RESOLVED_NO_ACTION') return 'Dispute resolved: no action taken'
+  if (status === 'DISMISSED') return 'Dispute dismissed'
+  return null
+}
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
@@ -24,21 +42,40 @@ export default function BookingDetailScreen() {
   const [busy, setBusy] = useState(false)
   const [photosModalVisible, setPhotosModalVisible] = useState(false)
   const [handoffPhotos, setHandoffPhotos] = useState<{ pickupPhotos: string[]; returnPhotos: string[] } | null>(null)
+  const [myDispute, setMyDispute] = useState<Dispute | null>(null)
 
   const isOwner = booking?.ownerId === user?.id
   const isRenter = booking?.renterId === user?.id
+
+  const loadDispute = useCallback(async (currentBooking: Booking) => {
+    if (currentBooking.disputeStatus === 'NONE') {
+      setMyDispute(null)
+      return
+    }
+
+    try {
+      const myDisputes = await getMyDisputes()
+      // getMyDisputes only returns disputes raised by the current user, so this
+      // stays null when the other party filed the dispute — the booking's own
+      // disputeStatus/disputeReason fields are still shown in that case.
+      setMyDispute(myDisputes.find((item) => item.bookingId === currentBooking.id) ?? null)
+    } catch {
+      setMyDispute(null)
+    }
+  }, [])
 
   const loadBooking = useCallback(async () => {
     try {
       const nextBooking = await getBooking(route.params.bookingId)
       setBooking(nextBooking)
+      loadDispute(nextBooking)
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
       nav.goBack()
     } finally {
       setLoading(false)
     }
-  }, [nav, route.params.bookingId])
+  }, [nav, route.params.bookingId, loadDispute])
 
   useFocusEffect(
     useCallback(() => {
@@ -96,6 +133,10 @@ export default function BookingDetailScreen() {
   const completedPickupPhotos = booking.pickupPhotos ?? []
   const completedReturnPhotos = booking.returnPhotos ?? []
 
+  const disputeIsActive = ACTIVE_DISPUTE_STATUSES.includes(booking.disputeStatus)
+  const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
+  const canFileDispute = DISPUTABLE_BOOKING_STATUSES.includes(booking.status) && !disputeIsActive
+
   return (
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
@@ -134,6 +175,29 @@ export default function BookingDetailScreen() {
             <Text style={styles.messageTitle}>Request note</Text>
             <Text style={styles.messageBody}>{booking.message}</Text>
           </View>
+        ) : null}
+
+        {disputeIsActive ? (
+          <View style={styles.disputeBanner}>
+            <Text style={styles.disputeBannerText}>{disputeActiveLabel(booking.disputeStatus)}</Text>
+          </View>
+        ) : null}
+
+        {disputeIsResolved ? (
+          <View style={styles.card}>
+            <Text style={styles.messageTitle}>{disputeOutcomeLabel(booking.disputeStatus)}</Text>
+            {myDispute?.resolutionNotes ? <Text style={styles.messageBody}>{myDispute.resolutionNotes}</Text> : null}
+          </View>
+        ) : null}
+
+        {canFileDispute ? (
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => nav.navigate('FileDispute', { bookingId: booking.id, listingTitle: booking.listing.title })}
+            disabled={busy}
+          >
+            <Text style={styles.secondaryText}>Report a Problem</Text>
+          </TouchableOpacity>
         ) : null}
 
         {booking.status === 'COMPLETED' ? (
@@ -319,6 +383,14 @@ const styles = StyleSheet.create({
   value: { color: theme.text, fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
   messageTitle: { color: theme.text, fontSize: 15, fontWeight: '900' },
   messageBody: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
+  disputeBanner: {
+    backgroundColor: theme.warningSurface,
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: theme.warning,
+  },
+  disputeBannerText: { color: theme.text, fontSize: 14, fontWeight: '800' },
   photosCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 8,

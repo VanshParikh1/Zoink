@@ -3,6 +3,8 @@ export type {
   BookingStatus,
   PaymentStatus,
   DisputeStatus,
+  DisputeReason,
+  Dispute,
   ReviewRole,
 } from '@zoink/shared'
 
@@ -23,7 +25,15 @@ export type {
   MessageResponse as Message,
 } from '@zoink/shared'
 
-import type { PublicProfileResponse, MyProfileResponse, ListingBrowseItem } from '@zoink/shared'
+import type {
+  PublicProfileResponse,
+  MyProfileResponse,
+  ListingBrowseItem,
+  BookingStatus,
+  PaymentStatus,
+  DisputeStatus,
+  DisputeReason,
+} from '@zoink/shared'
 
 // Decorative, demo-mode-only fields — the real backend never returns these.
 export interface ProfileReviewHighlight {
@@ -53,4 +63,48 @@ export interface BrowseListingsResult {
   items: ListingBrowseItem[]
   total: number
   hasMore: boolean
+}
+
+// Admin dispute endpoints return raw Prisma rows (not the DTO-mapped shapes used
+// elsewhere), so totalPrice comes through as a Decimal-serialized string, not a number.
+export interface AdminDisputeListItem {
+  id: string
+  bookingId: string
+  raisedByUserId: string
+  reason: DisputeReason
+  description: string
+  status: DisputeStatus
+  resolutionNotes: string | null
+  resolvedByAdminId: string | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  booking: {
+    id: string
+    status: BookingStatus
+    totalPrice: string
+  }
+  raisedByUser: {
+    id: string
+    email: string
+    firstName: string
+  }
+}
+
+export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'> {
+  booking: {
+    id: string
+    status: BookingStatus
+    paymentStatus: PaymentStatus
+    totalPrice: string
+    pickupPhotos: string[]
+    returnPhotos: string[]
+    handoffInitiatedAt: string | null
+    returnInitiatedAt: string | null
+  }
+  resolvedByAdmin: {
+    id: string
+    email: string
+    firstName: string
+  } | null
 }

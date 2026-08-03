@@ -20,6 +20,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
 import SearchBar from '../components/SearchBar'
+import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
 
@@ -58,7 +59,7 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
         {imageUrl ? (
           <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
         ) : (
-          <Text style={styles.glassThumbnailEmojiLarge}>{item.category?.[0] || '📦'}</Text>
+          <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
         )}
         <View style={[styles.availabilityBadge, item.isAvailable ? styles.badgeAvailable : styles.badgeUnavailable]}>
           <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextUnavailable]}>
@@ -88,7 +89,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
         {imageUrl ? (
           <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
         ) : (
-          <Text style={styles.glassThumbnailEmojiSmall}>{item.category?.[0] || '📦'}</Text>
+          <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
         )}
       </View>
       
@@ -121,7 +122,10 @@ export default function SearchScreen() {
   useEffect(() => {
     Location.getCurrentPositionAsync({}).then(loc => {
       const { latitude, longitude } = loc.coords
-      getNearbyListings({ lat: latitude, lng: longitude, radius: 50 })
+      // Large radius: seeded/demo listings are frequently far from wherever the
+      // device actually is, so a "realistic" nearby radius silently hides everything.
+      // Matches HomeScreen's DEFAULT_RADIUS_KM.
+      getNearbyListings({ lat: latitude, lng: longitude, radius: 5000 })
         .then(res => {
           setTrending(res.slice(0, 5))
         }).catch(console.error)
@@ -172,6 +176,8 @@ export default function SearchScreen() {
              category: selectedCategory === 'All' ? undefined : selectedCategory,
              lat: loc?.coords?.latitude,
              lng: loc?.coords?.longitude,
+             // See trending-fetch comment above — don't let distance silently filter out results.
+             radius: 5000,
            }).then(res => setResults(res.items)).catch(console.error)
         }).catch(() => {
            browseListings({
@@ -280,6 +286,17 @@ export default function SearchScreen() {
         data={isResultsState ? results : []}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeaderComponent}
+        ListEmptyComponent={
+          isResultsState ? (
+            <View style={styles.emptyStateWrap}>
+              <StateCard
+                eyebrow="NO MATCHES"
+                title="Nothing found"
+                body={selectedCategory !== 'All' ? `No ${selectedCategory.toLowerCase()} listings match this search yet.` : 'Try a different search term or category.'}
+              />
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
             <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
@@ -318,6 +335,10 @@ const styles = StyleSheet.create({
   idleContent: {
     paddingTop: 16,
     paddingBottom: 120,
+  },
+  emptyStateWrap: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
   },
   sectionHeader: {
     color: theme.textMuted,
@@ -367,8 +388,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
   },
-  glassThumbnailEmojiLarge: {
-    fontSize: 48,
+  glassThumbnailFallbackText: {
+    color: theme.primary,
+    fontWeight: '900',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 8,
   },
   availabilityBadge: {
     position: 'absolute',
@@ -464,8 +489,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
   },
-  glassThumbnailEmojiSmall: {
-    fontSize: 28,
+  glassThumbnailFallbackTextSmall: {
+    color: theme.primary,
+    fontWeight: '900',
+    fontSize: 11,
+    textAlign: 'center',
+    paddingHorizontal: 4,
   },
   glassRowMiddle: {
     flex: 1,

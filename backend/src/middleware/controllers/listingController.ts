@@ -8,7 +8,7 @@ import { asyncHandler } from '../../utils/asyncHandler'
 
 export const createListing = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId
-  const { title, description, category, dailyPrice, itemValue, latitude, longitude, city, address } = req.body
+  const { title, description, category, dailyPrice, itemValue, depositAmount, latitude, longitude, city, address } = req.body
 
   const listing = await listingService.createListing(ownerId, {
     title,
@@ -16,6 +16,7 @@ export const createListing = asyncHandler(async (req: Request, res: Response) =>
     category,
     dailyPrice: Number(dailyPrice),
     itemValue: itemValue != null ? Number(itemValue) : undefined,
+    depositAmount: depositAmount != null ? Number(depositAmount) : undefined,
     latitude: Number(latitude),
     longitude: Number(longitude),
     city,
@@ -88,7 +89,7 @@ export const getMyListings = asyncHandler(async (req: Request, res: Response) =>
 export const updateListing = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId as string
   const id = req.params.id as string
-  const { title, description, category, dailyPrice, itemValue, latitude, longitude, city, address } = req.body
+  const { title, description, category, dailyPrice, itemValue, depositAmount, latitude, longitude, city, address } = req.body
 
   const listing = await listingService.updateListing(id, ownerId, {
     title,
@@ -96,6 +97,7 @@ export const updateListing = asyncHandler(async (req: Request, res: Response) =>
     category,
     dailyPrice: dailyPrice != null ? Number(dailyPrice) : undefined,
     itemValue: itemValue != null ? Number(itemValue) : undefined,
+    depositAmount: depositAmount != null ? Number(depositAmount) : undefined,
     latitude: latitude != null ? Number(latitude) : undefined,
     longitude: longitude != null ? Number(longitude) : undefined,
     city,

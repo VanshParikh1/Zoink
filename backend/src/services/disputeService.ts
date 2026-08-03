@@ -1,4 +1,4 @@
-import { BookingEventType, DisputeReason, DisputeStatus, Prisma } from '@prisma/client'
+import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
 import { refundPaymentIntent, toCents } from './paymentService'
@@ -90,7 +90,14 @@ export async function resolveDispute(
 
     await tx.booking.update({
       where: { id: dispute.bookingId },
-      data: { disputeStatus: status }
+      data: {
+        disputeStatus: status,
+        // The Stripe refund above already succeeded synchronously, so reflect that
+        // immediately rather than leaving paymentStatus stale (e.g. CAPTURED/PAYOUT_PENDING).
+        // Matches the paymentStatus/refundedAt pair the Stripe webhook handler sets for
+        // charge.refunded / refund.succeeded (stripeWebhookController.ts).
+        ...(status === 'RESOLVED_REFUND' ? { paymentStatus: PaymentStatus.REFUNDED, refundedAt: new Date() } : {}),
+      }
     })
 
     await tx.bookingEvent.create({

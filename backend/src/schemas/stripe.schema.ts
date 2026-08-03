@@ -3,9 +3,9 @@ import { z } from 'zod'
 /**
  * Stripe-domain schemas.
  *
- * NOTE: The Stripe webhook endpoints (POST /stripe/webhook and
- * POST /api/stripe/webhook) receive a raw Buffer body for signature
- * verification and are intentionally excluded from Zod body validation.
+ * NOTE: The Stripe webhook endpoint (POST /stripe/webhook) receives a raw
+ * Buffer body for signature verification and is intentionally excluded
+ * from Zod body validation.
  * The Stripe SDK's constructEvent() performs its own payload validation.
  *
  * NOTE: capture_method is always set to 'manual' internally in

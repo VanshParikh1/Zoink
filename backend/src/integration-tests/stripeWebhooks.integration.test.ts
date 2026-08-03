@@ -150,7 +150,7 @@ describe('payment_intent.amount_capturable_updated', () => {
         object: 'payment_intent',
         status: 'requires_capture',
         amount: 5000,
-        currency: 'usd',
+        currency: 'cad',
         latest_charge: null,
       },
       booking.id
@@ -192,7 +192,7 @@ describe('payment_intent.succeeded', () => {
         status: 'succeeded',
         amount: 5000,
         amount_received: 5000,
-        currency: 'usd',
+        currency: 'cad',
         latest_charge: chargeId,
       },
       booking.id

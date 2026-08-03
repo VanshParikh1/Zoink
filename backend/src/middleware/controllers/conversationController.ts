@@ -30,6 +30,14 @@ export const getConversationMessages = asyncHandler(async (req: Request, res: Re
   return res.json(messages)
 })
 
+export const markConversationRead = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId as string
+  const conversationId = req.params.id as string
+
+  await conversationService.markConversationRead(userId, conversationId)
+  return res.status(204).send()
+})
+
 export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
   const conversationId = req.params.id as string

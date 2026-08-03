@@ -21,6 +21,7 @@ async function main() {
       passwordHash,
       firstName: 'Week7',
       lastName: 'Owner',
+      phone: '+14165550101',
       verificationStatus: VerificationStatus.VERIFIED,
       verifiedAt: new Date(),
       stripeAccountId: process.env.DEV_STRIPE_ACCOUNT_ID,
@@ -33,6 +34,7 @@ async function main() {
       passwordHash,
       firstName: 'Week7',
       lastName: 'Renter',
+      phone: '+14165550102',
       verificationStatus: VerificationStatus.VERIFIED,
       verifiedAt: new Date(),
     },
@@ -76,7 +78,10 @@ async function main() {
   const accepted: any = await bookingService.transitionBookingStatus(created.id, owner.id, 'ACCEPTED')
   console.log('accepted', { status: accepted.status, paymentStatus: accepted.paymentStatus })
 
-  await handoffService.uploadHandoffPhotos(created.id, owner.id, 'pickup', ['https://example.com/pickup-owner.jpg'])
+  await handoffService.uploadHandoffPhotos(created.id, owner.id, 'pickup', [
+    'https://example.com/pickup-owner-1.jpg',
+    'https://example.com/pickup-owner-2.jpg',
+  ])
   const pickupOwnerTap: any = await handoffService.registerTap(created.id, owner.id, 'pickup')
   console.log('pickup owner tap', {
     status: pickupOwnerTap.status,
@@ -97,7 +102,10 @@ async function main() {
     data: { paymentStatus: 'CAPTURED' },
   })
 
-  await handoffService.uploadHandoffPhotos(created.id, renter.id, 'return', ['https://example.com/return-renter.jpg'])
+  await handoffService.uploadHandoffPhotos(created.id, renter.id, 'return', [
+    'https://example.com/return-renter-1.jpg',
+    'https://example.com/return-renter-2.jpg',
+  ])
   const returnOwnerTap: any = await handoffService.registerTap(created.id, owner.id, 'return')
   console.log('return owner tap', {
     status: returnOwnerTap.status,

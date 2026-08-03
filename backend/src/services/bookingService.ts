@@ -4,8 +4,6 @@ import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import {
-  BOOKING_DEPOSIT_RATE,
-  calculateDepositAmount,
   ensureValidBookingDates,
   getRentalDays,
   roundCurrency,
@@ -187,7 +185,7 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     totalPrice,
     message: booking.message,
     paymentStatus: booking.paymentStatus,
-    depositAmount: Number(booking.depositAmount ?? calculateDepositAmount(totalPrice)),
+    depositAmount: Number(booking.depositAmount),
     commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
     insuranceOptIn: booking.insuranceOptIn,
@@ -314,6 +312,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       isAvailable: true,
       dailyPrice: true,
       itemValue: true,
+      depositAmount: true,
       owner: {
         select: { id: true, stripeAccountId: true },
       },
@@ -340,7 +339,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
 
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
-  const depositAmount = calculateDepositAmount(totalPrice)
+  const depositAmount = Number(listing.depositAmount)
   const commissionAmount = calculateCommission(totalPrice)
   const ownerPayout = calculateOwnerPayout(totalPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))

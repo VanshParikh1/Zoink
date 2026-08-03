@@ -12,6 +12,7 @@ const listingSelect = {
   category: true,
   dailyPrice: true,
   itemValue: true,
+  depositAmount: true,
   isAvailable: true,
   latitude: true,
   longitude: true,
@@ -40,6 +41,7 @@ function toListingResponse(listing: Prisma.ListingGetPayload<{ select: typeof li
     ...listing,
     dailyPrice: listing.dailyPrice.toString(),
     itemValue: listing.itemValue.toString(),
+    depositAmount: listing.depositAmount.toString(),
     createdAt: listing.createdAt.toISOString(),
     updatedAt: listing.updatedAt.toISOString(),
   }
@@ -101,6 +103,7 @@ export type CreateListingInput = {
   category: string
   dailyPrice: number
   itemValue?: number
+  depositAmount?: number
   latitude: number
   longitude: number
   city: string
@@ -113,6 +116,7 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
       ...data,
       dailyPrice: new Prisma.Decimal(data.dailyPrice),
       itemValue: new Prisma.Decimal(data.itemValue ?? 0),
+      depositAmount: new Prisma.Decimal(data.depositAmount ?? 0),
       ownerId,
     },
     select: listingSelect,
@@ -303,6 +307,7 @@ export type UpdateListingInput = {
   category?: string
   dailyPrice?: number
   itemValue?: number
+  depositAmount?: number
   latitude?: number
   longitude?: number
   city?: string
@@ -327,6 +332,9 @@ export async function updateListing(
   }
   if (cleaned.itemValue !== undefined) {
     cleaned.itemValue = new Prisma.Decimal(cleaned.itemValue as number)
+  }
+  if (cleaned.depositAmount !== undefined) {
+    cleaned.depositAmount = new Prisma.Decimal(cleaned.depositAmount as number)
   }
 
   const listing = await prisma.listing.update({

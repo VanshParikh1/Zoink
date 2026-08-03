@@ -1,4 +1,3 @@
-◇ injected env (16) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN');
 
@@ -6,11 +5,17 @@ CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN');
 CREATE TYPE "DisputeReason" AS ENUM ('ITEM_DAMAGED', 'ITEM_NOT_RETURNED', 'ITEM_NOT_AS_DESCRIBED', 'PAYMENT_ISSUE', 'OTHER');
 
 -- AlterEnum
+-- Note: this migration also creates the "disputes" table for the first time (see
+-- CreateTable below), so there is no pre-existing "disputes" row/column to widen here.
+-- The original generated SQL included an `ALTER TABLE "disputes" ALTER COLUMN "status" ...`
+-- line at this point, which ran before `CREATE TABLE "disputes"` and made `prisma migrate
+-- deploy` fail on any fresh database with "relation \"disputes\" does not exist". It has
+-- been removed: `CREATE TABLE "disputes"` below already declares "status" as "DisputeStatus",
+-- which by that point in this same migration already refers to the renamed 6-value enum.
 BEGIN;
 CREATE TYPE "DisputeStatus_new" AS ENUM ('NONE', 'OPEN', 'UNDER_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED');
 ALTER TABLE "bookings" ALTER COLUMN "disputeStatus" DROP DEFAULT;
 ALTER TABLE "bookings" ALTER COLUMN "disputeStatus" TYPE "DisputeStatus_new" USING ("disputeStatus"::text::"DisputeStatus_new");
-ALTER TABLE "disputes" ALTER COLUMN "status" TYPE "DisputeStatus_new" USING ("status"::text::"DisputeStatus_new");
 ALTER TYPE "DisputeStatus" RENAME TO "DisputeStatus_old";
 ALTER TYPE "DisputeStatus_new" RENAME TO "DisputeStatus";
 DROP TYPE "DisputeStatus_old";

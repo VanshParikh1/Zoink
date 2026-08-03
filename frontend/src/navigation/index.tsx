@@ -28,6 +28,9 @@ import PublicProfileScreen from '../screens/PublicProfileScreen'
 import ZoinkItScreen from '../screens/ZoinkItScreen'
 import ActiveRentalScreen from '../screens/ActiveRentalScreen'
 import PhotoViewerScreen from '../screens/PhotoViewerScreen'
+import FileDisputeScreen from '../screens/FileDisputeScreen'
+import AdminDisputesScreen from '../screens/AdminDisputesScreen'
+import AdminDisputeDetailScreen from '../screens/AdminDisputeDetailScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -43,6 +46,9 @@ export type RootStackParamList = {
   BookingHistory: undefined
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
+  FileDispute: { bookingId: string; listingTitle?: string }
+  AdminDisputes: undefined
+  AdminDisputeDetail: { disputeId: string }
   ActiveRental: { bookingId: string }
   ZoinkIt: { bookingId: string; mode: 'pickup' | 'return' }
   PhotoViewer: { photos: string[]; initialIndex: number }
@@ -90,6 +96,9 @@ function VerifiedAppStack() {
       <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
       <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
+      <Stack.Screen name="FileDispute" component={FileDisputeScreen} />
+      <Stack.Screen name="AdminDisputes" component={AdminDisputesScreen} />
+      <Stack.Screen name="AdminDisputeDetail" component={AdminDisputeDetailScreen} />
       <Stack.Screen name="ActiveRental" component={ActiveRentalScreen} />
       <Stack.Screen name="ZoinkIt" component={ZoinkItScreen} />
       <Stack.Screen

@@ -4,12 +4,13 @@ import { z } from 'zod'
  * Listing-domain request schemas.
  *
  * Cross-check against Prisma Listing model:
- *   - title       String
- *   - description String
- *   - category    String
- *   - dailyPrice  Decimal(10,2)  — must be positive
- *   - itemValue   Decimal(10,2)  — optional, >= 0
- *   - isAvailable Boolean        @default(true)
+ *   - title         String
+ *   - description   String
+ *   - category      String
+ *   - dailyPrice    Decimal(10,2)  — must be positive
+ *   - itemValue     Decimal(10,2)  — optional, >= 0
+ *   - depositAmount Decimal(10,2)  — optional, >= 0, owner-configured on the listing
+ *   - isAvailable   Boolean        @default(true)
  *   - latitude    Float
  *   - longitude   Float
  *   - city        String
@@ -35,6 +36,10 @@ export const CreateListingSchema = z.object({
       .number({ error: 'itemValue must be a number.' })
       .nonnegative('itemValue cannot be negative.')
       .optional(),
+    depositAmount: z.coerce
+      .number({ error: 'depositAmount must be a number.' })
+      .nonnegative('depositAmount cannot be negative.')
+      .optional(),
     latitude: z.coerce
       .number({ error: 'latitude must be a number.' })
       .min(-90, 'latitude must be >= -90.')
@@ -59,6 +64,7 @@ export const UpdateListingSchema = z.object({
     category: z.string().min(1).optional(),
     dailyPrice: z.coerce.number().positive().optional(),
     itemValue: z.coerce.number().nonnegative().optional(),
+    depositAmount: z.coerce.number().nonnegative().optional(),
     latitude: z.coerce.number().min(-90).max(90).optional(),
     longitude: z.coerce.number().min(-180).max(180).optional(),
     city: z.string().min(1).optional(),

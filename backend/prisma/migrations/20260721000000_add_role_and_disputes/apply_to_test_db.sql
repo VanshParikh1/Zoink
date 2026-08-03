@@ -1,3 +1,8 @@
+-- OBSOLETE / HISTORICAL — migration.sql in this directory has since been fixed directly
+-- (the stray `ALTER TABLE "disputes"` before `CREATE TABLE "disputes"` was removed), so
+-- `prisma migrate deploy` now succeeds on a fresh database without this workaround. Kept
+-- only for historical reference; do not run this against a fresh database.
+--
 -- Apply the role + disputes migration to zoink_test
 -- The original migration.sql has an ALTER TABLE "disputes" before CREATE TABLE "disputes"
 -- which fails on a fresh DB. This script applies the same changes in the correct order.

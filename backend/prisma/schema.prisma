@@ -20,7 +20,7 @@ model User {
   passwordHash        String
   firstName           String
   lastName            String
-  phone               String?
+  phone               String
   avatarUrl           String?
   bio                 String?
   verificationStatus  VerificationStatus  @default(PENDING)
@@ -60,6 +60,7 @@ model Listing {
   category      String
   dailyPrice    Decimal        @db.Decimal(10, 2)
   itemValue     Decimal        @default(0) @db.Decimal(10, 2)
+  depositAmount Decimal        @default(0) @db.Decimal(10, 2)
   isAvailable   Boolean        @default(true)
   latitude      Float
   longitude     Float
@@ -148,15 +149,17 @@ model BookingEvent {
 
 
 model Conversation {
-  id        String    @id @default(uuid())
-  listingId String
-  renterId  String
-  ownerId   String
-  createdAt DateTime  @default(now())
-  listing   Listing   @relation(fields: [listingId], references: [id])
-  owner     User      @relation("OwnerConversations", fields: [ownerId], references: [id])
-  renter    User      @relation("RenterConversations", fields: [renterId], references: [id])
-  messages  Message[]
+  id               String    @id @default(uuid())
+  listingId        String
+  renterId         String
+  ownerId          String
+  createdAt        DateTime  @default(now())
+  renterLastReadAt DateTime?
+  ownerLastReadAt  DateTime?
+  listing          Listing   @relation(fields: [listingId], references: [id])
+  owner            User      @relation("OwnerConversations", fields: [ownerId], references: [id])
+  renter           User      @relation("RenterConversations", fields: [renterId], references: [id])
+  messages         Message[]
 
   @@unique([listingId, renterId])
   @@map("conversations")

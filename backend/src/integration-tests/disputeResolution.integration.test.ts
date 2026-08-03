@@ -206,6 +206,28 @@ describe('createDispute — service layer', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Helper: creates a real captured Stripe PaymentIntent using Stripe's test
+// payment-method token (pm_card_visa), which Stripe supports confirming
+// server-side without a client — needed here because refundPaymentIntent()
+// calls the live Stripe refunds API, and a refund is only valid against a
+// PaymentIntent that has actually been captured.
+// ─────────────────────────────────────────────────────────────────────────────
+async function createCapturedStripePaymentIntent(amountCents: number): Promise<string> {
+  const Stripe = require('stripe')
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+  const intent = await stripe.paymentIntents.create({
+    amount: amountCents,
+    currency: process.env.STRIPE_CURRENCY ?? 'cad',
+    payment_method: 'pm_card_visa',
+    payment_method_types: ['card'],
+    confirm: true,
+    capture_method: 'manual',
+  })
+  await stripe.paymentIntents.capture(intent.id, { amount_to_capture: amountCents })
+  return intent.id
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. resolveDispute — RESOLVED_REFUND
 // ─────────────────────────────────────────────────────────────────────────────
 describe('resolveDispute — RESOLVED_REFUND', () => {
@@ -237,6 +259,33 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     assert.ok(resolvedEvent, 'DISPUTE_RESOLVED booking event should be created')
     assert.equal((resolvedEvent.metadata as any)?.disputeId, dispute.id)
     assert.equal((resolvedEvent.metadata as any)?.status, DisputeStatus.RESOLVED_NO_ACTION)
+  })
+
+  test('RESOLVED_REFUND on a captured booking refunds via Stripe and updates Booking.paymentStatus', async () => {
+    const db = getTestPrisma()
+    const totalPrice = 90
+    const stripePaymentIntentId = await createCapturedStripePaymentIntent(9000)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.CAPTURED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Item was returned broken and the renter has confirmed responsibility.'
+    )
+
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed damage — refunding the renter in full.'
+    )
+
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+
+    // Booking.paymentStatus must reflect the refund that already happened via Stripe above —
+    // this is the fix for the bug where paymentStatus was left stale (e.g. still CAPTURED).
+    const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updatedBooking.paymentStatus, PaymentStatus.REFUNDED)
+    assert.ok(updatedBooking.refundedAt, 'refundedAt should be set')
+    assert.equal(updatedBooking.disputeStatus, DisputeStatus.RESOLVED_REFUND)
   })
 
   test('RESOLVED_REFUND on booking without stripePaymentIntentId throws 409', async () => {

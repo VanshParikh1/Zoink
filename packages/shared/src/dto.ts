@@ -31,6 +31,7 @@ export interface ListingResponse {
   category: string
   dailyPrice: string
   itemValue: string
+  depositAmount: string
   isAvailable: boolean
   latitude: number
   longitude: number
