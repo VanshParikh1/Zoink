@@ -14,6 +14,7 @@ import {
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
+import { Feather } from '@expo/vector-icons'
 import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -147,23 +148,25 @@ export default function ListingDetailScreen() {
     <ScreenBackground>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.floatingRow}>
-          <TouchableOpacity 
-            style={styles.floatingBtn} 
+          <TouchableOpacity
+            style={styles.floatingBtn}
+            accessibilityLabel="Go back"
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
               nav.goBack()
             }}
           >
-            <Text style={styles.floatingBtnText}>{'<'}</Text>
+            <Feather name="chevron-left" size={22} color={theme.text} />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.floatingBtn} 
+          <TouchableOpacity
+            style={styles.floatingBtn}
+            accessibilityLabel="Share this listing"
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
               handleShare()
             }}
           >
-            <Text style={styles.floatingBtnText}>Share</Text>
+            <Feather name="share" size={18} color={theme.text} />
           </TouchableOpacity>
         </View>
 
@@ -353,31 +356,25 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
   floatingBtn: {
-    minWidth: 40,
-    height: 40,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    backgroundColor: theme.glassGreen,
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: theme.primaryLight,
+    borderColor: theme.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    ...theme.shadowSm,
   },
-  floatingBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
   content: {
     padding: 24,
     marginHorizontal: 16,
     marginBottom: 40,
-    backgroundColor: theme.glassGreen,
+    backgroundColor: theme.cardBackground,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.primaryLight,
-    // shadow for depth
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 3,
+    borderColor: theme.cardBorder,
+    ...theme.shadowMdElevation,
   },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   badge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },

@@ -360,28 +360,22 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   
-  /* --- Glass Cards --- */
+  /* --- Listing cards (flat, matches Home) --- */
   glassCardVertical: {
     width: (SCREEN_WIDTH - 48) * 0.75,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 16,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
+    borderColor: theme.cardBorder,
     overflow: 'hidden',
     padding: 16,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+    ...theme.shadowSm,
   },
   glassThumbnailLarge: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -409,7 +403,7 @@ const styles = StyleSheet.create({
     borderColor: theme.borderFocus,
   },
   badgeUnavailable: {
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    backgroundColor: theme.surfaceSubdued,
     borderColor: theme.border,
   },
   badgeText: {
@@ -439,7 +433,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    borderTopColor: theme.border,
   },
   glassPrice: {
     color: theme.primary,
@@ -457,7 +451,7 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
 
-  /* --- Horizontal Glass Cards --- */
+  /* --- Horizontal listing cards (flat, matches Home) --- */
   verticalRowsContainer: {
     paddingHorizontal: 24,
     gap: 12,
@@ -466,23 +460,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 16,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+    borderColor: theme.cardBorder,
+    ...theme.shadowSm,
   },
   glassThumbnailSmall: {
     width: 64,
     height: 64,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,

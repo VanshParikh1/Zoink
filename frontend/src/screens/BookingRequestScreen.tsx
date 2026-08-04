@@ -320,6 +320,7 @@ export default function BookingRequestScreen() {
                       style={styles.dayCell}
                       onPress={() => handleDayPress(day.date)}
                       disabled={isPast}
+                      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                     >
                       <View
                         style={[
@@ -411,14 +412,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: '900', color: theme.text },
   subtitle: { color: theme.textMuted, fontSize: 16, marginTop: 4, marginBottom: 12 },
   card: {
-    backgroundColor: theme.surface,
-    borderRadius: 32,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.lg,
     padding: 24,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
+    ...theme.shadowMdElevation,
     gap: 16,
   },
   sectionEyebrow: {
@@ -445,7 +444,7 @@ const styles = StyleSheet.create({
   dateSummaryCard: {
     flex: 1,
     backgroundColor: theme.screen,
-    borderRadius: 20,
+    borderRadius: theme.radius.md,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -468,9 +467,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   calendarArrow: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.pill,
     backgroundColor: theme.screen,
     borderWidth: 1,
     borderColor: theme.border,
@@ -518,9 +517,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dayPill: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: theme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

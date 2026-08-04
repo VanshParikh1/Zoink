@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
+import { Feather } from '@expo/vector-icons'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
@@ -43,7 +44,6 @@ export default function HomeScreen() {
         lng: currentCoords.longitude,
         radius: DEFAULT_RADIUS_KM,
       })
-      console.log(`Fetched ${data.length} listings at radius ${DEFAULT_RADIUS_KM}km`)
       setListings(data)
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
@@ -184,7 +184,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <View style={styles.heroActionIconWrap}>
-                    <Text style={[styles.heroActionIcon, { color: theme.primaryDeep }]}>＋</Text>
+                    <Feather name="plus" size={20} color={theme.primaryDeep} />
                   </View>
                   <Text style={styles.heroActionLabel}>List item</Text>
                 </TouchableOpacity>
@@ -197,7 +197,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <View style={styles.heroActionIconWrap}>
-                    <Text style={styles.heroActionIcon}>📦</Text>
+                    <Feather name="package" size={20} color={theme.text} />
                   </View>
                   <Text style={styles.heroActionLabel}>My listings</Text>
                 </TouchableOpacity>
@@ -210,7 +210,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <View style={styles.heroActionIconWrap}>
-                    <Text style={styles.heroActionIcon}>🗓</Text>
+                    <Feather name="calendar" size={20} color={theme.text} />
                   </View>
                   <Text style={styles.heroActionLabel}>Bookings</Text>
                 </TouchableOpacity>
@@ -223,7 +223,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <View style={styles.heroActionIconWrap}>
-                    <Text style={styles.heroActionIcon}>📨</Text>
+                    <Feather name="inbox" size={20} color={theme.text} />
                   </View>
                   <Text style={styles.heroActionLabel}>Requests</Text>
                 </TouchableOpacity>
@@ -322,9 +322,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(109, 216, 50, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  heroActionIcon: {
-    fontSize: 20,
   },
   heroActionLabel: {
     color: theme.textMuted,
