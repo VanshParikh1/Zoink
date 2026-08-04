@@ -4,11 +4,6 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme/colors';
 
-/**
- * SearchBar â€“ Liquid Glass edition.
- * Features a frosted glass surface with backdrop blur, inner highlights,
- * and a subtle green glow on focus.
- */
 export default function SearchBar({
   value,
   onChange,
@@ -87,12 +82,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
-  },
-  androidContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    height: 48,
   },
   icon: {
     marginRight: 8,

@@ -66,4 +66,37 @@ export const theme = {
   warning: colors.warning,
   dangerSurface: colors.dangerSurface,
   warningSurface: colors.warningSurface,
+
+  // Flat-card radius scale — replaces the ad hoc 8/16/24/32 values
+  // that had accumulated per-screen with no shared system behind them.
+  radius: {
+    sm: 8,   // chips, thumbnails, small inline controls
+    md: 16,  // standard cards, panels
+    lg: 24,  // hero/feature cards, large panels
+    pill: 999,
+  },
+
+  // Flat-card shadow scale — replaces the 0.08–0.5 opacity spread
+  // found across screens with three deliberate depth steps.
+  shadowSm: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  shadowMdElevation: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  shadowLgElevation: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 20,
+    elevation: 6,
+  },
 }

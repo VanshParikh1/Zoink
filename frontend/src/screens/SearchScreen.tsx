@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
   glassChipSelected: {
     backgroundColor: theme.primarySurface,
     borderColor: theme.borderFocus,
-    borderTopColor: 'rgba(22, 255, 110, 0.4)',
+    borderTopColor: theme.primaryLight,
   },
   glassChipUnselected: {
     backgroundColor: theme.surfaceSubdued,

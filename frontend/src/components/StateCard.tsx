@@ -65,16 +65,12 @@ export default function StateCard({
 const styles = StyleSheet.create({
   cardContainer: {
     backgroundColor: theme.cardBackground,
-    borderRadius: 8,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: theme.cardBorder,
     padding: 22,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    ...theme.shadowSm,
   },
   cardError: {
     borderColor: theme.colors.danger,
@@ -110,19 +106,18 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: theme.primarySurface,
-    borderRadius: 14,
+    borderRadius: theme.radius.sm,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: theme.borderFocus,
-    borderTopColor: 'rgba(22, 255, 110, 0.4)',
   },
   primaryButtonPressed: {
-    backgroundColor: 'rgba(22, 255, 110, 0.25)',
+    backgroundColor: theme.primaryLight,
   },
   primaryButtonError: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: theme.colors.dangerSurface,
+    borderColor: theme.colors.danger,
   },
   primaryButtonText: {
     color: theme.primary,
@@ -130,7 +125,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   secondaryButton: {
-    borderRadius: 14,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 20,
