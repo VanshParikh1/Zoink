@@ -169,6 +169,7 @@ export default function ConversationThreadScreen() {
             placeholder="Write a message"
             placeholderTextColor={theme.textDisabled}
             style={styles.input}
+            maxLength={2000}
           />
           <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
             <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>

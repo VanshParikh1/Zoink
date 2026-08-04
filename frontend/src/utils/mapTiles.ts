@@ -1,5 +1,29 @@
 export const TILE_SIZE = 256
 
+const MAPTILER_API_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY ?? ''
+
+// Whether the app is actually pulling tiles from MapTiler right now — used by
+// MapAttribution to show credit matching the tile source in use.
+export const usingMapTiler = MAPTILER_API_KEY.length > 0
+
+let warnedAboutMissingKey = false
+
+function tileUrl(zoom: number, x: number, y: number): string {
+  if (usingMapTiler) {
+    return `https://api.maptiler.com/maps/streets-v2/${zoom}/${x}/${y}.png?key=${MAPTILER_API_KEY}`
+  }
+
+  if (!warnedAboutMissingKey) {
+    warnedAboutMissingKey = true
+    console.warn(
+      'EXPO_PUBLIC_MAPTILER_API_KEY is unset — falling back to raw tile.openstreetmap.org tiles. ' +
+      'This is fine for local dev but production traffic needs a real MapTiler key (see README).'
+    )
+  }
+
+  return `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`
+}
+
 export function toTileFloat(latitude: number, longitude: number, zoom: number) {
   const n = 2 ** zoom
   const latRad = (latitude * Math.PI) / 180
@@ -47,7 +71,7 @@ export function buildTileGrid(
 
       tiles.push({
         key: `${dx}-${dy}`,
-        uri: `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`,
+        uri: tileUrl(zoom, tileX, tileY),
         left: rawTileX * TILE_SIZE - worldPxX + width / 2,
         top: tileY * TILE_SIZE - worldPxY + height / 2,
       })

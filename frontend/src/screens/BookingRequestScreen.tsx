@@ -369,6 +369,7 @@ export default function BookingRequestScreen() {
           style={[styles.input, styles.textarea]}
           multiline
           textAlignVertical="top"
+          maxLength={500}
         />
       </View>
 

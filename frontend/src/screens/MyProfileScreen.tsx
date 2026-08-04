@@ -357,15 +357,26 @@ export default function MyProfileScreen() {
         {user?.role === 'ADMIN' ? (
           <View style={styles.quickActionsPanel}>
             <Text style={styles.panelTitle}>Admin</Text>
-            <TouchableOpacity
-              style={styles.quickActionButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                nav.navigate('AdminDisputes')
-              }}
-            >
-              <Text style={styles.quickActionButtonText}>Review disputes</Text>
-            </TouchableOpacity>
+            <View style={styles.quickActionRow}>
+              <TouchableOpacity
+                style={styles.quickActionButton}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  nav.navigate('AdminDisputes')
+                }}
+              >
+                <Text style={styles.quickActionButtonText}>Review disputes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickActionButton}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  nav.navigate('AdminReports')
+                }}
+              >
+                <Text style={styles.quickActionButtonText}>Review reports</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
 
@@ -414,6 +425,7 @@ export default function MyProfileScreen() {
             style={[styles.input, !editing && styles.inputDisabled]}
             placeholder="First name"
             placeholderTextColor={theme.textDisabled}
+            maxLength={50}
           />
 
           <Text style={styles.label}>Last name</Text>
@@ -424,6 +436,7 @@ export default function MyProfileScreen() {
             style={[styles.input, !editing && styles.inputDisabled]}
             placeholder="Last name"
             placeholderTextColor={theme.textDisabled}
+            maxLength={50}
           />
 
           <Text style={styles.label}>Phone</Text>
@@ -446,6 +459,7 @@ export default function MyProfileScreen() {
             placeholder="Add a quick line that feels like you"
             placeholderTextColor={theme.textDisabled}
             multiline
+            maxLength={300}
           />
         </View>
         <ZoinkButton 

@@ -107,6 +107,16 @@ export default function ListingDetailScreen() {
     })
   }
 
+  function handleReport() {
+    if (!listing) return
+
+    nav.navigate('FileReport', {
+      targetType: 'LISTING',
+      targetId: listing.id,
+      targetLabel: listing.title,
+    })
+  }
+
   async function handleMessageOwner() {
     if (!listing) return
 
@@ -217,10 +227,7 @@ export default function ListingDetailScreen() {
             <Text style={styles.perDay}> / day</Text>
           </Text>
 
-          <Text style={styles.location}>
-            {listing.address ? `${listing.address}, ` : ''}
-            {listing.city}
-          </Text>
+          <Text style={styles.location}>{listing.city}</Text>
 
           <Text style={styles.sectionTitle}>About this item</Text>
           <Text style={styles.description}>{listing.description}</Text>
@@ -251,6 +258,12 @@ export default function ListingDetailScreen() {
               <Text style={styles.profileHint}>Tap to view profile card</Text>
             </View>
           </TouchableOpacity>
+
+          {!isOwner && (
+            <TouchableOpacity style={styles.reportLink} onPress={handleReport}>
+              <Text style={styles.reportLinkText}>Report this listing</Text>
+            </TouchableOpacity>
+          )}
 
           {isOwner && (
             <View style={styles.ownerActions}>
@@ -407,6 +420,8 @@ const styles = StyleSheet.create({
   ownerName: { fontSize: 15, fontWeight: '800', color: theme.text },
   verified: { fontSize: 12, color: theme.primary, marginTop: 2, fontWeight: '800' },
   profileHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, fontWeight: '700' },
+  reportLink: { alignSelf: 'flex-start', marginTop: 12, paddingVertical: 4 },
+  reportLinkText: { color: theme.textMuted, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' },
   ownerActions: { marginTop: 8 },
   editBtn: {
     backgroundColor: theme.cardBackground,

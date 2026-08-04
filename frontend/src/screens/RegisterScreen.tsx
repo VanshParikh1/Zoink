@@ -82,6 +82,7 @@ export default function RegisterScreen() {
                 placeholderTextColor={theme.textDisabled}
                 value={firstName}
                 onChangeText={setFirstName}
+                maxLength={50}
               />
               <TextInput
                 style={[styles.input, styles.halfInput]}
@@ -89,6 +90,7 @@ export default function RegisterScreen() {
                 placeholderTextColor={theme.textDisabled}
                 value={lastName}
                 onChangeText={setLastName}
+                maxLength={50}
               />
             </View>
 

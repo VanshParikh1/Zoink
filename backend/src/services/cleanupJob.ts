@@ -38,9 +38,15 @@ export async function releaseDuePayouts() {
       completedAt: { lte: dueBefore },
       // A dispute resolved as RESOLVED_NO_ACTION or DISMISSED means no money moved and
       // the booking should become payout-eligible again, same as if it never had a dispute.
-      // RESOLVED_REFUND is deliberately excluded: that path already refunded the renter via
-      // Stripe (see disputeService.resolveDispute), so paying the owner out on top of that
-      // would be a double-payout. OPEN/UNDER_REVIEW stay excluded since those are unresolved.
+      // RESOLVED_REFUND is deliberately excluded — including for PARTIAL refunds, not just
+      // full ones: that path already refunded the renter via Stripe (see
+      // disputeService.resolveDispute), and this job does not know how to derive the
+      // owner's remaining share automatically (it never recalculates `ownerPayout`, it just
+      // reads the value stored at booking-creation time). Rather than guess a policy for
+      // splitting a partial refund between the platform's commission and the owner's cut,
+      // any RESOLVED_REFUND booking is excluded from auto-payout entirely and the owner's
+      // remaining payout (if any) is a manual admin action — see Dispute.refundAmountCents
+      // for the amount actually refunded. OPEN/UNDER_REVIEW stay excluded since unresolved.
       disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED'] },
     },
     select: {

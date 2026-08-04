@@ -292,6 +292,7 @@ export async function mockCreateDispute(data: CreateDisputePayload): Promise<Dis
     description: data.description,
     status: 'OPEN',
     resolutionNotes: null,
+    refundAmountCents: null,
     resolvedByAdminId: null,
     createdAt: now,
     updatedAt: now,

@@ -46,6 +46,32 @@ test('validate(CreateBookingSchema) passes ZodError to next when required fields
   assert.ok(paths.includes('body.endDate'), 'should flag missing endDate')
 })
 
+test('validate(CreateBookingSchema) rejects a message over 500 characters', () => {
+  const req: any = {
+    userId: 'renter-1',
+    body: {
+      listingId: 'listing-1',
+      startDate: '2026-05-01T00:00:00.000Z',
+      endDate: '2026-05-03T00:00:00.000Z',
+      message: 'M'.repeat(501),
+    },
+    params: {},
+    query: {},
+  }
+  const res = createMockResponse()
+  let capturedError: any = null
+  const next = (err: any) => { capturedError = err }
+
+  validate(CreateBookingSchema)(req, res as any, next)
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.message'), 'should flag message over 500 characters')
+})
+
 test('createBooking returns 201 with booking payload from service', async () => {
   const booking = { id: 'booking-1', status: 'PENDING' }
   ;(bookingService as any).createBooking = async (userId: string, input: any) => {

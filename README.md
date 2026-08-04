@@ -65,10 +65,10 @@ Completed:
 - **Owner-configured listing deposits**: `Listing.depositAmount` is now a real column, set by the owner in `CreateListingScreen`/`EditListingScreen` (optional, defaults to `0`). Booking creation (`bookingService.createBooking`) now uses the listing's configured deposit instead of auto-calculating 30% of the rental total — `BOOKING_DEPOSIT_RATE`/`calculateDepositAmount()` have been removed from `bookingUtils.ts`. `BookingRequestScreen`'s deposit display was updated to match.
 - **Phone number required at registration**: `RegisterSchema` now requires and validates a 10-digit Canadian/NANP phone number (accepts common formats like `(416) 555-0192`, normalizes to `+1XXXXXXXXXX` before storing), and `User.phone` is a required column (backfilled by the `20260730000000_make_phone_required` migration for any pre-existing rows). `RegisterScreen` collects it.
 - **Messaging unread state actually clears now.** It previously never did: "unread" was computed purely as "the last message wasn't sent by me," with no concept of having viewed the thread, so a conversation stayed highlighted after you opened and read it — it would only stop once you sent a reply yourself. Fixed with real per-participant read tracking: `Conversation.renterLastReadAt` / `ownerLastReadAt`, a new `POST /conversations/:id/read` endpoint, and `ConversationThreadScreen` calling it on open and on every poll tick while the thread stays focused.
-- **Listing location now uses real device GPS and a draggable map**, replacing a bug where `CreateListingScreen` silently submitted a hardcoded Toronto coordinate for every listing regardless of the typed city/address. `frontend/app.json` was also missing the `expo-location` config plugin entirely, meaning there was no `NSLocationWhenInUseUsageDescription` in iOS's Info.plist — location permission prompts were likely failing silently on-device for this *and* the pre-existing `HomeScreen`/`SearchScreen` GPS usage. Now: the location step requests GPS, falls back to a place-name search (`Location.geocodeAsync`) or manual placement if permission is denied, and shows a draggable OpenStreetMap tile view (`DraggableLocationMap`, `frontend/src/utils/mapTiles.ts` — hand-rolled slippy-map tile math, no map SDK/API key) with a translucent green circle marking the chosen spot; dragging it (or searching a place name, e.g. "University of Toronto") sets the exact coordinate submitted with the listing. Uses raw `tile.openstreetmap.org` tiles directly, which is fine for low-traffic dev/demo use but is against OSM's tile usage policy at real production scale — swap to a commercial tile provider before that matters.
+- **Listing location now uses real device GPS and a fullscreen, pinch-zoomable map**, replacing a bug where `CreateListingScreen` silently submitted a hardcoded Toronto coordinate for every listing regardless of the typed city. `frontend/app.json` was also missing the `expo-location` config plugin entirely, meaning there was no `NSLocationWhenInUseUsageDescription` in iOS's Info.plist — location permission prompts were likely failing silently on-device for this *and* the pre-existing `HomeScreen`/`SearchScreen` GPS usage. Now: the location step requests GPS, falls back to a place-name search (`Location.geocodeAsync`) or manual placement if permission is denied, and shows a small static preview (`LocationMapPreview`) with a translucent green circle marking the chosen spot. Tapping the preview opens `LocationMapModal`, a fullscreen editor (`frontend/src/utils/mapTiles.ts` still does the hand-rolled slippy-map tile math, no map SDK) where the user can pinch-zoom and drag to reposition a fixed center pin — panning/zooming is `react-native-zoom-toolkit`'s `ResumableZoom` (gesture-handler + reanimated, runs on the UI thread) rather than the old `PanResponder`-driven drag directly on the small preview, which was visibly laggy since it animated a stack of raster tiles on the JS thread. A "Set location" button at the bottom commits the pin; closing without it discards the change. Tiles come from MapTiler's raster endpoint (`EXPO_PUBLIC_MAPTILER_API_KEY`, see Environment Variables), which satisfies real-traffic tile usage terms unlike the raw OSM tiles this used to hit directly; if the key is unset the map falls back to `tile.openstreetmap.org` (fine for local dev, logs one console warning, not for production traffic) — the on-map attribution label (`MapAttribution`, shared by both the preview and the fullscreen modal) switches between "© MapTiler © OpenStreetMap contributors" and "© OpenStreetMap contributors" to match whichever is actually serving the tiles, and is a tappable link to the relevant copyright page. The separate free-text "address" field on both `CreateListingScreen` and `EditListingScreen` has been removed — the map already conveys the general location, and precise addresses are left to the owner's discretion to share over messaging once a booking is underway rather than being shown on the public listing page (`Listing.address` still exists as a nullable DB column/API field, just unused by the UI for now).
 - `HomeScreen`/`SearchScreen` "nearby listings" radius bug fixed: it was `50`km, which silently hid every seeded/demo listing whenever the test device's real GPS position was more than 50km from where the data was seeded. Now `5000`km on both screens. `HomeScreen` also dropped its own category-chip filter (redundant with `SearchScreen`'s), and `SearchScreen` gained a proper "no results" empty state and category-label thumbnail fallback.
 - Misc backend fixes: `STRIPE_CURRENCY` default corrected from `usd` to `cad` (was silently mismatched with the documented example); the duplicate `/api/stripe/webhook` mount was removed (only `/stripe/webhook` is used anywhere, and Stripe's dashboard had nothing configured against the other path); `disputeService.resolveDispute` now sets `Booking.paymentStatus` to `REFUNDED` (+ `refundedAt`) on `RESOLVED_REFUND` instead of leaving it stale at `CAPTURED`/`PAYOUT_PENDING` — this was a known follow-up from the payout-eligibility fix below.
-- Build/release prep: `@stripe/stripe-react-native` bumped `0.50.3` → `0.61.0`; `frontend/eas.json` gained a `submit.production.ios` block with an App Store Connect app id; `frontend/package.json`'s `ios`/`android` scripts switched from Expo Go (`expo start --ios`) to native dev-client builds (`expo run:ios`/`expo run:android`) — none of this has been verified end-to-end (no TestFlight submission or fresh device build confirmed yet).
+- Build/release prep: `@stripe/stripe-react-native` bumped `0.50.3` → `0.62.0` (see "Native dependency versions" below — `0.60.0`/`0.61.0` don't build on Expo SDK 54 at all; `0.62.0` is the first version that both builds cleanly and carries the Connect/Android and `PaymentSheet` fixes from the versions in between); `frontend/eas.json` gained a `submit.production.ios` block with an App Store Connect app id; `frontend/package.json`'s `ios`/`android` scripts switched from Expo Go (`expo start --ios`) to native dev-client builds (`expo run:ios`/`expo run:android`) — production EAS builds now verified clean on both iOS and Android; TestFlight submission still unconfirmed.
 
 To do next:
 
@@ -77,7 +77,6 @@ To do next:
 - Broader automated integration tests around handoff race conditions, reviews, and notifications (payments/cancellation/disputes/webhooks/payout-release are now covered).
 - Security hardening, rate limiting, abuse reporting, and operational monitoring.
 - Verify the native build/release changes above actually produce a working TestFlight build, then complete production deployment and launch readiness.
-- Swap the listing-location map off raw `tile.openstreetmap.org` tiles before real-world traffic (see location note above).
 
 ---
 
@@ -294,6 +293,8 @@ Scan the QR code with Expo Go, or run on simulator/device from Expo.
 
 This is an npm workspace (root `package.json` → `backend`, `frontend`, `packages/shared`), and `frontend/metro.config.js` sets `resolver.disableHierarchicalLookup = true` with a flat `nodeModulesPaths` (`frontend/node_modules`, root `node_modules`) — a deliberate choice for monorepo hygiene, but it means Metro can **only** see those two paths and never a package's own private nested `node_modules`. If npm ever gives a package (e.g. `react-native-reanimated`) a private nested copy of a dependency instead of hoisting it to the workspace root — which happens whenever two packages need incompatible versions of the same dependency — Metro cannot resolve it, even though Node itself could. This produced a real, hard-to-diagnose `NoSuchMethodError` this project hit once (`semver`: `@babel/core` wants `^6.x`, virtually everything else including `react-native-reanimated` wants `7.x`; resolved by adding `"semver": "7.8.5"` to the root `package.json`'s `overrides` block, unifying everyone onto one root-level copy).
 
+`@stripe/stripe-react-native` is pinned to `0.62.0`, not the latest available — versions `0.60.0` and `0.61.0` bundle a `stripe-android` native SDK (23.0.+/23.1.+) whose AARs carry Kotlin metadata version 2.3.0, which is unreadable by Expo SDK 54's Kotlin/KSP ceiling (2.2.20 is the highest version Expo's `expo-root-project` Gradle plugin's KSP lookup table supports) — Android release builds fail with `Class '...' was compiled with an incompatible version of Kotlin`. `expo-build-properties`'s `android.kotlinVersion` override does **not** fix this despite looking like the obvious knob: it's a known bug ([expo/expo#36461](https://github.com/expo/expo/issues/36461)) where the setting doesn't reliably propagate to subprojects' own `buildscript` blocks (confirmed against this project — the root project picked up the override correctly but Stripe's own compile task still ran under the old Kotlin version). Stripe fixed this properly in `0.62.0` by downgrading their own native SDK's Kotlin dependency back to 2.2.21 ([stripe/stripe-react-native#2354](https://github.com/stripe/stripe-react-native/issues/2354)) — no app-side Gradle workaround needed. Don't bump past `0.61.0` without first checking whether the target version has the same regression.
+
 Practical guidance when touching frontend native dependencies:
 - Always run `npm install` from the **repo root**, not `npm install --workspace=frontend <pkg>` — the latter can leave a package nested under `frontend/node_modules` instead of hoisted to root, and that nested placement gets "baked into" `package-lock.json` and silently reproduced by every future `npm install` until the lockfile is regenerated from scratch.
 - After any native dependency change, sanity-check: `ls frontend/node_modules` should not exist (or should be empty/near-empty) — anything showing up there is a sign of the hoisting problem above.
@@ -311,7 +312,7 @@ DATABASE_URL="postgresql://youruser@localhost:5432/zoink"
 JWT_SECRET="your-secret-key"
 PORT=3000
 
-ALLOWED_EMAIL_DOMAINS="utoronto.ca,mail.utoronto.ca,gmail.com,hotmail.com,uoguelph.ca"
+ALLOWED_EMAIL_DOMAINS="utoronto.ca,mail.utoronto.ca,torontomu.ca,wlu.ca,yorku.ca,mcmaster.ca,ontariotechu.ca,gmail.com,hotmail.com"
 OTP_EXPIRY_MINUTES=15
 
 AWS_REGION=
@@ -336,13 +337,23 @@ PLATFORM_COMMISSION_RATE=0.15
 INSURANCE_RATE=0.03
 MIN_INSURANCE_FEE=1
 MAX_INSURANCE_FEE=50
+
+SENTRY_DSN=
 ```
+
+`SENTRY_DSN` enables backend error tracking (`backend/src/instrument.ts`) — unhandled/500-level errors are reported, expected 4xx `AppError`s (validation, not-found, etc.) are not. Left blank, Sentry is skipped entirely (also always skipped when `NODE_ENV=test`, so the test suite stays Sentry-free). Get a DSN by creating a project at [sentry.io](https://sentry.io).
 
 For local frontend API access, create `frontend/.env`:
 
 ```env
 EXPO_PUBLIC_API_URL="http://your-local-ip:3000"
+EXPO_PUBLIC_MAPTILER_API_KEY=""
+EXPO_PUBLIC_SENTRY_DSN=""
 ```
+
+`EXPO_PUBLIC_SENTRY_DSN` enables frontend crash/error tracking (`@sentry/react-native`, initialized in `App.tsx`), tagged `development`/`production` via `__DEV__`. Left blank, Sentry is skipped entirely. Source-map upload isn't configured yet — DSN-only crash capture for now. Get a DSN by creating a project at [sentry.io](https://sentry.io).
+
+`EXPO_PUBLIC_MAPTILER_API_KEY` is for `LocationMapPreview`/`LocationMapModal`'s tile provider (see the location-map note above) — get a free key at [maptiler.com](https://www.maptiler.com/). If left blank, tiles fall back to raw `tile.openstreetmap.org` (fine for local dev, logs one console warning) — production builds need a real key.
 
 **ngrok drift:** if you're testing on a real device through ngrok instead of a local IP, `EXPO_PUBLIC_API_URL` must point at the current ngrok tunnel and `backend/.env`'s `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` must point at `<ngrok-url>/stripe-return` and `<ngrok-url>/stripe-refresh` respectively (these serve the HTML pages in `backend/src/index.ts` that redirect into the `zoink://` deep link — see `paymentService.ts`'s `getStripeConnectRedirectUrl`). ngrok issues a new URL every session, so **all three** of these need updating (and the backend restarted) each time the tunnel restarts — not just `EXPO_PUBLIC_API_URL`. If `STRIPE_CONNECT_RETURN_URL`/`REFRESH_URL` are left unset, Stripe Connect onboarding (`POST /users/me/stripe-connect/onboard`) fails outright rather than degrading gracefully, since Stripe's API rejects the code's fallback `zoink://` URI scheme as an invalid `return_url`/`refresh_url`.
 
@@ -440,7 +451,7 @@ npx.cmd tsc --noEmit
 | 9 | Push notifications and UI polish | Done |
 | 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
 | 11 | Admin/disputes backend + frontend, integration testing, security hardening | Backend and frontend admin/disputes done (no UI to grant the admin role yet); integration tests expanded (payout release now covered); security hardening upcoming |
-| 12 | Deployment, TestFlight, production readiness | In progress — EAS submit config and native (non-Expo-Go) build scripts added, not yet verified end-to-end |
+| 12 | Deployment, TestFlight, production readiness | In progress — production EAS builds verified clean on both iOS and Android; TestFlight submission not yet confirmed |
 
 ---
 
@@ -465,8 +476,7 @@ npx.cmd tsc --noEmit
 2. Expand automated integration tests for handoff timing, review obligations, and notification delivery (payment lifecycle, cancellation, disputes, webhooks, and payout release now have integration coverage).
 3. Add security hardening: rate limits, abuse reporting, stronger validation, audit review tools, and operational monitoring.
 4. Prepare production deployment infrastructure and environment separation.
-5. Verify the in-progress native build changes (EAS submit config, `expo run:ios`/`run:android` scripts, Stripe SDK bump) actually produce a working build, then complete TestFlight/release readiness checks.
-6. Move the listing-location map off raw OpenStreetMap tiles onto a provider suitable for production traffic before launch.
+5. Production EAS builds now verified clean on both iOS and Android (see "Native dependency versions" below for the Stripe SDK / Kotlin note) — remaining work is confirming a successful TestFlight submission, then completing release readiness checks.
 
 ---
 

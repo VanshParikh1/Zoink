@@ -57,6 +57,7 @@ export async function resolveDispute(
   adminId: string,
   status: DisputeStatus,
   resolutionNotes: string,
+  refundAmountCents?: number,
   db: typeof prisma = prisma
 ) {
   const dispute = await db.dispute.findUnique({
@@ -69,9 +70,17 @@ export async function resolveDispute(
     throw new BadRequestError('Dispute is already resolved.')
   }
 
+  let refundedCents: number | undefined
   if (status === 'RESOLVED_REFUND') {
+    const fullAmountCents = toCents(dispute.booking.totalPrice)
+    refundedCents = refundAmountCents ?? fullAmountCents
+
+    if (refundAmountCents !== undefined && refundAmountCents > fullAmountCents) {
+      throw new BadRequestError('refundAmountCents cannot exceed the booking totalPrice.')
+    }
+
     try {
-      await refundPaymentIntent(dispute.booking, toCents(dispute.booking.totalPrice))
+      await refundPaymentIntent(dispute.booking, refundedCents)
     } catch (err: any) {
       throw new InternalServerError(`Failed to refund payment via Stripe: ${err.message}`)
     }
@@ -85,6 +94,7 @@ export async function resolveDispute(
         resolutionNotes,
         resolvedByAdminId: adminId,
         resolvedAt: new Date(),
+        ...(status === 'RESOLVED_REFUND' ? { refundAmountCents: refundedCents } : {}),
       }
     })
 
@@ -96,6 +106,12 @@ export async function resolveDispute(
         // immediately rather than leaving paymentStatus stale (e.g. CAPTURED/PAYOUT_PENDING).
         // Matches the paymentStatus/refundedAt pair the Stripe webhook handler sets for
         // charge.refunded / refund.succeeded (stripeWebhookController.ts).
+        //
+        // Note this is set the same way for both full and partial refunds — REFUNDED does
+        // not distinguish the two. releaseDuePayouts() excludes any RESOLVED_REFUND booking
+        // from auto-payout regardless of amount (see cleanupJob.ts), so a partial refund's
+        // remaining owner payout is a manual admin action for now, using
+        // Dispute.refundAmountCents to know how much was already sent back to the renter.
         ...(status === 'RESOLVED_REFUND' ? { paymentStatus: PaymentStatus.REFUNDED, refundedAt: new Date() } : {}),
       }
     })
@@ -105,7 +121,12 @@ export async function resolveDispute(
         bookingId: dispute.bookingId,
         actorId: adminId,
         type: BookingEventType.DISPUTE_RESOLVED,
-        metadata: { disputeId, status, resolutionNotes }
+        metadata: {
+          disputeId,
+          status,
+          resolutionNotes,
+          ...(status === 'RESOLVED_REFUND' ? { refundAmountCents: refundedCents } : {}),
+        }
       }
     })
 

@@ -6,6 +6,12 @@ export type {
   DisputeReason,
   Dispute,
   ReviewRole,
+  BookingEvent,
+  BookingEventType,
+  ReportTargetType,
+  ReportReason,
+  ReportStatus,
+  Report,
 } from '@zoink/shared'
 
 export type {
@@ -33,6 +39,9 @@ import type {
   PaymentStatus,
   DisputeStatus,
   DisputeReason,
+  ReportTargetType,
+  ReportReason,
+  ReportStatus,
 } from '@zoink/shared'
 
 // Decorative, demo-mode-only fields — the real backend never returns these.
@@ -76,6 +85,9 @@ export interface AdminDisputeListItem {
   status: DisputeStatus
   resolutionNotes: string | null
   resolvedByAdminId: string | null
+  // Cents refunded via Stripe, set only when status is RESOLVED_REFUND (may be less
+  // than booking.totalPrice for a partial refund). Null for every other resolution.
+  refundAmountCents: number | null
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -107,4 +119,29 @@ export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'
     email: string
     firstName: string
   } | null
+}
+
+// Admin report endpoint returns raw Prisma rows (not DTO-mapped), same shape
+// as AdminDisputeListItem above.
+export interface AdminReportListItem {
+  id: string
+  reporterId: string
+  targetType: ReportTargetType
+  targetId: string
+  // Human-readable target name resolved server-side (listing title / user's
+  // full name). Falls back to "[deleted listing]" / "[deleted user]" when
+  // the target no longer exists.
+  targetLabel: string
+  reason: ReportReason
+  description: string | null
+  status: ReportStatus
+  adminNotes: string | null
+  createdAt: string
+  reviewedAt: string | null
+  reviewedByAdminId: string | null
+  reporter: {
+    id: string
+    email: string
+    firstName: string
+  }
 }

@@ -123,6 +123,7 @@ const TRUNCATE_ORDER = [
   'reviews',
   'notifications',
   'disputes',
+  'reports',
   'bookings',
   'listing_images',
   'conversations',

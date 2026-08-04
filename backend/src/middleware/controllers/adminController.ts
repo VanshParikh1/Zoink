@@ -1,8 +1,10 @@
 import { Request, Response } from 'express'
 import { asyncHandler } from '../../utils/asyncHandler'
 import * as disputeService from '../../services/disputeService'
+import * as bookingEventService from '../../services/bookingEventService'
+import * as reportService from '../../services/reportService'
 import prisma from '../../utils/prisma'
-import { DisputeStatus } from '@prisma/client'
+import { DisputeStatus, ReportStatus } from '@prisma/client'
 
 interface AuthenticatedRequest extends Request {
   userId?: string
@@ -61,7 +63,7 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
 
 export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const id = req.params.id as string
-  const { status, resolutionNotes } = req.body
+  const { status, resolutionNotes, refundAmountCents } = req.body
   const adminId = req.userId
 
   if (!adminId) {
@@ -72,6 +74,42 @@ export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res
     return res.status(400).json({ error: 'Invalid or missing dispute status' })
   }
 
-  const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes)
+  const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes, refundAmountCents)
   res.json(dispute)
+})
+
+export const getBookingEvents = asyncHandler(async (req: Request, res: Response) => {
+  const id = req.params.id as string
+
+  const events = await bookingEventService.getBookingEvents(id)
+  res.json(events)
+})
+
+export const listReports = asyncHandler(async (req: Request, res: Response) => {
+  const { status } = req.query as { status?: ReportStatus }
+
+  const where = status ? { status } : {}
+  const reports = await prisma.report.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      reporter: { select: { id: true, email: true, firstName: true } }
+    }
+  })
+
+  const reportsWithLabels = await reportService.attachTargetLabels(reports)
+  res.json(reportsWithLabels)
+})
+
+export const resolveReport = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const id = req.params.id as string
+  const { status, adminNotes } = req.body
+  const adminId = req.userId
+
+  if (!adminId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const report = await reportService.resolveReport(id, adminId, status, adminNotes)
+  res.json(report)
 })

@@ -4,8 +4,8 @@ import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
-import { AdminDisputeDetail } from '../types'
+import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
+import { AdminDisputeDetail, BookingEvent } from '../types'
 import { theme } from '../theme/colors'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -44,7 +44,12 @@ export default function AdminDisputeDetailScreen() {
   const [loading, setLoading] = useState(true)
   const [resolution, setResolution] = useState<ResolveDisputePayload['status'] | null>(null)
   const [notes, setNotes] = useState('')
+  const [refundAmountInput, setRefundAmountInput] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const [auditExpanded, setAuditExpanded] = useState(false)
+  const [events, setEvents] = useState<BookingEvent[] | null>(null)
+  const [eventsLoading, setEventsLoading] = useState(false)
 
   const loadDispute = useCallback(async () => {
     try {
@@ -64,6 +69,29 @@ export default function AdminDisputeDetailScreen() {
     }, [loadDispute])
   )
 
+  async function handleToggleAuditTrail() {
+    const willExpand = !auditExpanded
+    setAuditExpanded(willExpand)
+    if (willExpand && events === null && dispute) {
+      setEventsLoading(true)
+      try {
+        const bookingEvents = await getBookingEvents(dispute.bookingId)
+        setEvents(bookingEvents)
+      } catch (err: any) {
+        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load the audit trail.')
+      } finally {
+        setEventsLoading(false)
+      }
+    }
+  }
+
+  function handleSelectResolution(value: ResolveDisputePayload['status']) {
+    setResolution(value)
+    if (value === 'RESOLVED_REFUND' && !refundAmountInput && dispute) {
+      setRefundAmountInput(Number(dispute.booking.totalPrice).toFixed(2))
+    }
+  }
+
   async function handleResolve() {
     if (!resolution) {
       Alert.alert('Choose an outcome', 'Select how this dispute should be resolved.')
@@ -74,11 +102,35 @@ export default function AdminDisputeDetailScreen() {
       return
     }
 
+    let refundAmountCents: number | undefined
+    if (resolution === 'RESOLVED_REFUND') {
+      const totalPriceCents = Math.round(Number(dispute!.booking.totalPrice) * 100)
+      const dollars = Number(refundAmountInput)
+      const cents = Math.round(dollars * 100)
+
+      if (!refundAmountInput.trim() || !Number.isFinite(dollars) || cents <= 0) {
+        Alert.alert('Invalid refund amount', 'Enter a refund amount greater than $0.')
+        return
+      }
+      if (cents > totalPriceCents) {
+        Alert.alert(
+          'Invalid refund amount',
+          `Refund cannot exceed the booking total of $${Number(dispute!.booking.totalPrice).toFixed(2)}.`
+        )
+        return
+      }
+      refundAmountCents = cents
+    }
+
     setBusy(true)
     try {
       // The resolve endpoint returns the bare dispute row (no booking/user relations),
       // unlike getDisputeDetail — refetch so booking/photos stay populated afterward.
-      await resolveDispute(disputeId, { status: resolution, resolutionNotes: notes.trim() })
+      await resolveDispute(disputeId, {
+        status: resolution,
+        resolutionNotes: notes.trim(),
+        ...(refundAmountCents !== undefined ? { refundAmountCents } : {}),
+      })
       await loadDispute()
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not resolve this dispute.')
@@ -180,6 +232,9 @@ export default function AdminDisputeDetailScreen() {
         {!isActive ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>{OUTCOME_LABELS[dispute.status] ?? dispute.status}</Text>
+            {dispute.status === 'RESOLVED_REFUND' && dispute.refundAmountCents != null ? (
+              <Text style={styles.value}>Refunded ${(dispute.refundAmountCents / 100).toFixed(2)}</Text>
+            ) : null}
             {dispute.resolutionNotes ? <Text style={styles.bodyText}>{dispute.resolutionNotes}</Text> : null}
             {dispute.resolvedByAdmin ? (
               <Text style={styles.value}>Resolved by {dispute.resolvedByAdmin.firstName} · {dispute.resolvedByAdmin.email}</Text>
@@ -196,7 +251,7 @@ export default function AdminDisputeDetailScreen() {
                   <TouchableOpacity
                     key={option.value}
                     style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                    onPress={() => setResolution(option.value)}
+                    onPress={() => handleSelectResolution(option.value)}
                     disabled={busy}
                   >
                     <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>{option.label}</Text>
@@ -204,6 +259,24 @@ export default function AdminDisputeDetailScreen() {
                 )
               })}
             </View>
+
+            {resolution === 'RESOLVED_REFUND' ? (
+              <>
+                <Text style={styles.sectionTitle}>Refund amount</Text>
+                <Text style={styles.bodyText}>
+                  Up to the booking total of ${Number(dispute.booking.totalPrice).toFixed(2)}. Defaults to the full amount — edit to issue a partial refund.
+                </Text>
+                <TextInput
+                  value={refundAmountInput}
+                  onChangeText={setRefundAmountInput}
+                  editable={!busy}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={theme.textMuted}
+                  style={styles.input}
+                />
+              </>
+            ) : null}
 
             <Text style={styles.sectionTitle}>Resolution notes</Text>
             <TextInput
@@ -222,6 +295,35 @@ export default function AdminDisputeDetailScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        <View style={styles.card}>
+          <TouchableOpacity onPress={handleToggleAuditTrail}>
+            <Text style={styles.sectionTitle}>Audit trail {auditExpanded ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
+          {auditExpanded ? (
+            eventsLoading ? (
+              <ActivityIndicator color={theme.primary} />
+            ) : !events || events.length === 0 ? (
+              <Text style={styles.bodyText}>No events recorded for this booking.</Text>
+            ) : (
+              <View style={styles.chipsColumn}>
+                {events.map((event) => (
+                  <View key={event.id} style={styles.auditRow}>
+                    <View style={styles.row}>
+                      <Text style={styles.value}>{event.type.replace(/_/g, ' ')}</Text>
+                      <Text style={styles.label}>{new Date(event.createdAt).toLocaleString()}</Text>
+                    </View>
+                    <Text style={styles.label}>Actor: {event.actorId ?? 'System'}</Text>
+                    {event.metadata ? (
+                      <Text style={styles.auditMetadata}>{JSON.stringify(event.metadata)}</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )
+          ) : null}
+        </View>
       </ScrollView>
     </ScreenBackground>
   )
@@ -250,6 +352,15 @@ const styles = StyleSheet.create({
   label: { color: theme.textMuted, fontSize: 14, flex: 1 },
   value: { color: theme.text, fontSize: 14, fontWeight: '700' },
   chipsColumn: { gap: 10 },
+  auditRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceSubdued,
+    padding: 12,
+    gap: 4,
+  },
+  auditMetadata: { color: theme.textMuted, fontSize: 12, fontFamily: 'Courier' },
   chip: {
     paddingHorizontal: 16,
     paddingVertical: 12,

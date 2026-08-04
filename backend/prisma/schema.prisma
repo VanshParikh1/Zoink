@@ -49,6 +49,8 @@ model User {
   verificationTokens  VerificationToken[]
   raisedDisputes      Dispute[]           @relation("RaisedDisputes")
   resolvedDisputes    Dispute[]           @relation("ResolvedDisputes")
+  filedReports        Report[]            @relation("FiledReports")
+  reviewedReports     Report[]            @relation("ReviewedReports")
 
   @@map("users")
 }
@@ -119,7 +121,7 @@ model Booking {
   disputeStatus         DisputeStatus      @default(NONE)
   disputedAt            DateTime?
   disputeReason         String?
-  disputes          Dispute[]
+  disputes              Dispute[]
   renterId              String
   ownerId               String
   listingId             String
@@ -132,6 +134,7 @@ model Booking {
   renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
   reviewObligations     ReviewObligation[]
   reviews               Review[]
+
   @@map("bookings")
 }
 
@@ -146,7 +149,6 @@ model BookingEvent {
 
   @@map("booking_events")
 }
-
 
 model Conversation {
   id               String    @id @default(uuid())
@@ -262,23 +264,53 @@ model VerificationToken {
 }
 
 model Dispute {
-  id              String         @id @default(uuid())
-  bookingId       String
-  raisedByUserId  String
-  reason          DisputeReason
-  description     String
-  status          DisputeStatus  @default(OPEN)
-  resolutionNotes String?
+  id                String        @id @default(uuid())
+  bookingId         String
+  raisedByUserId    String
+  reason            DisputeReason
+  description       String
+  status            DisputeStatus @default(OPEN)
+  resolutionNotes   String?
   resolvedByAdminId String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  resolvedAt      DateTime?
+  // Cents actually refunded via Stripe when status is RESOLVED_REFUND. Set once at
+  // resolution time; null for every other resolution. May be less than the booking's
+  // totalPrice (partial refund) — releaseDuePayouts() does not read this, it excludes
+  // RESOLVED_REFUND bookings from auto-payout entirely regardless of amount, so this
+  // is the number a human uses for the owner's manual remaining payout.
+  refundAmountCents Int?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  resolvedAt        DateTime?
 
-  booking         Booking        @relation(fields: [bookingId], references: [id])
-  raisedByUser    User           @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
-  resolvedByAdmin User?          @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
+  booking         Booking @relation(fields: [bookingId], references: [id])
+  raisedByUser    User    @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
+  resolvedByAdmin User?   @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
 
   @@map("disputes")
+}
+
+// Abuse reporting for listings and users — distinct from Dispute, which is
+// booking-specific. targetId is a polymorphic pointer (no FK) into either
+// User or Listing depending on targetType, since a report can outlive its
+// target (e.g. a listing gets deleted) and multiple reports may point at the
+// same target, unlike Dispute's one-open-dispute-per-booking constraint.
+model Report {
+  id                String           @id @default(uuid())
+  reporterId        String
+  targetType        ReportTargetType
+  targetId          String
+  reason            ReportReason
+  description       String?
+  status            ReportStatus     @default(OPEN)
+  adminNotes        String?
+  createdAt         DateTime         @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId String?
+
+  reporter        User  @relation("FiledReports", fields: [reporterId], references: [id])
+  reviewedByAdmin User? @relation("ReviewedReports", fields: [reviewedByAdminId], references: [id])
+
+  @@map("reports")
 }
 
 enum Role {
@@ -331,6 +363,25 @@ enum DisputeReason {
   ITEM_NOT_AS_DESCRIBED
   PAYMENT_ISSUE
   OTHER
+}
+
+enum ReportTargetType {
+  USER
+  LISTING
+}
+
+enum ReportReason {
+  SPAM
+  SCAM
+  INAPPROPRIATE
+  HARASSMENT
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
 }
 
 enum BookingEventType {

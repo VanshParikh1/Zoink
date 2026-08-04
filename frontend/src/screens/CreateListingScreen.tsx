@@ -17,7 +17,8 @@ import {
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
-import DraggableLocationMap from '../components/DraggableLocationMap'
+import LocationMapPreview from '../components/LocationMapPreview'
+import LocationMapModal from '../components/LocationMapModal'
 import * as ImagePicker from 'expo-image-picker'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
@@ -39,7 +40,6 @@ type FormData = {
   deposit: string
   availableNow: boolean
   city: string
-  address: string
 }
 
 const CATEGORIES = [
@@ -77,7 +77,6 @@ export default function CreateListingScreen() {
     deposit: '',
     availableNow: true,
     city: DEFAULT_CITY,
-    address: '',
   })
   const [deviceCoords, setDeviceCoords] = useState<{ latitude: number; longitude: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle')
@@ -85,6 +84,7 @@ export default function CreateListingScreen() {
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSearching, setLocationSearching] = useState(false)
   const [locationSearchError, setLocationSearchError] = useState('')
+  const [mapModalVisible, setMapModalVisible] = useState(false)
 
   const effectiveCoords = pinOverride ?? deviceCoords
 
@@ -118,9 +118,7 @@ export default function CreateListingScreen() {
           const [place] = await Location.reverseGeocodeAsync(nextCoords)
           if (place) {
             const city = place.city || place.subregion || place.region || ''
-            const address = [place.streetNumber, place.street].filter(Boolean).join(' ')
             if (city) updateForm('city', city)
-            if (address) updateForm('address', address)
           }
         } catch {
           // Reverse geocoding is a nice-to-have; keep the raw coords either way.
@@ -263,8 +261,8 @@ export default function CreateListingScreen() {
     }
   }
 
-  async function geocodeTypedLocation() {
-    const query = [formData.address.trim(), formData.city.trim()].filter(Boolean).join(', ')
+  async function geocodeTypedCity() {
+    const query = formData.city.trim()
     if (!query) return null
 
     try {
@@ -282,7 +280,7 @@ export default function CreateListingScreen() {
     setLoading(true)
 
     try {
-      const coords = effectiveCoords ?? (await geocodeTypedLocation()) ?? DEFAULT_COORDS
+      const coords = effectiveCoords ?? (await geocodeTypedCity()) ?? DEFAULT_COORDS
 
       const listing = await createListing({
         title: formData.title.trim(),
@@ -291,7 +289,6 @@ export default function CreateListingScreen() {
         dailyPrice: parsedDailyPrice,
         depositAmount: formData.deposit.trim() ? parsedDeposit : undefined,
         city: formData.city.trim(),
-        address: formData.address.trim() || undefined,
         latitude: coords.latitude,
         longitude: coords.longitude,
       })
@@ -376,7 +373,7 @@ export default function CreateListingScreen() {
             onChangeText={(value) => updateForm('description', value)}
             multiline
             textAlignVertical="top"
-            maxLength={240}
+            maxLength={1000}
           />
         </View>
       </View>
@@ -527,17 +524,17 @@ export default function CreateListingScreen() {
           </View>
           {locationSearchError ? <Text style={styles.locationSearchError}>{locationSearchError}</Text> : null}
 
-          <DraggableLocationMap
+          <LocationMapPreview
             latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
             longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
-            onChange={setPinOverride}
+            onPress={() => setMapModalVisible(true)}
           />
           <Text style={styles.mapCaption}>
             {locationStatus === 'loading' && !effectiveCoords
-              ? 'Finding your location… drag the circle or search to set it manually.'
+              ? 'Finding your location… tap the map or search to set it manually.'
               : locationStatus === 'denied' && !effectiveCoords
-              ? 'Location permission denied — drag the circle or search to set your spot.'
-              : 'Drag the circle to the exact spot you want renters to see.'}
+              ? 'Location permission denied — tap the map or search to set your spot.'
+              : 'Tap the map to fine-tune the exact spot renters will see.'}
           </Text>
 
           {pinOverride ? (
@@ -558,23 +555,17 @@ export default function CreateListingScreen() {
             value={formData.city}
             onChangeText={(value) => updateForm('city', value)}
             maxLength={60}
-            returnKeyType="next"
+            returnKeyType="done"
           />
         </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Address or cross-street (optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 123 College St"
-            placeholderTextColor={theme.textDisabled}
-            value={formData.address}
-            onChangeText={(value) => updateForm('address', value)}
-            maxLength={120}
-            returnKeyType="done"
-          />
-          <Text style={styles.fieldHint}>This helps renters plan pickup. You can keep it vague.</Text>
-        </View>
+        <LocationMapModal
+          visible={mapModalVisible}
+          latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
+          longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
+          onClose={() => setMapModalVisible(false)}
+          onConfirm={setPinOverride}
+        />
       </View>
     )
   }
@@ -607,9 +598,7 @@ export default function CreateListingScreen() {
             <Text style={styles.reviewDeposit}>
               Deposit: {formData.deposit.trim() ? `$${parsedDeposit.toFixed(2)}` : 'None'}
             </Text>
-            <Text style={styles.reviewLocation}>
-              {formData.city}{formData.address ? ` - ${formData.address}` : ''}
-            </Text>
+            <Text style={styles.reviewLocation}>{formData.city}</Text>
             <Text style={styles.reviewDescription}>{formData.description.trim()}</Text>
             <Text style={styles.reviewPhotoCount}>{photos.length} photo{photos.length !== 1 ? 's' : ''} attached</Text>
           </View>
@@ -1090,12 +1079,6 @@ const styles = StyleSheet.create({
     borderColor: theme.primary,
     borderWidth: 2,
     borderStyle: 'dashed',
-  },
-  fieldHint: {
-    color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '600',
   },
   reviewLocation: {
     color: theme.textMuted,

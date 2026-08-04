@@ -3,6 +3,64 @@ import assert from 'node:assert/strict'
 import * as userService from '../../services/userService'
 import { updatePushToken } from './userController'
 import { createMockResponse } from '../../testUtils/httpMocks'
+import { validate } from '../validate'
+import { UpdateMeSchema } from '../../schemas/user.schema'
+import { errorHandler } from '../errorHandler'
+
+function runValidate(body: Record<string, unknown>) {
+  const req: any = { body, params: {}, query: {} }
+  const res = createMockResponse()
+  let capturedError: any = null
+  const next = (err: any) => { capturedError = err }
+
+  validate(UpdateMeSchema)(req, res as any, next)
+
+  return { req, res, capturedError }
+}
+
+test('validate(UpdateMeSchema) rejects a firstName over 50 characters', () => {
+  const { capturedError, req, res } = runValidate({ firstName: 'A'.repeat(51) })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.firstName'), 'should flag firstName over 50 characters')
+})
+
+test('validate(UpdateMeSchema) rejects a lastName over 50 characters', () => {
+  const { capturedError, req, res } = runValidate({ lastName: 'L'.repeat(51) })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.lastName'), 'should flag lastName over 50 characters')
+})
+
+test('validate(UpdateMeSchema) rejects a bio over 300 characters', () => {
+  const { capturedError, req, res } = runValidate({ bio: 'B'.repeat(301) })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.bio'), 'should flag bio over 300 characters')
+})
+
+test('validate(UpdateMeSchema) accepts a well-formed profile update', () => {
+  const { capturedError } = runValidate({
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    phone: '4165550192',
+    bio: 'Loves renting camping gear.',
+  })
+
+  assert.ok(!capturedError, 'should not raise a ZodError')
+})
 
 const originalUpdateExpoPushToken = userService.updateExpoPushToken
 

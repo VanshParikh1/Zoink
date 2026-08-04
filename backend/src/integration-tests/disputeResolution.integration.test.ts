@@ -288,6 +288,45 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     assert.equal(updatedBooking.disputeStatus, DisputeStatus.RESOLVED_REFUND)
   })
 
+  test('RESOLVED_REFUND with a partial refundAmountCents refunds only that amount via Stripe', async () => {
+    const db = getTestPrisma()
+    const totalPrice = 90
+    const stripePaymentIntentId = await createCapturedStripePaymentIntent(9000)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.CAPTURED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Minor cosmetic scratch on the casing — a partial refund is appropriate here.'
+    )
+
+    const partialRefundCents = 3000 // $30 of the $90 total
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed minor cosmetic damage — refunding 30% of the total.',
+      partialRefundCents
+    )
+
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+    // The queryable column the payout-calculation logic (or a human, for now) reads back.
+    assert.equal(resolved.refundAmountCents, partialRefundCents)
+
+    // paymentStatus/disputeStatus flip the same way as a full refund — REFUNDED does not
+    // distinguish partial from full (see the TODO in stripeWebhookController.ts).
+    const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updatedBooking.paymentStatus, PaymentStatus.REFUNDED)
+    assert.ok(updatedBooking.refundedAt, 'refundedAt should be set')
+    assert.equal(updatedBooking.disputeStatus, DisputeStatus.RESOLVED_REFUND)
+
+    // Confirm against the real Stripe test-mode PaymentIntent that only the partial amount
+    // was actually refunded, not the full $90.
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const refunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+    const totalRefundedCents = refunds.data.reduce((sum: number, r: any) => sum + r.amount, 0)
+    assert.equal(totalRefundedCents, partialRefundCents)
+  })
+
   test('RESOLVED_REFUND on booking without stripePaymentIntentId throws 409', async () => {
     const db = getTestPrisma()
     const { startDate, endDate } = futureDates(3, 3)
@@ -638,6 +677,77 @@ describe('PATCH /admin/disputes/:id/resolve — HTTP layer', () => {
     assert.ok(Array.isArray(res.body))
     assert.equal(res.body.length, 1)
     assert.equal(res.body[0].status, 'OPEN')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5b. PATCH /admin/disputes/:id/resolve — refundAmountCents bounds validation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PATCH /admin/disputes/:id/resolve — refundAmountCents validation', () => {
+  test('rejects a negative refundAmountCents before it reaches the service', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a negative refund amount, which should be rejected up front.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: -100 })
+
+    assert.equal(res.status, 400)
+    assert.ok(res.body.error)
+
+    const untouched = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouched.status, 'OPEN', 'dispute must be untouched by a rejected request')
+  })
+
+  test('rejects a zero refundAmountCents before it reaches the service', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a zero refund amount, which should be rejected up front.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: 0 })
+
+    assert.equal(res.status, 400)
+
+    const untouched = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouched.status, 'OPEN', 'dispute must be untouched by a rejected request')
+  })
+
+  test('rejects a refundAmountCents that exceeds booking.totalPrice', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    const totalPrice = 90 // 9000 cents
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.AUTHORIZED, totalPrice)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a refund amount above the booking total, which should be rejected.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: 9001 })
+
+    assert.equal(res.status, 400)
+    assert.match(res.body.error, /cannot exceed/i)
+
+    // Nothing should have been mutated — no Stripe call, no dispute/booking update.
+    const untouchedDispute = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouchedDispute.status, 'OPEN')
+    const untouchedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(untouchedBooking.disputeStatus, 'OPEN')
   })
 })
 

@@ -59,7 +59,6 @@ export default function EditListingScreen() {
   const [dailyPrice, setDailyPrice] = useState('')
   const [deposit, setDeposit] = useState('')
   const [city, setCity] = useState('')
-  const [address, setAddress] = useState('')
 
   useFocusEffect(
     useCallback(() => {
@@ -75,7 +74,6 @@ export default function EditListingScreen() {
           setDailyPrice(String(Number(data.dailyPrice)))
           setDeposit(Number(data.depositAmount) ? String(Number(data.depositAmount)) : '')
           setCity(data.city)
-          setAddress(data.address ?? '')
         } catch {
           Alert.alert('Error', 'Could not load listing.')
           nav.goBack()
@@ -116,7 +114,6 @@ export default function EditListingScreen() {
         dailyPrice: price,
         depositAmount: deposit.trim() ? parsedDeposit : 0,
         city: city.trim(),
-        address: address.trim() || undefined,
       })
 
       Alert.alert('Saved', 'Your listing has been updated.', [
@@ -284,14 +281,7 @@ export default function EditListingScreen() {
           value={city}
           onChangeText={setCity}
           placeholderTextColor={theme.textDisabled}
-        />
-
-        <Text style={styles.label}>Address <Text style={styles.optional}>(optional)</Text></Text>
-        <TextInput
-          style={styles.input}
-          value={address}
-          onChangeText={setAddress}
-          placeholderTextColor={theme.textDisabled}
+          maxLength={60}
         />
 
         <TouchableOpacity

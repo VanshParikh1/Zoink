@@ -53,6 +53,12 @@ async function updateBookingFromEvent(event: StripeEvent) {
   }
 
   if (event.type === 'charge.refunded' || event.type === 'refund.succeeded') {
+    // TODO: this doesn't distinguish a partial refund from a full one — it fires on any
+    // refund amount and always stamps the booking fully REFUNDED. Harmless today since
+    // releaseDuePayouts() excludes RESOLVED_REFUND bookings from auto-payout regardless of
+    // amount (see cleanupJob.ts), but will need revisiting if automatic partial-payout
+    // logic is ever built (e.g. read object.amount_refunded vs the charge/PI total to tell
+    // partial from full).
     data.paymentStatus = PaymentStatus.REFUNDED
     data.refundedAt = new Date()
   }

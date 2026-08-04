@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { ZodError } from 'zod'
 import { AppError } from '../utils/errors'
+import { Sentry } from '../instrument'
 
 export function errorHandler(
   err: any,
@@ -20,10 +21,17 @@ export function errorHandler(
   }
 
   if (err instanceof AppError) {
+    // Only 500-level AppErrors (e.g. InternalServerError) are bugs worth
+    // paging on — 4xx AppErrors are expected validation/business-rule
+    // outcomes and would just drown out real signal in Sentry.
+    if (err.statusCode >= 500) {
+      Sentry.captureException(err)
+    }
     return res.status(err.statusCode).json({ error: err.message })
   }
 
   // Fallback to 500 for unrecognized errors, logging them server-side
   console.error('Unhandled error:', err)
+  Sentry.captureException(err)
   return res.status(500).json({ error: 'Something went wrong.' })
 }

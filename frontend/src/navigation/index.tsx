@@ -31,6 +31,8 @@ import PhotoViewerScreen from '../screens/PhotoViewerScreen'
 import FileDisputeScreen from '../screens/FileDisputeScreen'
 import AdminDisputesScreen from '../screens/AdminDisputesScreen'
 import AdminDisputeDetailScreen from '../screens/AdminDisputeDetailScreen'
+import FileReportScreen from '../screens/FileReportScreen'
+import AdminReportsScreen from '../screens/AdminReportsScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -49,6 +51,8 @@ export type RootStackParamList = {
   FileDispute: { bookingId: string; listingTitle?: string }
   AdminDisputes: undefined
   AdminDisputeDetail: { disputeId: string }
+  FileReport: { targetType: import('../types').ReportTargetType; targetId: string; targetLabel?: string }
+  AdminReports: undefined
   ActiveRental: { bookingId: string }
   ZoinkIt: { bookingId: string; mode: 'pickup' | 'return' }
   PhotoViewer: { photos: string[]; initialIndex: number }
@@ -99,6 +103,8 @@ function VerifiedAppStack() {
       <Stack.Screen name="FileDispute" component={FileDisputeScreen} />
       <Stack.Screen name="AdminDisputes" component={AdminDisputesScreen} />
       <Stack.Screen name="AdminDisputeDetail" component={AdminDisputeDetailScreen} />
+      <Stack.Screen name="FileReport" component={FileReportScreen} />
+      <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
       <Stack.Screen name="ActiveRental" component={ActiveRentalScreen} />
       <Stack.Screen name="ZoinkIt" component={ZoinkItScreen} />
       <Stack.Screen
