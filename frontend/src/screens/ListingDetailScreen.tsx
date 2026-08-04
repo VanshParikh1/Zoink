@@ -384,7 +384,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '900', color: theme.text },
   badgeTextUnavailable: { color: theme.colors.danger },
   category: { fontSize: 12, color: theme.textMuted, fontWeight: '700' },
-  title: { fontSize: 24, fontWeight: '900', color: theme.text, marginBottom: 6 },
+  title: { ...theme.type.screenTitle, marginBottom: 6 },
   price: { fontSize: 26, fontWeight: '900', color: theme.primary, marginBottom: 4 },
   perDay: { fontSize: 16, fontWeight: '400', color: theme.textMuted },
   location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },

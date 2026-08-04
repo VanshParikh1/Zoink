@@ -113,4 +113,27 @@ export const theme = {
       lg: 7,  // hero cards, feature panels
     },
   },
+
+  // One type scale for the whole app — every screen title, section heading,
+  // body copy, and caption pulls from here instead of picking its own size/
+  // weight/line-height per screen.
+  type: {
+    screenTitle: { fontSize: 28, fontWeight: '900' as const, lineHeight: 34, color: colors.gray900 },
+    sectionTitle: { fontSize: 16, fontWeight: '900' as const, lineHeight: 20, color: colors.gray900 },
+    body: { fontSize: 15, fontWeight: '400' as const, lineHeight: 22, color: colors.gray900 },
+    bodyMuted: { fontSize: 15, fontWeight: '400' as const, lineHeight: 22, color: colors.gray500 },
+    label: { fontSize: 14, fontWeight: '700' as const, lineHeight: 18, color: colors.gray900 },
+    caption: { fontSize: 12, fontWeight: '700' as const, lineHeight: 16, color: colors.gray500 },
+    eyebrow: { fontSize: 11, fontWeight: '800' as const, letterSpacing: 1.3, textTransform: 'uppercase' as const, color: colors.gray500 },
+  },
+
+  // Shared vertical rhythm for screen headers, so a title sits at the same
+  // height and the same distance from content on every screen. `stack` is
+  // for pushed screens with a Back control; `tab` is for top-level tab roots.
+  header: {
+    stackTop: 64,
+    tabTop: 64,
+    titleGap: 4,      // space between a Back link / eyebrow and the title
+    contentGap: 20,   // space between the title block and the first card
+  },
 }

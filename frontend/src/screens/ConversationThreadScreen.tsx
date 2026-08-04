@@ -187,8 +187,8 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   header: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 14 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { color: theme.text, fontSize: 24, fontWeight: '900' },
-  subtitle: { color: theme.textMuted, fontSize: 14, lineHeight: 20, marginTop: 8 },
+  title: { ...theme.type.screenTitle },
+  subtitle: { color: theme.textMuted, fontSize: 15, lineHeight: 22, marginTop: 8 },
   listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10, flexGrow: 1 },
   stateWrap: { paddingVertical: 8 },
   bubble: {

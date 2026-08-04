@@ -477,7 +477,7 @@ export default function MyProfileScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: 56,
+    paddingTop: theme.header.tabTop,
     paddingBottom: 16,
     zIndex: 10,
   },
@@ -485,9 +485,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   headerTitle: {
-    color: theme.text,
-    fontSize: 28,
-    fontWeight: '500',
+    ...theme.type.screenTitle,
     marginBottom: 4,
     letterSpacing: -0.5,
   },

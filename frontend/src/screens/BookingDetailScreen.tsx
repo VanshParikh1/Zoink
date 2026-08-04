@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', marginTop: 8 },
   card: {
     backgroundColor: theme.surface,

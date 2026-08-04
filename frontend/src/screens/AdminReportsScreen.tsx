@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
   header: { marginBottom: 8 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   chipsScroll: { marginTop: 16, flexGrow: 0 },
   chipsContainer: { gap: 8, flexDirection: 'row', paddingRight: 24 },

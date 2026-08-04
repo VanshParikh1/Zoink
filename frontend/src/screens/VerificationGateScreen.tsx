@@ -54,8 +54,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  title: { fontSize: 26, fontWeight: '900', color: theme.text, marginBottom: 10, textAlign: 'center' },
-  subtitle: { fontSize: 14, color: theme.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 14 },
+  title: { ...theme.type.screenTitle, marginBottom: 10, textAlign: 'center' },
+  subtitle: { fontSize: 15, color: theme.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 14 },
   email: { fontSize: 14, fontWeight: '800', color: theme.primary, marginBottom: 28 },
   button: {
     backgroundColor: theme.primary,

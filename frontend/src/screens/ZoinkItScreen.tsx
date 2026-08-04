@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   },
   pickerContent: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 18, width: '100%' },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  title: { color: '#111114', fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   uploadArea: {
     minHeight: 180,
     borderRadius: 8,

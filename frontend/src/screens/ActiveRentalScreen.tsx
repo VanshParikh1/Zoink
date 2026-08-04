@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
   readyText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '900', textAlign: 'center' },
   titleRow: { gap: 10 },
-  title: { color: '#111114', fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   categoryPill: {
     alignSelf: 'flex-start',
     borderRadius: 999,

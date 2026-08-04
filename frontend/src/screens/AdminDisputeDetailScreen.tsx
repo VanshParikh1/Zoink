@@ -333,8 +333,8 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  title: { color: theme.text, fontSize: 26, fontWeight: '900' },
-  subtitle: { color: theme.primary, fontSize: 14, fontWeight: '800', textTransform: 'uppercase' },
+  title: { ...theme.type.screenTitle },
+  subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', textTransform: 'uppercase' },
   card: {
     backgroundColor: theme.surface,
     borderRadius: theme.radius.sm,

@@ -137,9 +137,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   title: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: theme.text,
+    ...theme.type.screenTitle,
 
     // tighter
     marginBottom: 4,
@@ -149,9 +147,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.textMuted,
-    lineHeight: 20,
+    lineHeight: 22,
 
     textAlign: 'center',
   },

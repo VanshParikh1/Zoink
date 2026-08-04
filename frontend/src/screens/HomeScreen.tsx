@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  listContent: { paddingHorizontal: 16, paddingTop: 90, paddingBottom: 120 },
+  listContent: { paddingHorizontal: 16, paddingTop: theme.header.tabTop, paddingBottom: 120 },
   headerBlock: { marginBottom: 20 },
   headerTopRow: {
     flexDirection: 'row',
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   greetingText: { color: theme.textMuted, fontSize: 13, marginBottom: 4, fontWeight: '600' },
-  headerTitle: { color: theme.text, fontSize: 30, fontWeight: '900', lineHeight: 36 },
+  headerTitle: { ...theme.type.screenTitle },
   headerTitleAccent: { color: theme.primary },
   bellButton: {
     width: 44,

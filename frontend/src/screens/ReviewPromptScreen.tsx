@@ -155,10 +155,10 @@ export default function ReviewPromptScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 24, paddingTop: 72, paddingBottom: 40, gap: 16 },
+  content: { padding: 24, paddingTop: theme.header.stackTop, paddingBottom: 40, gap: 16 },
   hero: { gap: 10 },
   eyebrow: { color: theme.primary, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0 },
-  title: { color: theme.text, fontSize: 30, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
   card: {
     backgroundColor: theme.surface,

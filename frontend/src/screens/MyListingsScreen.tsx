@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, backgroundColor: theme.screen, justifyContent: 'center', alignItems: 'center' },
   header: {
-    paddingTop: 60,
+    paddingTop: theme.header.stackTop,
     paddingBottom: 20,
     paddingHorizontal: 20,
     flexDirection: 'row',
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
   },
-  headerTitle: { fontSize: 20, fontWeight: '900', color: theme.text },
+  headerTitle: { ...theme.type.screenTitle },
   backBtn: { width: 60 },
   backText: { color: theme.primary, fontSize: 16, fontWeight: '800' },
   addBtn: { width: 60, alignItems: 'flex-end' },

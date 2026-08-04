@@ -666,7 +666,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topBar: {
-    paddingTop: 58,
+    paddingTop: theme.header.stackTop,
     paddingHorizontal: 24,
     paddingBottom: 18,
     gap: 18,
@@ -716,10 +716,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   header: {
-    color: theme.text,
-    fontSize: 30,
-    fontWeight: '900',
-    lineHeight: 34,
+    ...theme.type.screenTitle,
   },
   subheader: {
     color: theme.textMuted,

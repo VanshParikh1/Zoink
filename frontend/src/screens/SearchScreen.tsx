@@ -317,7 +317,7 @@ export default function SearchScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: 56,
+    paddingTop: theme.header.tabTop,
     paddingBottom: 12,
     zIndex: 10,
   },
@@ -325,9 +325,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   headerTitle: {
-    color: theme.text,
-    fontSize: 28,
-    fontWeight: '900',
+    ...theme.type.screenTitle,
     paddingHorizontal: 24,
     marginBottom: 4,
     letterSpacing: -0.5,

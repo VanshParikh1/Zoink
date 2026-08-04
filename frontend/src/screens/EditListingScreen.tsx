@@ -302,11 +302,11 @@ export default function EditListingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { paddingHorizontal: 24, paddingTop: 60 },
+  content: { paddingHorizontal: 24, paddingTop: theme.header.stackTop },
   backBtn: { marginBottom: 16 },
   backText: { color: theme.primary, fontSize: 16, fontWeight: '800' },
   logo: { marginBottom: 16 },
-  header: { fontSize: 30, fontWeight: '900', color: theme.text, marginBottom: 24 },
+  header: { ...theme.type.screenTitle, marginBottom: 24 },
   label: { fontSize: 14, fontWeight: '800', color: theme.text, marginBottom: 6, marginTop: 18 },
   req: { color: theme.primary },
   optional: { color: theme.textMuted, fontWeight: '400' },

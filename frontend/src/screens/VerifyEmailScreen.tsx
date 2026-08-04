@@ -129,8 +129,8 @@ export default function VerifyEmailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', paddingHorizontal: 32 },
   logo: { marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: '900', color: theme.text, marginBottom: 6 },
-  subtitle: { fontSize: 14, color: theme.textMuted, marginBottom: 28, lineHeight: 22 },
+  title: { ...theme.type.screenTitle, marginBottom: 6 },
+  subtitle: { fontSize: 15, color: theme.textMuted, marginBottom: 28, lineHeight: 22 },
   email: { fontWeight: '800', color: theme.primary },
   error: { color: theme.colors.danger, marginBottom: 14, fontSize: 13, fontWeight: '600' },
   codeRow: { flexDirection: 'row', gap: 6, marginBottom: 28, justifyContent: 'center' },

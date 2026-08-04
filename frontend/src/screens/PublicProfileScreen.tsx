@@ -87,7 +87,7 @@ export default function PublicProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
+  content: { padding: 18, paddingTop: theme.header.stackTop, paddingBottom: 32 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
@@ -116,10 +116,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    color: theme.text,
-    fontSize: 28,
-    fontWeight: '900',
-    lineHeight: 34,
+    ...theme.type.screenTitle,
   },
   subtitle: {
     color: theme.textMuted,

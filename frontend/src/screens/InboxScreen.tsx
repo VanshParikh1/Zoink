@@ -131,15 +131,15 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { paddingHorizontal: 24, paddingBottom: 120, paddingTop: 16 },
   header: {
-    paddingTop: 56,
+    paddingTop: theme.header.tabTop,
     paddingBottom: 16,
     zIndex: 10,
   },
   headerInner: {
     paddingHorizontal: 24,
   },
-  title: { color: theme.text, fontSize: 28, fontWeight: '500', marginBottom: 4, letterSpacing: -0.5 },
-  subtitle: { color: theme.textMuted, fontSize: 14, fontWeight: '300' },
+  title: { ...theme.type.screenTitle, marginBottom: 4 },
+  subtitle: { color: theme.textMuted, fontSize: 15, fontWeight: '400' },
   emptyState: { alignItems: 'center', marginTop: 60, paddingHorizontal: 20 },
   emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '500', marginBottom: 8 },
   emptyText: { color: theme.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 },

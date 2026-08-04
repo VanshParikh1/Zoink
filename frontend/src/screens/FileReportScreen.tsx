@@ -116,7 +116,7 @@ export default function FileReportScreen() {
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800' },
   copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
   card: {

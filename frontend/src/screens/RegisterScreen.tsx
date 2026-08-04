@@ -171,9 +171,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   title: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: theme.text,
+    ...theme.type.screenTitle,
     marginBottom: 8,
     letterSpacing: -0.5,
   },
