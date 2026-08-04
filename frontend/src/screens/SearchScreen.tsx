@@ -19,6 +19,7 @@ import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
 import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
+import ScreenBackground from '../components/ScreenBackground'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
 
@@ -283,7 +284,7 @@ export default function SearchScreen() {
   )
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenBackground>
       <FlatList
         data={isResultsState ? results : []}
         keyExtractor={(item) => item.id}
@@ -310,7 +311,7 @@ export default function SearchScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       />
-    </View>
+    </ScreenBackground>
   )
 }
 

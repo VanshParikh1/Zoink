@@ -55,7 +55,8 @@ export const theme = {
   cardBackground: colors.white,
   cardShadow: '0px 1px 3px rgba(0,0,0,0.08), 0px 1px 2px rgba(0,0,0,0.06)',
 
-  backgroundGradient: [colors.gray50, colors.white, colors.gray50] as const,
+  backgroundGradient: [colors.greenSurface, colors.gray50, colors.white] as const,
+  textureColor: colors.greenDeep,
 
   glassLight: 'rgba(255, 255, 255, 0.65)',
   glassDark: 'rgba(10, 28, 5, 0.85)',

@@ -21,6 +21,7 @@ import { getNearbyListings } from '../services/listingsApi'
 import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import HardBlock from '../components/HardBlock'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -148,7 +149,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenBackground>
       <FlatList
         data={listings}
         keyExtractor={(item) => item.id}
@@ -245,7 +246,7 @@ export default function HomeScreen() {
           </View>
         }
       />
-    </View>
+    </ScreenBackground>
   )
 }
 
