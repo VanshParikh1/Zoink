@@ -99,4 +99,17 @@ export const theme = {
     shadowRadius: 20,
     elevation: 6,
   },
+
+  // Neobrutalist system, matched to the landing page (frontend/landing/index.html):
+  // thick ink borders + a solid offset "block" shadow instead of soft blur.
+  hard: {
+    ink: colors.inkBase,     // border + block-shadow color
+    border: 2.5,             // standard outline weight
+    borderThin: 1.5,         // small controls (chips, pills)
+    offset: {
+      sm: 3,  // chips, thumbnails, small buttons
+      md: 5,  // standard cards
+      lg: 7,  // hero cards, feature panels
+    },
+  },
 }

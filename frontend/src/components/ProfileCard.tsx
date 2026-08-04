@@ -2,6 +2,7 @@ import React from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { MyProfile, PublicProfile, UserReputation } from '../types'
 import { theme } from '../theme/colors'
+import HardBlock from './HardBlock'
 
 type ProfileCardProps = {
   profile: PublicProfile | MyProfile
@@ -108,7 +109,12 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
   const reviewHighlights = profile.reviewHighlights?.slice(0, 2) ?? []
 
   return (
-    <View style={styles.shell}>
+    <HardBlock
+      radius={theme.radius.lg}
+      offset={theme.hard.offset.lg}
+      style={styles.wrap}
+      contentStyle={styles.shell}
+    >
       <View style={styles.topRow}>
         <View style={styles.tierChip}>
           <Text style={styles.tierChipText}>{tier}</Text>
@@ -213,19 +219,17 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
           ))}
         </View>
       )}
-    </View>
+    </HardBlock>
   )
 }
 
 const styles = StyleSheet.create({
-  shell: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.lg,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
+  wrap: {
     overflow: 'hidden',
-    ...theme.shadowMdElevation,
+  },
+  shell: {
+    padding: 20,
+    overflow: 'hidden',
   },
   topRow: {
     flexDirection: 'row',
@@ -299,8 +303,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.primaryLight,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   statBubbleValue: {
     color: theme.primaryDeep,
@@ -330,8 +334,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: theme.surfaceSubdued,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   tagChipText: {
     color: theme.textMuted,
@@ -348,6 +352,8 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 7,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   badgeBright: {
     backgroundColor: theme.primary,
@@ -357,8 +363,6 @@ const styles = StyleSheet.create({
   },
   badgeSoft: {
     backgroundColor: theme.surfaceSubdued,
-    borderWidth: 1,
-    borderColor: theme.border,
   },
   badgeText: {
     fontSize: 12,
@@ -382,8 +386,8 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.sm,
     paddingVertical: 14,
     paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   statLabel: {
     color: theme.textMuted,
@@ -401,8 +405,8 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     padding: 16,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   panelTitle: {
     color: theme.text,
@@ -433,6 +437,8 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     overflow: 'hidden',
   },
   trackFill: {
@@ -445,8 +451,8 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     padding: 14,
     marginTop: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   highlightQuote: {
     color: theme.text,

@@ -9,10 +9,8 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Platform,
   Image,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
@@ -54,6 +52,7 @@ function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
 function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
+    <View style={styles.glassCardVerticalWrap}>
     <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailLarge}>
         {imageUrl ? (
@@ -78,12 +77,14 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
         </View>
       </View>
     </TouchableOpacity>
+    </View>
   )
 }
 
 function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
+    <View style={styles.glassCardHorizontalWrap}>
     <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailSmall}>
         {imageUrl ? (
@@ -103,6 +104,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
         <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
       </View>
     </TouchableOpacity>
+    </View>
   )
 }
 
@@ -324,7 +326,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: theme.text,
     fontSize: 28,
-    fontWeight: '500',
+    fontWeight: '900',
     paddingHorizontal: 24,
     marginBottom: 4,
     letterSpacing: -0.5,
@@ -343,7 +345,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     color: theme.textMuted,
     fontSize: 12,
-    fontWeight: '300',
+    fontWeight: '800',
     letterSpacing: 1.5,
     paddingHorizontal: 24,
     marginBottom: 16,
@@ -360,16 +362,21 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   
-  /* --- Listing cards (flat, matches Home) --- */
-  glassCardVertical: {
+  /* --- Listing cards (neobrutalist, matches Home) --- */
+  glassCardVerticalWrap: {
     width: (SCREEN_WIDTH - 48) * 0.75,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+  },
+  glassCardVertical: {
     backgroundColor: theme.cardBackground,
     borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
     overflow: 'hidden',
     padding: 16,
-    ...theme.shadowSm,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   glassThumbnailLarge: {
     width: '100%',
@@ -379,8 +386,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassThumbnailFallbackText: {
     color: theme.primary,
@@ -396,19 +403,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: theme.hard.borderThin,
   },
   badgeAvailable: {
     backgroundColor: theme.primarySurface,
-    borderColor: theme.borderFocus,
+    borderColor: theme.hard.ink,
   },
   badgeUnavailable: {
     backgroundColor: theme.surfaceSubdued,
-    borderColor: theme.border,
+    borderColor: theme.hard.ink,
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '800',
     textTransform: 'uppercase',
   },
   badgeTextAvailable: {
@@ -424,7 +431,7 @@ const styles = StyleSheet.create({
   glassTitle: {
     color: theme.text,
     fontSize: 18,
-    fontWeight: '500',
+    fontWeight: '800',
   },
   glassCardFooter: {
     flexDirection: 'row',
@@ -436,9 +443,9 @@ const styles = StyleSheet.create({
     borderTopColor: theme.border,
   },
   glassPrice: {
-    color: theme.primary,
+    color: theme.primaryDeep,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '900',
   },
   glassPriceUnit: {
     color: theme.textDisabled,
@@ -451,10 +458,14 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
 
-  /* --- Horizontal listing cards (flat, matches Home) --- */
+  /* --- Horizontal listing cards (neobrutalist, matches Home) --- */
   verticalRowsContainer: {
     paddingHorizontal: 24,
     gap: 12,
+  },
+  glassCardHorizontalWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
   },
   glassCardHorizontal: {
     flexDirection: 'row',
@@ -462,9 +473,10 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: theme.cardBackground,
     borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    ...theme.shadowSm,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   glassThumbnailSmall: {
     width: 64,
@@ -474,8 +486,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassThumbnailFallbackTextSmall: {
     color: theme.primary,
@@ -509,28 +521,24 @@ const styles = StyleSheet.create({
   glassChip: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassChipSelected: {
-    backgroundColor: theme.primarySurface,
-    borderColor: theme.borderFocus,
-    borderTopColor: theme.primaryLight,
+    backgroundColor: theme.primary,
   },
   glassChipUnselected: {
-    backgroundColor: theme.surfaceSubdued,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
+    backgroundColor: theme.surface,
   },
   chipTextSelected: {
-    color: theme.primary,
-    fontWeight: '600',
+    color: theme.textOnPrimary,
+    fontWeight: '800',
     fontSize: 14,
   },
   chipTextUnselected: {
-    color: theme.textMuted,
-    fontWeight: '400',
+    color: theme.text,
+    fontWeight: '700',
     fontSize: 14,
   },
 
@@ -544,9 +552,11 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.hard.ink,
   },
   miniAvatarText: {
     color: theme.text,

@@ -151,21 +151,23 @@ export default function AdminReportsScreen() {
           )
         }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => openResolve(item)} disabled={item.status !== 'OPEN'}>
-            <View style={styles.cardRow}>
-              <Text style={styles.cardTitle}>
-                {item.targetType === 'LISTING' ? 'Listing' : 'User'} · {REASON_LABELS[item.reason] ?? item.reason}
-              </Text>
-              <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
-            </View>
-            <Text style={styles.cardTarget} numberOfLines={1}>{item.targetLabel}</Text>
-            {item.description ? (
-              <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
-            ) : null}
-            <View style={styles.cardFooter}>
-              <Text style={styles.cardFooterText}>{item.reporter.firstName} · {item.reporter.email}</Text>
-            </View>
-          </TouchableOpacity>
+          <View style={styles.cardWrap}>
+            <TouchableOpacity style={styles.card} onPress={() => openResolve(item)} disabled={item.status !== 'OPEN'}>
+              <View style={styles.cardRow}>
+                <Text style={styles.cardTitle}>
+                  {item.targetType === 'LISTING' ? 'Listing' : 'User'} · {REASON_LABELS[item.reason] ?? item.reason}
+                </Text>
+                <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
+              </View>
+              <Text style={styles.cardTarget} numberOfLines={1}>{item.targetLabel}</Text>
+              {item.description ? (
+                <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
+              ) : null}
+              <View style={styles.cardFooter}>
+                <Text style={styles.cardFooterText}>{item.reporter.firstName} · {item.reporter.email}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
         )}
       />
 
@@ -233,33 +235,41 @@ const styles = StyleSheet.create({
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   chipsScroll: { marginTop: 16, flexGrow: 0 },
   chipsContainer: { gap: 8, flexDirection: 'row', paddingRight: 24 },
-  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: theme.border },
-  chipSelected: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.surfaceSubdued },
+  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: theme.radius.pill, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
+  chipSelected: { backgroundColor: theme.primary },
+  chipUnselected: { backgroundColor: theme.surface },
   chipTextSelected: { color: theme.textOnPrimary, fontWeight: '800', fontSize: 13 },
-  chipTextUnselected: { color: theme.textMuted, fontWeight: '700', fontSize: 13 },
+  chipTextUnselected: { color: theme.text, fontWeight: '700', fontSize: 13 },
+  cardWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+    marginBottom: 14,
+  },
   card: {
     backgroundColor: theme.cardBackground,
-    borderRadius: 8,
+    borderRadius: theme.radius.sm,
     padding: 18,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    marginBottom: 14,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
     gap: 10,
   },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   cardTitle: { color: theme.text, fontSize: 16, fontWeight: '900', flex: 1 },
-  cardTarget: { color: theme.primary, fontSize: 13, fontWeight: '800' },
+  cardTarget: { color: theme.primaryDeep, fontSize: 13, fontWeight: '800' },
   cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardFooterText: { color: theme.textDisabled, fontSize: 12, fontWeight: '700', flex: 1 },
   pill: {
     overflow: 'hidden',
-    borderRadius: 999,
+    borderRadius: theme.radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
     fontSize: 10,
     fontWeight: '900',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   statusYellow: { backgroundColor: '#FFF5D6', color: '#8A5A00' },
   statusGrey: { backgroundColor: '#EFEFF1', color: '#6D7175' },
@@ -267,8 +277,12 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalCard: {
     backgroundColor: theme.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
+    borderTopWidth: theme.hard.border,
+    borderLeftWidth: theme.hard.border,
+    borderRightWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
     padding: 24,
     gap: 14,
   },
@@ -279,10 +293,10 @@ const styles = StyleSheet.create({
   label: { color: theme.text, fontSize: 15, fontWeight: '900' },
   input: {
     minHeight: 90,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: 'transparent',
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+    backgroundColor: theme.screen,
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: theme.text,
@@ -290,8 +304,8 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   modalActions: { flexDirection: 'row', gap: 10 },
-  modalButton: { flex: 1, minHeight: 50, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  dismissButton: { backgroundColor: theme.surfaceSubdued, borderWidth: 1, borderColor: theme.border },
+  modalButton: { flex: 1, minHeight: 50, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', borderWidth: theme.hard.border, borderColor: theme.hard.ink },
+  dismissButton: { backgroundColor: theme.surfaceSubdued },
   dismissButtonText: { color: theme.text, fontSize: 15, fontWeight: '900' },
   reviewedButton: { backgroundColor: theme.primary },
   reviewedButtonText: { color: theme.textOnPrimary, fontSize: 15, fontWeight: '900' },

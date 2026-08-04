@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import ScreenBackground from '../components/ScreenBackground'
+import HardBlock from '../components/HardBlock'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -254,7 +255,7 @@ export default function BookingRequestScreen() {
         {listing.title} in {listing.city}
       </Text>
 
-      <View style={styles.card}>
+      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.lg} style={styles.cardWrap} contentStyle={styles.card}>
         <Text style={styles.sectionEyebrow}>YOUR DATES</Text>
         <Text style={styles.sectionTitle}>Pick a rental range</Text>
         <Text style={styles.sectionSubtitle}>
@@ -372,9 +373,9 @@ export default function BookingRequestScreen() {
           textAlignVertical="top"
           maxLength={500}
         />
-      </View>
+      </HardBlock>
 
-      <View style={styles.card}>
+      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.md} style={styles.cardWrap} contentStyle={styles.card}>
         <Text style={styles.breakdownTitle}>Price breakdown</Text>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Daily rate</Text>
@@ -392,13 +393,15 @@ export default function BookingRequestScreen() {
           <Text style={styles.rowLabel}>Deposit hold</Text>
           <Text style={styles.rowValue}>${depositAmount.toFixed(2)}</Text>
         </View>
-      </View>
+      </HardBlock>
 
       {paymentError ? <Text style={styles.errorText}>{paymentError}</Text> : null}
 
-      <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
-      </TouchableOpacity>
+      <View style={styles.submitButtonWrap}>
+        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
+          {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
+        </TouchableOpacity>
+      </View>
       </ScrollView>
     </ScreenBackground>
   )
@@ -411,13 +414,13 @@ const styles = StyleSheet.create({
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { fontSize: 32, fontWeight: '900', color: theme.text },
   subtitle: { color: theme.textMuted, fontSize: 16, marginTop: 4, marginBottom: 12 },
+  cardWrap: {
+    marginBottom: 0,
+  },
   card: {
     backgroundColor: theme.cardBackground,
     borderRadius: theme.radius.lg,
     padding: 24,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    ...theme.shadowMdElevation,
     gap: 16,
   },
   sectionEyebrow: {
@@ -447,6 +450,8 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   summaryLabel: {
     color: theme.textMuted,
@@ -471,8 +476,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.screen,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -525,9 +530,11 @@ const styles = StyleSheet.create({
   },
   dayPillSelected: {
     backgroundColor: theme.primary,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   dayPillRange: {
-    backgroundColor: 'rgba(0, 239, 32, 0.16)',
+    backgroundColor: theme.primarySurface,
   },
   dayText: {
     color: theme.text,
@@ -558,7 +565,9 @@ const styles = StyleSheet.create({
   label: { color: theme.text, fontSize: 14, fontWeight: '800', marginTop: 4 },
   input: {
     backgroundColor: theme.screen,
-    borderRadius: 20,
+    borderRadius: theme.radius.md,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     paddingHorizontal: 16,
     paddingVertical: 14,
     color: theme.text,
@@ -570,17 +579,20 @@ const styles = StyleSheet.create({
   rowLabel: { color: theme.textMuted, fontSize: 14 },
   rowValue: { color: theme.text, fontSize: 15, fontWeight: '800' },
   errorText: { color: theme.danger, fontSize: 14, fontWeight: '800', lineHeight: 20 },
+  submitButtonWrap: {
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.hard.ink,
+  },
   submitButton: {
     backgroundColor: theme.primary,
-    borderRadius: 99,
+    borderRadius: theme.radius.pill,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
+    marginRight: theme.hard.offset.md,
+    marginBottom: theme.hard.offset.md,
   },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '800' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
 })

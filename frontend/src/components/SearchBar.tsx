@@ -27,61 +27,63 @@ export default function SearchBar({
 
   const borderColor = borderAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [theme.cardBorder, theme.borderFocus],
+    outputRange: [theme.hard.ink, theme.primary],
   });
 
   const clearVisible = value.length > 0;
 
   return (
-    <Animated.View style={[styles.outerContainer, { borderColor }]}>
-      <Feather name="search" size={20} color={theme.textMuted} style={styles.icon} />
-      <TextInput
-        style={styles.input}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textDisabled}
-        onFocus={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          setFocused(true);
-        }}
-        onBlur={() => setFocused(false)}
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      {clearVisible && (
-        <TouchableOpacity 
-          onPress={() => {
+    <View style={styles.hardWrap}>
+      <Animated.View style={[styles.outerContainer, { borderColor }]}>
+        <Feather name="search" size={20} color={theme.textMuted} style={styles.icon} />
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          placeholderTextColor={theme.textDisabled}
+          onFocus={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            onChange('');
-          }} 
-          style={styles.clearBtn}
-        >
-          <Feather name="x-circle" size={18} color={theme.textDisabled} />
-        </TouchableOpacity>
-      )}
-    </Animated.View>
+            setFocused(true);
+          }}
+          onBlur={() => setFocused(false)}
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {clearVisible && (
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              onChange('');
+            }}
+            style={styles.clearBtn}
+          >
+            <Feather name="x-circle" size={18} color={theme.textDisabled} />
+          </TouchableOpacity>
+        )}
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  outerContainer: {
+  hardWrap: {
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 8,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+  },
+  outerContainer: {
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.border,
     backgroundColor: theme.cardBackground,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     height: 48,
-    // Shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   icon: {
     marginRight: 8,

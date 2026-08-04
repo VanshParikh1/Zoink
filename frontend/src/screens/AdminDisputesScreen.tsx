@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import ScreenBackground from '../components/ScreenBackground'
 import StateCard from '../components/StateCard'
+import HardBlock from '../components/HardBlock'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -129,17 +130,19 @@ export default function AdminDisputesScreen() {
           )
         }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => nav.navigate('AdminDisputeDetail', { disputeId: item.id })}>
-            <View style={styles.cardRow}>
-              <Text style={styles.cardTitle}>{REASON_LABELS[item.reason] ?? item.reason}</Text>
-              <Text style={[styles.pill, statusTone(item.status)]}>{item.status.replace(/_/g, ' ')}</Text>
-            </View>
-            <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
-            <View style={styles.cardFooter}>
-              <Text style={styles.cardFooterText}>{item.raisedByUser.firstName} · {item.raisedByUser.email}</Text>
-              <Text style={styles.cardPrice}>${Number(item.booking.totalPrice).toFixed(2)}</Text>
-            </View>
-          </TouchableOpacity>
+          <View style={styles.cardWrap}>
+            <TouchableOpacity style={styles.card} onPress={() => nav.navigate('AdminDisputeDetail', { disputeId: item.id })}>
+              <View style={styles.cardRow}>
+                <Text style={styles.cardTitle}>{REASON_LABELS[item.reason] ?? item.reason}</Text>
+                <Text style={[styles.pill, statusTone(item.status)]}>{item.status.replace(/_/g, ' ')}</Text>
+              </View>
+              <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
+              <View style={styles.cardFooter}>
+                <Text style={styles.cardFooterText}>{item.raisedByUser.firstName} · {item.raisedByUser.email}</Text>
+                <Text style={styles.cardPrice}>${Number(item.booking.totalPrice).toFixed(2)}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
         )}
       />
     </ScreenBackground>
@@ -155,18 +158,24 @@ const styles = StyleSheet.create({
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   chipsScroll: { marginTop: 16, flexGrow: 0 },
   chipsContainer: { gap: 8, flexDirection: 'row', paddingRight: 24 },
-  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: theme.border },
-  chipSelected: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.surfaceSubdued },
+  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: theme.radius.pill, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
+  chipSelected: { backgroundColor: theme.primary },
+  chipUnselected: { backgroundColor: theme.surface },
   chipTextSelected: { color: theme.textOnPrimary, fontWeight: '800', fontSize: 13 },
-  chipTextUnselected: { color: theme.textMuted, fontWeight: '700', fontSize: 13 },
+  chipTextUnselected: { color: theme.text, fontWeight: '700', fontSize: 13 },
+  cardWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+    marginBottom: 14,
+  },
   card: {
     backgroundColor: theme.cardBackground,
-    borderRadius: 8,
+    borderRadius: theme.radius.sm,
     padding: 18,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    marginBottom: 14,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
     gap: 10,
   },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
@@ -174,14 +183,16 @@ const styles = StyleSheet.create({
   cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardFooterText: { color: theme.textDisabled, fontSize: 12, fontWeight: '700', flex: 1 },
-  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: '900' },
+  cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
   pill: {
     overflow: 'hidden',
-    borderRadius: 999,
+    borderRadius: theme.radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
     fontSize: 10,
     fontWeight: '900',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   statusYellow: { backgroundColor: '#FFF5D6', color: '#8A5A00' },
   statusBlue: { backgroundColor: '#E1F0FF', color: '#185EA8' },

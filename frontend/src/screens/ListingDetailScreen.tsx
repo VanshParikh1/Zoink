@@ -26,6 +26,7 @@ import { Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
+import HardBlock from '../components/HardBlock'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -148,29 +149,31 @@ export default function ListingDetailScreen() {
     <ScreenBackground>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.floatingRow}>
-          <TouchableOpacity
-            style={styles.floatingBtn}
-            accessibilityLabel="Go back"
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-              nav.goBack()
-            }}
-          >
-            <Feather name="chevron-left" size={22} color={theme.text} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.floatingBtn}
-            accessibilityLabel="Share this listing"
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-              handleShare()
-            }}
-          >
-            <Feather name="share" size={18} color={theme.text} />
-          </TouchableOpacity>
+          <HardBlock radius={theme.radius.pill} offset={theme.hard.offset.sm} style={styles.floatingBtnWrap} contentStyle={styles.floatingBtn}>
+            <TouchableOpacity
+              accessibilityLabel="Go back"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.goBack()
+              }}
+            >
+              <Feather name="chevron-left" size={22} color={theme.text} />
+            </TouchableOpacity>
+          </HardBlock>
+          <HardBlock radius={theme.radius.pill} offset={theme.hard.offset.sm} style={styles.floatingBtnWrap} contentStyle={styles.floatingBtn}>
+            <TouchableOpacity
+              accessibilityLabel="Share this listing"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                handleShare()
+              }}
+            >
+              <Feather name="share" size={18} color={theme.text} />
+            </TouchableOpacity>
+          </HardBlock>
         </View>
 
-        <View style={styles.content}>
+        <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.lg} style={styles.contentWrap} contentStyle={styles.content}>
           {hasImages ? (
             <View style={styles.carouselContainer}>
               <FlatList
@@ -236,31 +239,33 @@ export default function ListingDetailScreen() {
           <Text style={styles.description}>{listing.description}</Text>
 
           <Text style={styles.sectionTitle}>Listed by</Text>
-          <TouchableOpacity
-            style={styles.ownerCard}
-            activeOpacity={0.9}
-            onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
-          >
-            {listing.owner.avatarUrl ? (
-              <Image source={{ uri: listing.owner.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarInitial}>
-                  {listing.owner.firstName?.[0]?.toUpperCase() ?? '?'}
-                </Text>
-              </View>
-            )}
-
-            <View>
-              <Text style={styles.ownerName}>
-                {listing.owner.firstName} {listing.owner.lastName}
-              </Text>
-              {listing.owner.verificationStatus === 'VERIFIED' && (
-                <Text style={styles.verified}>Verified student</Text>
+          <View style={styles.ownerCardWrap}>
+            <TouchableOpacity
+              style={styles.ownerCard}
+              activeOpacity={0.9}
+              onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
+            >
+              {listing.owner.avatarUrl ? (
+                <Image source={{ uri: listing.owner.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarInitial}>
+                    {listing.owner.firstName?.[0]?.toUpperCase() ?? '?'}
+                  </Text>
+                </View>
               )}
-              <Text style={styles.profileHint}>Tap to view profile card</Text>
-            </View>
-          </TouchableOpacity>
+
+              <View>
+                <Text style={styles.ownerName}>
+                  {listing.owner.firstName} {listing.owner.lastName}
+                </Text>
+                {listing.owner.verificationStatus === 'VERIFIED' && (
+                  <Text style={styles.verified}>Verified student</Text>
+                )}
+                <Text style={styles.profileHint}>Tap to view profile card</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
 
           {!isOwner && (
             <TouchableOpacity style={styles.reportLink} onPress={handleReport}>
@@ -294,7 +299,7 @@ export default function ListingDetailScreen() {
               />
             </View>
           )}
-        </View>
+        </HardBlock>
       </ScrollView>
 
       {!isOwner && (
@@ -334,7 +339,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   carouselContainer: { position: 'relative', marginBottom: 20 },
-  carouselImage: { width: '100%', height: 240, borderRadius: 16 },
+  carouselImage: { width: '100%', height: 240, borderRadius: theme.radius.md, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
   dotRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -345,7 +350,7 @@ const styles = StyleSheet.create({
   },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(252,255,252,0.45)' },
   dotActive: { backgroundColor: theme.textOnPrimary, width: 18 },
-  noImageBox: { height: 180, backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  noImageBox: { height: 180, backgroundColor: theme.surfaceSubdued, borderRadius: theme.radius.md, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   noImageLogo: { marginBottom: 12 },
   noImageText: { color: theme.textMuted, fontSize: 16 },
   floatingRow: {
@@ -355,33 +360,29 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginHorizontal: 16,
   },
+  floatingBtnWrap: {},
   floatingBtn: {
     width: 44,
     height: 44,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.cardBackground,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    ...theme.shadowSm,
+  },
+  contentWrap: {
+    marginHorizontal: 16,
+    marginBottom: 40,
   },
   content: {
     padding: 24,
-    marginHorizontal: 16,
-    marginBottom: 40,
     backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    ...theme.shadowMdElevation,
   },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  badge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
+  badge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
   badgeAvail: { backgroundColor: theme.primarySurface },
-  badgeUnavail: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
-  badgeText: { fontSize: 12, fontWeight: '900', color: theme.primary },
-  badgeTextUnavailable: { color: '#F87171' },
+  badgeUnavail: { backgroundColor: theme.colors.dangerSurface },
+  badgeText: { fontSize: 12, fontWeight: '900', color: theme.text },
+  badgeTextUnavailable: { color: theme.colors.danger },
   category: { fontSize: 12, color: theme.textMuted, fontWeight: '700' },
   title: { fontSize: 24, fontWeight: '900', color: theme.text, marginBottom: 6 },
   price: { fontSize: 26, fontWeight: '900', color: theme.primary, marginBottom: 4 },
@@ -389,22 +390,23 @@ const styles = StyleSheet.create({
   location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },
   sectionTitle: { fontSize: 16, fontWeight: '900', color: theme.text, marginTop: 24, marginBottom: 10 },
   description: { fontSize: 15, color: theme.textMuted, lineHeight: 22 },
+  ownerCardWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+  },
   ownerCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     backgroundColor: theme.cardBackground,
-    borderRadius: 8,
+    borderRadius: theme.radius.sm,
     padding: 16,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
   avatarPlaceholder: {
     width: 48,
     height: 48,
@@ -412,6 +414,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   avatarInitial: { color: theme.textOnPrimary, fontSize: 20, fontWeight: '900' },
   ownerName: { fontSize: 15, fontWeight: '800', color: theme.text },
@@ -420,27 +424,6 @@ const styles = StyleSheet.create({
   reportLink: { alignSelf: 'flex-start', marginTop: 12, paddingVertical: 4 },
   reportLinkText: { color: theme.textMuted, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' },
   ownerActions: { marginTop: 8 },
-  editBtn: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: 8,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  editBtnText: { color: theme.text, fontWeight: '800', fontSize: 15 },
-  availBtn: { borderRadius: 8, paddingVertical: 13, alignItems: 'center', marginBottom: 10 },
-  availBtnOn: { backgroundColor: theme.primary },
-  availBtnOff: { backgroundColor: theme.colors.dangerSurface, borderWidth: 1, borderColor: theme.colors.danger },
-  availBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
-  deleteBtn: { alignItems: 'center', paddingVertical: 10 },
-  deleteBtnText: { color: theme.colors.danger, fontWeight: '600', fontSize: 14 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -448,31 +431,18 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
     paddingHorizontal: 24,
     paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
+    borderTopWidth: theme.hard.border,
+    borderTopColor: theme.hard.ink,
   },
   footerPrice: { fontSize: 20, fontWeight: '900', color: theme.text },
   footerPerDay: { fontSize: 14, fontWeight: '400', color: theme.textMuted },
   footerCity: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
-  footerActions: { 
-    flexDirection: 'row', 
-    gap: 8, 
-    flex: 1, 
+  footerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
     marginLeft: 20,
     justifyContent: 'flex-end',
   },
-  messageBtn: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: theme.border,
-    alignItems: 'center',
-  },
-  messageBtnText: { color: theme.text, fontWeight: '800', fontSize: 14 },
-  rentBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
-  rentBtnDisabled: { backgroundColor: theme.primarySurface },
-  rentBtnText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 15 },
 })
 
