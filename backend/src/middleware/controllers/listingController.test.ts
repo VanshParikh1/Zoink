@@ -113,9 +113,16 @@ test('validate(CreateListingSchema) accepts depositAmount equal to itemValue', (
   assert.ok(!capturedError, 'depositAmount === itemValue should be accepted')
 })
 
-test('validate(CreateListingSchema) accepts depositAmount when itemValue is omitted', () => {
-  const { capturedError } = runValidate(CreateListingSchema, { ...validListingBody, depositAmount: 4000 })
-  assert.ok(!capturedError, 'depositAmount without itemValue should not trigger the cross-field check')
+test('validate(CreateListingSchema) rejects depositAmount when itemValue is omitted', () => {
+  const { capturedError, res } = runValidate(CreateListingSchema, { ...validListingBody, depositAmount: 4000 })
+  assert.ok(capturedError, 'depositAmount without itemValue should be rejected — a deposit requires a declared item value')
+  errorHandler(capturedError, {} as any, res as any, () => {})
+  assert.equal(res.statusCode, 400)
+})
+
+test('validate(CreateListingSchema) accepts itemValue without depositAmount', () => {
+  const { capturedError } = runValidate(CreateListingSchema, { ...validListingBody, itemValue: 500 })
+  assert.ok(!capturedError, 'itemValue alone (no deposit) should be accepted — item value is independently optional')
 })
 
 test('validate(UpdateListingSchema) rejects depositAmount greater than itemValue', () => {

@@ -29,6 +29,11 @@ const depositNotOverItemValue = {
   path: ['depositAmount'] as PropertyKey[],
 }
 
+const itemValueRequiredForDeposit = {
+  message: 'itemValue is required when depositAmount is set.',
+  path: ['itemValue'] as PropertyKey[],
+}
+
 export const CreateListingSchema = z.object({
   body: z
     .object({
@@ -66,6 +71,10 @@ export const CreateListingSchema = z.object({
     .refine(
       (data) => data.depositAmount === undefined || data.itemValue === undefined || data.depositAmount <= data.itemValue,
       depositNotOverItemValue
+    )
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue !== undefined,
+      itemValueRequiredForDeposit
     ),
 })
 
@@ -90,6 +99,10 @@ export const UpdateListingSchema = z.object({
     .refine(
       (data) => data.depositAmount === undefined || data.itemValue === undefined || data.depositAmount <= data.itemValue,
       depositNotOverItemValue
+    )
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue !== undefined,
+      itemValueRequiredForDeposit
     ),
 })
 
