@@ -227,6 +227,22 @@ async function createCapturedStripePaymentIntent(amountCents: number): Promise<s
   return intent.id
 }
 
+// Same as above but deliberately left uncaptured — a manual-capture authorization
+// hold, matching what a booking looks like before pickup (paymentStatus AUTHORIZED).
+async function createAuthorizedStripePaymentIntent(amountCents: number): Promise<string> {
+  const Stripe = require('stripe')
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+  const intent = await stripe.paymentIntents.create({
+    amount: amountCents,
+    currency: process.env.STRIPE_CURRENCY ?? 'cad',
+    payment_method: 'pm_card_visa',
+    payment_method_types: ['card'],
+    confirm: true,
+    capture_method: 'manual',
+  })
+  return intent.id
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. resolveDispute — RESOLVED_REFUND
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,6 +379,63 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
         // Service wraps as InternalServerError with the ConflictError message
         assert.ok(err.statusCode === 500 || err.statusCode === 409,
           `Expected 500 or 409, got ${err.statusCode}`)
+        return true
+      }
+    )
+  })
+
+  test('RESOLVED_REFUND (full) on an uncaptured (AUTHORIZED) booking cancels the PaymentIntent instead of refunding', async () => {
+    const db = getTestPrisma()
+    const totalPrice = 90
+    const stripePaymentIntentId = await createAuthorizedStripePaymentIntent(9000)
+    const booking = await createBookingInStatus(BookingStatus.PICKUP_PENDING, PaymentStatus.AUTHORIZED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_NOT_AS_DESCRIBED',
+      'Renter wants to cancel before pickup — item is not as described in the listing.'
+    )
+
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Approved — payment was never captured, releasing the authorization hold.'
+    )
+
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+
+    // Stripe never had a refundable Charge here — confirm the PaymentIntent was
+    // canceled, not refunded (refunds.create against an uncaptured PI's charge
+    // would throw, which is exactly the 500 this fix eliminates).
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const intent = await stripe.paymentIntents.retrieve(stripePaymentIntentId)
+    assert.equal(intent.status, 'canceled')
+
+    const refunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+    assert.equal(refunds.data.length, 0, 'no refund should have been created for an uncaptured PaymentIntent')
+  })
+
+  test('RESOLVED_REFUND with a partial refundAmountCents on an uncaptured booking is rejected with a clear error, not a raw Stripe 500', async () => {
+    const totalPrice = 90
+    const stripePaymentIntentId = await createAuthorizedStripePaymentIntent(9000)
+    const db = getTestPrisma()
+    const booking = await createBookingInStatus(BookingStatus.PICKUP_PENDING, PaymentStatus.AUTHORIZED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'OTHER',
+      'Testing a partial refund request before the payment has been captured.'
+    )
+
+    await assert.rejects(
+      () => disputeService.resolveDispute(
+        dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+        'Attempting a partial refund pre-capture — should be rejected.',
+        3000
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected a clear 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /partial refund.*not possible.*captured/i)
         return true
       }
     )

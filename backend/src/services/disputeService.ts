@@ -1,7 +1,7 @@
 import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { refundPaymentIntent, toCents } from './paymentService'
+import { cancelPaymentIntent, refundPaymentIntent, toCents } from './paymentService'
 
 export async function createDispute(
   bookingId: string,
@@ -79,10 +79,38 @@ export async function resolveDispute(
       throw new BadRequestError('refundAmountCents cannot exceed the booking totalPrice.')
     }
 
-    try {
-      await refundPaymentIntent(dispute.booking, refundedCents)
-    } catch (err: any) {
-      throw new InternalServerError(`Failed to refund payment via Stripe: ${err.message}`)
+    // Only a CAPTURED payment has actually moved funds onto a Charge, which is what
+    // stripe.refunds.create operates on. Anything earlier (PENDING_AUTH/AUTHORIZED/
+    // CAPTURE_PENDING) is still just a card authorization hold, and Stripe rejects
+    // refunds.create against an uncaptured PaymentIntent's charge — the correct
+    // operation there is paymentIntents.cancel, same as handleCancellationPayment()
+    // in bookingService.ts already does for pre-capture bookings. We read the locally
+    // stored paymentStatus (rather than re-fetching the PaymentIntent from Stripe) to
+    // stay consistent with that existing precedent, which also trusts the DB value
+    // kept in sync by stripeWebhookController.ts.
+    if (dispute.booking.paymentStatus === PaymentStatus.CAPTURED) {
+      try {
+        await refundPaymentIntent(dispute.booking, refundedCents)
+      } catch (err: any) {
+        throw new InternalServerError(`Failed to refund payment via Stripe: ${err.message}`)
+      }
+    } else {
+      // A partial refund pre-capture doesn't map to a single Stripe operation (there's
+      // no captured Charge to partially refund, and capturing just the "kept" amount
+      // would silently change what the resolution actually means). Rejecting keeps the
+      // admin decision explicit: resolve as a full refund now, or wait until after the
+      // payment is captured (post-pickup) to issue a partial one.
+      if (refundAmountCents !== undefined && refundAmountCents < fullAmountCents) {
+        throw new BadRequestError(
+          'A partial refund is not possible before the payment has been captured. Resolve this dispute as a full refund, or wait until after pickup to issue a partial refund.'
+        )
+      }
+
+      try {
+        await cancelPaymentIntent(dispute.booking)
+      } catch (err: any) {
+        throw new InternalServerError(`Failed to cancel payment authorization via Stripe: ${err.message}`)
+      }
     }
   }
 

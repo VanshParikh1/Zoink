@@ -47,7 +47,7 @@ describe('Admin and Dispute Tests', () => {
   })
 
   test('resolveDispute triggers refund and rolls back on Stripe failure', async () => {
-    const mockDispute = { id: 'd-1', status: 'OPEN', bookingId: 'b-1', booking: { id: 'b-1', totalPrice: 100 } }
+    const mockDispute = { id: 'd-1', status: 'OPEN', bookingId: 'b-1', booking: { id: 'b-1', totalPrice: 100, paymentStatus: 'CAPTURED' } }
 
     const mockDb: any = {
       dispute: { findUnique: async () => mockDispute },
