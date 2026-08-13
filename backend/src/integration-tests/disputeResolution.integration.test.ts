@@ -91,6 +91,12 @@ async function createBookingInStatus(
       insuranceFee: new Prisma.Decimal(0),
       status,
       paymentStatus,
+      // paidAt is the real signal resolveDispute() reads to decide refund vs. cancel
+      // (see disputeService.ts) — it's set exactly once, on actual capture, and never
+      // cleared afterward even once paymentStatus later moves to REFUNDED. Mirror that
+      // invariant here so CAPTURED-designated test bookings route the same way a real
+      // captured booking would.
+      paidAt: paymentStatus === PaymentStatus.CAPTURED ? new Date() : null,
       stripePaymentIntentId: `pi_mock_dispute_${Date.now()}`,
       version: 1,
     },
@@ -343,6 +349,76 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     assert.equal(totalRefundedCents, partialRefundCents)
   })
 
+  test('a second sequential dispute cannot push cumulative refunds past totalPrice (over-refund regression)', async () => {
+    const db = getTestPrisma()
+    const totalPrice = 90 // 9000 cents
+    const stripePaymentIntentId = await createCapturedStripePaymentIntent(9000)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.CAPTURED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    // First dispute — resolved with a $60 partial refund, leaving $30 remaining refundable.
+    const firstDispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'First issue — significant damage, refunding two thirds of the total price.'
+    )
+    const firstRefundCents = 6000
+    const firstResolved = await disputeService.resolveDispute(
+      firstDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed damage — refunding $60 of the $90 total.',
+      firstRefundCents
+    )
+    assert.equal(firstResolved.refundAmountCents, firstRefundCents)
+
+    // Second dispute on the SAME booking, opened after the first is resolved (only one
+    // OPEN dispute is allowed per booking at a time, so this exercises the real sequence
+    // an admin would hit). Requesting $40 more would total $100 refunded against a $90
+    // booking — this must be rejected, even though $40 alone is under the raw totalPrice.
+    const secondDispute = await disputeService.createDispute(
+      booking.id, renter.id, 'OTHER',
+      'Second, separate issue discovered after the first dispute was already resolved.'
+    )
+    const secondRefundCents = 4000 // only $30 remains refundable (9000 - 6000)
+
+    await assert.rejects(
+      () => disputeService.resolveDispute(
+        secondDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+        'Attempting to refund $40 more on top of the $60 already refunded — should be rejected.',
+        secondRefundCents
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /remaining refundable balance/i)
+        assert.match(err.message, /\$30\.00/, 'error should state the actual remaining balance ($30.00)')
+        return true
+      }
+    )
+
+    // Nothing should have moved on the second dispute or booking as a result of the
+    // rejected request.
+    const untouchedSecondDispute = await db.dispute.findUniqueOrThrow({ where: { id: secondDispute.id } })
+    assert.equal(untouchedSecondDispute.status, 'OPEN')
+
+    // And Stripe ground truth: only the original $60 refund exists — the rejected $40
+    // request never reached stripe.refunds.create.
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const refunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+    const totalRefundedCents = refunds.data.reduce((sum: number, r: any) => sum + r.amount, 0)
+    assert.equal(totalRefundedCents, firstRefundCents, 'total refunded on Stripe must still be exactly the first $60 refund')
+
+    // A request for exactly what remains ($30) should still succeed.
+    const thirdResolved = await disputeService.resolveDispute(
+      secondDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Refunding exactly the remaining $30 balance.',
+      3000
+    )
+    assert.equal(thirdResolved.refundAmountCents, 3000)
+
+    const finalRefunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+    const finalTotalRefundedCents = finalRefunds.data.reduce((sum: number, r: any) => sum + r.amount, 0)
+    assert.equal(finalTotalRefundedCents, totalPrice * 100, 'cumulative refunds should equal exactly the booking total, not a cent more')
+  })
+
   test('RESOLVED_REFUND on booking without stripePaymentIntentId throws 409', async () => {
     const db = getTestPrisma()
     const { startDate, endDate } = futureDates(3, 3)
@@ -361,6 +437,7 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
         insuranceFee: new Prisma.Decimal(0),
         status: BookingStatus.COMPLETED,
         paymentStatus: PaymentStatus.CAPTURED,
+        paidAt: new Date(), // resolveDispute() now branches on paidAt, not raw paymentStatus
         stripePaymentIntentId: null,  // intentionally null
       },
     })

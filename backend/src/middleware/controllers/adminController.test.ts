@@ -47,13 +47,27 @@ describe('Admin and Dispute Tests', () => {
   })
 
   test('resolveDispute triggers refund and rolls back on Stripe failure', async () => {
-    const mockDispute = { id: 'd-1', status: 'OPEN', bookingId: 'b-1', booking: { id: 'b-1', totalPrice: 100, paymentStatus: 'CAPTURED' } }
+    const mockDispute = { id: 'd-1', status: 'OPEN', bookingId: 'b-1', booking: { id: 'b-1', totalPrice: 100, paymentStatus: 'CAPTURED', paidAt: new Date() } }
+    let disputeUpdateCalled = false
+
+    // resolveDispute now runs its whole read-validate-refund-write sequence inside a
+    // single db.$transaction (for the row-lock-based over-refund fix), so this mock
+    // must actually invoke the callback with a tx object, same shape as `db` itself.
+    const mockTx: any = {
+      $queryRaw: async () => [],
+      dispute: {
+        findUnique: async () => mockDispute,
+        findMany: async () => [], // no prior resolved disputes on this booking
+        update: async () => { disputeUpdateCalled = true; return mockDispute },
+      },
+      booking: { update: async () => ({}) },
+      bookingEvent: { create: async () => ({}) },
+    }
 
     const mockDb: any = {
       dispute: { findUnique: async () => mockDispute },
-      $transaction: async () => { transactionCalled = true },
+      $transaction: async (fn: any) => fn(mockTx),
     }
-    let transactionCalled = false
 
     mock.method(paymentService, 'refundPaymentIntent', async () => {
       throw new Error('Stripe network error')
@@ -67,7 +81,7 @@ describe('Admin and Dispute Tests', () => {
       assert.ok(err.message.includes('Failed to refund payment via Stripe: Stripe network error'))
     }
 
-    assert.strictEqual(transactionCalled, false)
+    assert.strictEqual(disputeUpdateCalled, false, 'dispute.update should never be reached when the Stripe refund fails — the transaction rolls back')
   })
 
   test('validate(ResolveDisputeSchema) rejects resolutionNotes over 1000 characters', () => {

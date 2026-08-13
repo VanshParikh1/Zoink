@@ -161,7 +161,12 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
   )
 }
 
-export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number, db: typeof prisma = prisma) {
+export async function refundPaymentIntent(
+  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>,
+  partialAmountCents?: number,
+  idempotencySalt?: string,
+  db: typeof prisma = prisma
+) {
   if (!booking.stripePaymentIntentId) {
     throw new ConflictError('Payment authorization is missing.')
   }
@@ -183,7 +188,15 @@ export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version
       amount: partialAmountCents,
       metadata: { bookingId: booking.id },
     },
-    { idempotencyKey: `refund-${booking.id}-${booking.version}` }
+    // A booking can now legitimately be refunded more than once (sequential disputes,
+    // each a different amount — see disputeService.ts's remaining-balance check). Keying
+    // idempotency on booking.version alone breaks that: nothing bumps the booking's
+    // version between two dispute resolutions, so a second, different-amount refund
+    // would reuse the exact same key and Stripe rejects it as a conflicting retry.
+    // idempotencySalt (the dispute id, from the only caller) is unique per refund
+    // attempt since a dispute can only ever be resolved once, while still being stable
+    // across an actual retry of that same request.
+    { idempotencyKey: `refund-${booking.id}-${idempotencySalt ?? booking.version}` }
   )
 }
 
