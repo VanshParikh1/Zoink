@@ -386,7 +386,6 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     await createBookingEvent(tx, booking.id, renterId, BookingEventType.PAYMENT_INTENT_CREATED, {
       paymentIntentId: paymentIntent.id,
       status: paymentIntent.status,
-      clientSecret: paymentIntent.client_secret,
       paymentStatus,
     })
 
