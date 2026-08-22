@@ -300,8 +300,14 @@ export default function ZoinkItScreen() {
 
       {existingPhotos.length > 0 ? (
         <View style={styles.existingPhotosRow}>
-          {existingPhotos.map((url) => (
-            <Image key={url} source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+          {existingPhotos.map((url, index) => (
+            <TouchableOpacity
+              key={url}
+              activeOpacity={0.85}
+              onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
+            >
+              <Image source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+            </TouchableOpacity>
           ))}
         </View>
       ) : null}
