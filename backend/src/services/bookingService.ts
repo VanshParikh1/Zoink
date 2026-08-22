@@ -394,6 +394,48 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   return toBookingResponse(booking)
 }
 
+export async function createPaymentIntentForBooking(bookingId: string, renterId: string): Promise<BookingResponse> {
+  const booking = await getBookingForParticipant(bookingId, renterId)
+
+  if (booking.renterId !== renterId) {
+    throw new ForbiddenError('You do not have access to this booking.')
+  }
+
+  if (booking.status !== 'ACCEPTED') {
+    throw new ConflictError('This booking is not ready for payment.')
+  }
+
+  const paymentIntent = await createPaymentIntent(booking, booking.renter.stripeCustomerId)
+  const paymentStatus = getMockAuthorizedPaymentStatus()
+
+  const updated: any = await prisma.$transaction(async (tx) => {
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: {
+        stripePaymentIntentId: paymentIntent.id,
+        paymentStatus,
+        version: { increment: 1 },
+      },
+    })
+
+    await createBookingEvent(tx, booking.id, renterId, BookingEventType.PAYMENT_INTENT_CREATED, {
+      paymentIntentId: paymentIntent.id,
+      status: paymentIntent.status,
+      paymentStatus,
+    })
+
+    return tx.booking.findUniqueOrThrow({
+      where: { id: booking.id },
+      select: bookingSelect as any,
+    })
+  })
+
+  return {
+    ...toBookingResponse(updated, renterId),
+    paymentClientSecret: paymentIntent.client_secret ?? null,
+  }
+}
+
 export async function getBookingById(bookingId: string, userId: string): Promise<BookingResponse> {
   const booking = await getBookingForParticipant(bookingId, userId)
   return toBookingResponse(booking, userId)
@@ -446,6 +488,10 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     throw new ForbiddenError('You do not have access to this booking.')
   }
 
+  if (nextStatus === 'CONFIRMED' && !isRenter) {
+    throw new ForbiddenError('You do not have access to this booking.')
+  }
+
   assertBookingTransition(booking.status, nextStatus)
 
   if (nextStatus === 'ACCEPTED') {
@@ -457,6 +503,19 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
     if (!stripeAccountId) {
       throw new ConflictError('The owner needs to connect Stripe before accepting bookings.')
+    }
+  }
+
+  if (nextStatus === 'CONFIRMED') {
+    // This is the new payment checkpoint — dates only truly lock once payment
+    // is authorized, which is why ensureNoOverlap (CONFIRMED/ACTIVE only) is
+    // re-checked here: two different ACCEPTED-but-unpaid requests can overlap
+    // (accepting doesn't block on other ACCEPTED bookings), so the second one
+    // to reach this step must still be rejected if the first already confirmed.
+    await ensureNoOverlap(booking.listingId, booking.id)
+
+    if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
+      throw new ConflictError('Payment authorization is not ready yet.')
     }
   }
 
@@ -549,6 +608,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         type: 'BOOKING_DECLINED',
         title: 'Booking declined',
         body: `${booking.listing.title} was declined.`,
+        data: { bookingId: booking.id, listingId: booking.listingId },
+      })
+    }
+
+    if (nextStatus === 'CONFIRMED') {
+      void notifyUser({
+        userId: booking.ownerId,
+        type: 'PAYMENT_RECEIVED',
+        title: 'Payment received',
+        body: `${booking.listing.title} is booked and paid for — you can start the handoff.`,
         data: { bookingId: booking.id, listingId: booking.listingId },
       })
     }

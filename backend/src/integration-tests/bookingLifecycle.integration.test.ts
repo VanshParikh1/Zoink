@@ -338,6 +338,109 @@ describe('owner accept / decline', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2b. Renter pays — ACCEPTED -> CONFIRMED (the new payment checkpoint)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('renter pays for an ACCEPTED booking', () => {
+  async function makeAcceptedBooking() {
+    await giveOwnerStripeAccount(owner.id)
+    const { startDate, endDate } = futureDates(2, 2)
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    return bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+  }
+
+  test('createPaymentIntentForBooking creates a payment intent on an ACCEPTED booking', async () => {
+    const booking = await makeAcceptedBooking()
+
+    const result = await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+    assert.ok(result.stripePaymentIntentId, 'a payment intent id should now be set')
+    assert.ok('paymentClientSecret' in result, 'clientSecret should be returned for the Pay screen')
+    assert.ok(
+      result.paymentStatus === PaymentStatus.AUTHORIZED || result.paymentStatus === PaymentStatus.PENDING_AUTH,
+      `unexpected paymentStatus: ${result.paymentStatus}`
+    )
+
+    const db = getTestPrisma()
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'PAYMENT_INTENT_CREATED' } })
+    assert.equal(events.length, 1)
+  })
+
+  test('createPaymentIntentForBooking rejects a booking that is not ACCEPTED', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const pending = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    await assert.rejects(
+      () => bookingService.createPaymentIntentForBooking(pending.id, renter.id),
+      (err: any) => {
+        assert.equal(err.statusCode, 409)
+        return true
+      }
+    )
+  })
+
+  test('createPaymentIntentForBooking rejects the owner (renter-only action)', async () => {
+    const booking = await makeAcceptedBooking()
+
+    await assert.rejects(
+      () => bookingService.createPaymentIntentForBooking(booking.id, owner.id),
+      (err: any) => {
+        assert.equal(err.statusCode, 403)
+        return true
+      }
+    )
+  })
+
+  test('transitioning to CONFIRMED fails until payment is authorized', async () => {
+    const booking = await makeAcceptedBooking()
+
+    await assert.rejects(
+      () => bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CONFIRMED),
+      (err: any) => {
+        assert.equal(err.statusCode, 409)
+        assert.match(err.message, /payment authorization is not ready/i)
+        return true
+      }
+    )
+  })
+
+  test('renter confirms after payment is authorized — booking moves to CONFIRMED', async () => {
+    const booking = await makeAcceptedBooking()
+    await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: booking.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    const confirmed = await bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CONFIRMED)
+    assert.equal(confirmed.status, BookingStatus.CONFIRMED)
+
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(persisted.status, BookingStatus.CONFIRMED)
+  })
+
+  test('owner cannot confirm payment (renter-only action)', async () => {
+    const booking = await makeAcceptedBooking()
+    await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: booking.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    await assert.rejects(
+      () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.CONFIRMED),
+      (err: any) => {
+        assert.equal(err.statusCode, 403)
+        return true
+      }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. Pickup handoff — photos + Zoink It tap → ACTIVE
 // ─────────────────────────────────────────────────────────────────────────────
 describe('pickup handoff', () => {

@@ -175,6 +175,18 @@ export async function mockAcceptBooking(id: string) {
   return updateBookingStatus(id, 'ACCEPTED')
 }
 
+export async function mockCreateBookingPaymentIntent(id: string) {
+  const booking = bookings.find((item) => item.id === id)
+  if (!booking) throw new Error('Booking not found.')
+  booking.stripePaymentIntentId = `pi_demo_${Date.now()}`
+  booking.paymentStatus = 'AUTHORIZED'
+  return { ...booking, paymentClientSecret: `pi_demo_secret_${Date.now()}` }
+}
+
+export async function mockConfirmBookingPayment(id: string) {
+  return updateBookingStatus(id, 'CONFIRMED')
+}
+
 export async function mockDeclineBooking(id: string) {
   return updateBookingStatus(id, 'DECLINED')
 }

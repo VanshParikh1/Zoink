@@ -241,6 +241,16 @@ export default function BookingDetailScreen() {
             </>
           ) : null}
 
+          {isRenter && booking.status === 'ACCEPTED' ? (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => nav.navigate('Pay', { bookingId: booking.id })}
+              disabled={busy}
+            >
+              <Text style={styles.primaryText}>Pay now</Text>
+            </TouchableOpacity>
+          ) : null}
+
           {isOwner && booking.status === 'CONFIRMED' ? (
             <TouchableOpacity
               style={styles.primaryButton}

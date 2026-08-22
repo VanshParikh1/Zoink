@@ -54,6 +54,18 @@ export const acceptBooking = asyncHandler(async (req: Request, res: Response) =>
   return transitionBooking(req, res, 'ACCEPTED')
 })
 
+export const createBookingPaymentIntent = asyncHandler(async (req: Request, res: Response) => {
+  const renterId = (req as any).userId as string
+  const bookingId = req.params.id as string
+
+  const booking = await bookingService.createPaymentIntentForBooking(bookingId, renterId)
+  return res.json(booking)
+})
+
+export const confirmBookingPayment = asyncHandler(async (req: Request, res: Response) => {
+  return transitionBooking(req, res, 'CONFIRMED')
+})
+
 export const declineBooking = asyncHandler(async (req: Request, res: Response) => {
   return transitionBooking(req, res, 'DECLINED')
 })

@@ -17,6 +17,7 @@ import ListingDetailScreen from '../screens/ListingDetailScreen'
 import EditListingScreen from '../screens/EditListingScreen'
 import MyListingsScreen from '../screens/MyListingsScreen'
 import BookingRequestScreen from '../screens/BookingRequestScreen'
+import PayScreen from '../screens/PayScreen'
 import BookingHistoryScreen from '../screens/BookingHistoryScreen'
 import BookingRequestsScreen from '../screens/BookingRequestsScreen'
 import BookingDetailScreen from '../screens/BookingDetailScreen'
@@ -45,6 +46,7 @@ export type RootStackParamList = {
   EditListing: { listingId: string }
   MyListings: undefined
   BookingRequest: { listingId: string }
+  Pay: { bookingId: string }
   BookingHistory: undefined
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
@@ -87,8 +89,8 @@ function VerifiedAppStack() {
   }
 
   return (
-    <Stack.Navigator 
-      screenOptions={{ headerShown: false }} 
+    <Stack.Navigator
+      screenOptions={{ headerShown: false }}
       initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
       <Stack.Screen name="MainApp" component={MainAppScreen} />
@@ -97,6 +99,7 @@ function VerifiedAppStack() {
       <Stack.Screen name="EditListing" component={EditListingScreen} />
       <Stack.Screen name="MyListings" component={MyListingsScreen} />
       <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
+      <Stack.Screen name="Pay" component={PayScreen} />
       <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
       <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
