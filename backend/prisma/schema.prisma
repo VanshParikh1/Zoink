@@ -97,7 +97,6 @@ model Booking {
   startDate             DateTime
   endDate               DateTime
   totalPrice            Decimal            @db.Decimal(10, 2)
-  message               String?
   paymentStatus         PaymentStatus      @default(PENDING_AUTH)
   depositAmount         Decimal            @default(0) @db.Decimal(10, 2)
   commissionAmount      Decimal            @default(0) @db.Decimal(10, 2)
@@ -125,6 +124,7 @@ model Booking {
   renterId              String
   ownerId               String
   listingId             String
+  conversationId        String?
   completedAt           DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
@@ -132,6 +132,7 @@ model Booking {
   listing               Listing            @relation(fields: [listingId], references: [id])
   owner                 User               @relation("OwnerBookings", fields: [ownerId], references: [id])
   renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
+  conversation          Conversation?      @relation(fields: [conversationId], references: [id])
   reviewObligations     ReviewObligation[]
   reviews               Review[]
 
@@ -162,6 +163,7 @@ model Conversation {
   owner            User      @relation("OwnerConversations", fields: [ownerId], references: [id])
   renter           User      @relation("RenterConversations", fields: [renterId], references: [id])
   messages         Message[]
+  bookings         Booking[]
 
   @@unique([listingId, renterId])
   @@map("conversations")
@@ -339,6 +341,7 @@ enum VerificationStatus {
 enum BookingStatus {
   PENDING
   ACCEPTED
+  CONFIRMED
   PICKUP_PENDING
   DECLINED
   ACTIVE

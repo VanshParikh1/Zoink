@@ -177,7 +177,6 @@ export interface BookingResponse {
   startDate: string
   endDate: string
   totalPrice: number
-  message: string | null
   paymentStatus: PaymentStatus
   depositAmount: number
   commissionAmount: number
@@ -204,6 +203,7 @@ export interface BookingResponse {
   renterId: string
   ownerId: string
   listingId: string
+  conversationId: string | null
   completedAt: string | null
   createdAt: string
   updatedAt: string
