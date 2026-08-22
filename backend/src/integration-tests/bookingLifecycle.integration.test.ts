@@ -101,10 +101,7 @@ async function giveOwnerStripeAccount(ownerId: string) {
 // 1. Booking creation
 // ─────────────────────────────────────────────────────────────────────────────
 describe('createBooking', () => {
-  test('creates a PENDING booking with payment intent and correct financials', async () => {
-    if (!stripeAvailable) {
-      // Still runs — paymentService falls back to mock when Stripe is absent
-    }
+  test('creates a PENDING booking with a price snapshot and no payment intent yet', async () => {
     const { startDate, endDate } = futureDates(2, 3) // 3-day rental @ $20/day = $60
     const result = await bookingService.createBooking(renter.id, {
       listingId,
@@ -123,19 +120,71 @@ describe('createBooking', () => {
     assert.ok(result.commissionAmount > 0, 'commission should be positive')
     assert.ok(result.ownerPayout > 0, 'ownerPayout should be positive')
     assert.equal(result.insuranceFee, 0)
-    assert.ok(result.stripePaymentIntentId, 'paymentIntentId should be set')
-    assert.ok(
-      result.paymentStatus === PaymentStatus.AUTHORIZED ||
-      result.paymentStatus === PaymentStatus.PENDING_AUTH,
-      `unexpected paymentStatus: ${result.paymentStatus}`
-    )
-    assert.ok(result.paymentClientSecret, 'clientSecret should be returned for frontend PaymentSheet')
+    // Payment now only happens once the lender accepts and the borrower pays
+    // on the Pay screen — createBooking no longer touches Stripe at all.
+    assert.equal(result.stripePaymentIntentId, null, 'no payment intent should exist yet')
+    assert.equal(result.paymentStatus, PaymentStatus.PENDING_AUTH)
+    assert.equal(result.paymentClientSecret, undefined, 'no clientSecret until the Pay step')
 
     // Verify persisted in DB
     const db = getTestPrisma()
     const booking = await db.booking.findUniqueOrThrow({ where: { id: result.id } })
     assert.equal(booking.status, BookingStatus.PENDING)
-    assert.ok(booking.stripePaymentIntentId)
+    assert.equal(booking.stripePaymentIntentId, null)
+  })
+
+  test('creates a Conversation and posts the request message into it, rather than storing it on the booking', async () => {
+    const { startDate, endDate } = futureDates(2, 3)
+    const result = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      message: 'Can I pick it up in the morning?',
+    })
+
+    assert.ok(result.conversationId, 'booking should be linked to a conversation')
+
+    const db = getTestPrisma()
+    const conversation = await db.conversation.findUniqueOrThrow({ where: { id: result.conversationId! } })
+    assert.equal(conversation.listingId, listingId)
+    assert.equal(conversation.renterId, renter.id)
+    assert.equal(conversation.ownerId, owner.id)
+
+    const messages = await db.message.findMany({ where: { conversationId: conversation.id } })
+    assert.equal(messages.length, 1)
+    assert.equal(messages[0].body, 'Can I pick it up in the morning?')
+    assert.equal(messages[0].senderId, renter.id)
+  })
+
+  test('reuses the existing conversation for a second booking on the same listing/renter pair', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const first = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    const { startDate: s2, endDate: e2 } = futureDates(20, 2)
+    const second = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(s2),
+      endDate: new Date(e2),
+    })
+
+    assert.equal(first.conversationId, second.conversationId)
+  })
+
+  test('does not create a conversation message when no request message is provided', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const result = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    const db = getTestPrisma()
+    const messages = await db.message.findMany({ where: { conversationId: result.conversationId! } })
+    assert.equal(messages.length, 0)
   })
 
   test('creates booking with insurance when insuranceOptIn=true', async () => {
@@ -302,21 +351,31 @@ describe('owner accept / decline', () => {
 // 3. Pickup handoff — photos + Zoink It tap → ACTIVE
 // ─────────────────────────────────────────────────────────────────────────────
 describe('pickup handoff', () => {
-  // Helper: creates an ACCEPTED booking ready for handoff
+  // Helper: creates a CONFIRMED booking ready for handoff (paid — pickup can
+  // only start once the booking has cleared the ACCEPTED -> CONFIRMED payment
+  // step). Sets up the CONFIRMED precondition with a direct write, same as
+  // makeActiveBooking() below does for ACTIVE — the Pay screen's own request
+  // -> accept -> pay -> confirm path is exercised separately in the
+  // "confirm payment" tests, not re-walked here.
   async function makeAcceptedBooking() {
     await giveOwnerStripeAccount(owner.id)
     const { startDate, endDate } = futureDates(2, 2)
-    const booking = await bookingService.createBooking(renter.id, {
+    const created = await bookingService.createBooking(renter.id, {
       listingId,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
     })
     const db = getTestPrisma()
     await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
+      where: { id: created.id },
+      data: {
+        status: BookingStatus.CONFIRMED,
+        paymentStatus: PaymentStatus.AUTHORIZED,
+        stripePaymentIntentId: `pi_mock_confirmed_${Date.now()}`,
+        version: { increment: 1 },
+      },
     })
-    return bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    return bookingService.getBookingById(created.id, owner.id)
   }
 
   test('owner initiates pickup — booking moves to PICKUP_PENDING', async () => {
@@ -679,7 +738,7 @@ describe('return handoff and completion', () => {
 // 5. Full end-to-end happy path via HTTP (supertest)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('full happy path via HTTP', () => {
-  test('POST /bookings creates booking and returns 201 with clientSecret', async () => {
+  test('POST /bookings creates a PENDING booking with no payment intent yet', async () => {
     const app = getApp()
     const { startDate, endDate } = futureDates(3, 2)
 
@@ -691,8 +750,8 @@ describe('full happy path via HTTP', () => {
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`)
     assert.equal(res.body.status, 'PENDING')
     assert.ok(res.body.id, 'booking id should be present')
-    assert.ok(res.body.stripePaymentIntentId, 'payment intent id should be present')
-    assert.ok('paymentClientSecret' in res.body, 'paymentClientSecret should be in response')
+    assert.equal(res.body.stripePaymentIntentId, null, 'no payment intent until the Pay step')
+    assert.ok(res.body.conversationId, 'booking should be linked to a conversation')
   })
 
   test('GET /bookings/:id returns booking for renter', async () => {

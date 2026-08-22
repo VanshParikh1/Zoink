@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +12,6 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import HardBlock from '../components/HardBlock'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -19,9 +20,8 @@ import { getListing } from '../services/listingsApi'
 import { createBooking } from '../services/bookingsApi'
 import { Listing } from '../types'
 import { theme } from '../theme/colors'
-import { useStripe } from '@stripe/stripe-react-native'
-import { isStripePublishableKeyConfigured } from '../config/stripe'
-import { useAuth } from '../context/AuthContext'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -108,13 +108,11 @@ function buildMonthDays(monthDate: Date) {
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
-  const { user } = useAuth()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [insuranceOptIn, setInsuranceOptIn] = useState(false)
-  const { initPaymentSheet, presentPaymentSheet } = useStripe()
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
@@ -182,16 +180,6 @@ export default function BookingRequestScreen() {
     setSubmitting(true)
 
     try {
-      if (!isStripePublishableKeyConfigured()) {
-        const message = 'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
-        setPaymentError(message)
-        Alert.alert(
-          'Stripe key missing',
-          message
-        )
-        return
-      }
-
       const booking = await createBooking({
         listingId: listing.id,
         startDate: `${formatApiDate(startDate)}T00:00:00.000Z`,
@@ -199,29 +187,6 @@ export default function BookingRequestScreen() {
         message,
         insuranceOptIn,
       })
-
-      if (booking.paymentClientSecret) {
-        const { error: initError } = await initPaymentSheet({
-          merchantDisplayName: 'Zoink',
-          paymentIntentClientSecret: booking.paymentClientSecret,
-          defaultBillingDetails: { name: user?.firstName },
-          allowsDelayedPaymentMethods: true,
-          returnURL: 'zoink://stripe-redirect',
-        })
-
-        if (initError) {
-          setPaymentError(initError.message)
-          Alert.alert('Payment Setup Error', initError.message)
-          return
-        }
-
-        const { error: presentError } = await presentPaymentSheet()
-        if (presentError) {
-          setPaymentError(presentError.message)
-          Alert.alert('Payment Failed or Canceled', presentError.message)
-          return
-        }
-      }
 
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
@@ -244,7 +209,9 @@ export default function BookingRequestScreen() {
   if (!listing) return null
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
       <TouchableOpacity onPress={() => nav.goBack()}>
         <Text style={styles.backText}>Back</Text>
@@ -403,7 +370,9 @@ export default function BookingRequestScreen() {
         </TouchableOpacity>
       </View>
       </ScrollView>
-    </ScreenBackground>
+      </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

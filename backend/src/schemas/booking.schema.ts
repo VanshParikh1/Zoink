@@ -7,13 +7,15 @@ import { z } from 'zod'
  *   - listingId   String
  *   - startDate   DateTime
  *   - endDate     DateTime
- *   - message     String?
  *   - insuranceOptIn Boolean @default(false)
  */
 
 /**
  * POST /bookings
  * Requires listingId + ISO-8601 date strings; endDate must be after startDate.
+ * `message`, if present, is not stored on Booking (it has no message column) —
+ * bookingService.createBooking posts it as the first Message in the
+ * request's Conversation instead.
  */
 export const CreateBookingSchema = z.object({
   body: z

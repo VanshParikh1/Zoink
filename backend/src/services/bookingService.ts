@@ -329,12 +329,31 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const ownerPayout = calculateOwnerPayout(totalPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
 
-  const booking = await prisma.$transaction(async (tx) => {
+  const trimmedMessage = input.message?.trim() || null
+
+  const booking: any = await prisma.$transaction(async (tx) => {
+    const conversation = await tx.conversation.upsert({
+      where: {
+        listingId_renterId: {
+          listingId: listing.id,
+          renterId,
+        },
+      },
+      update: {},
+      create: {
+        listingId: listing.id,
+        renterId,
+        ownerId: listing.ownerId,
+      },
+      select: { id: true },
+    })
+
     const created: any = await tx.booking.create({
       data: {
         listingId: listing.id,
         renterId,
         ownerId: listing.ownerId,
+        conversationId: conversation.id,
         startDate: input.startDate,
         endDate: input.endDate,
         totalPrice: toDecimal(totalPrice),
@@ -351,32 +370,17 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       status: created.status,
     })
 
+    if (trimmedMessage) {
+      await tx.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: renterId,
+          body: trimmedMessage,
+        },
+      })
+    }
+
     return created
-  })
-
-  const paymentIntent = await createPaymentIntent(booking, booking.renter.stripeCustomerId)
-  const paymentStatus = getMockAuthorizedPaymentStatus()
-
-  const bookingWithPayment: any = await prisma.$transaction(async (tx) => {
-    await tx.booking.update({
-      where: { id: booking.id },
-      data: {
-        stripePaymentIntentId: paymentIntent.id,
-        paymentStatus,
-        version: { increment: 1 },
-      },
-    })
-
-    await createBookingEvent(tx, booking.id, renterId, BookingEventType.PAYMENT_INTENT_CREATED, {
-      paymentIntentId: paymentIntent.id,
-      status: paymentIntent.status,
-      paymentStatus,
-    })
-
-    return tx.booking.findUniqueOrThrow({
-      where: { id: booking.id },
-      select: bookingSelect as any,
-    })
   })
 
   void notifyUser({
@@ -387,10 +391,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     data: { bookingId: booking.id, listingId: listing.id },
   })
 
-  return {
-    ...toBookingResponse(bookingWithPayment),
-    paymentClientSecret: paymentIntent.client_secret ?? null,
-  }
+  return toBookingResponse(booking)
 }
 
 export async function getBookingById(bookingId: string, userId: string): Promise<BookingResponse> {
