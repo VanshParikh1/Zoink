@@ -11,6 +11,7 @@ import {
   View,
   Image,
 } from 'react-native'
+import { ScrollView as GestureHandlerScrollView } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
@@ -210,7 +211,7 @@ export default function SearchScreen() {
   }
 
   const renderCategoryChips = () => (
-    <ScrollView
+    <GestureHandlerScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={styles.chipsScroll}
@@ -235,7 +236,7 @@ export default function SearchScreen() {
           </TouchableOpacity>
         )
       })}
-    </ScrollView>
+    </GestureHandlerScrollView>
   )
 
   const renderHeaderComponent = () => (
