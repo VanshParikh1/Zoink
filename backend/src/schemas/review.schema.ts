@@ -17,6 +17,7 @@ export const SubmitReviewSchema = z.object({
     scoreA: z.number().int('scoreA must be a whole number.').min(1).max(5),
     scoreB: z.number().int('scoreB must be a whole number.').min(1).max(5),
     scoreC: z.number().int('scoreC must be a whole number.').min(1).max(5),
-    comment: z.string().max(280, 'comment cannot exceed 280 characters.').optional(),
+    itemRating: z.number().int('itemRating must be a whole number.').min(1).max(5),
+    itemNotes: z.string().max(280, 'itemNotes cannot exceed 280 characters.').optional(),
   }),
 })

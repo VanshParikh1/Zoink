@@ -24,6 +24,7 @@ const validReviewBody = {
   scoreA: 5,
   scoreB: 4,
   scoreC: 3,
+  itemRating: 4,
 }
 
 test('validate(SubmitReviewSchema) accepts a well-formed review', () => {
@@ -42,7 +43,7 @@ test('validate(SubmitReviewSchema) rejects a non-UUID obligationId', () => {
   assert.ok(paths.includes('body.obligationId'), 'should flag a non-UUID obligationId')
 })
 
-for (const key of ['scoreA', 'scoreB', 'scoreC'] as const) {
+for (const key of ['scoreA', 'scoreB', 'scoreC', 'itemRating'] as const) {
   test(`validate(SubmitReviewSchema) rejects ${key} below 1`, () => {
     const { capturedError, req, res } = runValidate({ ...validReviewBody, [key]: 0 })
 
@@ -77,15 +78,15 @@ for (const key of ['scoreA', 'scoreB', 'scoreC'] as const) {
   })
 }
 
-test('validate(SubmitReviewSchema) rejects a comment over 280 characters', () => {
-  const { capturedError, req, res } = runValidate({ ...validReviewBody, comment: 'C'.repeat(281) })
+test('validate(SubmitReviewSchema) rejects itemNotes over 280 characters', () => {
+  const { capturedError, req, res } = runValidate({ ...validReviewBody, itemNotes: 'C'.repeat(281) })
 
   assert.ok(capturedError, 'ZodError should be passed to next()')
   errorHandler(capturedError, req, res as any, () => {})
 
   assert.equal(res.statusCode, 400)
   const paths = (res.body as any).issues.map((i: any) => i.path)
-  assert.ok(paths.includes('body.comment'), 'should flag comment over 280 characters')
+  assert.ok(paths.includes('body.itemNotes'), 'should flag itemNotes over 280 characters')
 })
 
 const originalSubmitReview = reviewService.submitReview

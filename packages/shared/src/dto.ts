@@ -131,7 +131,8 @@ export interface ReviewResponse {
   scoreA: number
   scoreB: number
   scoreC: number
-  comment: string | null
+  itemRating: number | null
+  itemNotes: string | null
   createdAt: string
 }
 

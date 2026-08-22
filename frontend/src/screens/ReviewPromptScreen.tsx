@@ -1,6 +1,7 @@
 ﻿import React, { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Feather } from '@expo/vector-icons'
 import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -48,7 +49,8 @@ export default function ReviewPromptScreen() {
   const route = useRoute<ScreenRoute>()
   const review = route.params.review
   const [scores, setScores] = useState(defaultScores())
-  const [comment, setComment] = useState('')
+  const [itemRating, setItemRating] = useState(0)
+  const [itemNotes, setItemNotes] = useState('')
   const [busy, setBusy] = useState(false)
 
   const scoreRows = useMemo(
@@ -66,6 +68,11 @@ export default function ReviewPromptScreen() {
       return
     }
 
+    if (!itemRating) {
+      Alert.alert('Missing item rating', 'Please rate the item itself before continuing.')
+      return
+    }
+
     setBusy(true)
     try {
       const result = await submitReview({
@@ -73,7 +80,8 @@ export default function ReviewPromptScreen() {
         scoreA: scores.scoreA,
         scoreB: scores.scoreB,
         scoreC: scores.scoreC,
-        comment,
+        itemRating,
+        itemNotes,
       })
 
       if (result.pendingRemaining > 0) {
@@ -133,14 +141,35 @@ export default function ReviewPromptScreen() {
           </View>
         ))}
 
-        <Text style={styles.inputLabel}>Short note</Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.metricLabel}>How was the item itself?</Text>
+        <View style={styles.starRow}>
+          {SCALE.map((value) => {
+            const filled = value <= itemRating
+            return (
+              <TouchableOpacity
+                key={value}
+                onPress={() => setItemRating(value)}
+                disabled={busy}
+                style={styles.starButton}
+                accessibilityLabel={`Rate the item ${value} out of 5 stars`}
+              >
+                <Feather name="star" size={30} color={filled ? theme.primary : theme.border} />
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        <Text style={styles.inputLabel}>Notes about the item</Text>
         <TextInput
-          value={comment}
-          onChangeText={setComment}
+          value={itemNotes}
+          onChangeText={setItemNotes}
           editable={!busy}
           multiline
           maxLength={280}
-          placeholder="What should the next student know?"
+          placeholder="How did the item hold up? Anything the next renter should know?"
           placeholderTextColor={theme.textMuted}
           style={styles.input}
         />
@@ -190,6 +219,8 @@ const styles = StyleSheet.create({
   },
   scaleText: { color: theme.text, fontSize: 15, fontWeight: '800' },
   scaleTextActive: { color: theme.textOnPrimary },
+  starRow: { flexDirection: 'row', gap: 6 },
+  starButton: { padding: 4 },
   inputLabel: { color: theme.text, fontSize: 15, fontWeight: '800' },
   input: {
     minHeight: 110,

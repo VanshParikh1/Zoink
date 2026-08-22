@@ -8,7 +8,8 @@ export type SubmitReviewPayload = {
   scoreA: number
   scoreB: number
   scoreC: number
-  comment?: string
+  itemRating: number
+  itemNotes?: string
 }
 
 export async function getPendingReviews(): Promise<PendingReview[]> {

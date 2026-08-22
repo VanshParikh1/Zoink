@@ -9,7 +9,8 @@ type SubmitReviewInput = {
   scoreA: number
   scoreB: number
   scoreC: number
-  comment?: string
+  itemRating: number
+  itemNotes?: string
 }
 
 function average(values: number[]) {
@@ -118,6 +119,12 @@ function assertScore(value: number) {
   }
 }
 
+function assertItemRating(value: number) {
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    throw new BadRequestError('Item rating must be a whole number between 1 and 5.')
+  }
+}
+
 export async function getPendingReviews(userId: string): Promise<PendingReviewResponse[]> {
   const obligations = await prisma.reviewObligation.findMany({
     where: {
@@ -195,6 +202,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
   assertScore(input.scoreA)
   assertScore(input.scoreB)
   assertScore(input.scoreC)
+  assertItemRating(input.itemRating)
 
   const obligation = await prisma.reviewObligation.findUnique({
     where: { id: input.obligationId },
@@ -253,7 +261,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     throw new BadRequestError('This rental is not ready for review yet.')
   }
 
-  const comment = input.comment?.trim() || null
+  const itemNotes = input.itemNotes?.trim() || null
 
   const result = await prisma.$transaction(async (tx) => {
     const review = await tx.review.create({
@@ -265,7 +273,8 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreA: input.scoreA,
         scoreB: input.scoreB,
         scoreC: input.scoreC,
-        comment,
+        itemRating: input.itemRating,
+        itemNotes,
       },
       select: {
         id: true,
@@ -276,7 +285,8 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreA: true,
         scoreB: true,
         scoreC: true,
-        comment: true,
+        itemRating: true,
+        itemNotes: true,
         createdAt: true,
       },
     })

@@ -185,7 +185,11 @@ model Review {
   scoreA       Int
   scoreB       Int
   scoreC       Int
-  comment      String?
+  // Item/listing-scoped rating+notes ("How was the item itself?") — separate
+  // from scoreA/B/C, which stay person-directed. Nullable because reviews
+  // submitted before this field existed never collected one.
+  itemRating   Int?
+  itemNotes    String?
   reviewerId   String
   revieweeId   String
   bookingId    String
