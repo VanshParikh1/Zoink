@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import StateCard from '../components/StateCard'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -8,6 +7,8 @@ import { RootStackParamList } from '../navigation'
 import { listReports, resolveReport } from '../services/adminApi'
 import { AdminReportListItem, ReportStatus } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -103,7 +104,8 @@ export default function AdminReportsScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
       <FlatList
         data={reports}
         keyExtractor={(item) => item.id}
@@ -172,7 +174,10 @@ export default function AdminReportsScreen() {
       />
 
       <Modal visible={!!activeReport} animationType="slide" transparent onRequestClose={() => setActiveReport(null)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Resolve report</Text>
             {activeReport ? (
@@ -220,9 +225,10 @@ export default function AdminReportsScreen() {
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

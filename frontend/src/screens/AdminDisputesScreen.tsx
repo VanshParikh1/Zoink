@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
 import StateCard from '../components/StateCard'
 import HardBlock from '../components/HardBlock'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
@@ -9,6 +8,7 @@ import { RootStackParamList } from '../navigation'
 import { listDisputes } from '../services/adminApi'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 

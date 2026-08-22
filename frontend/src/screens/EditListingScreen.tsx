@@ -13,7 +13,6 @@ import {
   Platform,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import * as ImagePicker from 'expo-image-picker'
 import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -27,6 +26,8 @@ import {
 import { Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -57,6 +58,7 @@ export default function EditListingScreen() {
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [dailyPrice, setDailyPrice] = useState('')
+  const [itemValue, setItemValue] = useState('')
   const [deposit, setDeposit] = useState('')
   const [city, setCity] = useState('')
 
@@ -72,6 +74,7 @@ export default function EditListingScreen() {
           setDescription(data.description)
           setCategory(data.category)
           setDailyPrice(String(Number(data.dailyPrice)))
+          setItemValue(Number(data.itemValue) ? String(Number(data.itemValue)) : '')
           setDeposit(Number(data.depositAmount) ? String(Number(data.depositAmount)) : '')
           setCity(data.city)
         } catch {
@@ -104,6 +107,22 @@ export default function EditListingScreen() {
       return
     }
 
+    const parsedItemValue = itemValue.trim() ? parseFloat(itemValue) : 0
+    if (itemValue.trim() && (isNaN(parsedItemValue) || parsedItemValue < 0)) {
+      Alert.alert('Invalid item value', 'Item value must be zero or more.')
+      return
+    }
+
+    if (deposit.trim() && !itemValue.trim()) {
+      Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
+      return
+    }
+
+    if (deposit.trim() && itemValue.trim() && parsedDeposit > parsedItemValue) {
+      Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -112,6 +131,7 @@ export default function EditListingScreen() {
         description: description.trim(),
         category,
         dailyPrice: price,
+        itemValue: itemValue.trim() ? parsedItemValue : undefined,
         depositAmount: deposit.trim() ? parsedDeposit : 0,
         city: city.trim(),
       })
@@ -184,8 +204,9 @@ export default function EditListingScreen() {
   }
 
   return (
-    <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>{'< Back'}</Text>
@@ -262,6 +283,19 @@ export default function EditListingScreen() {
           />
         </View>
 
+        <Text style={styles.label}>Item value <Text style={styles.optional}>(optional)</Text></Text>
+        <View style={styles.priceRow}>
+          <Text style={styles.currency}>$</Text>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={itemValue}
+            onChangeText={setItemValue}
+            placeholder={deposit.trim() ? '0' : 'Optional'}
+            placeholderTextColor={theme.textDisabled}
+            keyboardType="decimal-pad"
+          />
+        </View>
+
         <Text style={styles.label}>Deposit <Text style={styles.optional}>(optional)</Text></Text>
         <View style={styles.priceRow}>
           <Text style={styles.currency}>$</Text>
@@ -295,7 +329,8 @@ export default function EditListingScreen() {
         <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

@@ -6,13 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 export default function VerifyEmailScreen() {
   const { user, setVerified } = useAuth()
@@ -79,7 +82,9 @@ export default function VerifyEmailScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         <ZoinkLogo size={40} style={styles.logo} />
         <Text style={styles.title}>Check your email</Text>
@@ -122,7 +127,9 @@ export default function VerifyEmailScreen() {
 
         {resendMessage ? <Text style={styles.resendMessage}>{resendMessage}</Text> : null}
       </View>
-    </ScreenBackground>
+      </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

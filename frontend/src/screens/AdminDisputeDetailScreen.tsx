@@ -1,12 +1,13 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'AdminDisputeDetail'>
@@ -34,6 +35,60 @@ const OUTCOME_LABELS: Record<string, string> = {
 }
 
 const ACTIVE_STATUSES = ['OPEN', 'UNDER_REVIEW']
+
+const EVENT_LABELS: Record<string, string> = {
+  STATUS_CHANGE: 'Status changed',
+  PAYMENT_INTENT_CREATED: 'Payment intent created',
+  PAYMENT_CAPTURED: 'Payment captured',
+  PAYMENT_REFUNDED: 'Payment refunded',
+  PAYOUT_TRIGGERED: 'Payout triggered',
+  ZOINK_TAP: 'Zoink tap',
+  UPLOAD_PHOTOS: 'Photos uploaded',
+  DISPUTE_OPENED: 'Dispute opened',
+  DISPUTE_RESOLVED: 'Dispute resolved',
+  WEBHOOK_RECEIVED: 'Webhook received',
+  RECONCILIATION_MATCH: 'Reconciliation matched',
+  RECONCILIATION_MISMATCH: 'Reconciliation mismatch',
+  ERROR: 'Error',
+}
+
+type EventAccent = 'neutral' | 'success' | 'warning' | 'danger'
+
+const EVENT_ACCENTS: Record<string, EventAccent> = {
+  PAYMENT_CAPTURED: 'success',
+  PAYOUT_TRIGGERED: 'success',
+  DISPUTE_RESOLVED: 'success',
+  RECONCILIATION_MATCH: 'success',
+  PAYMENT_REFUNDED: 'warning',
+  DISPUTE_OPENED: 'warning',
+  RECONCILIATION_MISMATCH: 'danger',
+  ERROR: 'danger',
+}
+
+function eventAccentColor(type: string) {
+  const accent: EventAccent = EVENT_ACCENTS[type] ?? 'neutral'
+  if (accent === 'success') return theme.primaryDeep
+  if (accent === 'warning') return theme.warning
+  if (accent === 'danger') return theme.danger
+  return theme.textMuted
+}
+
+// Event metadata is a small flat object in practice (e.g. { disputeId, reason }).
+// Render it as readable key/value pairs; fall back to raw JSON for anything
+// that isn't a plain object (arrays, primitives, nested error payloads).
+function formatMetadataEntries(metadata: unknown): { key: string; value: string }[] | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+
+  const entries = Object.entries(metadata as Record<string, unknown>)
+  if (entries.length === 0) return null
+
+  return entries.map(([key, value]) => ({
+    key: key
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, (c) => c.toUpperCase()),
+    value: value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value),
+  }))
+}
 
 export default function AdminDisputeDetailScreen() {
   const nav = useNavigation<Nav>()
@@ -114,8 +169,8 @@ export default function AdminDisputeDetailScreen() {
       }
       if (cents > totalPriceCents) {
         Alert.alert(
-          'Invalid refund amount',
-          `Refund cannot exceed the booking total of $${Number(dispute!.booking.totalPrice).toFixed(2)}.`
+          'Refund too high',
+          `You cannot refund more than the total amount of $${Number(dispute!.booking.totalPrice).toFixed(2)}.`
         )
         return
       }
@@ -152,9 +207,16 @@ export default function AdminDisputeDetailScreen() {
   const isActive = ACTIVE_STATUSES.includes(dispute.status)
   const hasPickupPhotos = dispute.booking.pickupPhotos.length > 0
   const hasReturnPhotos = dispute.booking.returnPhotos.length > 0
+  const refundExceedsTotal =
+    resolution === 'RESOLVED_REFUND' &&
+    refundAmountInput.trim() !== '' &&
+    Number.isFinite(Number(refundAmountInput)) &&
+    Math.round(Number(refundAmountInput) * 100) > Math.round(Number(dispute.booking.totalPrice) * 100)
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
         <TouchableOpacity onPress={() => nav.goBack()}>
           <Text style={styles.backText}>Back</Text>
@@ -273,8 +335,13 @@ export default function AdminDisputeDetailScreen() {
                   keyboardType="decimal-pad"
                   placeholder="0.00"
                   placeholderTextColor={theme.textMuted}
-                  style={styles.input}
+                  style={[styles.input, refundExceedsTotal ? styles.inputError : null]}
                 />
+                {refundExceedsTotal ? (
+                  <Text style={styles.errorNote}>
+                    You cannot refund more than the total amount of ${Number(dispute.booking.totalPrice).toFixed(2)}.
+                  </Text>
+                ) : null}
               </>
             ) : null}
 
@@ -297,35 +364,73 @@ export default function AdminDisputeDetailScreen() {
         )}
 
         <View style={styles.card}>
-          <TouchableOpacity onPress={handleToggleAuditTrail}>
-            <Text style={styles.sectionTitle}>Audit trail {auditExpanded ? '▲' : '▼'}</Text>
+          <TouchableOpacity onPress={handleToggleAuditTrail} style={styles.auditToggle} activeOpacity={0.7}>
+            <View style={styles.auditToggleLeft}>
+              <Text style={styles.sectionTitle}>Audit trail</Text>
+              {events && events.length > 0 ? (
+                <View style={styles.auditCountBadge}>
+                  <Text style={styles.auditCountText}>{events.length}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={styles.auditChevron}>{auditExpanded ? '▲' : '▼'}</Text>
           </TouchableOpacity>
 
           {auditExpanded ? (
             eventsLoading ? (
-              <ActivityIndicator color={theme.primary} />
+              <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
             ) : !events || events.length === 0 ? (
               <Text style={styles.bodyText}>No events recorded for this booking.</Text>
             ) : (
               <View style={styles.chipsColumn}>
-                {events.map((event) => (
-                  <View key={event.id} style={styles.auditRow}>
-                    <View style={styles.row}>
-                      <Text style={styles.value}>{event.type.replace(/_/g, ' ')}</Text>
-                      <Text style={styles.label}>{new Date(event.createdAt).toLocaleString()}</Text>
+                {events.map((event) => {
+                  const accentColor = eventAccentColor(event.type)
+                  const metadataEntries = formatMetadataEntries(event.metadata)
+                  const eventDate = new Date(event.createdAt)
+
+                  return (
+                    <View key={event.id} style={styles.auditRow}>
+                      <View style={styles.auditHeaderRow}>
+                        <View style={styles.auditTypeRow}>
+                          <View style={[styles.auditDot, { backgroundColor: accentColor }]} />
+                          <Text style={[styles.auditEventType, { color: accentColor }]}>
+                            {EVENT_LABELS[event.type] ?? event.type.replace(/_/g, ' ')}
+                          </Text>
+                        </View>
+                        <Text style={styles.auditTime}>
+                          {eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          {'  '}
+                          {eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.auditActor}>
+                        {event.actorId ? `Actor · ${event.actorId}` : 'System · automated'}
+                      </Text>
+
+                      {metadataEntries ? (
+                        <View style={styles.auditMetadataBox}>
+                          {metadataEntries.map((entry) => (
+                            <View key={entry.key} style={styles.auditMetadataRow}>
+                              <Text style={styles.auditMetadataKey}>{entry.key}</Text>
+                              <Text style={styles.auditMetadataValue} numberOfLines={2}>
+                                {entry.value}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
-                    <Text style={styles.label}>Actor: {event.actorId ?? 'System'}</Text>
-                    {event.metadata ? (
-                      <Text style={styles.auditMetadata}>{JSON.stringify(event.metadata)}</Text>
-                    ) : null}
-                  </View>
-                ))}
+                  )
+                })}
               </View>
             )
           ) : null}
         </View>
       </ScrollView>
-    </ScreenBackground>
+      </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 
@@ -353,15 +458,71 @@ const styles = StyleSheet.create({
   label: { color: theme.textMuted, fontSize: 14, flex: 1 },
   value: { color: theme.text, fontSize: 14, fontWeight: '700' },
   chipsColumn: { gap: 10 },
+  auditToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  auditToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  auditCountBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    backgroundColor: theme.primarySurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  auditCountText: { color: theme.primaryDeep, fontSize: 11, fontWeight: '900' },
+  auditChevron: { color: theme.textMuted, fontSize: 12 },
   auditRow: {
     borderRadius: theme.radius.sm,
     borderWidth: theme.hard.borderThin,
     borderColor: theme.hard.ink,
     backgroundColor: theme.surfaceSubdued,
     padding: 12,
+    gap: 6,
+  },
+  auditHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  auditTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+  },
+  auditDot: { width: 8, height: 8, borderRadius: 4 },
+  auditEventType: { fontSize: 13, fontWeight: '800', textTransform: 'capitalize', flexShrink: 1 },
+  auditTime: { color: theme.textMuted, fontSize: 12, fontWeight: '600' },
+  auditActor: { color: theme.textMuted, fontSize: 12 },
+  auditMetadataBox: {
+    marginTop: 4,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
     gap: 4,
   },
-  auditMetadata: { color: theme.textMuted, fontSize: 12, fontFamily: 'Courier' },
+  auditMetadataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  auditMetadataKey: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
+  auditMetadataValue: {
+    color: theme.text,
+    fontSize: 12,
+    fontFamily: 'Courier',
+    flexShrink: 1,
+    textAlign: 'right',
+  },
   chip: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -384,6 +545,15 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontSize: 15,
     textAlignVertical: 'top',
+  },
+  inputError: {
+    borderColor: theme.danger,
+  },
+  errorNote: {
+    color: theme.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 6,
   },
   submitButton: {
     backgroundColor: theme.primary,

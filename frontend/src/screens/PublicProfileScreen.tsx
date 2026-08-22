@@ -9,7 +9,6 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
@@ -18,6 +17,7 @@ import { getPublicProfile } from '../services/usersApi'
 import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'PublicProfile'>

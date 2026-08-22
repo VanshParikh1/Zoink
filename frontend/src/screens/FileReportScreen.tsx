@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createReport } from '../services/reportsApi'
 import { ReportReason } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileReport'>
@@ -60,8 +61,9 @@ export default function FileReportScreen() {
   }
 
   return (
-    <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content}>
           <TouchableOpacity onPress={() => nav.goBack()}>
             <Text style={styles.backText}>Back</Text>
@@ -109,7 +111,8 @@ export default function FileReportScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

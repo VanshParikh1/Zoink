@@ -16,7 +16,7 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import LocationMapPreview from '../components/LocationMapPreview'
 import LocationMapModal from '../components/LocationMapModal'
 import * as ImagePicker from 'expo-image-picker'
@@ -28,6 +28,7 @@ import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Step = 1 | 2 | 3 | 4 | 5
@@ -37,6 +38,7 @@ type FormData = {
   category: string
   description: string
   dailyPrice: string
+  itemValue: string
   deposit: string
   availableNow: boolean
   city: string
@@ -66,6 +68,7 @@ function getProgress(step: Step) {
 
 export default function CreateListingScreen() {
   const nav = useNavigation<Nav>()
+  const insets = useSafeAreaInsets()
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
   const [photos, setPhotos] = useState<string[]>([])
@@ -74,6 +77,7 @@ export default function CreateListingScreen() {
     category: '',
     description: '',
     dailyPrice: '',
+    itemValue: '',
     deposit: '',
     availableNow: true,
     city: DEFAULT_CITY,
@@ -166,6 +170,7 @@ export default function CreateListingScreen() {
     [step]
   )
   const parsedDailyPrice = useMemo(() => Number.parseFloat(formData.dailyPrice || '0') || 0, [formData.dailyPrice])
+  const parsedItemValue = useMemo(() => Number.parseFloat(formData.itemValue || '0') || 0, [formData.itemValue])
   const parsedDeposit = useMemo(() => Number.parseFloat(formData.deposit || '0') || 0, [formData.deposit])
 
   function updateForm<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -236,6 +241,21 @@ export default function CreateListingScreen() {
         return
       }
 
+      if (formData.itemValue.trim() && (Number.isNaN(parsedItemValue) || parsedItemValue < 0)) {
+        Alert.alert('Invalid item value', 'Item value must be zero or more.')
+        return
+      }
+
+      if (formData.deposit.trim() && !formData.itemValue.trim()) {
+        Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
+        return
+      }
+
+      if (formData.deposit.trim() && formData.itemValue.trim() && parsedDeposit > parsedItemValue) {
+        Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
+        return
+      }
+
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
       setStep(3)
       return
@@ -287,6 +307,7 @@ export default function CreateListingScreen() {
         description: formData.description.trim(),
         category: formData.category,
         dailyPrice: parsedDailyPrice,
+        itemValue: formData.itemValue.trim() ? parsedItemValue : undefined,
         depositAmount: formData.deposit.trim() ? parsedDeposit : undefined,
         city: formData.city.trim(),
         latitude: coords.latitude,
@@ -404,6 +425,18 @@ export default function CreateListingScreen() {
 
         <View style={styles.twoColumnRow}>
           <View style={[styles.fieldGroup, styles.twoColumnField]}>
+            <Text style={styles.label}>Item value</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={formData.deposit.trim() ? '0' : 'Optional'}
+              placeholderTextColor={theme.textDisabled}
+              value={formData.itemValue}
+              onChangeText={(value) => updateForm('itemValue', value)}
+              keyboardType="decimal-pad"
+            />
+          </View>
+
+          <View style={[styles.fieldGroup, styles.twoColumnField]}>
             <Text style={styles.label}>Deposit</Text>
             <TextInput
               style={styles.input}
@@ -414,24 +447,24 @@ export default function CreateListingScreen() {
               keyboardType="decimal-pad"
             />
           </View>
+        </View>
 
-          <View style={[styles.fieldGroup, styles.twoColumnField]}>
-            <Text style={styles.label}>Available now</Text>
-            <View style={styles.toggleCard}>
-              <Text style={styles.toggleLabel}>{formData.availableNow ? 'Live on publish' : 'Keep paused'}</Text>
-              <View style={styles.toggleSwitchWrap}>
-                <Switch
-                  value={formData.availableNow}
-                  onValueChange={(value) => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                    updateForm('availableNow', value)
-                  }}
-                  trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
-                  thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
-                  ios_backgroundColor={theme.surfaceSubdued}
-                  style={styles.toggleSwitch}
-                />
-              </View>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Available now</Text>
+          <View style={styles.toggleCard}>
+            <Text style={styles.toggleLabel}>{formData.availableNow ? 'Live on publish' : 'Keep paused'}</Text>
+            <View style={styles.toggleSwitchWrap}>
+              <Switch
+                value={formData.availableNow}
+                onValueChange={(value) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  updateForm('availableNow', value)
+                }}
+                trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
+                thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
+                ios_backgroundColor={theme.surfaceSubdued}
+                style={styles.toggleSwitch}
+              />
             </View>
           </View>
         </View>
@@ -596,6 +629,9 @@ export default function CreateListingScreen() {
             </View>
             <Text style={styles.reviewPrice}>${parsedDailyPrice.toFixed(2)} / day</Text>
             <Text style={styles.reviewDeposit}>
+              Item value: {formData.itemValue.trim() ? `$${parsedItemValue.toFixed(2)}` : 'None'}
+            </Text>
+            <Text style={styles.reviewDeposit}>
               Deposit: {formData.deposit.trim() ? `$${parsedDeposit.toFixed(2)}` : 'None'}
             </Text>
             <Text style={styles.reviewLocation}>{formData.city}</Text>
@@ -612,7 +648,7 @@ export default function CreateListingScreen() {
       <ScreenBackground>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={{ flex: 1 }}>
             <View style={styles.topBar}>
@@ -637,7 +673,7 @@ export default function CreateListingScreen() {
               {step === 5 ? renderStepFive() : null}
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
               {step < 5 ? (
                 <ZoinkButton 
                   label={'continue \u2192'} 

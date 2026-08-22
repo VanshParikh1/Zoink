@@ -10,7 +10,6 @@ import {
   RefreshControl,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -20,6 +19,7 @@ import { Booking, Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -67,43 +67,45 @@ export default function MyListingsScreen() {
     const activeBooking = activeBookingsByListing[item.id]
 
     return (
-      <TouchableOpacity
-        style={[styles.card, activeBooking && styles.activeCard]}
-        onPress={() =>
-          activeBooking
-            ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
-            : nav.navigate('ListingDetail', { listingId: item.id })
-        }
-      >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.image} />
-        ) : (
-          <View style={[styles.image, styles.imageFallback]}>
-            <ZoinkFullLogo width={80} height={24} />
-          </View>
-        )}
+      <View style={styles.cardWrap}>
+        <TouchableOpacity
+          style={[styles.card, activeBooking && styles.activeCard]}
+          onPress={() =>
+            activeBooking
+              ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
+              : nav.navigate('ListingDetail', { listingId: item.id })
+          }
+        >
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.image} />
+          ) : (
+            <View style={[styles.image, styles.imageFallback]}>
+              <ZoinkFullLogo width={80} height={24} />
+            </View>
+          )}
 
-        <View style={styles.cardContent}>
-          <Text style={styles.title} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.price}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
-            <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
+          <View style={styles.cardContent}>
+            <Text style={styles.title} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.price}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
+              <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
+            </View>
+            {activeBooking ? (
+              <TouchableOpacity
+                style={styles.activeBadge}
+                onPress={() => nav.navigate('ActiveRental', { bookingId: activeBooking.id })}
+              >
+                <Text style={styles.activeBadgeText}>Active Rental</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-          {activeBooking ? (
-            <TouchableOpacity
-              style={styles.activeBadge}
-              onPress={() => nav.navigate('ActiveRental', { bookingId: activeBooking.id })}
-            >
-              <Text style={styles.activeBadgeText}>Active Rental</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
 
-        <Text style={styles.arrow}>{'>'}</Text>
-      </TouchableOpacity>
+          <Text style={styles.arrow}>{'>'}</Text>
+        </TouchableOpacity>
+      </View>
     )
   }
 
@@ -138,7 +140,7 @@ export default function MyListingsScreen() {
         ListEmptyComponent={
           error ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyErrorTitle}>Your listings couldnâ€™t load</Text>
+              <Text style={styles.emptyErrorTitle}>Your listings couldn't load</Text>
               <Text style={styles.emptyText}>{error}</Text>
               <TouchableOpacity style={styles.btn} onPress={fetchListings}>
                 <Text style={styles.btnText}>Try again</Text>
@@ -179,31 +181,30 @@ const styles = StyleSheet.create({
   addBtn: { width: 60, alignItems: 'flex-end' },
   addBtnText: { color: theme.primary, fontSize: 16, fontWeight: '900' },
   list: { padding: 20 },
+  cardWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+    marginBottom: 16,
+  },
   card: {
     flexDirection: 'row',
-    backgroundColor: theme.surface,
-    borderRadius: 16,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.sm,
     padding: 12,
-    marginBottom: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   activeCard: {
-    borderLeftWidth: 5,
-    borderLeftColor: theme.primary,
-    borderColor: theme.primarySurface,
+    backgroundColor: theme.primarySurface,
   },
-  image: { width: 70, height: 70, borderRadius: 12, backgroundColor: theme.primarySurface },
+  image: { width: 70, height: 70, borderRadius: theme.radius.sm, backgroundColor: theme.primarySurface, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
   imageFallback: { alignItems: 'center', justifyContent: 'center' },
   cardContent: { flex: 1, marginLeft: 16 },
-  title: { fontSize: 16, fontWeight: '900', color: theme.text, marginBottom: 4 },
-  price: { fontSize: 14, color: theme.primary, fontWeight: '900', marginBottom: 6 },
+  title: { fontSize: 18, fontWeight: '800', color: theme.text, marginBottom: 4 },
+  price: { fontSize: 15, color: theme.primaryDeep, fontWeight: '900', marginBottom: 6 },
   statusRow: { flexDirection: 'row', alignItems: 'center' },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   availDot: { backgroundColor: theme.primary },

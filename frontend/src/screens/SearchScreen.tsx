@@ -20,9 +20,9 @@ import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
 import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
-import ScreenBackground from '../components/ScreenBackground'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -289,7 +289,7 @@ export default function SearchScreen() {
       <FlatList
         data={isResultsState ? results : []}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeaderComponent}
+        ListHeaderComponent={renderHeaderComponent()}
         ListEmptyComponent={
           isResultsState ? (
             <View style={styles.emptyStateWrap}>
@@ -302,9 +302,7 @@ export default function SearchScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
-            <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
-          </Animated.View>
+          <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
         )}
         contentContainerStyle={styles.idleContent}
         ItemSeparatorComponent={() => <View style={styles.separator} />}

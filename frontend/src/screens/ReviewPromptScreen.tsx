@@ -1,14 +1,15 @@
 ﻿import React, { useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Feather } from '@expo/vector-icons'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getPendingReviews, submitReview } from '../services/reviewsApi'
 import { PendingReview } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -116,7 +117,9 @@ export default function ReviewPromptScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>Trust check</Text>
@@ -218,7 +221,9 @@ export default function ReviewPromptScreen() {
         {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit review</Text>}
       </TouchableOpacity>
       </ScrollView>
-    </ScreenBackground>
+      </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

@@ -200,6 +200,7 @@ export async function mockUpdateListing(id: string, data: UpdateListingPayload) 
     ...existing,
     ...data,
     dailyPrice: data.dailyPrice != null ? String(data.dailyPrice) : existing.dailyPrice,
+    itemValue: data.itemValue != null ? String(data.itemValue) : existing.itemValue,
     depositAmount: data.depositAmount != null ? String(data.depositAmount) : existing.depositAmount,
   }
 

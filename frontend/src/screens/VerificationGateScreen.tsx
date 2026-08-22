@@ -1,13 +1,13 @@
 import React from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'VerificationGate'>
 

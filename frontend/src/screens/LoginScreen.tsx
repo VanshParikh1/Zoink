@@ -13,9 +13,10 @@ import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import ScreenBackground from '../components/ScreenBackground'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
@@ -45,16 +46,17 @@ export default function LoginScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.inner}>
 
           {/* Header & Logo */}
           <ZoinkFullLogo width={280} height={80} style={styles.logo} />
-          <Text style={styles.kicker}>Access over Ownership</Text>
+          <Text style={styles.kicker}>Accessibility over Ownership</Text>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
 
@@ -103,7 +105,8 @@ export default function LoginScreen() {
 
         </View>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

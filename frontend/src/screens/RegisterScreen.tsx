@@ -14,9 +14,10 @@ import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import ScreenBackground from '../components/ScreenBackground'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Register'>
 
@@ -53,10 +54,11 @@ export default function RegisterScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           contentContainerStyle={styles.inner}
@@ -143,7 +145,8 @@ export default function RegisterScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 

@@ -7,11 +7,10 @@ import {
   TouchableOpacity,
   View,
   ScrollView,
-  Platform,
 } from 'react-native'
 import { BlurView } from 'expo-blur'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons';
-import ScreenBackground from '../components/ScreenBackground'
 import * as Haptics from 'expo-haptics'
 import { RouteProp, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -21,6 +20,7 @@ import InboxScreen from './InboxScreen'
 import MyProfileScreen from './MyProfileScreen'
 import SearchScreen from './SearchScreen'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
 
@@ -73,6 +73,7 @@ function NavItem({
 
 export default function MainAppScreen({ navigation }: ScreenProps) {
   const route = useRoute<MainAppRoute>()
+  const insets = useSafeAreaInsets()
   const [activeTab, setActiveTab] = useState<MainTab>(route.params?.tab ?? 'Home')
   const [contentWidth, setContentWidth] = useState(0)
   const [bottomBarWidth, setBottomBarWidth] = useState(0)
@@ -128,22 +129,35 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
     }
   }, [activeTab, contentWidth])
 
-  // Continuously track scroll position and update active tab at the halfway point
+  // Runs on every scroll frame (via the native-driven Animated.event listener),
+  // so it must stay cheap: no setState here — that would re-render MainAppScreen
+  // plus all 4 NavItems ~60x/sec mid-drag, fighting the 4 mounted tab screens
+  // for the JS thread. Just fire the crossing haptic; the visual ring tracks
+  // scrollX natively already, and the logical activeTab commits on settle.
   const handleScroll = useCallback((e: any) => {
     if (!contentWidth) return
     const offsetX = e.nativeEvent.contentOffset.x
     const currentIndex = Math.round(offsetX / contentWidth)
 
-    if (currentIndex >= 0 && currentIndex < TAB_ORDER.length) {
-      const nextTab = TAB_ORDER[currentIndex]
-      if (nextTab !== activeTab) {
-        // Fire haptic only once per crossing
-        if (lastHapticIndex.current !== currentIndex) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-          lastHapticIndex.current = currentIndex
-        }
-        setActiveTab(nextTab)
-      }
+    if (
+      currentIndex >= 0 &&
+      currentIndex < TAB_ORDER.length &&
+      lastHapticIndex.current !== currentIndex
+    ) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+      lastHapticIndex.current = currentIndex
+    }
+  }, [contentWidth])
+
+  // Commits the logical active tab once the scroll actually settles, instead
+  // of on every frame — cheap, single re-render per swipe.
+  const commitSettledTab = useCallback((e: any) => {
+    if (!contentWidth) return
+    const offsetX = e.nativeEvent.contentOffset.x
+    const settledIndex = Math.round(offsetX / contentWidth)
+    const nextTab = TAB_ORDER[settledIndex]
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab)
     }
   }, [contentWidth, activeTab])
 
@@ -195,6 +209,8 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
             ref={scrollViewRef as any}
             horizontal
             pagingEnabled
+            decelerationRate="fast"
+            overScrollMode="never"
             showsHorizontalScrollIndicator={false}
             directionalLockEnabled={true}
             onScroll={Animated.event(
@@ -204,6 +220,8 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
                 listener: handleScroll,
               }
             )}
+            onMomentumScrollEnd={commitSettledTab}
+            onScrollEndDrag={commitSettledTab}
             scrollEventThrottle={16}
             style={styles.tabStrip}
           >
@@ -223,17 +241,11 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
         )}
       </View>
 
-      <View style={styles.bottomWrap}>
+      <View style={[styles.bottomWrap, { bottom: insets.bottom + 16 }]}>
         <View style={styles.tabShadowWrapper}>
-          {Platform.OS === 'ios' ? (
-            <BlurView intensity={75} style={styles.blurWrapper} tint="dark">
-              {renderBottomBarContent()}
-            </BlurView>
-          ) : (
-            <View style={styles.androidWrapper}>
-              {renderBottomBarContent()}
-            </View>
-          )}
+          <BlurView intensity={75} style={styles.blurWrapper} tint="dark">
+            {renderBottomBarContent()}
+          </BlurView>
         </View>
 
         <TouchableOpacity 
@@ -265,7 +277,6 @@ const styles = StyleSheet.create({
   },
   bottomWrap: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 32 : 16,
     left: 16,
     right: 16,
     backgroundColor: 'transparent',
@@ -283,13 +294,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
     backgroundColor: 'rgba(15, 255, 80, 0.12)',
-    overflow: 'hidden',
-  },
-  androidWrapper: {
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(15, 255, 80, 0.2)',
-    backgroundColor: 'rgba(15, 255, 80, 0.22)',
     overflow: 'hidden',
   },
   bottomBar: {
