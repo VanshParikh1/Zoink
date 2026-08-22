@@ -255,7 +255,7 @@ export default function SearchScreen() {
           {trending.length > 0 && (
             <>
               <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
-              <ScrollView
+              <GestureHandlerScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.horizontalScrollContent}
@@ -265,7 +265,7 @@ export default function SearchScreen() {
                 {trending.map((item) => (
                   <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
                 ))}
-              </ScrollView>
+              </GestureHandlerScrollView>
             </>
           )}
 
