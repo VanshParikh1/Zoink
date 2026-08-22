@@ -14,12 +14,20 @@ const GRID_RADIUS = 2
 type Props = {
   latitude: number
   longitude: number
-  onPress: () => void
+  onPress?: () => void
   height?: number
   zoom?: number
+  hint?: string | null
 }
 
-export default function LocationMapPreview({ latitude, longitude, onPress, height = 200, zoom = 15 }: Props) {
+export default function LocationMapPreview({
+  latitude,
+  longitude,
+  onPress,
+  height = 200,
+  zoom = 15,
+  hint = 'Tap to fine-tune the exact spot',
+}: Props) {
   const [width, setWidth] = useState(0)
 
   const tiles = useMemo(
@@ -29,10 +37,11 @@ export default function LocationMapPreview({ latitude, longitude, onPress, heigh
 
   return (
     <TouchableOpacity
-      activeOpacity={0.85}
+      activeOpacity={onPress ? 0.85 : 1}
       style={[styles.container, { height }]}
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       onPress={onPress}
+      disabled={!onPress}
     >
       {tiles.map((tile) => (
         <Image
@@ -42,9 +51,11 @@ export default function LocationMapPreview({ latitude, longitude, onPress, heigh
         />
       ))}
       <View style={styles.circle} pointerEvents="none" />
-      <Text style={styles.hint} pointerEvents="none">
-        Tap to fine-tune the exact spot
-      </Text>
+      {hint ? (
+        <Text style={styles.hint} pointerEvents="none">
+          {hint}
+        </Text>
+      ) : null}
       <MapAttribution />
     </TouchableOpacity>
   )

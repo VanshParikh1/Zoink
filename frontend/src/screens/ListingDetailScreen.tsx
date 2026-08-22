@@ -15,7 +15,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
 import { Feather } from '@expo/vector-icons'
-import ScreenBackground from '../components/ScreenBackground'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -28,6 +27,8 @@ import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
 import HardBlock from '../components/HardBlock'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import ScreenBackground from '../components/ScreenBackground'
+import LocationMapPreview from '../components/LocationMapPreview'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -235,6 +236,19 @@ export default function ListingDetailScreen() {
 
           <Text style={styles.location}>{listing.city}</Text>
 
+          {listing.latitude != null && listing.longitude != null && (
+            <View style={styles.mapWrap}>
+              <LocationMapPreview
+                latitude={listing.latitude}
+                longitude={listing.longitude}
+                height={140}
+                zoom={13}
+                hint={null}
+              />
+              <Text style={styles.mapCaption}>General area</Text>
+            </View>
+          )}
+
           <Text style={styles.sectionTitle}>About this item</Text>
           <Text style={styles.description}>{listing.description}</Text>
 
@@ -388,6 +402,8 @@ const styles = StyleSheet.create({
   price: { fontSize: 26, fontWeight: '900', color: theme.primary, marginBottom: 4 },
   perDay: { fontSize: 16, fontWeight: '400', color: theme.textMuted },
   location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },
+  mapWrap: { marginBottom: 20 },
+  mapCaption: { fontSize: 12, color: theme.textMuted, marginTop: 6, fontWeight: '600' },
   sectionTitle: { fontSize: 16, fontWeight: '900', color: theme.text, marginTop: 24, marginBottom: 10 },
   description: { fontSize: 15, color: theme.textMuted, lineHeight: 22 },
   ownerCardWrap: {
