@@ -13,6 +13,18 @@ function tileUrl(zoom: number, x: number, y: number): string {
     return `https://api.maptiler.com/maps/streets-v2/${zoom}/${x}/${y}.png?key=${MAPTILER_API_KEY}`
   }
 
+  if (!__DEV__) {
+    // Never let a production build silently hit raw OSM tiles — that violates
+    // OSM's tile usage policy (no custom User-Agent, no rate limiting) and is
+    // exactly what gets an app's traffic blocked. Fail loudly instead so this
+    // is caught before shipping rather than discovered via a blocked map in
+    // the field.
+    throw new Error(
+      'EXPO_PUBLIC_MAPTILER_API_KEY is unset in a production build. Raw tile.openstreetmap.org ' +
+      'tiles are dev-only (see mapTiles.ts) — set a real MapTiler key before shipping.'
+    )
+  }
+
   if (!warnedAboutMissingKey) {
     warnedAboutMissingKey = true
     console.warn(
