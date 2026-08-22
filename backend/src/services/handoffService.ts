@@ -90,7 +90,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
-  const startStatus = phase === 'pickup' ? BookingStatus.ACCEPTED : BookingStatus.ACTIVE
+  const startStatus = phase === 'pickup' ? BookingStatus.CONFIRMED : BookingStatus.ACTIVE
 
   if (phase === 'pickup' && !isOwner) throw new ForbiddenError('Only the booking owner can initiate pickup.')
   if (phase === 'return' && !isRenter) throw new ForbiddenError('Only the booking renter can initiate return.')

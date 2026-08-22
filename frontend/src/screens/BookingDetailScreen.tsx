@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -9,6 +8,7 @@ import { getMyDisputes } from '../services/disputesApi'
 import { useAuth } from '../context/AuthContext'
 import { Booking, Dispute, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -170,13 +170,6 @@ export default function BookingDetailScreen() {
           </View>
         </View>
 
-        {booking.message ? (
-          <View style={styles.card}>
-            <Text style={styles.messageTitle}>Request note</Text>
-            <Text style={styles.messageBody}>{booking.message}</Text>
-          </View>
-        ) : null}
-
         {disputeIsActive ? (
           <View style={styles.disputeBanner}>
             <Text style={styles.disputeBannerText}>{disputeActiveLabel(booking.disputeStatus)}</Text>
@@ -248,7 +241,7 @@ export default function BookingDetailScreen() {
             </>
           ) : null}
 
-          {isOwner && booking.status === 'ACCEPTED' ? (
+          {isOwner && booking.status === 'CONFIRMED' ? (
             <TouchableOpacity
               style={styles.primaryButton}
               onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
@@ -309,7 +302,7 @@ export default function BookingDetailScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {booking.status === 'PENDING' || booking.status === 'ACCEPTED' || booking.status === 'PICKUP_PENDING' ? (
+          {booking.status === 'PENDING' || booking.status === 'ACCEPTED' || booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING' ? (
             <TouchableOpacity style={styles.secondaryButton} onPress={() => runAction(() => cancelBooking(booking.id))} disabled={busy}>
               <Text style={styles.secondaryText}>Cancel booking</Text>
             </TouchableOpacity>

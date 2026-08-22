@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -9,8 +8,37 @@ import { acceptBooking, declineBooking, getIncomingRequests } from '../services/
 import { Booking } from '../types'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
+
+function formatDate(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function formatDateRange(startDate: string, endDate: string) {
+  return `${formatDate(startDate)} – ${formatDate(endDate)}`
+}
+
+function statusTone(status: Booking['status']) {
+  switch (status) {
+    case 'PENDING':
+      return styles.statusYellow
+    case 'ACCEPTED':
+      return styles.statusBlue
+    case 'CONFIRMED':
+    case 'COMPLETED':
+    case 'PICKUP_PENDING':
+    case 'RETURN_PENDING':
+    case 'ACTIVE':
+      return styles.statusGreen
+    case 'DECLINED':
+    case 'CANCELLED':
+      return styles.statusRed
+    default:
+      return styles.statusGrey
+  }
+}
 
 export default function BookingRequestsScreen() {
   const nav = useNavigation<Nav>()
@@ -90,7 +118,7 @@ export default function BookingRequestsScreen() {
             <StateCard
               tone="error"
               eyebrow="REQUEST ISSUE"
-              title="Incoming requests couldnâ€™t load"
+              title="Incoming requests couldn't load"
               body={error}
               actionLabel="Try again"
               onAction={loadBookings}
@@ -99,7 +127,7 @@ export default function BookingRequestsScreen() {
             <StateCard
               eyebrow="ALL CLEAR"
               title="No requests have landed yet"
-              body="As soon as someone wants one of your items, youâ€™ll be able to review dates and respond from here."
+              body="As soon as someone wants one of your items, you'll be able to review dates and respond from here."
               actionLabel="View my listings"
               onAction={() => nav.navigate('MyListings')}
             />
@@ -108,30 +136,48 @@ export default function BookingRequestsScreen() {
         renderItem={({ item }) => {
           const isPending = item.status === 'PENDING'
           const isBusy = busyId === item.id
+          const imageUrl = item.listing.images?.[0]?.url
 
           return (
-            <TouchableOpacity style={styles.card} onPress={() => nav.navigate('BookingDetail', { bookingId: item.id })}>
-              <Text style={styles.cardTitle}>{item.listing.title}</Text>
-              <Text style={styles.cardMeta}>
-                {item.renter.firstName} {item.renter.lastName} requested {new Date(item.startDate).toLocaleDateString()} to{' '}
-                {new Date(item.endDate).toLocaleDateString()}
-              </Text>
-              <View style={styles.cardRow}>
-                <Text style={styles.cardPrice}>${item.totalPrice.toFixed(2)}</Text>
-                <Text style={styles.cardStatus}>{item.status}</Text>
-              </View>
+            <View style={styles.cardWrap}>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                style={styles.card}
+                onPress={() => nav.navigate('BookingDetail', { bookingId: item.id })}
+              >
+                <View style={styles.cardTop}>
+                  {imageUrl ? (
+                    <Image source={{ uri: imageUrl }} style={styles.thumbnail} />
+                  ) : (
+                    <View style={[styles.thumbnail, styles.thumbnailFallback]}>
+                      <Text style={styles.thumbnailEmoji}>{item.listing.category || '📦'}</Text>
+                    </View>
+                  )}
 
-              {isPending ? (
-                <View style={styles.actionRow}>
-                  <TouchableOpacity style={styles.acceptButton} onPress={() => handleAction(item.id, 'accept')} disabled={isBusy}>
-                    <Text style={styles.acceptText}>{isBusy ? 'Saving...' : 'Accept'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.declineButton} onPress={() => handleAction(item.id, 'decline')} disabled={isBusy}>
-                    <Text style={styles.declineText}>Decline</Text>
-                  </TouchableOpacity>
+                  <View style={styles.cardInfo}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{item.listing.title}</Text>
+                    <Text style={styles.cardRenter} numberOfLines={1}>{item.renter.firstName} {item.renter.lastName}</Text>
+                    <Text style={styles.cardDates}>{formatDateRange(item.startDate, item.endDate)}</Text>
+                  </View>
+
+                  <View style={styles.cardTopRight}>
+                    <Text style={styles.cardPrice}>${item.totalPrice.toFixed(2)}</Text>
+                    <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
+                  </View>
                 </View>
-              ) : null}
-            </TouchableOpacity>
+
+                {isPending ? (
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity style={styles.acceptButton} onPress={() => handleAction(item.id, 'accept')} disabled={isBusy}>
+                      <Text style={styles.acceptText}>{isBusy ? 'Saving...' : 'Accept'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.declineButton} onPress={() => handleAction(item.id, 'decline')} disabled={isBusy}>
+                      <Text style={styles.declineText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            </View>
           )
         }}
       />
@@ -149,28 +195,82 @@ const styles = StyleSheet.create({
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   summaryText: { color: theme.textDisabled, fontSize: 13, marginTop: 10, fontWeight: '700' },
+  cardWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+    marginBottom: 14,
+  },
   card: {
     backgroundColor: theme.cardBackground,
-    borderRadius: 8,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    borderRadius: theme.radius.sm,
+    padding: 16,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
-  cardTitle: { color: theme.text, fontSize: 17, fontWeight: '900', marginBottom: 8 },
-  cardMeta: { color: theme.textMuted, fontSize: 14, marginBottom: 14, lineHeight: 20 },
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardPrice: { color: theme.primary, fontSize: 16, fontWeight: '900' },
-  cardStatus: { color: theme.text, fontSize: 13, fontWeight: '800' },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  acceptButton: { flex: 1, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  acceptText: { color: theme.textOnPrimary, fontSize: 14, fontWeight: '900' },
-  declineButton: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingVertical: 12, alignItems: 'center' },
+  cardTop: { flexDirection: 'row', alignItems: 'center' },
+  thumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+  },
+  thumbnailFallback: {
+    backgroundColor: theme.surfaceSubdued,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbnailEmoji: { fontSize: 26 },
+  cardInfo: { flex: 1, marginLeft: 14, marginRight: 10 },
+  cardTitle: { color: theme.text, fontSize: 18, fontWeight: '800', marginBottom: 3 },
+  cardRenter: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  cardDates: { color: theme.textDisabled, fontSize: 12, fontWeight: '600' },
+  cardTopRight: { alignItems: 'flex-end', gap: 6 },
+  cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
+  pill: {
+    overflow: 'hidden',
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 10,
+    fontWeight: '900',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+  },
+  statusYellow: { backgroundColor: '#FFF5D6', color: '#8A5A00' },
+  statusBlue: { backgroundColor: '#E1F0FF', color: '#185EA8' },
+  statusGrey: { backgroundColor: '#EFEFF1', color: '#6D7175' },
+  statusRed: { backgroundColor: '#FFE2DE', color: '#B42318' },
+  statusGreen: { backgroundColor: theme.primarySurface, color: theme.primaryDeep },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: theme.primary,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  acceptText: { color: theme.textOnPrimary, fontSize: 14, fontWeight: '800' },
+  declineButton: {
+    flex: 1,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+    backgroundColor: theme.surface,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
   declineText: { color: theme.text, fontSize: 14, fontWeight: '800' },
 })
 

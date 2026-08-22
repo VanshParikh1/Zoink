@@ -105,7 +105,7 @@ export default function ActiveRentalScreen() {
   const readyLabel = showPickupBanner ? 'Owner is ready - tap to Zoink It' : 'Renter is ready - tap to Zoink It'
 
   const action =
-    isOwner && booking.status === 'ACCEPTED'
+    isOwner && booking.status === 'CONFIRMED'
       ? { label: 'Start Handoff', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
       : booking.status === 'PICKUP_PENDING'
         ? { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }

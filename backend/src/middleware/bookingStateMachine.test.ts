@@ -6,8 +6,10 @@ test('allows valid booking transitions', () => {
   assert.doesNotThrow(() => assertBookingTransition('PENDING', 'ACCEPTED'))
   assert.doesNotThrow(() => assertBookingTransition('PENDING', 'DECLINED'))
   assert.doesNotThrow(() => assertBookingTransition('PENDING', 'CANCELLED'))
-  assert.doesNotThrow(() => assertBookingTransition('ACCEPTED', 'ACTIVE'))
+  assert.doesNotThrow(() => assertBookingTransition('ACCEPTED', 'CONFIRMED'))
   assert.doesNotThrow(() => assertBookingTransition('ACCEPTED', 'CANCELLED'))
+  assert.doesNotThrow(() => assertBookingTransition('CONFIRMED', 'ACTIVE'))
+  assert.doesNotThrow(() => assertBookingTransition('CONFIRMED', 'CANCELLED'))
   assert.doesNotThrow(() => assertBookingTransition('ACTIVE', 'COMPLETED'))
 })
 
@@ -16,4 +18,5 @@ test('rejects invalid booking transitions', () => {
   assert.throws(() => assertBookingTransition('DECLINED', 'ACCEPTED'), /BOOKING_INVALID_TRANSITION/)
   assert.throws(() => assertBookingTransition('CANCELLED', 'ACTIVE'), /BOOKING_INVALID_TRANSITION/)
   assert.throws(() => assertBookingTransition('COMPLETED', 'CANCELLED'), /BOOKING_INVALID_TRANSITION/)
+  assert.throws(() => assertBookingTransition('ACCEPTED', 'ACTIVE'), /BOOKING_INVALID_TRANSITION/)
 })
