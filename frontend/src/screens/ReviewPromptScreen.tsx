@@ -1,5 +1,5 @@
 ﻿import React, { useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Feather } from '@expo/vector-icons'
 import ScreenBackground from '../components/ScreenBackground'
@@ -36,6 +36,15 @@ function promptForRole(review: PendingReview) {
   return 'Help keep Zoink trustworthy for everyone by reviewing how this renter handled the handoff and return.'
 }
 
+// The borrower (reviewerRole RENTER) rented the item and is the one who can
+// actually speak to its condition, so only they get the item star-rating
+// section. The lender (reviewerRole LENDER) gets a free-text field about the
+// person instead — this is already the same signal ReviewPromptScreen used
+// to pick copy in promptForRole() above, so no new prop/param was needed.
+function isBorrowerReviewer(review: PendingReview) {
+  return review.reviewerRole === 'RENTER'
+}
+
 function defaultScores() {
   return {
     scoreA: 0,
@@ -48,10 +57,13 @@ export default function ReviewPromptScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const review = route.params.review
+  const isBorrower = isBorrowerReviewer(review)
   const [scores, setScores] = useState(defaultScores())
   const [itemRating, setItemRating] = useState(0)
   const [itemNotes, setItemNotes] = useState('')
+  const [personNotes, setPersonNotes] = useState('')
   const [busy, setBusy] = useState(false)
+  const listingImageUrl = review.booking.listing.images?.[0]?.url
 
   const scoreRows = useMemo(
     () => [
@@ -68,7 +80,7 @@ export default function ReviewPromptScreen() {
       return
     }
 
-    if (!itemRating) {
+    if (isBorrower && !itemRating) {
       Alert.alert('Missing item rating', 'Please rate the item itself before continuing.')
       return
     }
@@ -77,11 +89,11 @@ export default function ReviewPromptScreen() {
     try {
       const result = await submitReview({
         obligationId: review.id,
+        reviewerRole: review.reviewerRole,
         scoreA: scores.scoreA,
         scoreB: scores.scoreB,
         scoreC: scores.scoreC,
-        itemRating,
-        itemNotes,
+        ...(isBorrower ? { itemRating, itemNotes } : { personNotes }),
       })
 
       if (result.pendingRemaining > 0) {
@@ -143,37 +155,64 @@ export default function ReviewPromptScreen() {
 
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.metricLabel}>How was the item itself?</Text>
-        <View style={styles.starRow}>
-          {SCALE.map((value) => {
-            const filled = value <= itemRating
-            return (
-              <TouchableOpacity
-                key={value}
-                onPress={() => setItemRating(value)}
-                disabled={busy}
-                style={styles.starButton}
-                accessibilityLabel={`Rate the item ${value} out of 5 stars`}
-              >
-                <Feather name="star" size={30} color={filled ? theme.primary : theme.border} />
-              </TouchableOpacity>
-            )
-          })}
-        </View>
+      {isBorrower ? (
+        <View style={styles.card}>
+          <View style={styles.itemPreviewRow}>
+            {listingImageUrl ? (
+              <Image source={{ uri: listingImageUrl }} style={styles.itemThumbnail} />
+            ) : (
+              <View style={styles.itemThumbnailPlaceholder}>
+                <Text style={styles.itemThumbnailEmoji}>{review.booking.listing.category || '📦'}</Text>
+              </View>
+            )}
+            <Text style={styles.itemPreviewTitle} numberOfLines={2}>{review.booking.listing.title}</Text>
+          </View>
 
-        <Text style={styles.inputLabel}>Notes about the item</Text>
-        <TextInput
-          value={itemNotes}
-          onChangeText={setItemNotes}
-          editable={!busy}
-          multiline
-          maxLength={280}
-          placeholder="How did the item hold up? Anything the next renter should know?"
-          placeholderTextColor={theme.textMuted}
-          style={styles.input}
-        />
-      </View>
+          <Text style={styles.metricLabel}>How was the item itself?</Text>
+          <View style={styles.starRow}>
+            {SCALE.map((value) => {
+              const filled = value <= itemRating
+              return (
+                <TouchableOpacity
+                  key={value}
+                  onPress={() => setItemRating(value)}
+                  disabled={busy}
+                  style={styles.starButton}
+                  accessibilityLabel={`Rate the item ${value} out of 5 stars`}
+                >
+                  <Feather name="star" size={30} color={filled ? theme.primary : theme.border} />
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          <Text style={styles.inputLabel}>Notes about the item</Text>
+          <TextInput
+            value={itemNotes}
+            onChangeText={setItemNotes}
+            editable={!busy}
+            multiline
+            maxLength={280}
+            placeholder="How did the item hold up? Anything the next renter should know?"
+            placeholderTextColor={theme.textMuted}
+            style={styles.input}
+          />
+        </View>
+      ) : (
+        <View style={styles.card}>
+          <Text style={styles.inputLabel}>Anything else you'd like to note about this renter?</Text>
+          <TextInput
+            value={personNotes}
+            onChangeText={setPersonNotes}
+            editable={!busy}
+            multiline
+            maxLength={280}
+            placeholder="Optional — how did they handle pickup, return, and communication?"
+            placeholderTextColor={theme.textMuted}
+            style={styles.input}
+          />
+        </View>
+      )}
 
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={busy}>
         {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit review</Text>}
@@ -219,6 +258,20 @@ const styles = StyleSheet.create({
   },
   scaleText: { color: theme.text, fontSize: 15, fontWeight: '800' },
   scaleTextActive: { color: theme.textOnPrimary },
+  itemPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  itemThumbnail: { width: 56, height: 56, borderRadius: theme.radius.sm, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
+  itemThumbnailPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.surfaceSubdued,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+  },
+  itemThumbnailEmoji: { fontSize: 22 },
+  itemPreviewTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: '800' },
   starRow: { flexDirection: 'row', gap: 6 },
   starButton: { padding: 4 },
   inputLabel: { color: theme.text, fontSize: 15, fontWeight: '800' },

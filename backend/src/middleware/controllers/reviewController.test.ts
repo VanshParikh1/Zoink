@@ -21,6 +21,7 @@ function runValidate(body: Record<string, unknown>) {
 
 const validReviewBody = {
   obligationId: '11111111-1111-4111-8111-111111111111',
+  reviewerRole: 'RENTER',
   scoreA: 5,
   scoreB: 4,
   scoreC: 3,
@@ -87,6 +88,40 @@ test('validate(SubmitReviewSchema) rejects itemNotes over 280 characters', () =>
   assert.equal(res.statusCode, 400)
   const paths = (res.body as any).issues.map((i: any) => i.path)
   assert.ok(paths.includes('body.itemNotes'), 'should flag itemNotes over 280 characters')
+})
+
+test('validate(SubmitReviewSchema) rejects a RENTER reviewer with no itemRating', () => {
+  const { itemRating, ...withoutItemRating } = validReviewBody
+  const { capturedError } = runValidate(withoutItemRating)
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+})
+
+test('validate(SubmitReviewSchema) rejects a LENDER reviewer submitting itemRating', () => {
+  const { capturedError } = runValidate({ ...validReviewBody, reviewerRole: 'LENDER' })
+  assert.ok(capturedError, 'ZodError should be passed to next() when a LENDER submits itemRating')
+})
+
+test('validate(SubmitReviewSchema) rejects a RENTER reviewer submitting personNotes', () => {
+  const { capturedError } = runValidate({ ...validReviewBody, personNotes: 'Great renter!' })
+  assert.ok(capturedError, 'ZodError should be passed to next() when a RENTER submits personNotes')
+})
+
+test('validate(SubmitReviewSchema) accepts a well-formed LENDER review with personNotes', () => {
+  const { itemRating, ...rest } = validReviewBody
+  const { capturedError } = runValidate({ ...rest, reviewerRole: 'LENDER', personNotes: 'Great renter!' })
+  assert.ok(!capturedError, 'should not raise a ZodError')
+})
+
+test('validate(SubmitReviewSchema) rejects personNotes over 280 characters', () => {
+  const { itemRating, ...rest } = validReviewBody
+  const { capturedError, req, res } = runValidate({ ...rest, reviewerRole: 'LENDER', personNotes: 'C'.repeat(281) })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.personNotes'), 'should flag personNotes over 280 characters')
 })
 
 const originalSubmitReview = reviewService.submitReview

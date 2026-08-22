@@ -11,7 +11,7 @@ export const getPendingReviews = asyncHandler(async (req: Request, res: Response
 
 export const submitReview = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
-  const { obligationId, scoreA, scoreB, scoreC, itemRating, itemNotes } = req.body
+  const { obligationId, reviewerRole, scoreA, scoreB, scoreC, itemRating, itemNotes, personNotes } = req.body
 
   if (!obligationId) {
     return res.status(400).json({ error: 'obligationId is required.' })
@@ -19,11 +19,13 @@ export const submitReview = asyncHandler(async (req: Request, res: Response) => 
 
   const review = await reviewService.submitReview(userId, {
     obligationId,
+    reviewerRole,
     scoreA: Number(scoreA),
     scoreB: Number(scoreB),
     scoreC: Number(scoreC),
-    itemRating: Number(itemRating),
+    itemRating: itemRating === undefined ? undefined : Number(itemRating),
     itemNotes,
+    personNotes,
   })
 
   return res.status(201).json(review)

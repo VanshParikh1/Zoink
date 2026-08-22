@@ -185,11 +185,18 @@ model Review {
   scoreA       Int
   scoreB       Int
   scoreC       Int
-  // Item/listing-scoped rating+notes ("How was the item itself?") — separate
-  // from scoreA/B/C, which stay person-directed. Nullable because reviews
-  // submitted before this field existed never collected one.
+  // Item/listing-scoped rating+notes ("How was the item itself?") — borrower-
+  // reviewer only (reviewerRole RENTER). Separate from scoreA/B/C, which stay
+  // person-directed for both roles. Nullable because reviews submitted before
+  // this field existed never collected one, and lender-authored reviews never
+  // populate it at all.
   itemRating   Int?
   itemNotes    String?
+  // Free-text notes about the person being reviewed — lender-reviewer only
+  // (reviewerRole LENDER). Mutually exclusive with itemRating/itemNotes above;
+  // enforced in reviewService.submitReview based on the obligation's real
+  // reviewerRole, not client input.
+  personNotes  String?
   reviewerId   String
   revieweeId   String
   bookingId    String

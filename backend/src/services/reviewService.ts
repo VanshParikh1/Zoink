@@ -6,11 +6,16 @@ import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '.
 
 type SubmitReviewInput = {
   obligationId: string
+  // Client-declared, used only for the schema-level refine (see
+  // review.schema.ts). Never trusted here — the real reviewerRole always
+  // comes from the obligation row looked up below.
+  reviewerRole: ReviewRole
   scoreA: number
   scoreB: number
   scoreC: number
-  itemRating: number
+  itemRating?: number
   itemNotes?: string
+  personNotes?: string
 }
 
 function average(values: number[]) {
@@ -125,6 +130,32 @@ function assertItemRating(value: number) {
   }
 }
 
+// A borrower reviewer (RENTER) rates the item; a lender reviewer (LENDER)
+// leaves free-text notes about the renter instead. Re-derives which fields
+// are valid strictly from the obligation's real reviewerRole (never from
+// client input), so a client can't smuggle itemRating into a lender-authored
+// review (or vice versa) by lying about its own role in the request body.
+function resolveReviewFields(reviewerRole: ReviewRole, input: SubmitReviewInput) {
+  if (reviewerRole === ReviewRole.RENTER) {
+    if (input.itemRating === undefined) {
+      throw new BadRequestError('itemRating is required for this review.')
+    }
+    assertItemRating(input.itemRating)
+
+    return {
+      itemRating: input.itemRating,
+      itemNotes: input.itemNotes?.trim() || null,
+      personNotes: null,
+    }
+  }
+
+  return {
+    itemRating: null,
+    itemNotes: null,
+    personNotes: input.personNotes?.trim() || null,
+  }
+}
+
 export async function getPendingReviews(userId: string): Promise<PendingReviewResponse[]> {
   const obligations = await prisma.reviewObligation.findMany({
     where: {
@@ -202,7 +233,6 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
   assertScore(input.scoreA)
   assertScore(input.scoreB)
   assertScore(input.scoreC)
-  assertItemRating(input.itemRating)
 
   const obligation = await prisma.reviewObligation.findUnique({
     where: { id: input.obligationId },
@@ -261,7 +291,11 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     throw new BadRequestError('This rental is not ready for review yet.')
   }
 
-  const itemNotes = input.itemNotes?.trim() || null
+  if (input.reviewerRole !== obligation.reviewerRole) {
+    throw new BadRequestError('reviewerRole does not match this review obligation.')
+  }
+
+  const reviewFields = resolveReviewFields(obligation.reviewerRole, input)
 
   const result = await prisma.$transaction(async (tx) => {
     const review = await tx.review.create({
@@ -273,8 +307,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreA: input.scoreA,
         scoreB: input.scoreB,
         scoreC: input.scoreC,
-        itemRating: input.itemRating,
-        itemNotes,
+        ...reviewFields,
       },
       select: {
         id: true,
@@ -287,6 +320,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreC: true,
         itemRating: true,
         itemNotes: true,
+        personNotes: true,
         createdAt: true,
       },
     })

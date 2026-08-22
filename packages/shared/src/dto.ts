@@ -133,6 +133,7 @@ export interface ReviewResponse {
   scoreC: number
   itemRating: number | null
   itemNotes: string | null
+  personNotes: string | null
   createdAt: string
 }
 

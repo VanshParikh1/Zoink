@@ -1,15 +1,19 @@
 import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
-import { PendingReview, SubmittedReviewResult } from '../types'
+import { PendingReview, ReviewRole, SubmittedReviewResult } from '../types'
 import { mockGetPendingReviews, mockSubmitReview } from './mockWeek6'
 
 export type SubmitReviewPayload = {
   obligationId: string
+  reviewerRole: ReviewRole
   scoreA: number
   scoreB: number
   scoreC: number
-  itemRating: number
+  // Borrower reviewer (RENTER) only
+  itemRating?: number
   itemNotes?: string
+  // Lender reviewer (LENDER) only
+  personNotes?: string
 }
 
 export async function getPendingReviews(): Promise<PendingReview[]> {
