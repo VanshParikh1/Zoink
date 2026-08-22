@@ -82,7 +82,7 @@ export default function BookingHistoryScreen() {
   const activeRentals = bookings.filter((booking) => isActiveRental(booking.status))
   const otherBookings = bookings
     .filter((booking) => !isActiveRental(booking.status))
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
 
   return (
     <ScreenBackground>

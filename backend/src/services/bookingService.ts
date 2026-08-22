@@ -445,7 +445,11 @@ export async function getMyBookings(renterId: string): Promise<BookingResponse[]
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
     select: bookingSelect as any,
-    orderBy: { createdAt: 'desc' },
+    // Most-recent-activity ordering: updatedAt bumps on every status
+    // transition (PENDING -> ACCEPTED -> ... -> COMPLETED/CANCELLED/DECLINED),
+    // so a booking that was recently completed or cancelled surfaces near the
+    // top instead of sinking based on when it was originally requested.
+    orderBy: { updatedAt: 'desc' },
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, renterId))
@@ -455,7 +459,15 @@ export async function getIncomingRequests(ownerId: string): Promise<BookingRespo
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
     select: bookingSelect as any,
-    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    // status:'asc' keeps PENDING requests (needing the owner's action) pinned
+    // above everything else — that's a deliberate actionable-items-first
+    // priority, independent of the "most recent activity" fix below, and
+    // sorts by the BookingStatus enum's *declaration* order in schema.prisma
+    // (PENDING is declared first), not alphabetically. Within each status
+    // group, sort by updatedAt (most recent activity) rather than createdAt,
+    // so e.g. the most recently completed booking leads the COMPLETED group
+    // instead of the one requested longest ago.
+    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
