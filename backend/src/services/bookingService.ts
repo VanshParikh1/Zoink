@@ -274,7 +274,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
     where: {
       listingId,
       id: { not: bookingId },
-      status: { in: ['ACCEPTED', 'ACTIVE'] },
+      status: { in: ['CONFIRMED', 'ACTIVE'] },
       startDate: { lte: booking.endDate },
       endDate: { gte: booking.startDate },
     },
@@ -449,19 +449,19 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   assertBookingTransition(booking.status, nextStatus)
 
   if (nextStatus === 'ACCEPTED') {
+    // Only CONFIRMED/ACTIVE bookings hold dates now — ACCEPTED no longer implies
+    // payment, so this just rejects accepting into dates someone has already paid
+    // for. The payment-authorization precondition moves to the ACCEPTED ->
+    // CONFIRMED transition, since payment happens after acceptance now.
     await ensureNoOverlap(booking.listingId, booking.id)
     const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
     if (!stripeAccountId) {
       throw new ConflictError('The owner needs to connect Stripe before accepting bookings.')
     }
-
-    if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
-      throw new ConflictError('Payment authorization is not ready yet.')
-    }
   }
 
   if (nextStatus !== 'COMPLETED') {
-    const updated: any = await prisma.$transaction(async (tx) => {
+    const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
       const result = await tx.booking.updateMany({
         where: { id: booking.id, version: booking.version },
         data: { status: nextStatus, version: { increment: 1 } },
@@ -471,15 +471,52 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
       }
 
-      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
-        from: booking.status,
-        to: nextStatus,
-      })
+      const eventMetadata: Record<string, string> = { from: booking.status, to: nextStatus }
+      if (nextStatus === 'DECLINED') {
+        eventMetadata.reason = 'manual_decline'
+      }
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, eventMetadata)
 
-      return tx.booking.findUniqueOrThrow({
+      // Accepting one request reserves the dates for it, so any other still-
+      // PENDING request on the same listing that overlaps those dates can no
+      // longer be honored — auto-decline it rather than leaving it to fail
+      // later when someone tries to accept it. These do NOT revive if the
+      // just-accepted booking is later cancelled (see handleCancellationPayment).
+      let autoRejected: { id: string; renterId: string }[] = []
+      if (nextStatus === 'ACCEPTED') {
+        autoRejected = await tx.booking.findMany({
+          where: {
+            listingId: booking.listingId,
+            id: { not: booking.id },
+            status: 'PENDING',
+            startDate: { lte: booking.endDate },
+            endDate: { gte: booking.startDate },
+          },
+          select: { id: true, renterId: true },
+        })
+
+        if (autoRejected.length > 0) {
+          await tx.booking.updateMany({
+            where: { id: { in: autoRejected.map((b) => b.id) } },
+            data: { status: 'DECLINED', version: { increment: 1 } },
+          })
+
+          for (const rejected of autoRejected) {
+            await createBookingEvent(tx, rejected.id, actorId, BookingEventType.STATUS_CHANGE, {
+              from: 'PENDING',
+              to: 'DECLINED',
+              reason: 'overlap_auto_reject',
+            })
+          }
+        }
+      }
+
+      const updated = await tx.booking.findUniqueOrThrow({
         where: { id: booking.id },
         select: bookingSelect as any,
       })
+
+      return { updated, autoRejected }
     })
 
     if (nextStatus === 'CANCELLED') {
@@ -494,6 +531,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         body: `${booking.listing.title} was approved by the owner.`,
         data: { bookingId: booking.id, listingId: booking.listingId },
       })
+
+      for (const rejected of autoRejected) {
+        void notifyUser({
+          userId: rejected.renterId,
+          type: 'BOOKING_DECLINED',
+          title: 'Booking declined',
+          body: `${booking.listing.title} was booked for those dates by another renter.`,
+          data: { bookingId: rejected.id, listingId: booking.listingId },
+        })
+      }
     }
 
     if (nextStatus === 'DECLINED') {

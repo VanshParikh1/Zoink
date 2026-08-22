@@ -238,7 +238,7 @@ describe('createBooking', () => {
 // 2. Owner accept / decline
 // ─────────────────────────────────────────────────────────────────────────────
 describe('owner accept / decline', () => {
-  test('owner can accept a PENDING booking (transitions to ACCEPTED)', async () => {
+  test('owner can accept a PENDING booking with no payment yet (transitions to ACCEPTED)', async () => {
     await giveOwnerStripeAccount(owner.id)
 
     const { startDate, endDate } = futureDates(2, 2)
@@ -248,19 +248,18 @@ describe('owner accept / decline', () => {
       endDate: new Date(endDate),
     })
 
-    // Ensure payment is marked authorized so accept doesn't reject
-    const db = getTestPrisma()
-    await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
-    })
+    // Payment authorization is no longer a precondition for ACCEPTED — that
+    // check moved to the ACCEPTED -> CONFIRMED transition. This booking has
+    // never had a payment intent created (paymentStatus is still the default
+    // PENDING_AUTH), and accept should still succeed.
+    assert.equal(booking.paymentStatus, PaymentStatus.PENDING_AUTH)
 
     const accepted = await bookingService.transitionBookingStatus(
       booking.id, owner.id, BookingStatus.ACCEPTED
     )
     assert.equal(accepted.status, BookingStatus.ACCEPTED)
 
-    // Verify persisted
+    const db = getTestPrisma()
     const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(persisted.status, BookingStatus.ACCEPTED)
 
@@ -270,8 +269,7 @@ describe('owner accept / decline', () => {
     assert.ok(statusEvents.length >= 1, 'at least one STATUS_CHANGE event should exist')
   })
 
-  test('owner accept fails when payment is not authorized', async () => {
-    await giveOwnerStripeAccount(owner.id)
+  test('a manual decline records reason=manual_decline on its STATUS_CHANGE event', async () => {
     const { startDate, endDate } = futureDates(2, 2)
     const booking = await bookingService.createBooking(renter.id, {
       listingId,
@@ -279,21 +277,13 @@ describe('owner accept / decline', () => {
       endDate: new Date(endDate),
     })
 
-    // Force payment status back to PENDING_AUTH
-    const db = getTestPrisma()
-    await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.PENDING_AUTH },
-    })
+    await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.DECLINED)
 
-    await assert.rejects(
-      () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED),
-      (err: any) => {
-        assert.equal(err.statusCode, 409)
-        assert.match(err.message, /payment authorization is not ready/i)
-        return true
-      }
-    )
+    const db = getTestPrisma()
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'STATUS_CHANGE' } })
+    const declineEvent = events.find((e: any) => (e.metadata as any)?.to === 'DECLINED')
+    assert.ok(declineEvent, 'a STATUS_CHANGE event to DECLINED should exist')
+    assert.equal((declineEvent!.metadata as any).reason, 'manual_decline')
   })
 
   test('owner can decline a PENDING booking', async () => {
@@ -848,11 +838,13 @@ describe('full happy path via HTTP', () => {
 // 6. Overlap detection
 // ─────────────────────────────────────────────────────────────────────────────
 describe('booking overlap detection', () => {
-  test('accepting a booking that overlaps with an existing ACCEPTED booking is rejected', async () => {
+  test('accepting one of two overlapping PENDING requests auto-declines the other', async () => {
     await giveOwnerStripeAccount(owner.id)
     const db = getTestPrisma()
 
-    // Both rentals use the same listing and overlapping dates
+    // Both rentals use the same listing and overlapping dates. Neither has
+    // been paid for — ACCEPTED no longer implies payment, so both requests
+    // can freely reach PENDING without conflict.
     const { startDate, endDate } = futureDates(5, 3)
     const renter2 = await createTestUser({ email: `renter2_${Date.now()}@test.com` })
 
@@ -867,16 +859,54 @@ describe('booking overlap detection', () => {
       endDate: new Date(endDate),
     })
 
-    // Authorize both
-    await db.booking.updateMany({
-      where: { id: { in: [b1.id, b2.id] } },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
+    // A third, non-overlapping PENDING request on the same listing should be
+    // left alone by the auto-reject.
+    const { startDate: laterStart, endDate: laterEnd } = futureDates(30, 3)
+    const renter3 = await createTestUser({ email: `renter3_${Date.now()}@test.com` })
+    const b3 = await bookingService.createBooking(renter3.id, {
+      listingId,
+      startDate: new Date(laterStart),
+      endDate: new Date(laterEnd),
     })
 
-    // Accept b1 — succeeds
-    await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.ACCEPTED)
+    const accepted = await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.ACCEPTED)
+    assert.equal(accepted.status, BookingStatus.ACCEPTED)
 
-    // Accept b2 — should fail with 409 overlap
+    const persistedB2 = await db.booking.findUniqueOrThrow({ where: { id: b2.id } })
+    assert.equal(persistedB2.status, BookingStatus.DECLINED, 'overlapping PENDING request should be auto-declined')
+
+    const persistedB3 = await db.booking.findUniqueOrThrow({ where: { id: b3.id } })
+    assert.equal(persistedB3.status, BookingStatus.PENDING, 'non-overlapping PENDING request should be untouched')
+
+    const b2Events = await db.bookingEvent.findMany({ where: { bookingId: b2.id, type: 'STATUS_CHANGE' } })
+    const autoRejectEvent = b2Events.find((e: any) => (e.metadata as any)?.to === 'DECLINED')
+    assert.ok(autoRejectEvent, 'auto-rejected booking should have a STATUS_CHANGE event')
+    assert.equal((autoRejectEvent!.metadata as any).reason, 'overlap_auto_reject')
+  })
+
+  test('accepting a booking that overlaps with an existing CONFIRMED booking is rejected', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const db = getTestPrisma()
+
+    const { startDate, endDate } = futureDates(5, 3)
+    const renter2 = await createTestUser({ email: `renter2confirmed_${Date.now()}@test.com` })
+
+    const b1 = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    await db.booking.update({
+      where: { id: b1.id },
+      data: { status: BookingStatus.CONFIRMED, paymentStatus: PaymentStatus.AUTHORIZED, version: { increment: 1 } },
+    })
+
+    const b2 = await bookingService.createBooking(renter2.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
     await assert.rejects(
       () => bookingService.transitionBookingStatus(b2.id, owner.id, BookingStatus.ACCEPTED),
       (err: any) => {
