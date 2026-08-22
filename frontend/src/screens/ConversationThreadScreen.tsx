@@ -35,6 +35,12 @@ export default function ConversationThreadScreen() {
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
   const latestMessageId = useRef<string | undefined>(undefined)
+  const listRef = useRef<FlatList<Message>>(null)
+  // Tracks whether the user is scrolled near the bottom already, so an
+  // incoming message doesn't yank them away from history they're reading.
+  // Starts true so the very first load (fresh open, or reopening into
+  // unread messages) always lands on the newest message.
+  const isNearBottomRef = useRef(true)
 
   const loadMessages = useCallback(async (incremental = false) => {
     try {
@@ -82,6 +88,9 @@ export default function ConversationThreadScreen() {
     setSendError('')
     try {
       const message = await sendMessage(route.params.conversationId, trimmed)
+      // Sending your own message should always carry you down to it,
+      // even if you had scrolled up to read older history.
+      isNearBottomRef.current = true
       setMessages((current) => [...current, message])
       latestMessageId.current = message.id
       setBody('')
@@ -136,9 +145,21 @@ export default function ConversationThreadScreen() {
           </View>
         ) : (
           <FlatList
+            ref={listRef}
             data={messages}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
+            onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+              const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
+              isNearBottomRef.current = distanceFromBottom < 120
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (isNearBottomRef.current) {
+                listRef.current?.scrollToEnd({ animated: true })
+              }
+            }}
             ListEmptyComponent={
               <View style={styles.stateWrap}>
                 <StateCard
