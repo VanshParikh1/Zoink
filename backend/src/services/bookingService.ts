@@ -727,16 +727,16 @@ function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
 
 async function handleCancellationPayment(booking: any, actorId: string) {
   try {
-    if (booking.status === 'PENDING') {
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: PaymentStatus.REFUND_PENDING },
-      })
-      await cancelPaymentIntent(booking)
+    if (booking.status === 'PENDING' || booking.status === 'ACCEPTED') {
+      // Payment now only happens at the ACCEPTED -> CONFIRMED step, so a
+      // booking cancelled at PENDING or ACCEPTED has never had a PaymentIntent
+      // authorized — there's nothing for Stripe to release or capture. Skip
+      // the API call entirely rather than calling cancelPaymentIntent() with
+      // a stripePaymentIntentId that doesn't exist.
       return
     }
 
-    if (booking.status === 'ACCEPTED') {
+    if (booking.status === 'CONFIRMED') {
       const feeCents = calculateCancellationFeeCents(booking.totalPrice)
 
       // Stripe rejects amount_to_capture: 0 — capturing is only valid for a
