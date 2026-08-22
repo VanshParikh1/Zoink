@@ -198,7 +198,10 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
         <Text style={styles.panelTitle}>As a lender</Text>
         <RatingTrack label="Accuracy" value={reputation?.lenderAccuracyAvg ?? null} />
         <RatingTrack label="Condition" value={reputation?.lenderConditionAvg ?? null} />
-        <RatingTrack label="Communication" value={reputation?.lenderCommunicationAvg ?? null} />
+        {/* Field name kept as lenderCommunicationAvg — this is now the "Pickup
+            Experience" score (scoreC for RENTER-role reviews); renaming the
+            denormalized column isn't worth a migration for a label change. */}
+        <RatingTrack label="Pickup Experience" value={reputation?.lenderCommunicationAvg ?? null} />
       </View>
 
       <View style={styles.panel}>

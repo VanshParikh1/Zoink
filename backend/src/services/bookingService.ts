@@ -21,22 +21,7 @@ import {
   toCents,
   toDecimal,
 } from './paymentService'
-
-function scoreLabelsForRole(role: ReviewRole) {
-  if (role === ReviewRole.RENTER) {
-    return {
-      scoreAKey: 'accuracy',
-      scoreBKey: 'condition',
-      scoreCKey: 'communication',
-    }
-  }
-
-  return {
-    scoreAKey: 'reliability',
-    scoreBKey: 'care',
-    scoreCKey: 'communication',
-  }
-}
+import { scoreLabelsForRole } from './reviewService'
 
 const bookingSelect = {
   id: true,

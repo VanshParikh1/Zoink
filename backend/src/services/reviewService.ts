@@ -24,12 +24,12 @@ function toDecimal(value: number | null) {
   return value === null ? null : new Prisma.Decimal(value.toFixed(2))
 }
 
-function scoreLabelsForRole(role: ReviewRole) {
+export function scoreLabelsForRole(role: ReviewRole) {
   if (role === ReviewRole.RENTER) {
     return {
       scoreAKey: 'accuracy',
       scoreBKey: 'condition',
-      scoreCKey: 'communication',
+      scoreCKey: 'pickupExperience',
     }
   }
 

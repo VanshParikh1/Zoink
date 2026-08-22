@@ -21,6 +21,7 @@ function labelForKey(key: string) {
     communication: 'Communication',
     reliability: 'Reliability',
     care: 'Care',
+    pickupExperience: 'Pickup Experience',
   }
 
   return labels[key] ?? key
