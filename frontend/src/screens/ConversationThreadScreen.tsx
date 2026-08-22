@@ -11,21 +11,24 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
-import { Message } from '../types'
+import { getConversationMessages, getMyConversations, markConversationRead, sendMessage } from '../services/conversationsApi'
+import { Message, Conversation } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
 
 export default function ConversationThreadScreen() {
   const nav = useNavigation<Nav>()
+  const insets = useSafeAreaInsets()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
@@ -34,6 +37,7 @@ export default function ConversationThreadScreen() {
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
+  const [paymentConversation, setPaymentConversation] = useState<Conversation | null>(null)
   const latestMessageId = useRef<string | undefined>(undefined)
   const listRef = useRef<FlatList<Message>>(null)
   // Tracks whether the user is scrolled near the bottom already, so an
@@ -66,18 +70,35 @@ export default function ConversationThreadScreen() {
     }
   }, [nav, route.params.conversationId])
 
+  const loadPaymentStatus = useCallback(async () => {
+    try {
+      // The badge on InboxScreen's row and this thread's banner read off the
+      // same acceptedUnpaidBookingId field from the same conversation list
+      // endpoint, so they can't drift out of sync with each other.
+      const conversations = await getMyConversations()
+      const conversation = conversations.find((item) => item.id === route.params.conversationId)
+      const isRenter = conversation?.renterId === user?.id
+      const needsPayment = isRenter && Boolean(conversation?.acceptedUnpaidBookingId)
+      setPaymentConversation(needsPayment ? conversation! : null)
+    } catch {
+      // Non-critical — the banner just won't show if this fails.
+    }
+  }, [route.params.conversationId, user?.id])
+
   useFocusEffect(
     useCallback(() => {
       loadMessages()
+      loadPaymentStatus()
       markConversationRead(route.params.conversationId).catch(() => {})
 
       const intervalId = setInterval(() => {
         loadMessages(true)
+        loadPaymentStatus()
         markConversationRead(route.params.conversationId).catch(() => {})
       }, 4000)
 
       return () => clearInterval(intervalId)
-    }, [loadMessages, route.params.conversationId])
+    }, [loadMessages, loadPaymentStatus, route.params.conversationId])
   )
 
   async function handleSend() {
@@ -111,10 +132,11 @@ export default function ConversationThreadScreen() {
   }
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
       >
         <View style={styles.header}>
@@ -132,7 +154,7 @@ export default function ConversationThreadScreen() {
             <StateCard
               tone="error"
               eyebrow="THREAD ISSUE"
-              title="This conversation couldnâ€™t load"
+              title="This conversation couldn't load"
               body={error}
               actionLabel="Try again"
               onAction={() => {
@@ -183,7 +205,19 @@ export default function ConversationThreadScreen() {
           />
         )}
 
-        <View style={styles.composer}>
+        {paymentConversation ? (
+          <TouchableOpacity
+            style={styles.paymentBanner}
+            activeOpacity={0.85}
+            onPress={() => nav.navigate('Pay', { bookingId: paymentConversation.acceptedUnpaidBookingId! })}
+          >
+            <Text style={styles.paymentBannerText}>
+              {paymentConversation.owner.firstName} accepted your request! Tap to pay
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 18) }]}>
           <TextInput
             value={body}
             onChangeText={setBody}
@@ -198,7 +232,8 @@ export default function ConversationThreadScreen() {
           {sendError ? <Text style={styles.sendError}>{sendError}</Text> : null}
       </View>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 
@@ -224,12 +259,27 @@ const styles = StyleSheet.create({
   bubbleText: { color: theme.text, fontSize: 15, lineHeight: 20 },
   myBubbleText: { color: theme.textOnPrimary },
   timeText: { color: theme.textDisabled, fontSize: 11, marginTop: 8 },
+  paymentBanner: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: theme.warningSurface,
+    borderWidth: 1,
+    borderColor: theme.warning,
+  },
+  paymentBannerText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
   composer: {
     flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 18,
     borderTopWidth: 1,
     borderTopColor: theme.border,
     backgroundColor: theme.surface,

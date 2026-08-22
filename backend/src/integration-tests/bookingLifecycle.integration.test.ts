@@ -31,6 +31,7 @@ import {
 } from './setup'
 import * as bookingService from '../services/bookingService'
 import * as handoffService from '../services/handoffService'
+import * as conversationService from '../services/conversationService'
 import { PaymentStatus, BookingStatus } from '@prisma/client'
 
 // notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
@@ -1118,5 +1119,40 @@ describe('booking data access', () => {
     assert.equal(result.pendingReview.reviewee.id, owner.id)
     // Score labels differ by role
     assert.ok('scoreAKey' in result.pendingReview.scoreLabels)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Conversation payment badge/banner source — acceptedUnpaidBookingId
+// ─────────────────────────────────────────────────────────────────────────────
+describe('conversation acceptedUnpaidBookingId (messages UI payment prompt)', () => {
+  test('is null for a PENDING booking, set once ACCEPTED, and null again once CONFIRMED', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const { startDate, endDate } = futureDates(2, 2)
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    assert.ok(booking.conversationId)
+
+    const conversationsBeforeAccept = await conversationService.getMyConversations(renter.id)
+    const beforeAccept = conversationsBeforeAccept.find((c) => c.id === booking.conversationId)
+    assert.equal(beforeAccept?.acceptedUnpaidBookingId, null, 'PENDING booking should not trigger the payment prompt')
+
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+
+    const conversationsAfterAccept = await conversationService.getMyConversations(renter.id)
+    const afterAccept = conversationsAfterAccept.find((c) => c.id === booking.conversationId)
+    assert.equal(afterAccept?.acceptedUnpaidBookingId, accepted.id, 'ACCEPTED-unpaid booking should surface for the payment prompt')
+
+    await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: accepted.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+    await bookingService.transitionBookingStatus(accepted.id, renter.id, BookingStatus.CONFIRMED)
+
+    const conversationsAfterConfirm = await conversationService.getMyConversations(renter.id)
+    const afterConfirm = conversationsAfterConfirm.find((c) => c.id === booking.conversationId)
+    assert.equal(afterConfirm?.acceptedUnpaidBookingId, null, 'the prompt should disappear once the booking is paid (CONFIRMED)')
   })
 })

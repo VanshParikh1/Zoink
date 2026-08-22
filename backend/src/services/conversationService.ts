@@ -51,6 +51,11 @@ const conversationSelect = {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
   },
+  bookings: {
+    where: { status: 'ACCEPTED' as const },
+    select: { id: true },
+    take: 1,
+  },
   renterLastReadAt: true,
   ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
@@ -91,6 +96,7 @@ function toConversationSummary(conversation: any, currentUserId: string): Conver
     updatedAt: conversation.updatedAt ?? conversation.createdAt,
     lastMessage,
     unread,
+    acceptedUnpaidBookingId: conversation.bookings?.[0]?.id ?? null,
   }
 }
 

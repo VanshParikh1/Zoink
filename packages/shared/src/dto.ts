@@ -243,6 +243,10 @@ export interface ConversationResponse {
   updatedAt: string
   lastMessage: ConversationMessagePreview | null
   unread: boolean
+  // The conversation's currently ACCEPTED-and-unpaid booking, if any — the
+  // only booking status that needs a "pay now" prompt in the messages UI.
+  // Null once it's CONFIRMED (paid) or if there's no such booking at all.
+  acceptedUnpaidBookingId: string | null
 }
 
 export interface MessageResponse {

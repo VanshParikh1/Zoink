@@ -51,6 +51,7 @@ let conversations: Conversation[] = [
       createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
     },
     unread: true,
+    acceptedUnpaidBookingId: null,
   },
 ]
 
@@ -351,6 +352,7 @@ export async function mockOpenConversation(listingId: string) {
     updatedAt: new Date().toISOString(),
     lastMessage: null,
     unread: false,
+    acceptedUnpaidBookingId: null,
   }
 
   conversations = [conversation, ...conversations]
