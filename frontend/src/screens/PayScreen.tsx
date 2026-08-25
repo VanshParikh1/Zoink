@@ -111,8 +111,8 @@ export default function PayScreen() {
 
         <Text style={styles.title}>Pay for this rental</Text>
         <Text style={styles.subtitle}>
-          {booking.listing.title} — {new Date(booking.startDate).toLocaleDateString()} to{' '}
-          {new Date(booking.endDate).toLocaleDateString()}
+          {booking.listing.title} — {new Date(booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} to{' '}
+          {new Date(booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
         </Text>
 
         <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.md} style={styles.cardWrap} contentStyle={styles.card}>

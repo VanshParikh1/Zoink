@@ -130,7 +130,7 @@ export default function ReviewPromptScreen() {
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>{review.booking.listing.title}</Text>
         <Text style={styles.sectionMeta}>
-          {new Date(review.booking.startDate).toLocaleDateString()} - {new Date(review.booking.endDate).toLocaleDateString()}
+          {new Date(review.booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} - {new Date(review.booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
         </Text>
       </View>
 

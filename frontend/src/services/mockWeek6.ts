@@ -124,6 +124,8 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     insuranceOptIn: Boolean(data.insuranceOptIn),
     insuranceFee,
     stripePaymentIntentId: `pi_demo_${Date.now()}`,
+    stripeDepositPaymentIntentId: null,
+    depositStatus: null,
     stripeChargeId: null,
     stripeTransferId: null,
     paidAt: null,

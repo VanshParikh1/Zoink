@@ -151,7 +151,7 @@ export default function BookingDetailScreen() {
           <View style={styles.row}>
             <Text style={styles.label}>Dates</Text>
             <Text style={styles.value}>
-              {new Date(booking.startDate).toLocaleDateString()} - {new Date(booking.endDate).toLocaleDateString()}
+              {new Date(booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} - {new Date(booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
             </Text>
           </View>
           <View style={styles.row}>

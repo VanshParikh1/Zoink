@@ -13,7 +13,7 @@ import ScreenBackground from '../components/ScreenBackground'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function formatDateRange(startDate: string, endDate: string) {
