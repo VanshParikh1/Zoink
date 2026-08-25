@@ -3,6 +3,13 @@ import prisma from '../utils/prisma'
 import { BadRequestError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
 import { cancelPaymentIntent, refundPaymentIntent, toCents } from './paymentService'
 
+// Deposit resolution auto-releases 24h after return handoff completes (see
+// cleanupJob.releaseDueDeposits) — a dispute must be filed before then to
+// hold the deposit for review. Only applies to a COMPLETED booking (i.e.
+// after return handoff); a booking still in progress has no completedAt to
+// measure from and keeps the existing no-deadline behavior.
+export const DISPUTE_WINDOW_HOURS = 24
+
 export async function createDispute(
   bookingId: string,
   requesterId: string,
@@ -15,6 +22,15 @@ export async function createDispute(
 
   if (booking.renterId !== requesterId && booking.ownerId !== requesterId) {
     throw new ForbiddenError('Only the renter or owner can open a dispute for this booking.')
+  }
+
+  if (booking.status === 'COMPLETED' && booking.completedAt) {
+    const windowEnd = new Date(booking.completedAt.getTime() + DISPUTE_WINDOW_HOURS * 60 * 60 * 1000)
+    if (new Date() > windowEnd) {
+      throw new BadRequestError(
+        `The dispute window has closed. Disputes must be filed within ${DISPUTE_WINDOW_HOURS} hours of the booking completing.`
+      )
+    }
   }
 
   const existing = await db.dispute.findFirst({

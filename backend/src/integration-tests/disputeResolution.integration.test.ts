@@ -983,3 +983,77 @@ describe('GET /disputes — user dispute list', () => {
     assert.equal(res.status, 403)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. createDispute — 24h post-completion filing window
+// ─────────────────────────────────────────────────────────────────────────────
+describe('createDispute — dispute window on a COMPLETED booking', () => {
+  /** Creates a COMPLETED booking whose completedAt is `hoursAgo` hours in the
+   *  past, to exercise createDispute's DISPUTE_WINDOW_HOURS check at either
+   *  side of the cutoff. */
+  async function createCompletedBooking(hoursAgo: number) {
+    const db = getTestPrisma()
+    const { startDate, endDate } = futureDates(3, 3)
+    const completedAt = new Date(Date.now() - hoursAgo * 60 * 60 * 1000)
+    return db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(90),
+        depositAmount: new Prisma.Decimal(27),
+        commissionAmount: new Prisma.Decimal(13.5),
+        ownerPayout: new Prisma.Decimal(76.5),
+        insuranceFee: new Prisma.Decimal(0),
+        status: BookingStatus.COMPLETED,
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        paidAt: new Date(completedAt.getTime() - 60 * 60 * 1000),
+        completedAt,
+        stripePaymentIntentId: `pi_mock_dispute_window_${Date.now()}`,
+        version: 1,
+      },
+    })
+  }
+
+  test('dispute filed 23h after completion succeeds — still inside the window', async () => {
+    const booking = await createCompletedBooking(23)
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Filing this dispute well within the 24-hour post-completion window.'
+    )
+
+    assert.equal(dispute.status, 'OPEN')
+  })
+
+  test('dispute filed 25h after completion is rejected — window has closed', async () => {
+    const booking = await createCompletedBooking(25)
+
+    await assert.rejects(
+      () => disputeService.createDispute(
+        booking.id, renter.id, 'ITEM_DAMAGED',
+        'Filing this dispute after the 24-hour post-completion window has closed.'
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /dispute window has closed/i)
+        return true
+      }
+    )
+  })
+
+  test('dispute filed against a booking not yet COMPLETED is unaffected by the window', async () => {
+    // ACTIVE booking, no completedAt at all — the window only applies once a
+    // booking has actually completed return handoff.
+    const booking = await createBookingInStatus(BookingStatus.ACTIVE)
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'A booking still in progress should never be gated by the completion window.'
+    )
+
+    assert.equal(dispute.status, 'OPEN')
+  })
+})
