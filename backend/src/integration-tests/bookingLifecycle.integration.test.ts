@@ -370,6 +370,46 @@ describe('renter pays for an ACCEPTED booking', () => {
     assert.equal(events.length, 1)
   })
 
+  test('a renter paying for a second booking reuses their existing Stripe Customer, not a new one', async () => {
+    const db = getTestPrisma()
+
+    const bookingA = await makeAcceptedBooking()
+    const withIntentA = await bookingService.createPaymentIntentForBooking(bookingA.id, renter.id)
+    assert.ok(withIntentA.stripePaymentIntentId)
+
+    const userAfterFirst = await db.user.findUniqueOrThrow({ where: { id: renter.id } })
+    assert.ok(userAfterFirst.stripeCustomerId, 'a Stripe Customer id should now be stored on the user')
+
+    // A second, independent booking for the SAME renter.
+    const bookingB = await makeAcceptedBooking()
+    const withIntentB = await bookingService.createPaymentIntentForBooking(bookingB.id, renter.id)
+    assert.ok(withIntentB.stripePaymentIntentId)
+
+    const userAfterSecond = await db.user.findUniqueOrThrow({ where: { id: renter.id } })
+    assert.equal(
+      userAfterSecond.stripeCustomerId,
+      userAfterFirst.stripeCustomerId,
+      'the stored Stripe Customer id must not change between the two payments'
+    )
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+
+      // Ground truth: exactly one real Stripe Customer object exists, and both
+      // PaymentIntents were created against it — not two separate Customers.
+      const customer = await stripe.customers.retrieve(userAfterSecond.stripeCustomerId!)
+      assert.equal(customer.deleted, undefined, 'the Customer object should exist and not be deleted')
+      assert.equal(customer.id, userAfterSecond.stripeCustomerId)
+
+      const intentA = await stripe.paymentIntents.retrieve(withIntentA.stripePaymentIntentId!)
+      const intentB = await stripe.paymentIntents.retrieve(withIntentB.stripePaymentIntentId!)
+      assert.equal(intentA.customer, userAfterSecond.stripeCustomerId)
+      assert.equal(intentB.customer, userAfterSecond.stripeCustomerId)
+      assert.equal(intentA.customer, intentB.customer, 'both PaymentIntents must reference the same Stripe Customer')
+    }
+  })
+
   test('createPaymentIntentForBooking rejects a booking that is not ACCEPTED', async () => {
     const { startDate, endDate } = futureDates(2, 2)
     const pending = await bookingService.createBooking(renter.id, {
