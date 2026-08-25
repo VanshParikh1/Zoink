@@ -29,7 +29,7 @@ import {
   disconnectTestPrisma,
   checkStripeConnectivity,
 } from './setup'
-import { releaseDuePayouts } from '../services/cleanupJob'
+import { releaseDuePayouts, releaseDueDeposits } from '../services/cleanupJob'
 import { PaymentStatus, BookingStatus, DisputeStatus, Prisma } from '@prisma/client'
 
 let stripeAvailable = false
@@ -176,5 +176,147 @@ describe('releaseDuePayouts', () => {
 
     const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'payout must stay blocked')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// releaseDueDeposits — automatic deposit release, same shape as releaseDuePayouts
+// but cancels the deposit PaymentIntent instead of transferring a payout.
+// ─────────────────────────────────────────────────────────────────────────────
+async function createAuthorizedDepositPaymentIntent(amountCents: number): Promise<string> {
+  const Stripe = require('stripe')
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+  const intent = await stripe.paymentIntents.create({
+    amount: amountCents,
+    currency: process.env.STRIPE_CURRENCY ?? 'cad',
+    payment_method: 'pm_card_visa',
+    payment_method_types: ['card'],
+    confirm: true,
+    capture_method: 'manual',
+  })
+  return intent.id
+}
+
+async function createDueDepositBooking(disputeStatus: DisputeStatus) {
+  const db = getTestPrisma()
+  const { startDate, endDate } = futureDates(3, 3)
+  const completedAt = new Date(Date.now() - 48 * 60 * 60 * 1000) // 48h ago, past the 24h dispute window
+  const stripeDepositPaymentIntentId = await createAuthorizedDepositPaymentIntent(1500)
+
+  const booking = await db.booking.create({
+    data: {
+      listingId,
+      renterId: renter.id,
+      ownerId: owner.id,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      totalPrice: new Prisma.Decimal(90),
+      depositAmount: new Prisma.Decimal(15),
+      commissionAmount: new Prisma.Decimal(13.5),
+      ownerPayout: new Prisma.Decimal(76.5),
+      insuranceFee: new Prisma.Decimal(0),
+      status: BookingStatus.COMPLETED,
+      paymentStatus: PaymentStatus.PAYOUT_PENDING,
+      disputeStatus,
+      completedAt,
+      stripePaymentIntentId: `pi_mock_deposit_rental_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      stripeDepositPaymentIntentId,
+      depositStatus: 'AUTHORIZED',
+      version: 1,
+    },
+  })
+
+  return { booking, stripeDepositPaymentIntentId }
+}
+
+describe('releaseDueDeposits', () => {
+  test('releases a due deposit with no dispute (disputeStatus NONE) — cancels the PaymentIntent and marks it RELEASED', async () => {
+    const db = getTestPrisma()
+    const { booking, stripeDepositPaymentIntentId } = await createDueDepositBooking(DisputeStatus.NONE)
+
+    const result = await releaseDueDeposits()
+    assert.ok(result.released >= 1, 'at least one deposit should have been released')
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.depositStatus, 'RELEASED')
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const depositIntent = await stripe.paymentIntents.retrieve(stripeDepositPaymentIntentId)
+      assert.equal(depositIntent.status, 'canceled', 'the deposit PaymentIntent should be canceled, releasing the hold')
+    }
+  })
+
+  test('releases a due deposit with disputeStatus RESOLVED_NO_ACTION', async () => {
+    const db = getTestPrisma()
+    const { booking } = await createDueDepositBooking(DisputeStatus.RESOLVED_NO_ACTION)
+
+    await releaseDueDeposits()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.depositStatus, 'RELEASED')
+  })
+
+  test('releases a due deposit with disputeStatus DISMISSED', async () => {
+    const db = getTestPrisma()
+    const { booking } = await createDueDepositBooking(DisputeStatus.DISMISSED)
+
+    await releaseDueDeposits()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.depositStatus, 'RELEASED')
+  })
+
+  test('does NOT release a deposit with an unresolved dispute (OPEN) — must stay held', async () => {
+    const db = getTestPrisma()
+    const { booking, stripeDepositPaymentIntentId } = await createDueDepositBooking(DisputeStatus.OPEN)
+
+    const result = await releaseDueDeposits()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.depositStatus, 'AUTHORIZED', 'deposit must stay held while a dispute is open')
+    assert.equal(result.checked, 0, 'an OPEN-dispute booking should not even be selected')
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const depositIntent = await stripe.paymentIntents.retrieve(stripeDepositPaymentIntentId)
+      assert.equal(depositIntent.status, 'requires_capture', 'the deposit authorization must remain untouched')
+    }
+  })
+
+  test('does NOT release a deposit not yet past the hold window', async () => {
+    const db = getTestPrisma()
+    const stripeDepositPaymentIntentId = await createAuthorizedDepositPaymentIntent(1500)
+    const { startDate, endDate } = futureDates(3, 3)
+    const booking = await db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(90),
+        depositAmount: new Prisma.Decimal(15),
+        commissionAmount: new Prisma.Decimal(13.5),
+        ownerPayout: new Prisma.Decimal(76.5),
+        insuranceFee: new Prisma.Decimal(0),
+        status: BookingStatus.COMPLETED,
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        disputeStatus: DisputeStatus.NONE,
+        completedAt: new Date(), // just completed — well within the 24h window
+        stripePaymentIntentId: `pi_mock_deposit_rental_${Date.now()}`,
+        stripeDepositPaymentIntentId,
+        depositStatus: 'AUTHORIZED',
+        version: 1,
+      },
+    })
+
+    const result = await releaseDueDeposits()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.depositStatus, 'AUTHORIZED', 'deposit must stay held until the hold window has passed')
+    assert.equal(result.checked, 0)
   })
 })

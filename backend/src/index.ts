@@ -34,7 +34,7 @@ import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
-import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
+import { cleanupStaleHandoffs, releaseDuePayouts, releaseDueDeposits } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 import { globalLimiter } from './middleware/rateLimiter'
@@ -150,7 +150,8 @@ if (process.env.NODE_ENV !== 'test') {
     try {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
-      console.log('Cleanup job completed:', { handoffs, payouts })
+      const deposits = await releaseDueDeposits()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

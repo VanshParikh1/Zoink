@@ -1,6 +1,6 @@
-import { BookingEventType, BookingStatus, PaymentStatus } from '@prisma/client'
+import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { transferPayout } from './paymentService'
+import { cancelPaymentIntent, transferPayout } from './paymentService'
 
 export async function cleanupStaleHandoffs() {
   const staleBefore = new Date(Date.now() - Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000))
@@ -85,4 +85,65 @@ export async function releaseDuePayouts() {
   }
 
   return { checked: bookings.length, paid }
+}
+
+/** Auto-releases a booking's deposit once it's been held past the dispute
+ *  filing window with no dispute filed (see disputeService.DISPUTE_WINDOW_HOURS).
+ *  The deposit is authorized as its own PaymentIntent since CONFIRMED (see
+ *  bookingService.transitionBookingStatus) and stays that way until either a
+ *  dispute resolves it (disputeService.resolveDispute) or this job cancels it. */
+export async function releaseDueDeposits() {
+  const holdHours = Number(process.env.DEPOSIT_HOLD_HOURS ?? 24)
+  const dueBefore = new Date(Date.now() - holdHours * 60 * 60 * 1000)
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      status: BookingStatus.COMPLETED,
+      depositStatus: DepositStatus.AUTHORIZED,
+      completedAt: { lte: dueBefore },
+      // Once a dispute resolves as RESOLVED_REFUND, depositStatus already moved
+      // to CAPTURED or RELEASED (see disputeService.resolveDispute), so this
+      // query no longer matches it regardless of this filter — the only thing
+      // left to exclude here is a dispute that's still actually open, which
+      // must hold the deposit until it's resolved one way or the other.
+      disputeStatus: { notIn: ['OPEN', 'UNDER_REVIEW'] },
+    },
+    select: {
+      id: true,
+      version: true,
+      stripeDepositPaymentIntentId: true,
+    },
+  })
+
+  let released = 0
+  for (const booking of bookings) {
+    if (!booking.stripeDepositPaymentIntentId) continue
+
+    await cancelPaymentIntent({
+      id: booking.id,
+      version: booking.version,
+      stripePaymentIntentId: booking.stripeDepositPaymentIntentId,
+    })
+
+    await prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          depositStatus: DepositStatus.RELEASED,
+          version: { increment: 1 },
+        },
+      })
+
+      await tx.bookingEvent.create({
+        data: {
+          bookingId: booking.id,
+          type: BookingEventType.PAYMENT_REFUNDED,
+          metadata: { action: 'deposit_released', holdHours },
+        },
+      })
+    })
+    released += 1
+  }
+
+  return { checked: bookings.length, released }
 }
