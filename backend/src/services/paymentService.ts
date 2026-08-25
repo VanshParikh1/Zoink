@@ -3,7 +3,6 @@ import { InternalServerError, ConflictError } from '../utils/errors'
 import prisma from '../utils/prisma'
 
 
-const PLATFORM_COMMISSION_RATE = Number(process.env.PLATFORM_COMMISSION_RATE ?? 0.15)
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
 const MIN_INSURANCE_FEE = Number(process.env.MIN_INSURANCE_FEE ?? 1)
 const MAX_INSURANCE_FEE = Number(process.env.MAX_INSURANCE_FEE ?? 50)
@@ -73,12 +72,33 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
-export function calculateCommission(totalPrice: Prisma.Decimal | number) {
-  return Math.round(Number(totalPrice) * PLATFORM_COMMISSION_RATE * 100) / 100
+// Bracket is keyed on the listing's DAILY rate, not the booking's total value —
+// a long rental of a cheap item stays in the cheap-item tier, it doesn't creep
+// into a lower rate just because rentalDays pushed totalPrice up. The bracket
+// is looked up once (at booking-request time, alongside every other snapshotted
+// price field — see createBooking() in bookingService.ts) and applied to the
+// full rental total; it is never recomputed per day or re-derived later.
+const COMMISSION_TIERS: { maxDailyRate: number; rate: number }[] = [
+  { maxDailyRate: 20, rate: 0.15 },
+  { maxDailyRate: 50, rate: 0.125 },
+  { maxDailyRate: Infinity, rate: 0.1 },
+]
+
+export function getCommissionRate(dailyRate: Prisma.Decimal | number): number {
+  const rate = Number(dailyRate)
+  // Boundaries are inclusive on the lower-rate side ($20/day exactly is still
+  // the 15% tier, $50/day exactly is still the 12.5% tier) — the same
+  // convention as INSURANCE_RATE's min/max clamp above.
+  const tier = COMMISSION_TIERS.find((t) => rate <= t.maxDailyRate)
+  return tier!.rate
 }
 
-export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
-  return Math.round((Number(totalPrice) - calculateCommission(totalPrice)) * 100) / 100
+export function calculateCommission(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
+  return Math.round(Number(totalPrice) * getCommissionRate(dailyRate) * 100) / 100
+}
+
+export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
+  return Math.round((Number(totalPrice) - calculateCommission(totalPrice, dailyRate)) * 100) / 100
 }
 
 // Rental + insurance only — the deposit is authorized separately (see

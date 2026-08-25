@@ -176,8 +176,8 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     totalPrice,
     paymentStatus: booking.paymentStatus,
     depositAmount: Number(booking.depositAmount),
-    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
-    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
+    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice, booking.listing?.dailyPrice ?? 0)),
+    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice, booking.listing?.dailyPrice ?? 0)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
     stripePaymentIntentId: booking.stripePaymentIntentId,
@@ -333,8 +333,8 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
   const depositAmount = Number(listing.depositAmount)
-  const commissionAmount = calculateCommission(totalPrice)
-  const ownerPayout = calculateOwnerPayout(totalPrice)
+  const commissionAmount = calculateCommission(totalPrice, dailyPrice)
+  const ownerPayout = calculateOwnerPayout(totalPrice, dailyPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
 
   const trimmedMessage = input.message?.trim() || null
