@@ -91,50 +91,52 @@ model ListingImage {
 }
 
 model Booking {
-  id                    String             @id @default(uuid())
-  status                BookingStatus      @default(PENDING)
-  version               Int                @default(0)
-  startDate             DateTime
-  endDate               DateTime
-  totalPrice            Decimal            @db.Decimal(10, 2)
-  paymentStatus         PaymentStatus      @default(PENDING_AUTH)
-  depositAmount         Decimal            @default(0) @db.Decimal(10, 2)
-  commissionAmount      Decimal            @default(0) @db.Decimal(10, 2)
-  ownerPayout           Decimal            @default(0) @db.Decimal(10, 2)
-  insuranceOptIn        Boolean            @default(false)
-  insuranceFee          Decimal            @default(0) @db.Decimal(10, 2)
-  stripePaymentIntentId String?
-  stripeChargeId        String?
-  stripeTransferId      String?
-  paidAt                DateTime?
-  refundedAt            DateTime?
-  payoutSentAt          DateTime?
-  pickupPhotos          String[]           @default([])
-  returnPhotos          String[]           @default([])
-  handoffInitiatedAt    DateTime?
-  returnInitiatedAt     DateTime?
-  ownerPickupTappedAt   DateTime?
-  renterPickupTappedAt  DateTime?
-  ownerReturnTappedAt   DateTime?
-  renterReturnTappedAt  DateTime?
-  disputeStatus         DisputeStatus      @default(NONE)
-  disputedAt            DateTime?
-  disputeReason         String?
-  disputes              Dispute[]
-  renterId              String
-  ownerId               String
-  listingId             String
-  conversationId        String?
-  completedAt           DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  events                BookingEvent[]
-  listing               Listing            @relation(fields: [listingId], references: [id])
-  owner                 User               @relation("OwnerBookings", fields: [ownerId], references: [id])
-  renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
-  conversation          Conversation?      @relation(fields: [conversationId], references: [id])
-  reviewObligations     ReviewObligation[]
-  reviews               Review[]
+  id                           String             @id @default(uuid())
+  status                       BookingStatus      @default(PENDING)
+  version                      Int                @default(0)
+  startDate                    DateTime
+  endDate                      DateTime
+  totalPrice                   Decimal            @db.Decimal(10, 2)
+  paymentStatus                PaymentStatus      @default(PENDING_AUTH)
+  depositAmount                Decimal            @default(0) @db.Decimal(10, 2)
+  commissionAmount             Decimal            @default(0) @db.Decimal(10, 2)
+  ownerPayout                  Decimal            @default(0) @db.Decimal(10, 2)
+  insuranceOptIn               Boolean            @default(false)
+  insuranceFee                 Decimal            @default(0) @db.Decimal(10, 2)
+  stripePaymentIntentId        String?
+  stripeDepositPaymentIntentId String?
+  depositStatus                DepositStatus?
+  stripeChargeId               String?
+  stripeTransferId             String?
+  paidAt                       DateTime?
+  refundedAt                   DateTime?
+  payoutSentAt                 DateTime?
+  pickupPhotos                 String[]           @default([])
+  returnPhotos                 String[]           @default([])
+  handoffInitiatedAt           DateTime?
+  returnInitiatedAt            DateTime?
+  ownerPickupTappedAt          DateTime?
+  renterPickupTappedAt         DateTime?
+  ownerReturnTappedAt          DateTime?
+  renterReturnTappedAt         DateTime?
+  disputeStatus                DisputeStatus      @default(NONE)
+  disputedAt                   DateTime?
+  disputeReason                String?
+  disputes                     Dispute[]
+  renterId                     String
+  ownerId                      String
+  listingId                    String
+  conversationId               String?
+  completedAt                  DateTime?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
+  events                       BookingEvent[]
+  listing                      Listing            @relation(fields: [listingId], references: [id])
+  owner                        User               @relation("OwnerBookings", fields: [ownerId], references: [id])
+  renter                       User               @relation("RenterBookings", fields: [renterId], references: [id])
+  conversation                 Conversation?      @relation(fields: [conversationId], references: [id])
+  reviewObligations            ReviewObligation[]
+  reviews                      Review[]
 
   @@map("bookings")
 }
@@ -360,6 +362,12 @@ enum PaymentStatus {
   PAYOUT_PENDING
   PAID_OUT
   FAILED
+}
+
+enum DepositStatus {
+  AUTHORIZED
+  CAPTURED
+  RELEASED
 }
 
 enum DisputeStatus {
