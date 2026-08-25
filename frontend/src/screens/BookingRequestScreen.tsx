@@ -35,6 +35,8 @@ type CalendarDay = {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_COUNT = 2
+// Mirrors MAX_RENTAL_DAYS in backend/src/services/bookingUtils.ts — keep in sync.
+const MAX_RENTAL_DAYS = 7
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -162,6 +164,11 @@ export default function BookingRequestScreen() {
 
     if (isSameDay(day, startDate)) {
       setEndDate(day)
+      return
+    }
+
+    if (getRentalDays(startDate, day) > MAX_RENTAL_DAYS) {
+      Alert.alert('Date range too long', `Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`)
       return
     }
 

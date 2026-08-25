@@ -1,5 +1,11 @@
 import { BadRequestError } from '../utils/errors'
 
+// Card-network authorization holds on the Stripe PaymentIntent are only
+// reliably valid for about a week — a rental longer than this risks the
+// hold expiring before pickup/return capture. See disputeService.ts /
+// paymentService.ts for the payment flows this constrains.
+export const MAX_RENTAL_DAYS = 7
+
 export function roundCurrency(value: number) {
   return Math.round(value * 100) / 100
 }
@@ -19,5 +25,9 @@ export function ensureValidBookingDates(startDate: Date, endDate: Date) {
 
   if (endDate < startDate) {
     throw new BadRequestError('Start and end dates are invalid.')
+  }
+
+  if (getRentalDays(startDate, endDate) > MAX_RENTAL_DAYS) {
+    throw new BadRequestError(`Bookings cannot exceed ${MAX_RENTAL_DAYS} days.`)
   }
 }

@@ -4,6 +4,7 @@ import {
   ensureValidBookingDates,
   getRentalDays,
   roundCurrency,
+  MAX_RENTAL_DAYS,
 } from './bookingUtils'
 
 test('roundCurrency rounds to cents', () => {
@@ -29,4 +30,23 @@ test('ensureValidBookingDates rejects invalid ranges and invalid dates', () => {
     () => ensureValidBookingDates(new Date('invalid'), new Date('2026-04-27T00:00:00.000Z')),
     /Start and end dates are invalid\./
   )
+})
+
+test('ensureValidBookingDates rejects a range longer than MAX_RENTAL_DAYS', () => {
+  const start = new Date('2026-04-01T00:00:00.000Z')
+  const tooLongEnd = new Date('2026-04-08T00:00:00.000Z') // 8-day range (day 1 through day 8)
+
+  assert.equal(getRentalDays(start, tooLongEnd), MAX_RENTAL_DAYS + 1)
+  assert.throws(
+    () => ensureValidBookingDates(start, tooLongEnd),
+    new RegExp(`cannot exceed ${MAX_RENTAL_DAYS} days`)
+  )
+})
+
+test('ensureValidBookingDates accepts a range of exactly MAX_RENTAL_DAYS', () => {
+  const start = new Date('2026-04-01T00:00:00.000Z')
+  const exactEnd = new Date('2026-04-07T00:00:00.000Z') // 7-day range
+
+  assert.equal(getRentalDays(start, exactEnd), MAX_RENTAL_DAYS)
+  assert.doesNotThrow(() => ensureValidBookingDates(start, exactEnd))
 })
