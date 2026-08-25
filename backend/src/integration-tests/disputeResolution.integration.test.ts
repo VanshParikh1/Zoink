@@ -494,6 +494,79 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2b. resolveDispute — deposit compensation transfer to the owner
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveDispute — deposit compensation transfer to owner', () => {
+  // transferDepositCompensation() calls the real stripe.transfers.create() API,
+  // which can only draw from the platform's *available* balance — same setup
+  // as payoutRelease.integration.test.ts's releaseDuePayouts tests.
+  function requireOwnerStripeAccount() {
+    const accountId = process.env.DEV_STRIPE_ACCOUNT_ID
+    if (!accountId) {
+      throw new Error(
+        'DEV_STRIPE_ACCOUNT_ID is not set in .env.test — required for this test, ' +
+        'which calls the real Stripe Connect transfers API.'
+      )
+    }
+    return accountId
+  }
+
+  async function fundPlatformAvailableBalance(amountCents: number): Promise<void> {
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      payment_method: 'pm_card_bypassPending',
+      payment_method_types: ['card'],
+      confirm: true,
+      capture_method: 'manual',
+    })
+    await stripe.paymentIntents.capture(intent.id, { amount_to_capture: amountCents })
+  }
+
+  test('the FULL captured deposit amount reaches the owner connected account, with no commission deducted', async () => {
+    const db = getTestPrisma()
+    const ownerAccountId = requireOwnerStripeAccount()
+    await db.user.update({ where: { id: owner.id }, data: { stripeAccountId: ownerAccountId } })
+    await fundPlatformAvailableBalance(50000) // headroom to cover the transfer + Stripe fees
+
+    const stripeDepositPaymentIntentId = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, owner.id, 'ITEM_DAMAGED',
+      'Renter returned the item with significant damage — filing for the full deposit.'
+    )
+
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed significant damage — charging the full $27 deposit to compensate the owner.'
+      // refundAmountCents omitted -> defaults to the full deposit (2700 cents)
+    )
+    assert.equal(resolved.refundAmountCents, 2700)
+
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'PAYOUT_TRIGGERED' } })
+    assert.equal(events.length, 1, 'a PAYOUT_TRIGGERED event should record the deposit-compensation transfer')
+    const transferMetadata = events[0].metadata as any
+    assert.equal(transferMetadata.purpose, 'deposit_compensation')
+    assert.equal(transferMetadata.amountCents, 2700, 'the full captured amount, no commission cut')
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const transfer = await stripe.transfers.retrieve(transferMetadata.stripeTransferId)
+      assert.equal(transfer.amount, 2700, 'the owner must receive the full captured deposit, not a commission-reduced amount')
+      assert.equal(transfer.destination, ownerAccountId)
+    }
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. resolveDispute — RESOLVED_NO_ACTION and DISMISSED
 // ─────────────────────────────────────────────────────────────────────────────
 describe('resolveDispute — RESOLVED_NO_ACTION and DISMISSED', () => {

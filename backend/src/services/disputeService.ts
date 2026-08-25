@@ -1,7 +1,7 @@
 import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { cancelPaymentIntent, capturePaymentIntent, refundPaymentIntent, toCents } from './paymentService'
+import { cancelPaymentIntent, capturePaymentIntent, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
 
 // Deposit resolution auto-releases 24h after return handoff completes (see
 // cleanupJob.releaseDueDeposits) — a dispute must be filed before then to
@@ -170,6 +170,63 @@ export async function resolveDispute(
           throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
         }
         nextDepositStatus = 'CAPTURED'
+
+        // The captured amount compensates the owner for the damage found —
+        // none of it is platform revenue, so it's transferred in full, no
+        // commission cut, right here rather than deferred: the admin's
+        // decision is already final at this point (unlike the rental payout,
+        // which waits out a hold window for possible disputes — there's
+        // nothing left to wait for once the dispute that resolved THIS
+        // deposit has itself been decided).
+        const owner = await tx.user.findUnique({
+          where: { id: dispute.booking.ownerId },
+          select: { stripeAccountId: true },
+        })
+
+        if (owner?.stripeAccountId) {
+          try {
+            const transfer = await transferDepositCompensation(
+              dispute.booking,
+              owner.stripeAccountId,
+              refundedCents,
+              disputeId
+            )
+            await tx.bookingEvent.create({
+              data: {
+                bookingId: dispute.bookingId,
+                actorId: adminId,
+                type: BookingEventType.PAYOUT_TRIGGERED,
+                metadata: {
+                  stripeTransferId: transfer.id,
+                  disputeId,
+                  purpose: 'deposit_compensation',
+                  amountCents: refundedCents,
+                },
+              },
+            })
+          } catch (err: any) {
+            // The deposit has already been captured from the renter — that
+            // can't be undone here, so a transfer failure must not fail the
+            // whole resolution. Record it for manual follow-up instead.
+            await tx.bookingEvent.create({
+              data: {
+                bookingId: dispute.bookingId,
+                actorId: adminId,
+                type: BookingEventType.ERROR,
+                metadata: { action: 'deposit_compensation_transfer_failed', message: err.message },
+              },
+            })
+          }
+        } else {
+          await tx.bookingEvent.create({
+            data: {
+              bookingId: dispute.bookingId,
+              actorId: adminId,
+              type: BookingEventType.ERROR,
+              metadata: { action: 'deposit_compensation_transfer_skipped', reason: 'owner has no connected Stripe account' },
+            },
+          })
+        }
       } else {
         try {
           await cancelPaymentIntent(depositIntentRef)

@@ -343,6 +343,42 @@ export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | '
   )
 }
 
+/** Transfers a captured deposit amount to the owner, in full — no commission
+ *  cut, unlike the rental payout above. Used when a dispute is resolved as
+ *  valid damage against the borrower (disputeService.resolveDispute's
+ *  COMPLETED branch): the deposit was captured from the renter specifically
+ *  to compensate the owner, so none of it belongs to the platform. Tracked
+ *  with its own idempotency key (keyed on the dispute, which can only ever
+ *  be resolved once) rather than reusing transferPayout's, since a booking's
+ *  rental payout and its deposit compensation are two independent transfers
+ *  that can happen at different times for the same booking/version. */
+export async function transferDepositCompensation(
+  booking: Pick<Booking, 'id'>,
+  stripeAccountId: string,
+  amountCents: number,
+  disputeId: string
+) {
+  const stripe = getStripe()
+
+  if (!stripe) {
+    return {
+      id: `tr_mock_deposit_${booking.id}`,
+      amount: amountCents,
+      destination: stripeAccountId,
+    }
+  }
+
+  return stripe.transfers.create(
+    {
+      amount: amountCents,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      destination: stripeAccountId,
+      metadata: { bookingId: booking.id, disputeId, purpose: 'deposit_compensation' },
+    },
+    { idempotencyKey: `deposit-payout-${booking.id}-${disputeId}` }
+  )
+}
+
 export async function createConnectAccountLink(accountId?: string | null) {
   const stripe = getStripe()
   if (!stripe) {

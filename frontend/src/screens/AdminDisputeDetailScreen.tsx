@@ -22,12 +22,27 @@ const REASON_LABELS: Record<string, string> = {
   OTHER: 'Other',
 }
 
-const RESOLUTION_OPTIONS: { value: ResolveDisputePayload['status']; label: string }[] = [
-  { value: 'RESOLVED_REFUND', label: 'Refund the renter' },
-  { value: 'RESOLVED_NO_ACTION', label: 'No action needed' },
-  { value: 'DISMISSED', label: 'Dismiss dispute' },
-]
+// On a COMPLETED booking, RESOLVED_REFUND charges the still-held deposit
+// (a Stripe capture) rather than refunding the rental payment, which
+// already settled at pickup — see disputeService.resolveDispute's
+// COMPLETED branch. The label needs to say which one is actually happening.
+// Only used for a dispute that is STILL BEING resolved (isActive) — at that
+// point booking.status reliably predicts which path resolving now would
+// take. For an already-resolved dispute, see the note by OUTCOME_LABELS below.
+function getResolutionOptions(isDepositCapture: boolean): { value: ResolveDisputePayload['status']; label: string }[] {
+  return [
+    { value: 'RESOLVED_REFUND', label: isDepositCapture ? 'Charge the deposit' : 'Refund the renter' },
+    { value: 'RESOLVED_NO_ACTION', label: 'No action needed' },
+    { value: 'DISMISSED', label: 'Dismiss dispute' },
+  ]
+}
 
+// Generic wording for an ALREADY-RESOLVED dispute — booking.status by then
+// reflects the booking's CURRENT status, which can have moved on since the
+// dispute was resolved (e.g. resolved while ACTIVE, booking later completed
+// normally), so it can't safely be used to say which path that past
+// resolution took without a dedicated field recording it. Deliberately
+// vague ("refund issued") rather than confidently wrong.
 const OUTCOME_LABELS: Record<string, string> = {
   RESOLVED_REFUND: 'Resolved: refund issued',
   RESOLVED_NO_ACTION: 'Resolved: no action taken',
@@ -293,6 +308,10 @@ export default function AdminDisputeDetailScreen() {
 
         {!isActive ? (
           <View style={styles.card}>
+            {/* This dispute may have been resolved while the booking was still ACTIVE
+                (refund path) — booking.status here reflects the booking's CURRENT
+                status, which can have moved on to COMPLETED since, so it can't safely
+                be used to say which path a past resolution took. Generic wording only. */}
             <Text style={styles.sectionTitle}>{OUTCOME_LABELS[dispute.status] ?? dispute.status}</Text>
             {dispute.status === 'RESOLVED_REFUND' && dispute.refundAmountCents != null ? (
               <Text style={styles.value}>Refunded ${(dispute.refundAmountCents / 100).toFixed(2)}</Text>
@@ -307,7 +326,7 @@ export default function AdminDisputeDetailScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Resolve this dispute</Text>
             <View style={styles.chipsColumn}>
-              {RESOLUTION_OPTIONS.map((option) => {
+              {getResolutionOptions(dispute.booking.status === 'COMPLETED').map((option) => {
                 const isSelected = resolution === option.value
                 return (
                   <TouchableOpacity
@@ -324,9 +343,15 @@ export default function AdminDisputeDetailScreen() {
 
             {resolution === 'RESOLVED_REFUND' ? (
               <>
-                <Text style={styles.sectionTitle}>Refund amount</Text>
+                <Text style={styles.sectionTitle}>
+                  {dispute.booking.status === 'COMPLETED' ? 'Deposit charge amount' : 'Refund amount'}
+                </Text>
+                {/* NOTE: the cap/prefill below still reads booking.totalPrice even for a
+                    COMPLETED (deposit-charge) resolution — the correct cap there is
+                    depositAmount, which getDisputeDetail doesn't currently select. Left
+                    as-is; this is a separate, backend-touching fix, not just a label swap. */}
                 <Text style={styles.bodyText}>
-                  Up to the booking total of ${Number(dispute.booking.totalPrice).toFixed(2)}. Defaults to the full amount — edit to issue a partial refund.
+                  Up to the booking total of ${Number(dispute.booking.totalPrice).toFixed(2)}. Defaults to the full amount — edit to issue a partial {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'}.
                 </Text>
                 <TextInput
                   value={refundAmountInput}
