@@ -109,6 +109,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     ? Number(Math.min(50, Math.max(1, Number(listing.itemValue) * 0.03)).toFixed(2))
     : 0
   const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
+  const hstAmount = Number((totalPrice * 0.13).toFixed(2))
 
   const booking: Booking = {
     id: `demo-booking-${Date.now()}`,
@@ -123,6 +124,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
     insuranceOptIn: Boolean(data.insuranceOptIn),
     insuranceFee,
+    hstAmount,
     stripePaymentIntentId: `pi_demo_${Date.now()}`,
     stripeDepositPaymentIntentId: null,
     depositStatus: null,

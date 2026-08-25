@@ -103,6 +103,7 @@ model Booking {
   ownerPayout                  Decimal            @default(0) @db.Decimal(10, 2)
   insuranceOptIn               Boolean            @default(false)
   insuranceFee                 Decimal            @default(0) @db.Decimal(10, 2)
+  hstAmount                    Decimal            @default(0) @db.Decimal(10, 2)
   stripePaymentIntentId        String?
   stripeDepositPaymentIntentId String?
   depositStatus                DepositStatus?

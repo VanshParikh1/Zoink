@@ -7,6 +7,14 @@ const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
 const MIN_INSURANCE_FEE = Number(process.env.MIN_INSURANCE_FEE ?? 1)
 const MAX_INSURANCE_FEE = Number(process.env.MAX_INSURANCE_FEE ?? 50)
 
+// Ontario HST. Applied to the rental price only — not the deposit (a hold,
+// not a sale) and not insurance (a separate optional product). Charged on
+// top of what the borrower pays; it is never subtracted from totalPrice
+// before commission/ownerPayout are computed, so it has no effect on the
+// owner's earnings. The platform has no per-listing jurisdiction field
+// today, so this applies to every booking (see calculateHst callers).
+const HST_RATE = 0.13
+
 type StripeClient = any
 
 let stripeClient: StripeClient | null | undefined
@@ -72,6 +80,10 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
+export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
+  return Math.round(Number(rentalTotalPrice) * HST_RATE * 100) / 100
+}
+
 // Bracket is keyed on the listing's DAILY rate, not the booking's total value —
 // a long rental of a cheap item stays in the cheap-item tier, it doesn't creep
 // into a lower rate just because rentalDays pushed totalPrice up. The bracket
@@ -101,16 +113,19 @@ export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number, dailyR
   return Math.round((Number(totalPrice) - calculateCommission(totalPrice, dailyRate)) * 100) / 100
 }
 
-// Rental + insurance only — the deposit is authorized separately (see
+// Rental + insurance + HST — the deposit is authorized separately (see
 // createDepositPaymentIntent) so it can stay held through the full rental
 // and be resolved at return handoff instead of being released at pickup
-// as a side effect of this PaymentIntent's partial capture.
-export function getRentalAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'insuranceFee'>) {
-  return toCents(Number(booking.totalPrice) + Number(booking.insuranceFee))
+// as a side effect of this PaymentIntent's partial capture. HST is folded
+// in here (not tracked as its own PaymentIntent) since it settles on
+// exactly the same schedule as the rental price — captured together at
+// pickup, same as insurance.
+export function getRentalAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'insuranceFee' | 'hstAmount'>) {
+  return toCents(Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount))
 }
 
 export async function createPaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'totalPrice' | 'depositAmount' | 'insuranceFee'>,
+  booking: Pick<Booking, 'id' | 'version' | 'totalPrice' | 'depositAmount' | 'insuranceFee' | 'hstAmount'>,
   stripeCustomerId?: string | null
 ) {
   const stripe = getStripe()
@@ -220,7 +235,7 @@ export async function getOrCreateStripeCustomer(
 }
 
 export async function capturePaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId' | 'totalPrice' | 'insuranceFee'>,
+  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId' | 'totalPrice' | 'insuranceFee' | 'hstAmount'>,
   amountOverrideCents?: number
 ) {
   if (!booking.stripePaymentIntentId) {
@@ -228,7 +243,7 @@ export async function capturePaymentIntent(
   }
 
   const stripe = getStripe()
-  const amount = amountOverrideCents ?? toCents(Number(booking.totalPrice) + Number(booking.insuranceFee))
+  const amount = amountOverrideCents ?? toCents(Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount ?? 0))
 
   if (!stripe) {
     return {

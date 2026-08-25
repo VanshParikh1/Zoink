@@ -131,10 +131,14 @@ export default function PayScreen() {
               <Text style={styles.rowValue}>${booking.insuranceFee.toFixed(2)}</Text>
             </View>
           ) : null}
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>HST (13%)</Text>
+            <Text style={styles.rowValue}>${booking.hstAmount.toFixed(2)}</Text>
+          </View>
           <View style={[styles.row, styles.totalRow]}>
             <Text style={styles.totalLabel}>Charged today</Text>
             <Text style={styles.totalValue}>
-              ${(booking.totalPrice + booking.depositAmount + booking.insuranceFee).toFixed(2)}
+              ${(booking.totalPrice + booking.depositAmount + booking.insuranceFee + booking.hstAmount).toFixed(2)}
             </Text>
           </View>
         </HardBlock>

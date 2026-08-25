@@ -11,6 +11,7 @@ import {
 import { notifyUser } from './notificationService'
 import {
   calculateCommission,
+  calculateHst,
   calculateInsuranceFee,
   calculateOwnerPayout,
   cancelPaymentIntent,
@@ -39,6 +40,7 @@ const bookingSelect = {
   ownerPayout: true,
   insuranceOptIn: true,
   insuranceFee: true,
+  hstAmount: true,
   stripePaymentIntentId: true,
   stripeDepositPaymentIntentId: true,
   depositStatus: true,
@@ -180,6 +182,7 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice, booking.listing?.dailyPrice ?? 0)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
+    hstAmount: Number(booking.hstAmount ?? calculateHst(totalPrice)),
     stripePaymentIntentId: booking.stripePaymentIntentId,
     stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId ?? null,
     depositStatus: booking.depositStatus ?? null,
@@ -336,6 +339,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const commissionAmount = calculateCommission(totalPrice, dailyPrice)
   const ownerPayout = calculateOwnerPayout(totalPrice, dailyPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
+  const hstAmount = calculateHst(totalPrice)
 
   const trimmedMessage = input.message?.trim() || null
 
@@ -370,6 +374,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
         ownerPayout: toDecimal(ownerPayout),
         insuranceOptIn: Boolean(input.insuranceOptIn),
         insuranceFee: toDecimal(insuranceFee),
+        hstAmount: toDecimal(hstAmount),
       } as any,
       select: bookingSelect as any,
     })

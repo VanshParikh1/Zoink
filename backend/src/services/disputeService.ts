@@ -160,6 +160,7 @@ export async function resolveDispute(
         stripePaymentIntentId: dispute.booking.stripeDepositPaymentIntentId,
         totalPrice: new Prisma.Decimal(0),
         insuranceFee: new Prisma.Decimal(0),
+        hstAmount: new Prisma.Decimal(0),
       }
 
       if (refundedCents > 0) {

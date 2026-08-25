@@ -4,6 +4,7 @@ import {
   getCommissionRate,
   calculateCommission,
   calculateOwnerPayout,
+  calculateHst,
 } from './paymentService'
 
 test('getCommissionRate — tier 1 ($0-$20/day) is 15%', () => {
@@ -60,4 +61,30 @@ test('calculateOwnerPayout is totalPrice minus the tiered commission', () => {
   assert.equal(calculateOwnerPayout(100, 20), 85)
   assert.equal(calculateOwnerPayout(100, 30), 87.5)
   assert.equal(calculateOwnerPayout(100, 60), 90)
+})
+
+test('calculateHst is 13% of the rental price', () => {
+  assert.equal(calculateHst(100), 13)
+  assert.equal(calculateHst(0), 0)
+  assert.equal(calculateHst(150), 19.5)
+})
+
+test('calculateHst does not affect commission or ownerPayout math', () => {
+  // HST is purely additive on top of what the borrower pays — it must never
+  // be subtracted from totalPrice before commission/ownerPayout are derived,
+  // and calculateCommission/calculateOwnerPayout take no hst-related input
+  // at all, so this mostly documents the invariant: computing HST alongside
+  // commission for the same totalPrice/dailyRate must not change either.
+  const totalPrice = 200
+  const dailyRate = 30
+  const commissionBefore = calculateCommission(totalPrice, dailyRate)
+  const payoutBefore = calculateOwnerPayout(totalPrice, dailyRate)
+
+  const hst = calculateHst(totalPrice)
+  assert.equal(hst, 26)
+
+  assert.equal(calculateCommission(totalPrice, dailyRate), commissionBefore)
+  assert.equal(calculateOwnerPayout(totalPrice, dailyRate), payoutBefore)
+  assert.equal(commissionBefore, 25, '12.5% of $200 (tier 2, $30/day) = $25, unaffected by HST')
+  assert.equal(payoutBefore, 175, '$200 - $25 commission = $175, unaffected by HST')
 })

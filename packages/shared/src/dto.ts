@@ -184,6 +184,7 @@ export interface BookingResponse {
   ownerPayout: number
   insuranceOptIn: boolean
   insuranceFee: number
+  hstAmount: number
   stripePaymentIntentId: string | null
   stripeDepositPaymentIntentId: string | null
   depositStatus: DepositStatus | null
