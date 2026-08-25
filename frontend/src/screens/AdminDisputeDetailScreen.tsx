@@ -51,6 +51,15 @@ const OUTCOME_LABELS: Record<string, string> = {
 
 const ACTIVE_STATUSES = ['OPEN', 'UNDER_REVIEW']
 
+// On a COMPLETED booking, resolving RESOLVED_REFUND charges the still-held
+// deposit (a Stripe capture, see disputeService.resolveDispute's COMPLETED
+// branch) — the cap there is depositAmount, not totalPrice. Every other
+// status still takes the pre-completion refund path, capped at totalPrice
+// (the rental payment), same as before.
+function getRefundCapAmount(booking: Pick<AdminDisputeDetail['booking'], 'status' | 'totalPrice' | 'depositAmount'>): string {
+  return booking.status === 'COMPLETED' ? booking.depositAmount : booking.totalPrice
+}
+
 const EVENT_LABELS: Record<string, string> = {
   STATUS_CHANGE: 'Status changed',
   PAYMENT_INTENT_CREATED: 'Payment intent created',
@@ -158,7 +167,7 @@ export default function AdminDisputeDetailScreen() {
   function handleSelectResolution(value: ResolveDisputePayload['status']) {
     setResolution(value)
     if (value === 'RESOLVED_REFUND' && !refundAmountInput && dispute) {
-      setRefundAmountInput(Number(dispute.booking.totalPrice).toFixed(2))
+      setRefundAmountInput(Number(getRefundCapAmount(dispute.booking)).toFixed(2))
     }
   }
 
@@ -174,7 +183,8 @@ export default function AdminDisputeDetailScreen() {
 
     let refundAmountCents: number | undefined
     if (resolution === 'RESOLVED_REFUND') {
-      const totalPriceCents = Math.round(Number(dispute!.booking.totalPrice) * 100)
+      const capAmount = getRefundCapAmount(dispute!.booking)
+      const capCents = Math.round(Number(capAmount) * 100)
       const dollars = Number(refundAmountInput)
       const cents = Math.round(dollars * 100)
 
@@ -182,10 +192,11 @@ export default function AdminDisputeDetailScreen() {
         Alert.alert('Invalid refund amount', 'Enter a refund amount greater than $0.')
         return
       }
-      if (cents > totalPriceCents) {
+      if (cents > capCents) {
+        const isDepositCapture = dispute!.booking.status === 'COMPLETED'
         Alert.alert(
-          'Refund too high',
-          `You cannot refund more than the total amount of $${Number(dispute!.booking.totalPrice).toFixed(2)}.`
+          isDepositCapture ? 'Charge too high' : 'Refund too high',
+          `You cannot ${isDepositCapture ? 'charge' : 'refund'} more than the ${isDepositCapture ? 'deposit' : 'total'} amount of $${Number(capAmount).toFixed(2)}.`
         )
         return
       }
@@ -222,11 +233,12 @@ export default function AdminDisputeDetailScreen() {
   const isActive = ACTIVE_STATUSES.includes(dispute.status)
   const hasPickupPhotos = dispute.booking.pickupPhotos.length > 0
   const hasReturnPhotos = dispute.booking.returnPhotos.length > 0
+  const refundCapAmount = getRefundCapAmount(dispute.booking)
   const refundExceedsTotal =
     resolution === 'RESOLVED_REFUND' &&
     refundAmountInput.trim() !== '' &&
     Number.isFinite(Number(refundAmountInput)) &&
-    Math.round(Number(refundAmountInput) * 100) > Math.round(Number(dispute.booking.totalPrice) * 100)
+    Math.round(Number(refundAmountInput) * 100) > Math.round(Number(refundCapAmount) * 100)
 
   return (
     <DismissKeyboardView>
@@ -346,12 +358,8 @@ export default function AdminDisputeDetailScreen() {
                 <Text style={styles.sectionTitle}>
                   {dispute.booking.status === 'COMPLETED' ? 'Deposit charge amount' : 'Refund amount'}
                 </Text>
-                {/* NOTE: the cap/prefill below still reads booking.totalPrice even for a
-                    COMPLETED (deposit-charge) resolution — the correct cap there is
-                    depositAmount, which getDisputeDetail doesn't currently select. Left
-                    as-is; this is a separate, backend-touching fix, not just a label swap. */}
                 <Text style={styles.bodyText}>
-                  Up to the booking total of ${Number(dispute.booking.totalPrice).toFixed(2)}. Defaults to the full amount — edit to issue a partial {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'}.
+                  Up to the {dispute.booking.status === 'COMPLETED' ? 'deposit' : 'booking total'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'}.
                 </Text>
                 <TextInput
                   value={refundAmountInput}
@@ -364,7 +372,7 @@ export default function AdminDisputeDetailScreen() {
                 />
                 {refundExceedsTotal ? (
                   <Text style={styles.errorNote}>
-                    You cannot refund more than the total amount of ${Number(dispute.booking.totalPrice).toFixed(2)}.
+                    You cannot {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'} more than the {dispute.booking.status === 'COMPLETED' ? 'deposit' : 'total'} amount of ${Number(refundCapAmount).toFixed(2)}.
                   </Text>
                 ) : null}
               </>

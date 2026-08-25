@@ -43,6 +43,7 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
           status: true,
           paymentStatus: true,
           totalPrice: true,
+          depositAmount: true,
           pickupPhotos: true,
           returnPhotos: true,
           handoffInitiatedAt: true,

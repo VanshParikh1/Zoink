@@ -955,6 +955,35 @@ describe('PATCH /admin/disputes/:id/resolve — refundAmountCents validation', (
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 5c. GET /admin/disputes/:id — depositAmount must be exposed to the admin UI
+// so it can cap a COMPLETED-booking's refund/charge amount against the
+// deposit rather than the rental total (see AdminDisputeDetailScreen.tsx's
+// getRefundCapAmount()).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('GET /admin/disputes/:id — HTTP layer', () => {
+  test('response includes booking.depositAmount', async () => {
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing that the admin dispute detail response includes depositAmount.'
+    )
+
+    const res = await supertest(app)
+      .get(`/admin/disputes/${dispute.id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+
+    assert.equal(res.status, 200)
+    assert.ok(res.body.booking, 'response should include the booking relation')
+    assert.equal(
+      Number(res.body.booking.depositAmount),
+      27,
+      'depositAmount should match createBookingInStatus\'s default $27 deposit'
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 6. GET /disputes — user's own disputes
 // ─────────────────────────────────────────────────────────────────────────────
 describe('GET /disputes — user dispute list', () => {
