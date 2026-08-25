@@ -1,7 +1,7 @@
 import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { BadRequestError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { cancelPaymentIntent, refundPaymentIntent, toCents } from './paymentService'
+import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
+import { cancelPaymentIntent, capturePaymentIntent, refundPaymentIntent, toCents } from './paymentService'
 
 // Deposit resolution auto-releases 24h after return handoff completes (see
 // cleanupJob.releaseDueDeposits) — a dispute must be filed before then to
@@ -109,7 +109,64 @@ export async function resolveDispute(
     }
 
     let refundedCents: number | undefined
-    if (status === 'RESOLVED_REFUND') {
+    let nextDepositStatus: 'CAPTURED' | 'RELEASED' | undefined
+    if (status === 'RESOLVED_REFUND' && dispute.booking.status === 'COMPLETED') {
+      // Once a booking is COMPLETED, the rental payment has already been fully
+      // captured and settled at pickup (see handoffService.confirmHandoff) —
+      // the only thing a post-completion dispute can still act on is the
+      // deposit, held as its own authorized-but-uncaptured PaymentIntent since
+      // CONFIRMED (see bookingService.transitionBookingStatus and
+      // cleanupJob.releaseDueDeposits). Resolving with a charge captures part
+      // or all of that hold (damage found); resolving with none releases it.
+      if (!dispute.booking.stripeDepositPaymentIntentId) {
+        throw new ConflictError('No deposit PaymentIntent exists for this booking.')
+      }
+
+      // Unlike the pre-completion path below, which can issue several
+      // sequential *refunds* against an already-captured Charge, a
+      // manual-capture PaymentIntent can only be captured (or canceled) once —
+      // Stripe has no concept of a second partial capture on top of one that
+      // already happened. So the deposit can only be resolved by the first
+      // dispute to reach this branch; a second dispute on the same booking
+      // must be rejected outright rather than trying to divide up a pool that
+      // no longer exists as an open authorization.
+      if (dispute.booking.depositStatus !== 'AUTHORIZED') {
+        throw new BadRequestError("This booking's deposit has already been resolved by a previous dispute.")
+      }
+
+      const depositCapCents = toCents(dispute.booking.depositAmount)
+      refundedCents = refundAmountCents ?? depositCapCents
+
+      if (refundAmountCents !== undefined && refundAmountCents > depositCapCents) {
+        throw new BadRequestError(
+          `refundAmountCents cannot exceed the deposit amount of $${formatCents(depositCapCents)}.`
+        )
+      }
+
+      const depositIntentRef = {
+        id: dispute.booking.id,
+        version: dispute.booking.version,
+        stripePaymentIntentId: dispute.booking.stripeDepositPaymentIntentId,
+        totalPrice: new Prisma.Decimal(0),
+        insuranceFee: new Prisma.Decimal(0),
+      }
+
+      if (refundedCents > 0) {
+        try {
+          await capturePaymentIntent(depositIntentRef, refundedCents)
+        } catch (err: any) {
+          throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
+        }
+        nextDepositStatus = 'CAPTURED'
+      } else {
+        try {
+          await cancelPaymentIntent(depositIntentRef)
+        } catch (err: any) {
+          throw new InternalServerError(`Failed to release the deposit via Stripe: ${err.message}`)
+        }
+        nextDepositStatus = 'RELEASED'
+      }
+    } else if (status === 'RESOLVED_REFUND') {
       const fullAmountCents = toCents(dispute.booking.totalPrice)
 
       // Prior disputes on this SAME booking that already issued a refund reduce what's
@@ -192,6 +249,10 @@ export async function resolveDispute(
       where: { id: dispute.bookingId },
       data: {
         disputeStatus: status,
+        // For a post-completion (deposit-targeting) resolution, only depositStatus
+        // moves — paymentStatus describes the rental payment's lifecycle, which was
+        // already settled at pickup and is untouched by this resolution.
+        ...(nextDepositStatus ? { depositStatus: nextDepositStatus } : {}),
         // The Stripe refund above already succeeded synchronously, so reflect that
         // immediately rather than leaving paymentStatus stale (e.g. CAPTURED/PAYOUT_PENDING).
         // Matches the paymentStatus/refundedAt pair the Stripe webhook handler sets for
@@ -202,7 +263,12 @@ export async function resolveDispute(
         // from auto-payout regardless of amount (see cleanupJob.ts), so a partial refund's
         // remaining owner payout is a manual admin action for now, using
         // Dispute.refundAmountCents to know how much was already sent back to the renter.
-        ...(status === 'RESOLVED_REFUND' ? { paymentStatus: PaymentStatus.REFUNDED, refundedAt: new Date() } : {}),
+        //
+        // Only applies to the pre-completion path above — a COMPLETED booking's
+        // rental payment was already settled at pickup and isn't touched here.
+        ...(status === 'RESOLVED_REFUND' && dispute.booking.status !== 'COMPLETED'
+          ? { paymentStatus: PaymentStatus.REFUNDED, refundedAt: new Date() }
+          : {}),
       }
     })
 
