@@ -15,9 +15,12 @@ import {
   calculateOwnerPayout,
   cancelPaymentIntent,
   capturePaymentIntent,
+  createDepositPaymentIntent,
   createPaymentIntent,
   getConnectAccountStatus,
   getMockAuthorizedPaymentStatus,
+  getOrCreateStripeCustomer,
+  getPaymentIntentPaymentMethod,
   toCents,
   toDecimal,
 } from './paymentService'
@@ -37,6 +40,8 @@ const bookingSelect = {
   insuranceOptIn: true,
   insuranceFee: true,
   stripePaymentIntentId: true,
+  stripeDepositPaymentIntentId: true,
+  depositStatus: true,
   stripeChargeId: true,
   stripeTransferId: true,
   refundedAt: true,
@@ -79,6 +84,7 @@ const bookingSelect = {
   renter: {
     select: {
       id: true,
+      email: true,
       firstName: true,
       lastName: true,
       avatarUrl: true,
@@ -175,6 +181,8 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
     stripePaymentIntentId: booking.stripePaymentIntentId,
+    stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId ?? null,
+    depositStatus: booking.depositStatus ?? null,
     stripeChargeId: booking.stripeChargeId,
     stripeTransferId: booking.stripeTransferId,
     paidAt: booking.paidAt,
@@ -405,7 +413,16 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
     throw new ConflictError('This booking is not ready for payment.')
   }
 
-  const paymentIntent = await createPaymentIntent(booking, booking.renter.stripeCustomerId)
+  // A real Stripe Customer is required so the payment method attached here
+  // can be saved (setup_future_usage) and reused off-session for the
+  // deposit PaymentIntent once this one is confirmed (see
+  // transitionBookingStatus's CONFIRMED branch below).
+  const stripeCustomerId = await getOrCreateStripeCustomer(
+    booking.renter.id,
+    booking.renter.email,
+    booking.renter.stripeCustomerId
+  )
+  const paymentIntent = await createPaymentIntent(booking, stripeCustomerId)
   const paymentStatus = getMockAuthorizedPaymentStatus()
 
   const updated: any = await prisma.$transaction(async (tx) => {
@@ -518,6 +535,8 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     }
   }
 
+  let depositPaymentIntentId: string | null = null
+
   if (nextStatus === 'CONFIRMED') {
     // This is the new payment checkpoint — dates only truly lock once payment
     // is authorized, which is why ensureNoOverlap (CONFIRMED/ACTIVE only) is
@@ -529,13 +548,66 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
       throw new ConflictError('Payment authorization is not ready yet.')
     }
+
+    if (!booking.stripePaymentIntentId) {
+      throw new ConflictError('Payment authorization is not ready yet.')
+    }
+
+    // The deposit is authorized as its own PaymentIntent, off-session, reusing
+    // the payment method the borrower just attached while confirming the
+    // rental PaymentIntent (see createPaymentIntent's setup_future_usage).
+    // This keeps it held through the full rental — resolved later at return
+    // handoff, not released as a side effect of the rental capture at pickup.
+    //
+    // If authorization fails here, the booking must NOT become CONFIRMED: the
+    // rental PaymentIntent is still just an uncaptured hold, so it's safe to
+    // cancel it and surface a clear error, leaving the booking exactly where
+    // it was (ACCEPTED) so the borrower can retry payment from scratch. A
+    // booking must never end up CONFIRMED with only the rental portion
+    // secured and no deposit hold in place.
+    try {
+      const stripeCustomerId = await getOrCreateStripeCustomer(
+        booking.renter.id,
+        booking.renter.email,
+        booking.renter.stripeCustomerId
+      )
+      const paymentMethodId = await getPaymentIntentPaymentMethod(booking.stripePaymentIntentId)
+
+      if (!stripeCustomerId || !paymentMethodId) {
+        throw new Error('No saved payment method is available to authorize the deposit.')
+      }
+
+      const depositIntent = await createDepositPaymentIntent(booking, stripeCustomerId, paymentMethodId)
+      depositPaymentIntentId = depositIntent.id
+    } catch (error) {
+      try {
+        await cancelPaymentIntent(booking)
+      } catch (cancelError) {
+        console.error(
+          '[transitionBookingStatus] Failed to cancel rental PaymentIntent after a deposit authorization failure for booking',
+          booking.id,
+          '— original error:', error,
+          '— cancel error:', cancelError
+        )
+      }
+
+      throw new ConflictError(
+        `Could not authorize the deposit — payment was not completed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}. Please try again.`
+      )
+    }
   }
 
   if (nextStatus !== 'COMPLETED') {
     const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
       const result = await tx.booking.updateMany({
         where: { id: booking.id, version: booking.version },
-        data: { status: nextStatus, version: { increment: 1 } },
+        data: {
+          status: nextStatus,
+          version: { increment: 1 },
+          ...(nextStatus === 'CONFIRMED' && depositPaymentIntentId
+            ? { stripeDepositPaymentIntentId: depositPaymentIntentId, depositStatus: 'AUTHORIZED' as const }
+            : {}),
+        },
       })
 
       if (result.count !== 1) {
@@ -547,6 +619,13 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         eventMetadata.reason = 'manual_decline'
       }
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, eventMetadata)
+
+      if (nextStatus === 'CONFIRMED' && depositPaymentIntentId) {
+        await createBookingEvent(tx, booking.id, actorId, BookingEventType.PAYMENT_INTENT_CREATED, {
+          paymentIntentId: depositPaymentIntentId,
+          purpose: 'deposit',
+        })
+      }
 
       // Accepting one request reserves the dates for it, so any other still-
       // PENDING request on the same listing that overlaps those dates can no

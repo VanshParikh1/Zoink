@@ -27,6 +27,7 @@ import {
   getTestPrisma,
   disconnectTestPrisma,
   checkStripeConnectivity,
+  confirmTestPaymentIntent,
   getApp,
 } from './setup'
 import * as bookingService from '../services/bookingService'
@@ -413,9 +414,14 @@ describe('renter pays for an ACCEPTED booking', () => {
 
   test('renter confirms after payment is authorized — booking moves to CONFIRMED', async () => {
     const booking = await makeAcceptedBooking()
-    await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+    const withIntent = await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
 
     const db = getTestPrisma()
+    // The CONFIRMED transition now authorizes the deposit off-session against
+    // the payment method attached to this PaymentIntent, so it must actually
+    // be confirmed with a real test card — a bare paymentStatus write is no
+    // longer enough (see confirmTestPaymentIntent in setup.ts).
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
     await db.booking.update({ where: { id: booking.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
 
     const confirmed = await bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CONFIRMED)
@@ -1146,8 +1152,9 @@ describe('conversation acceptedUnpaidBookingId (messages UI payment prompt)', ()
     const afterAccept = conversationsAfterAccept.find((c) => c.id === booking.conversationId)
     assert.equal(afterAccept?.acceptedUnpaidBookingId, accepted.id, 'ACCEPTED-unpaid booking should surface for the payment prompt')
 
-    await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+    const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
     const db = getTestPrisma()
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
     await db.booking.update({ where: { id: accepted.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
     await bookingService.transitionBookingStatus(accepted.id, renter.id, BookingStatus.CONFIRMED)
 

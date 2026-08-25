@@ -2,6 +2,7 @@ import type {
   VerificationStatus,
   BookingStatus,
   PaymentStatus,
+  DepositStatus,
   DisputeStatus,
   ReviewRole,
   ReviewObligationStatus,
@@ -184,6 +185,8 @@ export interface BookingResponse {
   insuranceOptIn: boolean
   insuranceFee: number
   stripePaymentIntentId: string | null
+  stripeDepositPaymentIntentId: string | null
+  depositStatus: DepositStatus | null
   stripeChargeId: string | null
   stripeTransferId: string | null
   paidAt: string | null

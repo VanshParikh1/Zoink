@@ -31,11 +31,14 @@ import {
   getTestPrisma,
   disconnectTestPrisma,
   checkStripeConnectivity,
+  confirmTestPaymentIntent,
 } from './setup'
 import * as bookingService from '../services/bookingService'
 import * as paymentService from '../services/paymentService'
 import * as conversationService from '../services/conversationService'
-import { PaymentStatus, BookingStatus, Prisma } from '@prisma/client'
+import * as disputeService from '../services/disputeService'
+import * as handoffService from '../services/handoffService'
+import { PaymentStatus, BookingStatus, DisputeStatus, Role, Prisma } from '@prisma/client'
 
 // ── Module-level state ────────────────────────────────────────────────────────
 let stripeAvailable = false
@@ -172,7 +175,8 @@ describe('full new booking flow, end-to-end', () => {
     // at request time, not the current Listing price. Prove it by changing
     // the Listing's dailyPrice drastically *after* the booking was created,
     // then asserting the actual Stripe charge still matches the original
-    // $100 + $15 deposit = $115 snapshot.
+    // $100 rental snapshot (the $15 deposit is now its own PaymentIntent,
+    // authorized separately once this one confirms — see Step 5).
     await db.listing.update({ where: { id: listingId }, data: { dailyPrice: new Prisma.Decimal(999) } })
 
     const withIntent = await bookingService.createPaymentIntentForBooking(acceptedA.id, borrowerA.id)
@@ -186,16 +190,33 @@ describe('full new booking flow, end-to-end', () => {
       const Stripe = require('stripe')
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
       const paymentIntent = await stripe.paymentIntents.retrieve(withIntent.stripePaymentIntentId!)
-      // toCents(100 totalPrice + 15 depositAmount + 0 insuranceFee) = 11500.
-      // If this were wrongly recomputed from the changed $999/day listing,
-      // it would be toCents(4995 + 15) = 501000 instead — nowhere close.
-      assert.equal(paymentIntent.amount, 11500, 'Stripe should have been charged the ORIGINAL snapshotted amount, not a recomputed one')
+      // toCents(100 totalPrice + 0 insuranceFee) = 10000 — the deposit is no
+      // longer part of this PaymentIntent's authorized amount. If this were
+      // wrongly recomputed from the changed $999/day listing, it would be
+      // toCents(4995) = 499500 instead — nowhere close.
+      assert.equal(paymentIntent.amount, 10000, 'Stripe should have been charged the ORIGINAL snapshotted rental amount, not a recomputed one')
     }
 
-    // ── Step 5: Confirm payment — CONFIRMED, dates NOW lock ──────────────────
+    // ── Step 5: Confirm payment — CONFIRMED, dates NOW lock, deposit authorized ──
+    // Reaching CONFIRMED now also authorizes the $15 deposit as its own
+    // off-session PaymentIntent, reusing the payment method attached above —
+    // which requires the rental PaymentIntent to have actually been confirmed
+    // with a real test card first (a bare paymentStatus write is no longer
+    // enough to fake it).
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
     await db.booking.update({ where: { id: withIntent.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
     const confirmedA = await bookingService.transitionBookingStatus(withIntent.id, borrowerA.id, BookingStatus.CONFIRMED)
     assert.equal(confirmedA.status, BookingStatus.CONFIRMED)
+    assert.ok(confirmedA.stripeDepositPaymentIntentId, 'a separate deposit PaymentIntent should now be authorized')
+    assert.equal(confirmedA.depositStatus, 'AUTHORIZED')
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const depositIntent = await stripe.paymentIntents.retrieve(confirmedA.stripeDepositPaymentIntentId!)
+      assert.equal(depositIntent.amount, 1500, 'the deposit PaymentIntent should be authorized for exactly the $15 deposit')
+      assert.equal(depositIntent.status, 'requires_capture', 'the deposit should be an uncaptured authorization, held for the full rental')
+    }
 
     // Now that A is CONFIRMED, a brand-new overlapping request CANNOT be accepted.
     const bookingD = await bookingService.createBooking(borrowerD.id, {
@@ -345,5 +366,269 @@ describe('DECLINED reason metadata', () => {
     assert.ok(declineEvent)
     assert.equal((declineEvent!.metadata as any).reason, 'manual_decline')
     assert.notEqual((declineEvent!.metadata as any).reason, 'overlap_auto_reject')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zero-fee cancellation and partial-refund payment edge cases — kept as their
+// own describe blocks (separate from the happy-path test above) so a
+// regression in either one bisects cleanly without implicating the full flow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Poll the DB up to `maxMs` milliseconds until paymentStatus changes from
+ *  the initial value — mirrors the same helper in
+ *  bookingCancellation.integration.test.ts. */
+async function waitForPaymentStatus(
+  bookingId: string,
+  notStatus: PaymentStatus,
+  maxMs = 3000
+): Promise<PaymentStatus> {
+  const db = getTestPrisma()
+  const deadline = Date.now() + maxMs
+  while (Date.now() < deadline) {
+    const b = await db.booking.findUniqueOrThrow({ where: { id: bookingId } })
+    if (b.paymentStatus !== notStatus) return b.paymentStatus
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  const b = await db.booking.findUniqueOrThrow({ where: { id: bookingId } })
+  return b.paymentStatus
+}
+
+describe('zero-fee cancellation does not attempt a $0 capture', () => {
+  test('cancelling a CONFIRMED booking (feeCents === 0) calls cancelPaymentIntent, never capturePaymentIntent', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const db = getTestPrisma()
+    const renter = await createTestUser({ email: `zerofee_${Date.now()}@test.com` })
+
+    const { startDate, endDate } = futureDates(3, 2) // $20/day x 2 = $40
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+    assert.ok(withIntent.stripePaymentIntentId, 'a real PaymentIntent must exist before cancellation')
+
+    await db.booking.update({
+      where: { id: withIntent.id },
+      data: { status: BookingStatus.CONFIRMED, paymentStatus: PaymentStatus.AUTHORIZED, version: { increment: 1 } },
+    })
+
+    // Cancellation fees are disabled for launch (calculateCancellationFeeCents()
+    // in bookingService.ts always returns 0), so this CONFIRMED cancellation
+    // hits the feeCents === 0 branch of handleCancellationPayment() on every run.
+    const captureSpy = mock.method(paymentService, 'capturePaymentIntent')
+    const cancelSpy = mock.method(paymentService, 'cancelPaymentIntent')
+
+    const cancelled = await bookingService.transitionBookingStatus(withIntent.id, renter.id, BookingStatus.CANCELLED)
+    assert.equal(cancelled.status, BookingStatus.CANCELLED)
+
+    // A $0 capture is not a real Stripe amount — capturePaymentIntent(booking, 0)
+    // would raise a live Stripe error if ever called with a zero override.
+    assert.equal(captureSpy.mock.callCount(), 0, 'capturePaymentIntent must never be called for a $0 fee')
+    assert.equal(cancelSpy.mock.callCount(), 1, 'cancelPaymentIntent should release the full authorization instead')
+
+    const finalStatus = await waitForPaymentStatus(withIntent.id, PaymentStatus.AUTHORIZED)
+    const acceptableStatuses: PaymentStatus[] = [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED]
+    assert.ok(
+      acceptableStatuses.includes(finalStatus),
+      `Expected REFUND_PENDING or REFUNDED after a zero-fee cancellation, got: ${finalStatus}`
+    )
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const intent = await stripe.paymentIntents.retrieve(withIntent.stripePaymentIntentId!)
+      assert.equal(intent.status, 'canceled', 'the real Stripe PaymentIntent should have been canceled, not captured')
+    }
+  })
+})
+
+describe('dispute resolution with a partial refundAmountCents', () => {
+  async function createCapturedStripePaymentIntent(amountCents: number): Promise<string> {
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      payment_method: 'pm_card_visa',
+      payment_method_types: ['card'],
+      confirm: true,
+      capture_method: 'manual',
+    })
+    await stripe.paymentIntents.capture(intent.id, { amount_to_capture: amountCents })
+    return intent.id
+  }
+
+  test('resolving a dispute on a handed-off, captured booking refunds exactly refundAmountCents, not the full deposit', async () => {
+    const db = getTestPrisma()
+    const renter = await createTestUser({ email: `partial_refund_${Date.now()}@test.com` })
+    const admin = await createTestUser({ email: `admin_partial_${Date.now()}@test.com`, role: Role.ADMIN })
+
+    const totalPrice = 100 // full deposit-equivalent amount captured for this booking
+    const stripePaymentIntentId = await createCapturedStripePaymentIntent(10000)
+
+    // Set up a CONFIRMED, already-handed-off (ACTIVE) booking whose payment has
+    // actually been captured — mirrors createBookingInStatus() in
+    // disputeResolution.integration.test.ts, which resolveDispute()'s paidAt
+    // branch depends on (paidAt set exactly once, at real capture).
+    const { startDate, endDate } = futureDates(3, 3)
+    const booking = await db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(totalPrice),
+        depositAmount: new Prisma.Decimal(15),
+        commissionAmount: new Prisma.Decimal(15),
+        ownerPayout: new Prisma.Decimal(85),
+        insuranceFee: new Prisma.Decimal(0),
+        status: BookingStatus.ACTIVE,
+        paymentStatus: PaymentStatus.CAPTURED,
+        paidAt: new Date(),
+        stripePaymentIntentId,
+        version: 1,
+      },
+    })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Minor scuff found on handoff — a partial refund of less than the full deposit is appropriate.'
+    )
+
+    const partialRefundCents = 2500 // less than the full $100 (10000 cents) deposit
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed minor damage — refunding $25 of the $100 total, not the full amount.',
+      partialRefundCents
+    )
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+    assert.equal(resolved.refundAmountCents, partialRefundCents)
+
+    // Ground truth: the actual Stripe refund must equal refundAmountCents exactly,
+    // never the full captured deposit.
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const refunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+      const totalRefundedCents = refunds.data.reduce((sum: number, r: any) => sum + r.amount, 0)
+      assert.equal(totalRefundedCents, partialRefundCents, 'Stripe should show exactly the partial amount refunded')
+      assert.notEqual(totalRefundedCents, 10000, 'the full deposit must NOT have been refunded')
+    }
+
+    // KNOWN GAP (see the TODO in stripeWebhookController.ts and the comment above
+    // the RESOLVED_REFUND branch in disputeService.ts): Booking.paymentStatus does
+    // not distinguish a partial refund from a full one — both land on REFUNDED.
+    // The only place the partial amount is actually recorded is
+    // Dispute.refundAmountCents (asserted above). This assertion documents the
+    // current (imprecise) behavior, not the ideal one — do not "fix" this here.
+    const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updatedBooking.paymentStatus, PaymentStatus.REFUNDED)
+    assert.ok(updatedBooking.refundedAt, 'refundedAt should be set')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Separate deposit PaymentIntent — authorized off-session at CONFIRMED, held
+// through pickup, untouched by the rental capture. Kept as its own describe
+// block, separate from the happy-path test above, so a regression here
+// bisects cleanly.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('separate deposit PaymentIntent — pickup capture excludes it', () => {
+  test('pickup handoff captures only rental+insurance; the deposit PaymentIntent stays untouched, authorized separately', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const renter = await createTestUser({ email: `deposit_pickup_${Date.now()}@test.com` })
+
+    const { startDate, endDate } = futureDates(3, 2) // $20/day x 2 = $40 rental, $15 deposit
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: withIntent.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    const confirmed = await bookingService.transitionBookingStatus(withIntent.id, renter.id, BookingStatus.CONFIRMED)
+    assert.ok(confirmed.stripeDepositPaymentIntentId, 'the deposit should be authorized as its own PaymentIntent by CONFIRMED')
+    assert.equal(confirmed.depositStatus, 'AUTHORIZED')
+
+    const photos = [
+      'https://res.cloudinary.com/test/image/upload/pickup1.jpg',
+      'https://res.cloudinary.com/test/image/upload/pickup2.jpg',
+    ]
+    await handoffService.initiateHandoff(confirmed.id, owner.id, 'pickup', photos)
+    await handoffService.confirmHandoff(confirmed.id, owner.id, 'pickup')
+    const renterTap = await handoffService.confirmHandoff(confirmed.id, renter.id, 'pickup')
+    assert.equal(renterTap.bothConfirmed, true)
+    assert.equal(renterTap.booking.status, BookingStatus.ACTIVE)
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+
+      const rentalIntent = await stripe.paymentIntents.retrieve(confirmed.stripePaymentIntentId!)
+      assert.equal(rentalIntent.status, 'succeeded')
+      assert.equal(rentalIntent.amount_received, 4000, 'pickup should capture only the $40 rental total — no deposit, no insurance')
+
+      const depositIntent = await stripe.paymentIntents.retrieve(confirmed.stripeDepositPaymentIntentId!)
+      assert.equal(depositIntent.status, 'requires_capture', 'the deposit must remain an untouched authorization at pickup, held through the full rental')
+      assert.equal(depositIntent.amount, 1500)
+    }
+  })
+
+  test('deposit authorization failure prevents CONFIRMED and cancels the rental PaymentIntent instead of leaving it dangling', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const renter = await createTestUser({ email: `deposit_fail_${Date.now()}@test.com` })
+
+    const { startDate, endDate } = futureDates(3, 2)
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: withIntent.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    // Force the deposit off-session authorization to fail, simulating e.g. a
+    // decline on the second charge even though the rental PaymentIntent above
+    // succeeded moments ago.
+    const depositSpy = mock.method(paymentService, 'createDepositPaymentIntent', async () => {
+      throw new Error('Deposit card declined (forced for test)')
+    })
+
+    await assert.rejects(
+      () => bookingService.transitionBookingStatus(withIntent.id, renter.id, BookingStatus.CONFIRMED),
+      (err: any) => {
+        assert.equal(err.statusCode, 409, `Expected 409, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /could not authorize the deposit/i)
+        return true
+      }
+    )
+    assert.equal(depositSpy.mock.callCount(), 1)
+
+    // The booking must NOT end up CONFIRMED with only the rental portion
+    // secured and no deposit hold in place — it stays exactly where it was.
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: withIntent.id } })
+    assert.equal(persisted.status, BookingStatus.ACCEPTED, 'booking must stay out of CONFIRMED when the deposit cannot be authorized')
+    assert.equal(persisted.stripeDepositPaymentIntentId, null, 'no deposit PaymentIntent id should be persisted on failure')
+    assert.equal(persisted.depositStatus, null)
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const rentalIntent = await stripe.paymentIntents.retrieve(withIntent.stripePaymentIntentId!)
+      assert.equal(rentalIntent.status, 'canceled', 'the rental PaymentIntent must be canceled, not left dangling as an authorized hold, since the borrower never actually completed payment')
+    }
   })
 })

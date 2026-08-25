@@ -289,3 +289,24 @@ export function stripeSkipReason(): string | null {
   if (!STRIPE_KEY.startsWith('sk_test_')) return 'Not a test-mode key'
   return null
 }
+
+/** Confirms a rental PaymentIntent (created via createPaymentIntentForBooking,
+ *  which leaves it at status=requires_payment_method) with a real Stripe test
+ *  card, same as the borrower's PaymentSheet would. Required as of the
+ *  separate-deposit-PaymentIntent change: transitionBookingStatus's CONFIRMED
+ *  branch reads back the payment method attached to this PaymentIntent to
+ *  authorize the deposit off-session, so it must actually be confirmed — a
+ *  bare `paymentStatus: AUTHORIZED` DB write is no longer enough to fake it. */
+export async function confirmTestPaymentIntent(paymentIntentId: string): Promise<void> {
+  if (!STRIPE_KEY) return
+  const Stripe = require('stripe')
+  const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2025-04-30.basil' })
+  // createPaymentIntent() (paymentService.ts) enables automatic_payment_methods
+  // with redirects allowed (matching the real PaymentSheet client flow, which
+  // supplies its own returnURL) — confirming server-side here needs the same
+  // return_url Stripe requires whenever redirect-based methods are possible.
+  await stripe.paymentIntents.confirm(paymentIntentId, {
+    payment_method: 'pm_card_visa',
+    return_url: 'https://example.com/stripe-redirect',
+  })
+}

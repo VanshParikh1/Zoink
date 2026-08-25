@@ -81,8 +81,12 @@ export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
   return Math.round((Number(totalPrice) - calculateCommission(totalPrice)) * 100) / 100
 }
 
-export function getAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'depositAmount' | 'insuranceFee'>) {
-  return toCents(Number(booking.totalPrice) + Number(booking.depositAmount) + Number(booking.insuranceFee))
+// Rental + insurance only — the deposit is authorized separately (see
+// createDepositPaymentIntent) so it can stay held through the full rental
+// and be resolved at return handoff instead of being released at pickup
+// as a side effect of this PaymentIntent's partial capture.
+export function getRentalAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'insuranceFee'>) {
+  return toCents(Number(booking.totalPrice) + Number(booking.insuranceFee))
 }
 
 export async function createPaymentIntent(
@@ -90,7 +94,7 @@ export async function createPaymentIntent(
   stripeCustomerId?: string | null
 ) {
   const stripe = getStripe()
-  const amount = getAuthorizationAmount(booking as any)
+  const amount = getRentalAuthorizationAmount(booking as any)
 
   if (!stripe) {
     return {
@@ -108,10 +112,91 @@ export async function createPaymentIntent(
       customer: stripeCustomerId ?? undefined,
       capture_method: 'manual',
       automatic_payment_methods: { enabled: true },
+      // The deposit PaymentIntent (created once this one is confirmed — see
+      // createDepositPaymentIntent) reuses the payment method attached here,
+      // off-session, so it needs to be saved for later reuse against the
+      // same customer.
+      setup_future_usage: stripeCustomerId ? 'off_session' : undefined,
       metadata: { bookingId: booking.id },
     },
     { idempotencyKey: `payment-intent-${booking.id}-${booking.version}` }
   )
+}
+
+/** Creates and immediately confirms a manual-capture PaymentIntent for the
+ *  deposit, off-session, against the payment method the borrower already
+ *  attached while confirming the rental PaymentIntent. Called once the
+ *  rental PaymentIntent has actually been confirmed (see
+ *  bookingService.transitionBookingStatus's CONFIRMED branch) — a payment
+ *  method only becomes reusable off-session after that confirmation. */
+export async function createDepositPaymentIntent(
+  booking: Pick<Booking, 'id' | 'version' | 'depositAmount'>,
+  stripeCustomerId: string,
+  paymentMethodId: string
+) {
+  const stripe = getStripe()
+  const amount = toCents(booking.depositAmount)
+
+  if (!stripe) {
+    return {
+      id: `pi_mock_deposit_${booking.id}`,
+      status: 'requires_capture',
+      amount,
+    }
+  }
+
+  return stripe.paymentIntents.create(
+    {
+      amount,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      capture_method: 'manual',
+      off_session: true,
+      confirm: true,
+      metadata: { bookingId: booking.id, purpose: 'deposit' },
+    },
+    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.version}` }
+  )
+}
+
+/** Reads back the payment method attached to a confirmed PaymentIntent, so
+ *  it can be reused off-session for the deposit PaymentIntent. */
+export async function getPaymentIntentPaymentMethod(paymentIntentId: string): Promise<string | null> {
+  const stripe = getStripe()
+  if (!stripe) {
+    return `pm_mock_${paymentIntentId}`
+  }
+
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  if (!intent.payment_method) return null
+  return typeof intent.payment_method === 'string' ? intent.payment_method : intent.payment_method.id
+}
+
+/** Returns the user's Stripe Customer id, creating one if they don't have
+ *  one yet. A real Customer is required so the rental PaymentIntent's
+ *  payment method can be saved (setup_future_usage) and reused off-session
+ *  for the deposit PaymentIntent. */
+export async function getOrCreateStripeCustomer(
+  userId: string,
+  email: string,
+  existingCustomerId?: string | null
+): Promise<string | null> {
+  if (existingCustomerId) return existingCustomerId
+
+  const stripe = getStripe()
+  if (!stripe) {
+    return `cus_mock_${userId}`
+  }
+
+  const customer = await stripe.customers.create({ email, metadata: { userId } })
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { stripeCustomerId: customer.id },
+  })
+
+  return customer.id
 }
 
 export async function capturePaymentIntent(
