@@ -362,21 +362,17 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     )
     assert.equal(firstResolved.refundAmountCents, firstCaptureCents)
 
-    // Second dispute on the SAME booking, opened after the first is resolved. Unlike
-    // the pre-completion refund flow (which can issue several sequential partial
-    // refunds against one captured Charge), the deposit PaymentIntent was captured
-    // once above and Stripe has no concept of a second partial capture on top of
-    // that — so this must be rejected outright, not treated as "some balance remains."
-    const secondDispute = await disputeService.createDispute(
-      booking.id, renter.id, 'OTHER',
-      'Second, separate issue discovered after the first dispute was already resolved.'
-    )
-
+    // A second dispute on the SAME booking, opened after the first is resolved, is
+    // now rejected at filing time (createDispute), not later at resolution — see
+    // the depositStatus check added to createDispute(). Unlike the pre-completion
+    // refund flow (which can issue several sequential partial refunds against one
+    // captured Charge), the deposit PaymentIntent was captured once above and
+    // Stripe has no concept of a second partial capture on top of that, so there
+    // is nothing left for a new dispute on this booking to act on.
     await assert.rejects(
-      () => disputeService.resolveDispute(
-        secondDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
-        'Attempting to charge the deposit again — should be rejected.',
-        1000
+      () => disputeService.createDispute(
+        booking.id, renter.id, 'OTHER',
+        'Second, separate issue discovered after the first dispute was already resolved.'
       ),
       (err: any) => {
         assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
@@ -385,8 +381,9 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
       }
     )
 
-    const untouchedSecondDispute = await db.dispute.findUniqueOrThrow({ where: { id: secondDispute.id } })
-    assert.equal(untouchedSecondDispute.status, 'OPEN')
+    // No second dispute should have been created at all.
+    const disputesOnBooking = await db.dispute.findMany({ where: { bookingId: booking.id } })
+    assert.equal(disputesOnBooking.length, 1, 'only the first, already-resolved dispute should exist')
 
     // Stripe ground truth: only the original $12 capture exists.
     const Stripe = require('stripe')

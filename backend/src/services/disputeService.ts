@@ -31,6 +31,17 @@ export async function createDispute(
         `The dispute window has closed. Disputes must be filed within ${DISPUTE_WINDOW_HOURS} hours of the booking completing.`
       )
     }
+
+    // The deposit window check above and this one are independent: a first
+    // dispute can resolve (capturing or releasing the deposit — see
+    // resolveDispute's COMPLETED branch) well inside the 24h window, leaving
+    // room for a second dispute to be filed before the window closes. Catch
+    // that here instead of letting it fail later at resolution — the deposit
+    // PaymentIntent has already been captured or canceled by that point, so
+    // there is nothing left for a new dispute to act on.
+    if (booking.depositStatus === 'CAPTURED' || booking.depositStatus === 'RELEASED') {
+      throw new BadRequestError("This booking's deposit has already been resolved by a previous dispute.")
+    }
   }
 
   const existing = await db.dispute.findFirst({

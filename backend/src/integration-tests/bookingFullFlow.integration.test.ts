@@ -541,7 +541,7 @@ describe('dispute resolution with a partial refundAmountCents', () => {
     assert.equal(updatedBooking.refundedAt, null)
   })
 
-  test('a second dispute on the same COMPLETED booking is rejected once the deposit has already been resolved', async () => {
+  test('filing a second dispute on the same COMPLETED booking is rejected once the deposit has already been resolved', async () => {
     const db = getTestPrisma()
     const renter = await createTestUser({ email: `deposit_double_resolve_${Date.now()}@test.com` })
     const admin = await createTestUser({ email: `admin_double_resolve_${Date.now()}@test.com`, role: Role.ADMIN })
@@ -578,18 +578,14 @@ describe('dispute resolution with a partial refundAmountCents', () => {
       firstDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Charging $5 of the deposit.', 500
     )
 
-    const secondDispute = await disputeService.createDispute(
-      booking.id, renter.id, 'OTHER', 'A separate issue discovered after the first dispute was already resolved.'
-    )
-
     // Unlike the pre-completion refund flow (which supports several sequential
     // partial refunds against one captured Charge), the deposit PaymentIntent
-    // can only be captured once — a second dispute has nothing left to act on.
+    // can only be captured once — a second dispute has nothing left to act on,
+    // so it's now rejected up front at filing time (createDispute), not later
+    // at resolution.
     await assert.rejects(
-      () => disputeService.resolveDispute(
-        secondDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
-        'Attempting to charge the deposit again — should be rejected.',
-        1000
+      () => disputeService.createDispute(
+        booking.id, renter.id, 'OTHER', 'A separate issue discovered after the first dispute was already resolved.'
       ),
       (err: any) => {
         assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
@@ -598,8 +594,8 @@ describe('dispute resolution with a partial refundAmountCents', () => {
       }
     )
 
-    const untouchedSecondDispute = await db.dispute.findUniqueOrThrow({ where: { id: secondDispute.id } })
-    assert.equal(untouchedSecondDispute.status, 'OPEN')
+    const disputesOnBooking = await db.dispute.findMany({ where: { bookingId: booking.id } })
+    assert.equal(disputesOnBooking.length, 1, 'only the first, already-resolved dispute should exist')
   })
 })
 
