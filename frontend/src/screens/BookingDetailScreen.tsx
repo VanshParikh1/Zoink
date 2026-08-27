@@ -28,12 +28,18 @@ function disputeOutcomeLabel(status: DisputeStatus) {
 }
 
 // null means no deposit exists on this booking — the line is omitted entirely
-// rather than shown as some default. depositStatus currently has no value
-// distinguishing "released to the renter normally" from "released to the
-// owner as damage compensation" — both would need to reach here via
-// RELEASED — so this can't tell those apart without a backend enum change.
+// rather than shown as some default. depositStatus already distinguishes the
+// two outcomes correctly, contrary to an earlier assumption here: CAPTURED
+// means an approved damage claim captured (some or all of) the deposit and
+// paid it to the owner via a separate Stripe transfer (see
+// disputeService.resolveDispute's nextDepositStatus = 'CAPTURED' branch and
+// paymentService.transferDepositCompensation) — it does NOT mean "still
+// held." RELEASED covers both ways the deposit goes back to the renter: the
+// normal auto-release with no dispute (cleanupJob.releaseDueDeposits) and a
+// dispute resolved with no damage found (refundedCents === 0).
 function ownerDepositStatusLabel(status: Booking['depositStatus']): string | null {
-  if (status === 'AUTHORIZED' || status === 'CAPTURED') return 'Held'
+  if (status === 'AUTHORIZED') return 'Held'
+  if (status === 'CAPTURED') return 'Released to you (damage compensation)'
   if (status === 'RELEASED') return 'Returned to renter'
   return null
 }
@@ -237,6 +243,11 @@ export default function BookingDetailScreen() {
               <View style={styles.payoutDepositBox}>
                 <Text style={styles.payoutDepositLabel}>Security deposit — not part of your earnings</Text>
                 <Text style={styles.payoutDepositValue}>{ownerDepositLabel}</Text>
+                {booking.depositStatus === 'CAPTURED' ? (
+                  <Text style={styles.payoutDepositCaption}>
+                    Paid to you as a separate transfer — not included in the net payout above.
+                  </Text>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -476,6 +487,7 @@ const styles = StyleSheet.create({
   },
   payoutDepositLabel: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
   payoutDepositValue: { color: theme.text, fontSize: 14, fontWeight: '800' },
+  payoutDepositCaption: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   disputeBanner: {
     backgroundColor: theme.warningSurface,
     borderRadius: 8,

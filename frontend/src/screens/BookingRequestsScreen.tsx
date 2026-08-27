@@ -162,6 +162,7 @@ export default function BookingRequestsScreen() {
 
                   <View style={styles.cardTopRight}>
                     <Text style={styles.cardPrice}>${item.totalPrice.toFixed(2)}</Text>
+                    <Text style={styles.cardNet}>You net ${item.ownerPayout.toFixed(2)}</Text>
                     <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
                   </View>
                 </View>
@@ -229,6 +230,7 @@ const styles = StyleSheet.create({
   cardDates: { color: theme.textDisabled, fontSize: 12, fontWeight: '600' },
   cardTopRight: { alignItems: 'flex-end', gap: 6 },
   cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
+  cardNet: { color: theme.textMuted, fontSize: 11, fontWeight: '700' },
   pill: {
     overflow: 'hidden',
     borderRadius: theme.radius.pill,
