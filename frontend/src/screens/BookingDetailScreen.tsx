@@ -44,6 +44,18 @@ function ownerDepositStatusLabel(status: Booking['depositStatus']): string | nul
   return null
 }
 
+// Renter-facing view of the same enum. AUTHORIZED = the hold is still on their
+// card; CAPTURED = an approved damage claim charged some or all of it and paid
+// the owner (a partial capture auto-releases the remainder); RELEASED = the
+// full hold came back to them (normal auto-release, or a dispute that found no
+// damage).
+function renterDepositStatusLabel(status: Booking['depositStatus']): string | null {
+  if (status === 'AUTHORIZED') return 'On hold on your card'
+  if (status === 'CAPTURED') return 'Charged for the damage claim'
+  if (status === 'RELEASED') return 'Returned to you'
+  return null
+}
+
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
 
@@ -159,6 +171,7 @@ export default function BookingDetailScreen() {
   // ever change without this screen needing to know what they are.
   const commissionRatePct = booking.totalPrice > 0 ? (booking.commissionAmount / booking.totalPrice) * 100 : 0
   const ownerDepositLabel = ownerDepositStatusLabel(booking.depositStatus)
+  const renterDepositLabel = renterDepositStatusLabel(booking.depositStatus)
 
   return (
     <ScreenBackground>
@@ -185,6 +198,12 @@ export default function BookingDetailScreen() {
             <Text style={styles.label}>Deposit</Text>
             <Text style={styles.value}>${booking.depositAmount.toFixed(2)}</Text>
           </View>
+          {!isOwner && renterDepositLabel ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>Deposit status</Text>
+              <Text style={styles.value}>{renterDepositLabel}</Text>
+            </View>
+          ) : null}
           {booking.insuranceOptIn ? (
             <View style={styles.row}>
               <Text style={styles.label}>Insurance</Text>
