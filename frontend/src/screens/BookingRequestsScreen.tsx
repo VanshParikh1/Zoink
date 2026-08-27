@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
@@ -9,6 +9,7 @@ import { Booking } from '../types'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
+import { sortBookingsLiveFirst } from '../utils/sortBookings'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -47,6 +48,10 @@ export default function BookingRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
+
+  // Live/confirmed rentals always sit at the top; the rest fall below, newest
+  // rental first.
+  const orderedBookings = useMemo(() => sortBookingsLiveFirst(bookings), [bookings])
 
   const loadBookings = useCallback(async () => {
     try {
@@ -92,7 +97,7 @@ export default function BookingRequestsScreen() {
   return (
     <ScreenBackground>
       <FlatList
-        data={bookings}
+        data={orderedBookings}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
           setRefreshing(true)

@@ -8,6 +8,7 @@ import { Booking } from '../types'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
+import { isLiveBooking } from '../utils/sortBookings'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -17,10 +18,6 @@ function formatDate(dateStr: string) {
 
 function formatDateRange(startDate: string, endDate: string) {
   return `${formatDate(startDate)} – ${formatDate(endDate)}`
-}
-
-function isActiveRental(status: Booking['status']) {
-  return status === 'CONFIRMED' || status === 'ACTIVE' || status === 'PICKUP_PENDING' || status === 'RETURN_PENDING'
 }
 
 function statusTone(status: Booking['status'] | 'DENIED') {
@@ -79,10 +76,12 @@ export default function BookingHistoryScreen() {
     )
   }
 
-  const activeRentals = bookings.filter((booking) => isActiveRental(booking.status))
+  const activeRentals = bookings
+    .filter((booking) => isLiveBooking(booking.status))
+    .sort((left, right) => new Date(left.startDate).getTime() - new Date(right.startDate).getTime())
   const otherBookings = bookings
-    .filter((booking) => !isActiveRental(booking.status))
-    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .filter((booking) => !isLiveBooking(booking.status))
+    .sort((left, right) => new Date(right.startDate).getTime() - new Date(left.startDate).getTime())
 
   return (
     <ScreenBackground>

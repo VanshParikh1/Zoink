@@ -10,6 +10,7 @@ import { PendingReview } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
+import { formatLongDate } from '../utils/formatDate'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -130,7 +131,7 @@ export default function ReviewPromptScreen() {
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>{review.booking.listing.title}</Text>
         <Text style={styles.sectionMeta}>
-          {new Date(review.booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} - {new Date(review.booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+          {formatLongDate(review.booking.startDate)} - {formatLongDate(review.booking.endDate)}
         </Text>
       </View>
 

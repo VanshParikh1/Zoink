@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { Booking, Dispute, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import { formatLongDate } from '../utils/formatDate'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -187,7 +188,7 @@ export default function BookingDetailScreen() {
           <View style={styles.row}>
             <Text style={styles.label}>Dates</Text>
             <Text style={styles.value}>
-              {new Date(booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} - {new Date(booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+              {formatLongDate(booking.startDate)} - {formatLongDate(booking.endDate)}
             </Text>
           </View>
           <View style={styles.row}>
@@ -254,7 +255,7 @@ export default function BookingDetailScreen() {
             ) : null}
             {booking.paymentStatus === 'PAID_OUT' && booking.payoutSentAt ? (
               <Text style={styles.payoutDateText}>
-                Paid on {new Date(booking.payoutSentAt).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+                Paid on {formatLongDate(booking.payoutSentAt)}
               </Text>
             ) : null}
 

@@ -10,6 +10,7 @@ import { theme } from '../theme/colors'
 import { useStripe } from '@stripe/stripe-react-native'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
 import ScreenBackground from '../components/ScreenBackground'
+import { formatLongDate } from '../utils/formatDate'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'Pay'>
@@ -111,8 +112,7 @@ export default function PayScreen() {
 
         <Text style={styles.title}>Pay for this rental</Text>
         <Text style={styles.subtitle}>
-          {booking.listing.title} — {new Date(booking.startDate).toLocaleDateString(undefined, { timeZone: 'UTC' })} to{' '}
-          {new Date(booking.endDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+          {booking.listing.title} — {formatLongDate(booking.startDate)} to {formatLongDate(booking.endDate)}
         </Text>
 
         <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.md} style={styles.cardWrap} contentStyle={styles.card}>
