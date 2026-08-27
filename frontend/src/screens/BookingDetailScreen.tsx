@@ -162,6 +162,22 @@ export default function BookingDetailScreen() {
             <Text style={styles.label}>Deposit</Text>
             <Text style={styles.value}>${booking.depositAmount.toFixed(2)}</Text>
           </View>
+          {booking.insuranceOptIn ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>Insurance</Text>
+              <Text style={styles.value}>${booking.insuranceFee.toFixed(2)}</Text>
+            </View>
+          ) : null}
+          <View style={styles.row}>
+            <Text style={styles.label}>HST (13%)</Text>
+            <Text style={styles.value}>${booking.hstAmount.toFixed(2)}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Total</Text>
+            <Text style={styles.value}>
+              ${(booking.totalPrice + booking.depositAmount + booking.insuranceFee + booking.hstAmount).toFixed(2)}
+            </Text>
+          </View>
           <View style={styles.row}>
             <Text style={styles.label}>{isOwner ? 'Renter' : 'Owner'}</Text>
             <Text style={styles.value}>

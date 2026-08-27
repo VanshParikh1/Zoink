@@ -37,6 +37,10 @@ const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_COUNT = 2
 // Mirrors MAX_RENTAL_DAYS in backend/src/services/bookingUtils.ts — keep in sync.
 const MAX_RENTAL_DAYS = 7
+// Mirrors HST_RATE in backend/src/services/paymentService.ts — keep in sync.
+// This is a client-side preview only; the real hstAmount is snapshotted
+// server-side in createBooking() and is what actually gets charged.
+const HST_RATE = 0.13
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -147,6 +151,7 @@ export default function BookingRequestScreen() {
     [listing, rentalDays]
   )
   const depositAmount = Number(listing?.depositAmount ?? 0)
+  const hstAmount = useMemo(() => Number((totalPrice * HST_RATE).toFixed(2)), [totalPrice])
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return
@@ -366,6 +371,14 @@ export default function BookingRequestScreen() {
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Deposit hold</Text>
           <Text style={styles.rowValue}>${depositAmount.toFixed(2)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>HST (13%)</Text>
+          <Text style={styles.rowValue}>${hstAmount.toFixed(2)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Total</Text>
+          <Text style={styles.rowValue}>${(totalPrice + depositAmount + hstAmount).toFixed(2)}</Text>
         </View>
       </HardBlock>
 
