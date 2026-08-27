@@ -27,6 +27,17 @@ function disputeOutcomeLabel(status: DisputeStatus) {
   return null
 }
 
+// null means no deposit exists on this booking — the line is omitted entirely
+// rather than shown as some default. depositStatus currently has no value
+// distinguishing "released to the renter normally" from "released to the
+// owner as damage compensation" — both would need to reach here via
+// RELEASED — so this can't tell those apart without a backend enum change.
+function ownerDepositStatusLabel(status: Booking['depositStatus']): string | null {
+  if (status === 'AUTHORIZED' || status === 'CAPTURED') return 'Held'
+  if (status === 'RELEASED') return 'Returned to renter'
+  return null
+}
+
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
 
@@ -137,6 +148,12 @@ export default function BookingDetailScreen() {
   const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
   const canFileDispute = DISPUTABLE_BOOKING_STATUSES.includes(booking.status) && !disputeIsActive
 
+  // Derived, not stored — always computed from the two amounts the API
+  // already gives us, so it stays correct if the backend's commission tiers
+  // ever change without this screen needing to know what they are.
+  const commissionRatePct = booking.totalPrice > 0 ? (booking.commissionAmount / booking.totalPrice) * 100 : 0
+  const ownerDepositLabel = ownerDepositStatusLabel(booking.depositStatus)
+
   return (
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
@@ -185,6 +202,45 @@ export default function BookingDetailScreen() {
             </Text>
           </View>
         </View>
+
+        {isOwner ? (
+          <View style={styles.card}>
+            <Text style={styles.messageTitle}>Your payout</Text>
+            <View style={styles.row}>
+              <Text style={styles.label}>Rental price</Text>
+              <Text style={styles.value}>${booking.totalPrice.toFixed(2)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Commission ({commissionRatePct.toFixed(1)}%)</Text>
+              <Text style={styles.value}>−${booking.commissionAmount.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.row, styles.payoutNetRow]}>
+              <Text style={styles.payoutNetLabel}>Net payout</Text>
+              <Text style={styles.payoutNetValue}>${booking.ownerPayout.toFixed(2)}</Text>
+            </View>
+
+            {booking.paymentStatus === 'PAYOUT_PENDING' || booking.paymentStatus === 'PAID_OUT' ? (
+              <View style={styles.row}>
+                <Text style={styles.label}>Payout status</Text>
+                <View style={[styles.payoutBadge, booking.paymentStatus === 'PAID_OUT' ? styles.payoutBadgePaid : styles.payoutBadgePending]}>
+                  <Text style={styles.payoutBadgeText}>{booking.paymentStatus === 'PAID_OUT' ? 'Paid out' : 'Pending'}</Text>
+                </View>
+              </View>
+            ) : null}
+            {booking.paymentStatus === 'PAID_OUT' && booking.payoutSentAt ? (
+              <Text style={styles.payoutDateText}>
+                Paid on {new Date(booking.payoutSentAt).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+              </Text>
+            ) : null}
+
+            {ownerDepositLabel ? (
+              <View style={styles.payoutDepositBox}>
+                <Text style={styles.payoutDepositLabel}>Security deposit — not part of your earnings</Text>
+                <Text style={styles.payoutDepositValue}>{ownerDepositLabel}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {disputeIsActive ? (
           <View style={styles.disputeBanner}>
@@ -402,6 +458,24 @@ const styles = StyleSheet.create({
   value: { color: theme.text, fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
   messageTitle: { color: theme.text, fontSize: 15, fontWeight: '900' },
   messageBody: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
+  payoutNetRow: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12 },
+  payoutNetLabel: { color: theme.text, fontSize: 15, fontWeight: '900', flex: 1 },
+  payoutNetValue: { color: theme.primaryDeep, fontSize: 18, fontWeight: '900', flex: 1, textAlign: 'right' },
+  payoutBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.pill, borderWidth: 1 },
+  payoutBadgePending: { backgroundColor: theme.warningSurface, borderColor: theme.warning },
+  payoutBadgePaid: { backgroundColor: theme.primarySurface, borderColor: theme.primary },
+  payoutBadgeText: { color: theme.text, fontSize: 12, fontWeight: '800' },
+  payoutDateText: { color: theme.textMuted, fontSize: 12, textAlign: 'right' },
+  payoutDepositBox: {
+    backgroundColor: theme.surfaceSubdued,
+    borderRadius: 8,
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    gap: 4,
+  },
+  payoutDepositLabel: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
+  payoutDepositValue: { color: theme.text, fontSize: 14, fontWeight: '800' },
   disputeBanner: {
     backgroundColor: theme.warningSurface,
     borderRadius: 8,
