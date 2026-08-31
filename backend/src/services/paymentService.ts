@@ -320,9 +320,15 @@ export async function refundPaymentIntent(
   )
 }
 
-export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | 'ownerPayout'>, stripeAccountId: string) {
+export async function transferPayout(
+  booking: Pick<Booking, 'id' | 'version' | 'ownerPayout'>,
+  stripeAccountId: string,
+  amountCentsOverride?: number
+) {
   const stripe = getStripe()
-  const amount = toCents(booking.ownerPayout)
+  // releaseDuePayouts() passes an explicit amount when a partial dispute refund
+  // means the owner is owed less than their originally-snapshotted ownerPayout.
+  const amount = amountCentsOverride ?? toCents(booking.ownerPayout)
 
   if (!stripe) {
     return {

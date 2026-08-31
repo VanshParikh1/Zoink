@@ -1,6 +1,6 @@
 import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelPaymentIntent, transferPayout } from './paymentService'
+import { cancelPaymentIntent, toCents, transferPayout } from './paymentService'
 
 export async function cleanupStaleHandoffs() {
   const staleBefore = new Date(Date.now() - Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000))
@@ -34,34 +34,83 @@ export async function releaseDuePayouts() {
   const bookings = await prisma.booking.findMany({
     where: {
       status: BookingStatus.COMPLETED,
-      paymentStatus: PaymentStatus.PAYOUT_PENDING,
       completedAt: { lte: dueBefore },
-      // A dispute resolved as RESOLVED_NO_ACTION or DISMISSED means no money moved and
-      // the booking should become payout-eligible again, same as if it never had a dispute.
-      // RESOLVED_REFUND is deliberately excluded — including for PARTIAL refunds, not just
-      // full ones: that path already refunded the renter via Stripe (see
-      // disputeService.resolveDispute), and this job does not know how to derive the
-      // owner's remaining share automatically (it never recalculates `ownerPayout`, it just
-      // reads the value stored at booking-creation time). Rather than guess a policy for
-      // splitting a partial refund between the platform's commission and the owner's cut,
-      // any RESOLVED_REFUND booking is excluded from auto-payout entirely and the owner's
-      // remaining payout (if any) is a manual admin action — see Dispute.refundAmountCents
-      // for the amount actually refunded. OPEN/UNDER_REVIEW stay excluded since unresolved.
-      disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED'] },
+      // payoutSentAt is the single "this booking's payout has been dealt with"
+      // marker — set both when a transfer is sent and when a fully-refunded
+      // booking is closed out with nothing to send, so neither is reprocessed.
+      payoutSentAt: null,
+      OR: [
+        // Never disputed, disputed with no money movement, or a dispute that
+        // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
+        // see disputeService/stripeWebhookController). RESOLVED_REFUND is no
+        // longer excluded: the owner's proportional remaining share is computed
+        // below from Booking.refundedAmountCents instead of being left as a
+        // manual admin action. OPEN/UNDER_REVIEW stay out (unresolved).
+        {
+          paymentStatus: PaymentStatus.PAYOUT_PENDING,
+          disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED', 'RESOLVED_REFUND'] },
+        },
+        // A dispute that refunded the renter the FULL charge leaves the booking
+        // at REFUNDED. The owner is owed nothing, but it still needs closing out
+        // (payoutSentAt) so this job stops looking at it.
+        {
+          paymentStatus: PaymentStatus.REFUNDED,
+          disputeStatus: 'RESOLVED_REFUND',
+        },
+      ],
     },
     select: {
       id: true,
       version: true,
       ownerPayout: true,
+      totalPrice: true,
+      refundedAmountCents: true,
+      disputeStatus: true,
       owner: { select: { stripeAccountId: true } },
     },
   })
 
   let paid = 0
   for (const booking of bookings) {
+    const totalCents = toCents(booking.totalPrice)
+    const fullOwnerPayoutCents = toCents(booking.ownerPayout)
+    const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
+
+    // The owner's cut of what the renter actually kept paying, proportional to
+    // their share of the original total (so the platform eats its commission on
+    // the refunded slice too). With refundedToRenterCents === 0 — the common
+    // case — this is exactly fullOwnerPayoutCents.
+    const remainingPayoutCents =
+      totalCents > 0
+        ? Math.max(
+            0,
+            Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
+          )
+        : 0
+
+    // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
+    // isn't reconsidered every tick.
+    if (remainingPayoutCents <= 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { payoutSentAt: new Date(), version: { increment: 1 } },
+        })
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: booking.id,
+            type: BookingEventType.PAYOUT_TRIGGERED,
+            metadata: { amountCents: 0, reason: 'fully_refunded', holdHours },
+          },
+        })
+      })
+      continue
+    }
+
     if (!booking.owner.stripeAccountId) continue
 
-    const transfer = await transferPayout(booking, booking.owner.stripeAccountId)
+    const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
+    const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
     await prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: booking.id },
@@ -77,7 +126,14 @@ export async function releaseDuePayouts() {
         data: {
           bookingId: booking.id,
           type: BookingEventType.PAYOUT_TRIGGERED,
-          metadata: { stripeTransferId: transfer.id, holdHours },
+          metadata: {
+            stripeTransferId: transfer.id,
+            holdHours,
+            amountCents: remainingPayoutCents,
+            ...(isPartial
+              ? { partialRefundToRenterCents: refundedToRenterCents, fullOwnerPayoutCents }
+              : {}),
+          },
         },
       })
     })

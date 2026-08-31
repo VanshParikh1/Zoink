@@ -121,6 +121,13 @@ export async function resolveDispute(
 
     let refundedCents: number | undefined
     let nextDepositStatus: 'CAPTURED' | 'RELEASED' | undefined
+    // Set only by the pre-completion rental-refund branch below: the cumulative
+    // cents refunded to the renter from the RENTAL payment (this refund + prior
+    // ones), and whether that now covers the whole charge. releaseDuePayouts()
+    // reads Booking.refundedAmountCents to pay the owner's proportional
+    // remaining share instead of skipping the booking.
+    let rentalRefundCumulativeCents: number | undefined
+    let rentalRefundIsFull = false
     if (status === 'RESOLVED_REFUND' && dispute.booking.status === 'COMPLETED') {
       // Once a booking is COMPLETED, the rental payment has already been fully
       // captured and settled at pickup (see handoffService.confirmHandoff) —
@@ -260,6 +267,9 @@ export async function resolveDispute(
         )
       }
 
+      rentalRefundCumulativeCents = priorRefundedCents + refundedCents
+      rentalRefundIsFull = rentalRefundCumulativeCents >= fullAmountCents
+
       // A captured payment has actually moved funds onto a Charge, which is what
       // stripe.refunds.create operates on; an uncaptured authorization hold has not, and
       // Stripe rejects refunds.create against it — the correct operation there is
@@ -322,21 +332,24 @@ export async function resolveDispute(
         // moves — paymentStatus describes the rental payment's lifecycle, which was
         // already settled at pickup and is untouched by this resolution.
         ...(nextDepositStatus ? { depositStatus: nextDepositStatus } : {}),
-        // The Stripe refund above already succeeded synchronously, so reflect that
-        // immediately rather than leaving paymentStatus stale (e.g. CAPTURED/PAYOUT_PENDING).
-        // Matches the paymentStatus/refundedAt pair the Stripe webhook handler sets for
-        // charge.refunded / refund.succeeded (stripeWebhookController.ts).
+        // Pre-completion rental refund only (a COMPLETED booking's rental payment
+        // already settled at pickup and is untouched here — that path moves
+        // depositStatus above instead). The Stripe refund/cancel already ran
+        // synchronously, so reflect it now rather than waiting on the webhook.
         //
-        // Note this is set the same way for both full and partial refunds — REFUNDED does
-        // not distinguish the two. releaseDuePayouts() excludes any RESOLVED_REFUND booking
-        // from auto-payout regardless of amount (see cleanupJob.ts), so a partial refund's
-        // remaining owner payout is a manual admin action for now, using
-        // Dispute.refundAmountCents to know how much was already sent back to the renter.
-        //
-        // Only applies to the pre-completion path above — a COMPLETED booking's
-        // rental payment was already settled at pickup and isn't touched here.
-        ...(status === 'RESOLVED_REFUND' && dispute.booking.status !== 'COMPLETED'
-          ? { paymentStatus: PaymentStatus.REFUNDED, refundedAt: new Date() }
+        //  - refundedAmountCents records the cumulative renter refund so
+        //    releaseDuePayouts() can still release the owner's proportional
+        //    remaining payout (or nothing, on a full refund).
+        //  - paymentStatus only moves to REFUNDED when the refund actually
+        //    covers the whole charge. A partial refund leaves it at
+        //    CAPTURED/PAYOUT_PENDING so the booking isn't overstated as fully
+        //    refunded (matches stripeWebhookController.ts's partial-refund path).
+        ...(rentalRefundCumulativeCents !== undefined
+          ? {
+              refundedAmountCents: rentalRefundCumulativeCents,
+              refundedAt: new Date(),
+              ...(rentalRefundIsFull ? { paymentStatus: PaymentStatus.REFUNDED } : {}),
+            }
           : {}),
       }
     })
