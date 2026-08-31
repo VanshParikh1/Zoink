@@ -64,6 +64,12 @@ model Listing {
   itemValue     Decimal        @default(0) @db.Decimal(10, 2)
   depositAmount Decimal        @default(0) @db.Decimal(10, 2)
   isAvailable   Boolean        @default(true)
+  // Denormalized item-rating rollup for listing cards. Recomputed from the
+  // listing's reviews (Review.itemRating, borrower-authored only) on every
+  // review submission — see reviewService.recomputeListingRating. avgRating is
+  // null until the listing has at least one rated review.
+  avgRating     Float?
+  reviewCount   Int            @default(0)
   latitude      Float
   longitude     Float
   city          String
@@ -111,6 +117,14 @@ model Booking {
   stripeTransferId             String?
   paidAt                       DateTime?
   refundedAt                   DateTime?
+  // Cumulative cents refunded to the renter from the RENTAL payment (never the
+  // deposit). Set by disputeService.resolveDispute's rental-refund branch and
+  // reconciled by the charge.refunded / refund.succeeded webhook. 0 = nothing
+  // refunded; 0 < x < full-charge = partially refunded (paymentStatus stays
+  // CAPTURED/PAYOUT_PENDING, it is NOT stamped REFUNDED); x >= full-charge =
+  // fully refunded. releaseDuePayouts() uses this to release the owner's
+  // proportional remaining payout instead of excluding the booking entirely.
+  refundedAmountCents          Int                @default(0)
   payoutSentAt                 DateTime?
   pickupPhotos                 String[]           @default([])
   returnPhotos                 String[]           @default([])

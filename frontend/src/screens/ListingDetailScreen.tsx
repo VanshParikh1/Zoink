@@ -28,6 +28,7 @@ import HardBlock from '../components/HardBlock'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ScreenBackground from '../components/ScreenBackground'
 import LocationMapPreview from '../components/LocationMapPreview'
+import RatingPill from '../components/RatingPill'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -235,6 +236,12 @@ export default function ListingDetailScreen() {
 
           <Text style={styles.location}>{listing.city}</Text>
 
+          <RatingPill
+            avgRating={listing.avgRating}
+            reviewCount={listing.reviewCount}
+            style={styles.ratingPill}
+          />
+
           {listing.latitude != null && listing.longitude != null && (
             <View style={styles.mapWrap}>
               <LocationMapPreview
@@ -401,6 +408,7 @@ const styles = StyleSheet.create({
   price: { fontSize: 26, fontWeight: '900', color: theme.primary, marginBottom: 4 },
   perDay: { fontSize: 16, fontWeight: '400', color: theme.textMuted },
   location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },
+  ratingPill: { marginBottom: 20 },
   mapWrap: { marginBottom: 20 },
   mapCaption: { fontSize: 12, color: theme.textMuted, marginTop: 6, fontWeight: '600' },
   sectionTitle: { fontSize: 16, fontWeight: '900', color: theme.text, marginTop: 24, marginBottom: 10 },

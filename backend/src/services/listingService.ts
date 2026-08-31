@@ -14,6 +14,8 @@ const listingSelect = {
   itemValue: true,
   depositAmount: true,
   isAvailable: true,
+  avgRating: true,
+  reviewCount: true,
   latitude: true,
   longitude: true,
   city: true,

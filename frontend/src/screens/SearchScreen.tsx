@@ -23,6 +23,7 @@ import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
 import ScreenBackground from '../components/ScreenBackground'
+import RatingPill from '../components/RatingPill'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -46,7 +47,6 @@ function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
           <Text style={styles.verifiedTick}> {"\u2713"}</Text>
         ) : null}
       </Text>
-      <Text style={styles.miniRating}>{"\u2605"} {((owner as any).rating || 5.0).toFixed(1)}</Text>
     </View>
   )
 }
@@ -72,7 +72,8 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
       <View style={styles.glassCardBody}>
         <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
         <MiniProfile owner={item.owner} />
-        
+        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
+
         <View style={styles.glassCardFooter}>
           <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
           <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
@@ -99,6 +100,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
       <View style={styles.glassRowMiddle}>
         <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
         <MiniProfile owner={item.owner} />
+        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
       </View>
       
       <View style={styles.glassRowRight}>
@@ -570,12 +572,6 @@ const styles = StyleSheet.create({
     color: theme.primary,
     fontWeight: '600',
   },
-  miniRating: {
-    color: theme.primary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
   resultsContainer: {
     flex: 1,
   },

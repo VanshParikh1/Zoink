@@ -34,6 +34,10 @@ export interface ListingResponse {
   itemValue: string
   depositAmount: string
   isAvailable: boolean
+  // Denormalized item-rating rollup (see Listing.avgRating). avgRating is null
+  // until the listing has at least one borrower-authored item rating.
+  avgRating: number | null
+  reviewCount: number
   latitude: number
   longitude: number
   city: string

@@ -118,6 +118,27 @@ async function recomputeUserReputation(tx: Prisma.TransactionClient, userId: str
   })
 }
 
+// Recomputes Listing.avgRating / reviewCount from scratch off every
+// borrower-authored item rating the listing has ever received. Full recompute
+// (not incremental) because reviews are immutable once submitted and the row
+// count per listing is tiny — there's no write-amplification worth the extra
+// failure surface of maintaining a running sum.
+async function recomputeListingRating(tx: Prisma.TransactionClient, listingId: string) {
+  const agg = await tx.review.aggregate({
+    where: { booking: { listingId }, itemRating: { not: null } },
+    _avg: { itemRating: true },
+    _count: { itemRating: true },
+  })
+
+  await tx.listing.update({
+    where: { id: listingId },
+    data: {
+      avgRating: agg._avg.itemRating,
+      reviewCount: agg._count.itemRating,
+    },
+  })
+}
+
 function assertScore(value: number) {
   if (!Number.isInteger(value) || value < 1 || value > 5) {
     throw new BadRequestError('Scores must be whole numbers between 1 and 5.')
@@ -334,6 +355,12 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     })
 
     await recomputeUserReputation(tx, obligation.targetUserId)
+
+    // Only borrower-authored (RENTER) reviews carry an itemRating; lender
+    // reviews never touch the listing rollup.
+    if (reviewFields.itemRating !== null) {
+      await recomputeListingRating(tx, obligation.booking.listing.id)
+    }
 
     const pendingRemaining = await tx.reviewObligation.count({
       where: {
