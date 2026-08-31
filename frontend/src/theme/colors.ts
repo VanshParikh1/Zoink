@@ -55,7 +55,12 @@ export const theme = {
   cardBackground: colors.white,
   cardShadow: '0px 1px 3px rgba(0,0,0,0.08), 0px 1px 2px rgba(0,0,0,0.06)',
 
-  backgroundGradient: [colors.greenSurface, colors.gray50, colors.white] as const,
+  // Grass-green wash pulled toward the landing page's radial glows
+  // (landing/index.html: rgba(0,239,32,.26) / rgba(200,255,89,.28)) without
+  // going full-saturation — has to stay readable behind body text and white
+  // cards on 26 screens. Runs horizontally in ScreenBackground so the top and
+  // bottom edges read identically; the middle stop is kept lightest for text.
+  backgroundGradient: ['#D3F3C2', '#E9F9D5', '#F2FBE8'] as const,
   textureColor: colors.greenDeep,
 
   glassLight: 'rgba(255, 255, 255, 0.65)',
