@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     padding: 18,
     marginTop: 14,
-    borderWidth: theme.hard.borderThin,
+    borderWidth: theme.hard.border,
     borderColor: theme.hard.ink,
   },
   panelTitle: { color: theme.text, fontSize: 18, fontWeight: '900', marginBottom: 6 },
