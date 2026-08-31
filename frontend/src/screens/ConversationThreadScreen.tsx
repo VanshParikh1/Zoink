@@ -2,7 +2,6 @@
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -125,19 +124,21 @@ export default function ConversationThreadScreen() {
   // first, so [0] is "the active booking for this conversation".
   const activeBooking = conversation?.bookings?.[0] ?? null
   const listing = conversation?.listing ?? null
-  const listingThumb = listing?.images?.[0]?.url
   const needsPayment = isRenter && Boolean(conversation?.acceptedUnpaidBookingId)
   // Lender header CTA: review-before-accept stays intact — this only routes to
   // BookingDetailScreen, it never one-tap-accepts.
   const showApproveCta = isOwner && activeBooking?.status === 'PENDING'
-  const contextLabel =
-    activeBooking && !showApproveCta
-      ? activeBooking.status === 'ACCEPTED'
-        ? isOwner ? 'Rental accepted · waiting on payment' : 'Rental accepted'
-        : activeBooking.status === 'ACTIVE'
-          ? 'Rental in progress'
-          : null
-      : null
+  const headerTitle = listing?.title ?? route.params.title ?? 'Conversation'
+  // Shown only when there's an in-flight booking that neither the Approve nor
+  // the Pay button already speaks to.
+  const contextLabel = (() => {
+    if (!activeBooking || showApproveCta || needsPayment) return null
+    if (activeBooking.status === 'ACCEPTED') {
+      return isOwner ? 'Rental accepted · waiting on payment' : 'Rental accepted'
+    }
+    if (activeBooking.status === 'ACTIVE') return 'Rental in progress'
+    return null
+  })()
 
   if (loading) {
     return (
@@ -160,43 +161,43 @@ export default function ConversationThreadScreen() {
           <TouchableOpacity onPress={() => nav.goBack()}>
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>{route.params.title ?? 'Conversation'}</Text>
 
-          {listing ? (
-            <TouchableOpacity
-              style={styles.listingContext}
-              activeOpacity={0.8}
-              onPress={() => nav.navigate('ListingDetail', { listingId: conversation!.listingId })}
-            >
-              {listingThumb ? (
-                <Image source={{ uri: listingThumb }} style={styles.listingThumb} />
-              ) : (
-                <View style={[styles.listingThumb, styles.listingThumbFallback]}>
-                  <Text style={styles.listingThumbFallbackText}>{listing.category?.[0] ?? '?'}</Text>
-                </View>
-              )}
-              <View style={styles.listingContextBody}>
-                <Text style={styles.listingContextTitle} numberOfLines={1}>{listing.title}</Text>
-                <Text style={styles.listingContextLink}>View listing</Text>
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <Text style={styles.subtitle}>
-              Keep the details in one place before pickup, during the rental, and on return day.
-            </Text>
-          )}
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle} numberOfLines={2}>{headerTitle}</Text>
 
-          {showApproveCta ? (
-            <TouchableOpacity
-              style={styles.approveCta}
-              activeOpacity={0.85}
-              onPress={() => nav.navigate('BookingDetail', { bookingId: activeBooking!.id })}
-            >
-              <Text style={styles.approveCtaText}>Approve Rental</Text>
-            </TouchableOpacity>
-          ) : contextLabel ? (
-            <Text style={styles.contextLabel}>{contextLabel}</Text>
-          ) : null}
+            <View style={styles.panelActions}>
+              <TouchableOpacity
+                style={styles.panelButton}
+                activeOpacity={0.85}
+                disabled={!conversation}
+                onPress={() => nav.navigate('ListingDetail', { listingId: conversation!.listingId })}
+              >
+                <Text style={styles.panelButtonText} numberOfLines={1}>View listing</Text>
+              </TouchableOpacity>
+
+              {showApproveCta ? (
+                <TouchableOpacity
+                  style={styles.panelButton}
+                  activeOpacity={0.85}
+                  onPress={() => nav.navigate('BookingDetail', { bookingId: activeBooking!.id })}
+                >
+                  <Text style={styles.panelButtonText} numberOfLines={1}>Approve rental</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {needsPayment && conversation ? (
+                <TouchableOpacity
+                  style={styles.panelButton}
+                  activeOpacity={0.85}
+                  onPress={() => nav.navigate('Pay', { bookingId: conversation.acceptedUnpaidBookingId! })}
+                >
+                  <Text style={styles.panelButtonText} numberOfLines={1}>Pay now</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {contextLabel ? <Text style={styles.contextLabel}>{contextLabel}</Text> : null}
+          </View>
         </View>
 
         {error ? (
@@ -255,18 +256,6 @@ export default function ConversationThreadScreen() {
           />
         )}
 
-        {needsPayment && conversation ? (
-          <TouchableOpacity
-            style={styles.paymentBanner}
-            activeOpacity={0.85}
-            onPress={() => nav.navigate('Pay', { bookingId: conversation.acceptedUnpaidBookingId! })}
-          >
-            <Text style={styles.paymentBannerText}>
-              {conversation.owner.firstName} accepted your request! Tap to pay
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 18) }]}>
           <TextInput
             value={body}
@@ -293,36 +282,28 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   header: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 14 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.textMuted, fontSize: 15, lineHeight: 22, marginTop: 8 },
-  listingContext: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  panel: {
     marginTop: 12,
-    padding: 10,
+    backgroundColor: theme.primarySurface,
     borderRadius: theme.radius.md,
-    borderWidth: theme.hard.borderThin,
+    padding: 16,
+    borderWidth: theme.hard.border,
     borderColor: theme.hard.ink,
+  },
+  panelTitle: { ...theme.type.sectionTitle, fontSize: 18, lineHeight: 22 },
+  panelActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+  panelButton: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    minWidth: 104,
     backgroundColor: theme.surface,
-  },
-  listingThumb: { width: 44, height: 44, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
-  listingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
-  listingThumbFallbackText: { color: theme.textMuted, fontSize: 18, fontWeight: '900' },
-  listingContextBody: { flex: 1 },
-  listingContextTitle: { color: theme.text, fontSize: 15, fontWeight: '800' },
-  listingContextLink: { color: theme.primaryDeep, fontSize: 12, fontWeight: '800', marginTop: 2 },
-  approveCta: {
-    alignSelf: 'flex-start',
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.primary,
+    borderRadius: theme.radius.sm,
     borderWidth: theme.hard.borderThin,
     borderColor: theme.hard.ink,
+    paddingVertical: 12,
+    alignItems: 'center',
   },
-  approveCtaText: { color: theme.textOnPrimary, fontSize: 14, fontWeight: '900' },
+  panelButtonText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
   contextLabel: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 },
   listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10, flexGrow: 1 },
   stateWrap: { paddingVertical: 8 },
@@ -338,22 +319,6 @@ const styles = StyleSheet.create({
   bubbleText: { color: theme.text, fontSize: 15, lineHeight: 20 },
   myBubbleText: { color: theme.textOnPrimary },
   timeText: { color: theme.textDisabled, fontSize: 11, marginTop: 8 },
-  paymentBanner: {
-    marginHorizontal: 20,
-    marginBottom: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: theme.warningSurface,
-    borderWidth: 1,
-    borderColor: theme.warning,
-  },
-  paymentBannerText: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
   composer: {
     flexDirection: 'row',
     gap: 10,
