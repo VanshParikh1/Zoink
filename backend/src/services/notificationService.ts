@@ -9,6 +9,34 @@ type NotifyInput = {
   data?: Record<string, unknown>
 }
 
+// Per-category user toggles (see User.notify* columns). A null category means
+// the notification is account-critical and always sent regardless of prefs.
+const PREF_COLUMN_BY_TYPE: Partial<Record<NotificationType, keyof NotificationPrefs>> = {
+  MESSAGE_RECEIVED: 'notifyMessages',
+  BOOKING_REQUEST: 'notifyBookingActivity',
+  BOOKING_ACCEPTED: 'notifyBookingActivity',
+  BOOKING_DECLINED: 'notifyBookingActivity',
+  BOOKING_CANCELLED: 'notifyBookingActivity',
+  PAYMENT_RECEIVED: 'notifyPaymentsPayouts',
+  PAYOUT_SENT: 'notifyPaymentsPayouts',
+  DEPOSIT_RELEASED: 'notifyDepositUpdates',
+  REVIEW_RECEIVED: 'notifyReviews',
+  // VERIFICATION_APPROVED / VERIFICATION_FAILED: intentionally absent — no toggle.
+}
+
+type NotificationPrefs = {
+  notifyMessages: boolean
+  notifyBookingActivity: boolean
+  notifyPaymentsPayouts: boolean
+  notifyDepositUpdates: boolean
+  notifyReviews: boolean
+}
+
+export function userWantsNotification(prefs: NotificationPrefs, type: NotificationType) {
+  const column = PREF_COLUMN_BY_TYPE[type]
+  return column ? prefs[column] : true
+}
+
 function getExpoAccessToken() {
   return process.env.EXPO_ACCESS_TOKEN?.trim() || ''
 }
@@ -67,25 +95,23 @@ export async function notifyUser(input: NotifyInput) {
     where: { id: input.userId },
     select: {
       expoPushToken: true,
+      notifyMessages: true,
+      notifyBookingActivity: true,
+      notifyPaymentsPayouts: true,
+      notifyDepositUpdates: true,
+      notifyReviews: true,
     },
   })
+
+  // A category the user has switched off suppresses both the DB row and the
+  // push — not just the push.
+  if (user && !userWantsNotification(user, input.type)) {
+    return
+  }
 
   await createNotification(input)
 
   if (isExpoPushToken(user?.expoPushToken)) {
     await sendExpoPush(user.expoPushToken, input.title, input.body, input.data)
-  }
-}
-
-export async function sendDirectPush(userId: string, title: string, body: string, data?: Record<string, unknown>) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      expoPushToken: true,
-    },
-  })
-
-  if (isExpoPushToken(user?.expoPushToken)) {
-    await sendExpoPush(user.expoPushToken, title, body, data)
   }
 }

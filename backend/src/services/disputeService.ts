@@ -2,6 +2,7 @@ import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma }
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
 import { cancelPaymentIntent, capturePaymentIntent, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
+import { notifyUser } from './notificationService'
 
 // Deposit resolution auto-releases 24h after return handoff completes (see
 // cleanupJob.releaseDueDeposits) — a dispute must be filed before then to
@@ -106,12 +107,17 @@ export async function resolveDispute(
   // Postgres row lock across a network round-trip, but this is a low-frequency admin action
   // where correctness matters more than lock hold time, and splitting the lock from the
   // Stripe call would reopen the same race window).
-  return db.$transaction(async (tx) => {
+  const { dispute: result, releasedDepositNotice } = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${initialDispute.bookingId} FOR UPDATE`
+
+    // Populated when the deposit hold is released back to the renter with no
+    // charge (no damage found), so the renter can be notified after the commit
+    // — matching cleanupJob.releaseDueDeposits's auto-release path.
+    let releasedDepositNotice: { renterId: string; listingTitle: string } | null = null
 
     const dispute = await tx.dispute.findUnique({
       where: { id: disputeId },
-      include: { booking: true }
+      include: { booking: { include: { listing: { select: { title: true } } } } }
     })
 
     if (!dispute) throw new NotFoundError('Dispute not found')
@@ -241,6 +247,10 @@ export async function resolveDispute(
           throw new InternalServerError(`Failed to release the deposit via Stripe: ${err.message}`)
         }
         nextDepositStatus = 'RELEASED'
+        releasedDepositNotice = {
+          renterId: dispute.booking.renterId,
+          listingTitle: dispute.booking.listing.title,
+        }
       }
     } else if (status === 'RESOLVED_REFUND') {
       const fullAmountCents = toCents(dispute.booking.totalPrice)
@@ -368,6 +378,18 @@ export async function resolveDispute(
       }
     })
 
-    return res
+    return { dispute: res, releasedDepositNotice }
   })
+
+  if (releasedDepositNotice) {
+    void notifyUser({
+      userId: releasedDepositNotice.renterId,
+      type: 'DEPOSIT_RELEASED',
+      title: 'Deposit released',
+      body: `Your security deposit for ${releasedDepositNotice.listingTitle} has been released back to you.`,
+      data: { bookingId: initialDispute.bookingId },
+    })
+  }
+
+  return result
 }

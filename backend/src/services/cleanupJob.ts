@@ -1,6 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { cancelPaymentIntent, toCents, transferPayout } from './paymentService'
+import { notifyUser } from './notificationService'
 
 export async function cleanupStaleHandoffs() {
   const staleBefore = new Date(Date.now() - Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000))
@@ -168,6 +169,8 @@ export async function releaseDueDeposits() {
       id: true,
       version: true,
       stripeDepositPaymentIntentId: true,
+      renterId: true,
+      listing: { select: { title: true } },
     },
   })
 
@@ -197,6 +200,14 @@ export async function releaseDueDeposits() {
           metadata: { action: 'deposit_released', holdHours },
         },
       })
+    })
+
+    void notifyUser({
+      userId: booking.renterId,
+      type: 'DEPOSIT_RELEASED',
+      title: 'Deposit released',
+      body: `Your security deposit for ${booking.listing.title} has been released back to you.`,
+      data: { bookingId: booking.id },
     })
     released += 1
   }

@@ -33,6 +33,14 @@ model User {
   stripeCustomerId    String?
   stripeAccountId     String?
   role                Role                @default(USER)
+  // Per-category notification toggles (see notificationService.notifyUser).
+  // Default on; VERIFICATION_* notifications are account-critical and not
+  // covered by any toggle.
+  notifyMessages         Boolean          @default(true)
+  notifyBookingActivity  Boolean          @default(true)
+  notifyPaymentsPayouts  Boolean          @default(true)
+  notifyDepositUpdates   Boolean          @default(true)
+  notifyReviews          Boolean          @default(true)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   bookingsAsOwner     Booking[]           @relation("OwnerBookings")
@@ -447,6 +455,8 @@ enum NotificationType {
   REVIEW_RECEIVED
   VERIFICATION_APPROVED
   VERIFICATION_FAILED
+  MESSAGE_RECEIVED
+  DEPOSIT_RELEASED
 }
 
 enum ReviewRole {

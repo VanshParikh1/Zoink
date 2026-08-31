@@ -1,7 +1,7 @@
 import { Prisma, BookingStatus } from '@prisma/client'
 import type { ConversationDetailResponse, ConversationResponse, MessageResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
-import { sendDirectPush } from './notificationService'
+import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 
 const conversationSelect = {
@@ -267,12 +267,14 @@ export async function sendMessage(currentUserId: string, conversationId: string,
   })
 
   const recipientId = conversation.renterId === currentUserId ? conversation.ownerId : conversation.renterId
-  void sendDirectPush(
-    recipientId,
-    'New message on Zoink',
-    trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody,
-    { conversationId: conversation.id, listingId: conversation.listingId }
-  )
+  // Push + DB row, in line with every other event type (was push-only before).
+  void notifyUser({
+    userId: recipientId,
+    type: 'MESSAGE_RECEIVED',
+    title: 'New message on Zoink',
+    body: trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody,
+    data: { conversationId: conversation.id, listingId: conversation.listingId },
+  })
 
   return toMessage(message)
 }
