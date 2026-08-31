@@ -120,8 +120,10 @@ export default function HomeScreen() {
                 <Text style={styles.imageFallbackText}>{item.category}</Text>
               </View>
             )}
-            <View style={styles.badgePill}>
-              <Text style={styles.badgeText}>{item.isAvailable ? 'popular' : 'paused'}</Text>
+            <View style={[styles.badgePill, item.isAvailable ? styles.badgePillAvailable : styles.badgePillPaused]}>
+              <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextPaused]}>
+                {item.isAvailable ? 'Available' : 'Paused'}
+              </Text>
             </View>
           </View>
 
@@ -356,14 +358,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     left: 8,
-    backgroundColor: theme.primarySurface,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: theme.hard.borderThin,
     borderColor: theme.hard.ink,
   },
-  badgeText: { color: theme.text, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  badgePillAvailable: { backgroundColor: theme.primarySurface },
+  badgePillPaused: { backgroundColor: theme.surfaceSubdued },
+  badgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  badgeTextAvailable: { color: theme.primary },
+  badgeTextPaused: { color: theme.textDisabled },
   cardBody: { padding: 12 },
   cardTitle: { color: theme.text, fontSize: 14, fontWeight: '700', marginBottom: 4 },
   cardMeta: { color: theme.textMuted, fontSize: 11, marginBottom: 6 },
