@@ -12,7 +12,6 @@ import {
   Dimensions,
   FlatList,
 } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
 import { Feather } from '@expo/vector-icons'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'

@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
 import HardBlock from '../components/HardBlock'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
