@@ -438,6 +438,17 @@ export default function MyProfileScreen() {
               <Text style={styles.quickActionButtonText}>Inbox</Text>
             </TouchableOpacity>
           </View>
+          <View style={styles.quickActionRow}>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                nav.navigate('Settings')
+              }}
+            >
+              <Text style={styles.quickActionButtonText}>Settings</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {user?.role === 'ADMIN' ? (

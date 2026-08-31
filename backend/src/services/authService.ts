@@ -85,7 +85,9 @@ export async function registerUser(
 export async function loginUser(email: string, password: string) {
   // 1. Find user
   const user = await prisma.user.findUnique({ where: { email } })
-  if (!user) {
+  if (!user || user.deletedAt) {
+    // A soft-deleted account's email is rewritten to a tombstone so this
+    // lookup normally misses anyway; the deletedAt check is belt-and-braces.
     throw new UnauthorizedError('Invalid email or password.')
   }
 

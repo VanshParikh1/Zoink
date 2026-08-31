@@ -33,6 +33,11 @@ model User {
   stripeCustomerId    String?
   stripeAccountId     String?
   role                Role                @default(USER)
+  // Soft-delete / anonymization marker, set by DELETE /users/me. A row with
+  // this set has had its PII scrubbed and its sessions invalidated (requireAuth
+  // and login both reject it); Booking/Review/Dispute/Report rows are left
+  // intact and keep referencing the now-anonymized row.
+  deletedAt           DateTime?
   // Per-category notification toggles (see notificationService.notifyUser).
   // Default on; VERIFICATION_* notifications are account-critical and not
   // covered by any toggle.

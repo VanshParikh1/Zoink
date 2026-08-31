@@ -1,11 +1,13 @@
 import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
-import { MyProfile, PublicProfile } from '../types'
+import { MyProfile, NotificationPreferences, PublicProfile } from '../types'
 import { getImageUploadPart } from './uploadFormData'
 import {
+  mockDeleteMyAccount,
   mockGetMyProfile,
   mockGetPublicProfile,
   mockUpdateMyProfile,
+  mockUpdateNotificationPreferences,
   mockUploadMyAvatar,
 } from './mockProfiles'
 
@@ -25,7 +27,23 @@ export async function getMyProfile(userId: string): Promise<MyProfile> {
     ...publicRes.data,
     email: meRes.data.email,
     phone: meRes.data.phone,
+    notificationPreferences: meRes.data.notificationPreferences,
   }
+}
+
+export async function updateNotificationPreferences(
+  patch: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  if (DEMO_MODE) return mockUpdateNotificationPreferences(patch)
+
+  const res = await api.patch('/users/me/notification-prefs', patch)
+  return res.data
+}
+
+export async function deleteMyAccount(): Promise<void> {
+  if (DEMO_MODE) return mockDeleteMyAccount()
+
+  await api.delete('/users/me')
 }
 
 export async function getPublicProfile(userId: string): Promise<PublicProfile> {

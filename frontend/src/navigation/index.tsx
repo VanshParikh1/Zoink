@@ -25,6 +25,7 @@ import InboxScreen from '../screens/InboxScreen'
 import ConversationThreadScreen from '../screens/ConversationThreadScreen'
 import ReviewPromptScreen from '../screens/ReviewPromptScreen'
 import MyProfileScreen from '../screens/MyProfileScreen'
+import SettingsScreen from '../screens/SettingsScreen'
 import PublicProfileScreen from '../screens/PublicProfileScreen'
 import ZoinkItScreen from '../screens/ZoinkItScreen'
 import ActiveRentalScreen from '../screens/ActiveRentalScreen'
@@ -61,6 +62,7 @@ export type RootStackParamList = {
   ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
   MyProfile: undefined
+  Settings: undefined
   PublicProfile: { userId: string }
   ConversationThread: { conversationId: string; title?: string }
 }
@@ -123,6 +125,7 @@ function VerifiedAppStack() {
       />
       <Stack.Screen name="Inbox" component={InboxScreen} />
       <Stack.Screen name="MyProfile" component={MyProfileScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen 
         name="PublicProfile" 
         component={PublicProfileScreen} 

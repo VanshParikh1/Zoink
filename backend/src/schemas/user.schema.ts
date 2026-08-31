@@ -18,3 +18,19 @@ export const UpdateMeSchema = z.object({
     bio: z.string().max(300, 'bio cannot exceed 300 characters.').optional(),
   }),
 })
+
+// ── PATCH /users/me/notification-prefs ───────────────────────────────────────
+
+export const UpdateNotificationPrefsSchema = z.object({
+  body: z
+    .object({
+      notifyMessages: z.boolean().optional(),
+      notifyBookingActivity: z.boolean().optional(),
+      notifyPaymentsPayouts: z.boolean().optional(),
+      notifyDepositUpdates: z.boolean().optional(),
+      notifyReviews: z.boolean().optional(),
+    })
+    .refine((body) => Object.keys(body).length > 0, {
+      message: 'At least one preference must be provided.',
+    }),
+})

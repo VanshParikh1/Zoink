@@ -89,6 +89,16 @@ export interface PublicProfileResponse {
   reputation: UserReputationResponse | null
 }
 
+// Per-category push/notification toggles. Default true; VERIFICATION_*
+// notifications are account-critical and not covered by any toggle.
+export interface NotificationPreferences {
+  notifyMessages: boolean
+  notifyBookingActivity: boolean
+  notifyPaymentsPayouts: boolean
+  notifyDepositUpdates: boolean
+  notifyReviews: boolean
+}
+
 // getMe() does not fetch reputation — this is intentionally its own shape
 // rather than extending PublicProfileResponse.
 export interface MyProfileResponse {
@@ -102,6 +112,7 @@ export interface MyProfileResponse {
   verificationStatus: VerificationStatus
   verifiedAt: string | null
   createdAt: string
+  notificationPreferences: NotificationPreferences
 }
 
 export interface ReviewObligationScoreLabels {

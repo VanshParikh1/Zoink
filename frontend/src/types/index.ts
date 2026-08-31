@@ -31,11 +31,13 @@ export type {
   ConversationInFlightBooking,
   ConversationMessagePreview,
   MessageResponse as Message,
+  NotificationPreferences,
 } from '@zoink/shared'
 
 import type {
   PublicProfileResponse,
   MyProfileResponse,
+  NotificationPreferences,
   ListingBrowseItem,
   BookingStatus,
   PaymentStatus,
@@ -63,7 +65,7 @@ export type PublicProfile = PublicProfileResponse & {
 // composed frontend MyProfile extends the public shape rather than getMe()'s
 // raw response.
 export type MyProfile = PublicProfileResponse &
-  Pick<MyProfileResponse, 'email' | 'phone'> & {
+  Pick<MyProfileResponse, 'email' | 'phone' | 'notificationPreferences'> & {
     spotlightTags?: string[]
     reviewHighlights?: ProfileReviewHighlight[]
   }
