@@ -22,7 +22,6 @@ import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import HardBlock from '../components/HardBlock'
 import ScreenBackground from '../components/ScreenBackground'
-import RatingPill from '../components/RatingPill'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -136,7 +135,6 @@ export default function HomeScreen() {
               {typeof item.distanceKm === 'number' ? `${item.distanceKm.toFixed(1)} km · ` : ''}{item.owner.firstName}
             </Text>
             <Text style={styles.cardPrice}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-            <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} style={styles.cardRating} />
           </View>
         </TouchableOpacity>
       </View>
@@ -375,7 +373,6 @@ const styles = StyleSheet.create({
   cardTitle: { color: theme.text, fontSize: 14, fontWeight: '700', marginBottom: 4 },
   cardMeta: { color: theme.textMuted, fontSize: 11, marginBottom: 6 },
   cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
-  cardRating: { marginTop: 6 },
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '900', marginBottom: 8 },
   emptyText: { color: theme.textMuted, fontSize: 14 },
