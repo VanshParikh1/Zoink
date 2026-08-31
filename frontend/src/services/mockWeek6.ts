@@ -368,6 +368,13 @@ export async function mockGetMyConversations() {
   return [...conversations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
 }
 
+export async function mockGetConversation(conversationId: string) {
+  const conversation = conversations.find((item) => item.id === conversationId)
+  if (!conversation) throw new Error('Conversation not found.')
+  // Demo mode doesn't model in-flight bookings against a conversation.
+  return { ...conversation, bookings: [] }
+}
+
 export async function mockMarkConversationRead(conversationId: string) {
   conversations = conversations.map((conversation) =>
     conversation.id === conversationId ? { ...conversation, unread: false } : conversation

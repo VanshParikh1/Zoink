@@ -2,11 +2,12 @@ import test, { afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import * as conversationService from '../../services/conversationService'
 import {
+  getConversationById,
   openConversation,
   sendMessage,
 } from './conversationController'
 import { createMockResponse } from '../../testUtils/httpMocks'
-import { BadRequestError } from '../../utils/errors'
+import { BadRequestError, ForbiddenError } from '../../utils/errors'
 import { errorHandler } from '../errorHandler'
 import { validate } from '../validate'
 import { SendMessageSchema } from '../../schemas/conversation.schema'
@@ -53,10 +54,47 @@ test('validate(SendMessageSchema) rejects a message body over 2000 characters', 
 
 const originalOpenConversation = conversationService.openConversation
 const originalSendMessage = conversationService.sendMessage
+const originalGetConversationById = conversationService.getConversationById
 
 afterEach(() => {
   ;(conversationService as any).openConversation = originalOpenConversation
   ;(conversationService as any).sendMessage = originalSendMessage
+  ;(conversationService as any).getConversationById = originalGetConversationById
+})
+
+test('getConversationById returns the conversation the service resolves', async () => {
+  const fake = { id: 'conversation-1', listingId: 'listing-1', bookings: [] }
+  ;(conversationService as any).getConversationById = async (userId: string, id: string) => {
+    assert.equal(userId, 'user-1')
+    assert.equal(id, 'conversation-1')
+    return fake
+  }
+
+  const req: any = { userId: 'user-1', params: { id: 'conversation-1' } }
+  const res = createMockResponse()
+
+  await getConversationById(req, res as any, () => {})
+
+  assert.deepEqual(res.body, fake)
+})
+
+test('getConversationById maps a non-participant to 403', async () => {
+  ;(conversationService as any).getConversationById = async () => {
+    throw new ForbiddenError('You do not have access to this conversation.')
+  }
+
+  const req: any = { userId: 'user-2', params: { id: 'conversation-1' } }
+  const res = createMockResponse()
+  let nextCalledWith: any = null
+  const next = (err: any) => { nextCalledWith = err }
+
+  await getConversationById(req, res as any, next)
+
+  if (nextCalledWith) {
+    errorHandler(nextCalledWith, req, res as any, () => {})
+  }
+
+  assert.equal(res.statusCode, 403)
 })
 
 test('openConversation returns 400 when listingId is missing', async () => {

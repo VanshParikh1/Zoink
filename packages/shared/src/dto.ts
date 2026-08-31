@@ -257,6 +257,19 @@ export interface ConversationResponse {
   acceptedUnpaidBookingId: string | null
 }
 
+export interface ConversationInFlightBooking {
+  id: string
+  status: BookingStatus
+  updatedAt: string
+}
+
+// GET /conversations/:id — the single conversation plus its in-flight
+// bookings (status PENDING/ACCEPTED/ACTIVE), most-recent-by-updatedAt first.
+// The chat header's listing context and lender CTA derive from bookings[0].
+export interface ConversationDetailResponse extends ConversationResponse {
+  bookings: ConversationInFlightBooking[]
+}
+
 export interface MessageResponse {
   id: string
   conversationId: string

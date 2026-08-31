@@ -27,6 +27,8 @@ export type {
   PendingReviewResponse as PendingReview,
   SubmitReviewResult as SubmittedReviewResult,
   ConversationResponse as Conversation,
+  ConversationDetailResponse as ConversationDetail,
+  ConversationInFlightBooking,
   ConversationMessagePreview,
   MessageResponse as Message,
 } from '@zoink/shared'

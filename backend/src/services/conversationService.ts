@@ -1,5 +1,5 @@
-import { Prisma } from '@prisma/client'
-import type { ConversationResponse, MessageResponse } from '@zoink/shared'
+import { Prisma, BookingStatus } from '@prisma/client'
+import type { ConversationDetailResponse, ConversationResponse, MessageResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { sendDirectPush } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
@@ -168,6 +168,48 @@ export async function getMyConversations(currentUserId: string): Promise<Convers
   })
 
   return conversations.map((conversation: any) => toConversationSummary(conversation, currentUserId))
+}
+
+// "In flight" for the chat header: any booking that still needs either party
+// to act on it. Deliberately broader than acceptedUnpaidBookingId's
+// ACCEPTED-and-unpaid — a completed booking plus a fresh PENDING request on
+// the same listing is a real case, and the header should reflect the PENDING
+// one.
+const IN_FLIGHT_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACCEPTED,
+  BookingStatus.ACTIVE,
+]
+
+export async function getConversationById(currentUserId: string, conversationId: string): Promise<ConversationDetailResponse> {
+  await getConversationForParticipant(conversationId, currentUserId)
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: conversationSelect as any,
+  })
+
+  if (!conversation) {
+    throw new NotFoundError('Conversation not found.')
+  }
+
+  const inFlightBookings = await prisma.booking.findMany({
+    where: {
+      conversationId,
+      status: { in: IN_FLIGHT_BOOKING_STATUSES },
+    },
+    select: { id: true, status: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  return {
+    ...toConversationSummary(conversation, currentUserId),
+    bookings: inFlightBookings.map((booking) => ({
+      id: booking.id,
+      status: booking.status,
+      updatedAt: booking.updatedAt.toISOString(),
+    })),
+  }
 }
 
 export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {

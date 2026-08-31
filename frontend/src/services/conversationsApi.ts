@@ -1,7 +1,8 @@
 import api from './api'
-import { Conversation, Message } from '../types'
+import { Conversation, ConversationDetail, Message } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
 import {
+  mockGetConversation,
   mockGetConversationMessages,
   mockGetMyConversations,
   mockMarkConversationRead,
@@ -20,6 +21,13 @@ export async function getMyConversations(): Promise<Conversation[]> {
   if (DEMO_MODE) return mockGetMyConversations()
 
   const res = await api.get('/conversations/me')
+  return res.data
+}
+
+export async function getConversation(conversationId: string): Promise<ConversationDetail> {
+  if (DEMO_MODE) return mockGetConversation(conversationId)
+
+  const res = await api.get(`/conversations/${conversationId}`)
   return res.data
 }
 

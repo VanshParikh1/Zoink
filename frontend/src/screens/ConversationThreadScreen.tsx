@@ -2,6 +2,7 @@
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -14,8 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getConversationMessages, getMyConversations, markConversationRead, sendMessage } from '../services/conversationsApi'
-import { Message, Conversation } from '../types'
+import { getConversation, getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
+import { Message, ConversationDetail } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
@@ -36,7 +37,7 @@ export default function ConversationThreadScreen() {
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
-  const [paymentConversation, setPaymentConversation] = useState<Conversation | null>(null)
+  const [conversation, setConversation] = useState<ConversationDetail | null>(null)
   const latestMessageId = useRef<string | undefined>(undefined)
   const listRef = useRef<FlatList<Message>>(null)
   // Tracks whether the user is scrolled near the bottom already, so an
@@ -69,35 +70,32 @@ export default function ConversationThreadScreen() {
     }
   }, [nav, route.params.conversationId])
 
-  const loadPaymentStatus = useCallback(async () => {
+  const loadConversation = useCallback(async () => {
     try {
-      // The badge on InboxScreen's row and this thread's banner read off the
-      // same acceptedUnpaidBookingId field from the same conversation list
-      // endpoint, so they can't drift out of sync with each other.
-      const conversations = await getMyConversations()
-      const conversation = conversations.find((item) => item.id === route.params.conversationId)
-      const isRenter = conversation?.renterId === user?.id
-      const needsPayment = isRenter && Boolean(conversation?.acceptedUnpaidBookingId)
-      setPaymentConversation(needsPayment ? conversation! : null)
+      // Single-conversation fetch: powers the listing-context header, the
+      // lender CTA, and the bottom payment banner (acceptedUnpaidBookingId),
+      // so all three stay consistent with each other.
+      const next = await getConversation(route.params.conversationId)
+      setConversation(next)
     } catch {
-      // Non-critical — the banner just won't show if this fails.
+      // Non-critical — the header/banner just won't show if this fails.
     }
-  }, [route.params.conversationId, user?.id])
+  }, [route.params.conversationId])
 
   useFocusEffect(
     useCallback(() => {
       loadMessages()
-      loadPaymentStatus()
+      loadConversation()
       markConversationRead(route.params.conversationId).catch(() => {})
 
       const intervalId = setInterval(() => {
         loadMessages(true)
-        loadPaymentStatus()
+        loadConversation()
         markConversationRead(route.params.conversationId).catch(() => {})
       }, 4000)
 
       return () => clearInterval(intervalId)
-    }, [loadMessages, loadPaymentStatus, route.params.conversationId])
+    }, [loadMessages, loadConversation, route.params.conversationId])
   )
 
   async function handleSend() {
@@ -121,6 +119,26 @@ export default function ConversationThreadScreen() {
     }
   }
 
+  const isOwner = Boolean(conversation && conversation.ownerId === user?.id)
+  const isRenter = Boolean(conversation && conversation.renterId === user?.id)
+  // Backend returns in-flight bookings (PENDING/ACCEPTED/ACTIVE) newest-updated
+  // first, so [0] is "the active booking for this conversation".
+  const activeBooking = conversation?.bookings?.[0] ?? null
+  const listing = conversation?.listing ?? null
+  const listingThumb = listing?.images?.[0]?.url
+  const needsPayment = isRenter && Boolean(conversation?.acceptedUnpaidBookingId)
+  // Lender header CTA: review-before-accept stays intact — this only routes to
+  // BookingDetailScreen, it never one-tap-accepts.
+  const showApproveCta = isOwner && activeBooking?.status === 'PENDING'
+  const contextLabel =
+    activeBooking && !showApproveCta
+      ? activeBooking.status === 'ACCEPTED'
+        ? isOwner ? 'Rental accepted · waiting on payment' : 'Rental accepted'
+        : activeBooking.status === 'ACTIVE'
+          ? 'Rental in progress'
+          : null
+      : null
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -143,9 +161,42 @@ export default function ConversationThreadScreen() {
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>{route.params.title ?? 'Conversation'}</Text>
-          <Text style={styles.subtitle}>
-            Keep the details in one place before pickup, during the rental, and on return day.
-          </Text>
+
+          {listing ? (
+            <TouchableOpacity
+              style={styles.listingContext}
+              activeOpacity={0.8}
+              onPress={() => nav.navigate('ListingDetail', { listingId: conversation!.listingId })}
+            >
+              {listingThumb ? (
+                <Image source={{ uri: listingThumb }} style={styles.listingThumb} />
+              ) : (
+                <View style={[styles.listingThumb, styles.listingThumbFallback]}>
+                  <Text style={styles.listingThumbFallbackText}>{listing.category?.[0] ?? '?'}</Text>
+                </View>
+              )}
+              <View style={styles.listingContextBody}>
+                <Text style={styles.listingContextTitle} numberOfLines={1}>{listing.title}</Text>
+                <Text style={styles.listingContextLink}>View listing</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.subtitle}>
+              Keep the details in one place before pickup, during the rental, and on return day.
+            </Text>
+          )}
+
+          {showApproveCta ? (
+            <TouchableOpacity
+              style={styles.approveCta}
+              activeOpacity={0.85}
+              onPress={() => nav.navigate('BookingDetail', { bookingId: activeBooking!.id })}
+            >
+              <Text style={styles.approveCtaText}>Approve Rental</Text>
+            </TouchableOpacity>
+          ) : contextLabel ? (
+            <Text style={styles.contextLabel}>{contextLabel}</Text>
+          ) : null}
         </View>
 
         {error ? (
@@ -204,14 +255,14 @@ export default function ConversationThreadScreen() {
           />
         )}
 
-        {paymentConversation ? (
+        {needsPayment && conversation ? (
           <TouchableOpacity
             style={styles.paymentBanner}
             activeOpacity={0.85}
-            onPress={() => nav.navigate('Pay', { bookingId: paymentConversation.acceptedUnpaidBookingId! })}
+            onPress={() => nav.navigate('Pay', { bookingId: conversation.acceptedUnpaidBookingId! })}
           >
             <Text style={styles.paymentBannerText}>
-              {paymentConversation.owner.firstName} accepted your request! Tap to pay
+              {conversation.owner.firstName} accepted your request! Tap to pay
             </Text>
           </TouchableOpacity>
         ) : null}
@@ -244,6 +295,35 @@ const styles = StyleSheet.create({
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, lineHeight: 22, marginTop: 8 },
+  listingContext: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    padding: 10,
+    borderRadius: theme.radius.md,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+    backgroundColor: theme.surface,
+  },
+  listingThumb: { width: 44, height: 44, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
+  listingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
+  listingThumbFallbackText: { color: theme.textMuted, fontSize: 18, fontWeight: '900' },
+  listingContextBody: { flex: 1 },
+  listingContextTitle: { color: theme.text, fontSize: 15, fontWeight: '800' },
+  listingContextLink: { color: theme.primaryDeep, fontSize: 12, fontWeight: '800', marginTop: 2 },
+  approveCta: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.primary,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
+  },
+  approveCtaText: { color: theme.textOnPrimary, fontSize: 14, fontWeight: '900' },
+  contextLabel: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 },
   listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10, flexGrow: 1 },
   stateWrap: { paddingVertical: 8 },
   bubble: {
