@@ -61,6 +61,20 @@ function constructEvent(req: Request): StripeEvent {
     return stripe.webhooks.constructEvent(req.body, signature, secret)
   }
 
+  // Fail closed. A genuine Stripe delivery always carries a `stripe-signature`
+  // header that must verify against STRIPE_WEBHOOK_SECRET. If the secret is not
+  // configured, or the header is absent, the request body is entirely
+  // caller-controlled and must NOT be trusted — reject it instead of falling
+  // back to parsing it as an authentic event.
+  //
+  // The only exception is the integration test suite (NODE_ENV === 'test'),
+  // which posts synthetic unsigned events on purpose when it runs without a
+  // STRIPE_WEBHOOK_SECRET configured. This branch is unreachable in any
+  // non-test environment and is also closed whenever a secret is present.
+  if (process.env.NODE_ENV !== 'test' || secret) {
+    throw new BadRequestError('Stripe webhook signature verification failed.')
+  }
+
   const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : req.body
   return typeof raw === 'string' ? JSON.parse(raw) : raw
 }
