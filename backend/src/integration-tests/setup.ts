@@ -118,6 +118,7 @@ export async function disconnectTestPrisma(): Promise<void> {
 
 // ── Table truncation ──────────────────────────────────────────────────────────
 const TRUNCATE_ORDER = [
+  'processed_stripe_events',
   'booking_events',
   'review_obligations',
   'reviews',
@@ -244,13 +245,17 @@ export function futureDates(startOffsetDays = 1, durationDays = 2) {
 export function buildSignedWebhookPayload(
   eventType: string,
   data: object,
-  bookingId: string
+  bookingId: string,
+  // Pass an explicit id to simulate Stripe re-delivering the *same* event
+  // (retries / `stripe events resend`). Defaults to a unique id per call so
+  // ordinary tests stay independent of the controller's event-id de-dupe.
+  eventId?: string
 ): { body: Buffer; signature: string } {
   const Stripe = require('stripe')
   const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2025-04-30.basil' })
 
   const event = {
-    id: `evt_test_${Date.now()}`,
+    id: eventId ?? `evt_test_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     object: 'event',
     api_version: '2025-04-30.basil',
     created: Math.floor(Date.now() / 1000),

@@ -181,6 +181,24 @@ model BookingEvent {
   @@map("booking_events")
 }
 
+// Idempotency ledger for inbound Stripe webhook deliveries. Stripe explicitly
+// documents that a webhook can be delivered more than once (automatic retries,
+// `stripe events resend`), and a validly-signed body can also be replayed by a
+// caller. stripeWebhookController inserts a row here as the FIRST statement of
+// the same transaction that writes the booking update + WEBHOOK_RECEIVED audit
+// row; the unique constraint on stripeEventId makes a redelivery collide, and
+// the handler then skips the booking mutation entirely while still returning
+// HTTP 200 so Stripe stops retrying. This is a second, independent layer on top
+// of the state-machine monotonicity guards (e.g. depositStatus canAdvance).
+model ProcessedStripeEvent {
+  id            String   @id @default(uuid())
+  stripeEventId String   @unique
+  eventType     String
+  createdAt     DateTime @default(now())
+
+  @@map("processed_stripe_events")
+}
+
 model Conversation {
   id               String    @id @default(uuid())
   listingId        String

@@ -117,9 +117,10 @@ async function postWebhookEvent(
   app: any,
   eventType: string,
   eventData: object,
-  bookingId: string
+  bookingId: string,
+  eventId?: string
 ) {
-  const { body, signature } = buildSignedWebhookPayload(eventType, eventData, bookingId)
+  const { body, signature } = buildSignedWebhookPayload(eventType, eventData, bookingId, eventId)
   const bodyStr = body.toString('utf8')
 
   const req = supertest(app)
@@ -531,5 +532,116 @@ describe('webhook idempotency', () => {
     const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
     const webhookEvents = events.filter((e: any) => e.type === 'WEBHOOK_RECEIVED')
     assert.ok(webhookEvents.length >= 2, 'Both webhook deliveries should be recorded in audit log')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. event.id de-dupe — a re-delivered signed event is applied exactly once
+// ─────────────────────────────────────────────────────────────────────────────
+// Stripe explicitly documents that a webhook can be delivered more than once
+// (automatic retries, `stripe events resend`), and a validly-signed body can be
+// replayed by a caller. updateBookingFromEvent claims event.id in a uniquely-
+// constrained processed_stripe_events row as the first statement of the same
+// transaction that mutates the booking + writes the WEBHOOK_RECEIVED audit row;
+// a second delivery of the same id must be a no-op that still 200s.
+describe('webhook event-id de-dupe', () => {
+  test('the same signed event delivered twice mutates the booking once and still returns 200', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, piId } = await createBookingWithPaymentIntent(PaymentStatus.AUTHORIZED)
+    const chargeId = `ch_test_dedupe_${Date.now()}`
+    const eventId = `evt_test_dedupe_${Date.now()}`
+    const eventData = {
+      id: piId,
+      object: 'payment_intent',
+      status: 'succeeded',
+      amount_received: 5000,
+      latest_charge: chargeId,
+    }
+
+    // First delivery — mutates.
+    const res1 = await postWebhookEvent(app, 'payment_intent.succeeded', eventData, booking.id, eventId)
+    assert.equal(res1.status, 200)
+    const afterFirst = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(afterFirst.paymentStatus, PaymentStatus.CAPTURED)
+    assert.equal(afterFirst.version, booking.version + 1, 'first delivery advances version once')
+
+    // Second delivery of the SAME event id — Stripe re-delivery / replay.
+    const res2 = await postWebhookEvent(app, 'payment_intent.succeeded', eventData, booking.id, eventId)
+    assert.equal(res2.status, 200, 'a duplicate delivery still returns HTTP 200 so Stripe stops retrying')
+    assert.deepEqual(res2.body, { received: true })
+
+    const afterSecond = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(afterSecond.version, afterFirst.version, 'version must NOT advance again on the duplicate')
+    assert.equal(
+      afterSecond.updatedAt.getTime(),
+      afterFirst.updatedAt.getTime(),
+      'updatedAt is frozen after the duplicate delivery'
+    )
+
+    // Exactly one WEBHOOK_RECEIVED audit row carries this stripeEventId.
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
+    const forThisEvent = events.filter(
+      (e: any) => e.type === 'WEBHOOK_RECEIVED' && (e.metadata as any)?.stripeEventId === eventId
+    )
+    assert.equal(forThisEvent.length, 1, 'exactly one audit row for a re-delivered event id')
+
+    // Exactly one idempotency-ledger row for the event id.
+    const ledger = await (db as any).processedStripeEvent.findMany({ where: { stripeEventId: eventId } })
+    assert.equal(ledger.length, 1, 'one processed_stripe_events row per event id')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. Out-of-order charge.refunded — refundedAmountCents never walks backwards
+// ─────────────────────────────────────────────────────────────────────────────
+// Stripe does not guarantee webhook ordering. Two distinct charge.refunded
+// events (different event ids, so NOT de-duped) can arrive with the later-
+// received one carrying the chronologically-earlier, smaller cumulative
+// amount_refunded. refundedAmountCents must stay at the higher value.
+describe('out-of-order refund deliveries', () => {
+  test('a lower-cumulative charge.refunded after a higher one leaves refundedAmountCents at the higher value', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    // seed totalPrice 50, insuranceFee 0, hstAmount 0 -> full charge 5000c.
+    const { booking, piId } = await createBookingWithPaymentIntent(PaymentStatus.PAYOUT_PENDING)
+
+    // Higher cumulative arrives first.
+    const resHigh = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_ooo_hi_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 4000,
+        refunded: false,
+        payment_intent: { id: piId, metadata: { bookingId: booking.id } },
+      },
+      booking.id
+    )
+    assert.equal(resHigh.status, 200)
+    let updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.refundedAmountCents, 4000)
+    assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'still partial')
+
+    // Chronologically-earlier (smaller) cumulative arrives second.
+    const resLow = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_ooo_lo_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 1500,
+        refunded: false,
+        payment_intent: { id: piId, metadata: { bookingId: booking.id } },
+      },
+      booking.id
+    )
+    assert.equal(resLow.status, 200)
+    updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.refundedAmountCents, 4000, 'out-of-order delivery must not lower the cumulative')
+    assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'still not overstated as fully REFUNDED')
   })
 })

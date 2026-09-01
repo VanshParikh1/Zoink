@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
 import { BookingEventType, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../../utils/prisma'
@@ -153,13 +154,17 @@ async function updateBookingFromEvent(event: StripeEvent) {
     if (event.type === 'charge.refunded' || event.type === 'refund.succeeded') {
       // Tell a partial refund from a full one instead of always stamping REFUNDED.
       //  - charge.refunded carries the cumulative amount_refunded and the charge
-      //    total, so it's authoritative — assign from it.
-      //  - refund.succeeded is a single Refund object with no cumulative/total, so
-      //    take it as a lower bound (max with what we already recorded).
-      const cumulativeRefundedCents =
+      //    total.
+      //  - refund.succeeded is a single Refund object with no cumulative/total.
+      // Either way, max() against what we already recorded: Stripe does not
+      // guarantee webhook ordering, so a later-arriving-but-chronologically-
+      // earlier delivery carries a *smaller* cumulative and must not walk
+      // refundedAmountCents backwards.
+      const reportedRefundedCents =
         event.type === 'charge.refunded'
           ? Number(object.amount_refunded ?? object.amount ?? 0)
-          : Math.max(booking.refundedAmountCents, Number(object.amount ?? 0))
+          : Number(object.amount ?? 0)
+      const cumulativeRefundedCents = Math.max(booking.refundedAmountCents, reportedRefundedCents)
 
       data.refundedAmountCents = cumulativeRefundedCents
       data.refundedAt = new Date()
@@ -177,7 +182,29 @@ async function updateBookingFromEvent(event: StripeEvent) {
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  const duplicate = await prisma.$transaction(async (tx) => {
+    // Idempotency guard. Stripe documents that a webhook can be delivered more
+    // than once (automatic retries, `stripe events resend`), and a validly-
+    // signed body can be replayed by a caller. Claim event.id FIRST, in the
+    // same transaction as the booking mutation + audit write, so two near-
+    // simultaneous redeliveries can't both pass a check before either commits —
+    // the unique index on stripeEventId serializes them and exactly one wins.
+    // ON CONFLICT DO NOTHING + affected-row count is how we detect the loser
+    // (Prisma's create() would throw P2002, which is harder to distinguish
+    // from an unrelated failure inside an interactive transaction).
+    const inserted = await tx.$executeRaw`
+      INSERT INTO "processed_stripe_events" ("id", "stripeEventId", "eventType")
+      VALUES (${randomUUID()}, ${event.id}, ${event.type})
+      ON CONFLICT ("stripeEventId") DO NOTHING
+    `
+    if (inserted === 0) {
+      // Already processed — skip the booking mutation and the audit write
+      // entirely. The caller still returns { received: true } / HTTP 200 so
+      // Stripe stops retrying. This is independent of the state-machine
+      // monotonicity guards above (e.g. depositStatus canAdvance).
+      return true
+    }
+
     if (Object.keys(data).length > 0) {
       await tx.booking.update({
         where: { id: bookingId },
@@ -205,7 +232,15 @@ async function updateBookingFromEvent(event: StripeEvent) {
         },
       },
     })
+
+    return false
   })
+
+  if (duplicate) {
+    console.warn(
+      `Stripe webhook ${event.id} (${event.type}) already processed — skipping duplicate delivery`
+    )
+  }
 }
 
 export const stripeWebhook = asyncHandler(async (req: Request, res: Response) => {
