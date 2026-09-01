@@ -1,7 +1,7 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
-import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking } from './bookingService'
+import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse } from './bookingService'
 import { notifyUser } from './notificationService'
 import { capturePaymentIntent } from './paymentService'
 
@@ -41,17 +41,6 @@ function pendingStatus(phase: HandoffPhase) {
 
 function completedStatus(phase: HandoffPhase) {
   return phase === 'pickup' ? BookingStatus.ACTIVE : BookingStatus.COMPLETED
-}
-
-function toBookingResponse(booking: any) {
-  return {
-    ...booking,
-    totalPrice: Number(booking.totalPrice),
-    depositAmount: Number(booking.depositAmount),
-    commissionAmount: Number(booking.commissionAmount),
-    ownerPayout: Number(booking.ownerPayout),
-    insuranceFee: Number(booking.insuranceFee),
-  }
 }
 
 function sanitizePhotoUrls(photoUrls: unknown) {
@@ -156,7 +145,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
     })
   }
 
-  return toBookingResponse(updated)
+  return toBookingResponse(updated, actorId)
 }
 
 export async function confirmHandoff(bookingId: string, actorId: string, phase: HandoffPhase) {
@@ -175,7 +164,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
   }
 
   if (booking.status === completedStatus(phase)) {
-    return { bothConfirmed: true, booking: toBookingResponse(booking) }
+    return { bothConfirmed: true, booking: toBookingResponse(booking, actorId) }
   }
 
   const now = new Date()
@@ -257,7 +246,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
     }
   }
 
-  return { bothConfirmed, booking: toBookingResponse(updated) }
+  return { bothConfirmed, booking: toBookingResponse(updated, actorId) }
 }
 
 export async function getCompletedHandoffPhotos(bookingId: string, actorId: string) {

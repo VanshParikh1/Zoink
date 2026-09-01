@@ -885,4 +885,4 @@ async function handleCancellationPayment(booking: any, actorId: string) {
   }
 }
 
-export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect }
+export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect, toBookingResponse }
