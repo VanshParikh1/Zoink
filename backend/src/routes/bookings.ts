@@ -59,7 +59,7 @@ router.post('/:id/pickup/confirm', validate(HandoffBookingIdParamsSchema), confi
 router.post('/:id/return/initiate', validate(InitiateHandoffSchema), initiateReturn)
 router.post('/:id/return/confirm', validate(HandoffBookingIdParamsSchema), confirmReturn)
 router.post('/:id/photos', validate(UploadHandoffPhotosSchema), uploadHandoffPhotos)
-router.post('/:id/photos/upload', upload.single('image'), uploadHandoffPhotoImage)
+router.post('/:id/photos/upload', validate(HandoffBookingIdParamsSchema), upload.single('image'), uploadHandoffPhotoImage)
 router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
 
 // Read / state-transition routes (param-only)

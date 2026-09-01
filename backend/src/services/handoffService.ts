@@ -267,6 +267,19 @@ export async function uploadHandoffPhotos(bookingId: string, actorId: string, ph
   return initiateHandoff(bookingId, actorId, phase, photoUrls)
 }
 
+/**
+ * Authorization gate for the raw photo-file upload route
+ * (POST /bookings/:id/photos/upload). Unlike initiateHandoff/uploadHandoffPhotos,
+ * that endpoint streams the file straight to Cloudinary from the controller and
+ * never enters this service, so it needs the same booking-participant check that
+ * every other handoff operation performs — 404 for an unknown booking, 403 for a
+ * caller who is neither the renter nor the owner.
+ */
+export async function assertHandoffParticipant(bookingId: string, actorId: string) {
+  const booking = await getBooking(bookingId)
+  assertParticipant(booking, actorId)
+}
+
 export async function registerTap(bookingId: string, actorId: string, phase: HandoffPhase) {
   const result = await confirmHandoff(bookingId, actorId, phase)
   return result.booking

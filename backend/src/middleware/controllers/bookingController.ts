@@ -136,6 +136,11 @@ export const uploadHandoffPhotoImage = asyncHandler(async (req: Request, res: Re
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string
 
+  // Authorize BEFORE the file check and BEFORE anything reaches Cloudinary:
+  // this route bypasses handoffService, so without this a verified user could
+  // upload against any booking id. 404 unknown booking / 403 non-participant.
+  await handoffService.assertHandoffParticipant(bookingId, actorId)
+
   if (!req.file) {
     return res.status(400).json({ error: 'No image file provided.' })
   }
