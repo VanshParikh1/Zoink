@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --test --require ts-node/register src/services/*.test.ts src/middleware/*.test.ts src/middleware/controllers/*.test.ts src/scripts/*.test.ts",
-    "test:integration": "NODE_ENV=test DATABASE_URL=postgresql://vansh:yea.gurt67@localhost:5432/zoink_test node --test --test-concurrency=1 --require ts-node/register src/integration-tests/*.integration.test.ts",
+    "test:integration": "NODE_ENV=test node --test --test-concurrency=1 --require ts-node/register src/integration-tests/*.integration.test.ts",
     "smoke:week7": "ts-node src/scripts/week7SmokeFlow.ts",
     "admin:grant": "ts-node src/scripts/manageAdminRole.ts grant",
     "admin:revoke": "ts-node src/scripts/manageAdminRole.ts revoke"
