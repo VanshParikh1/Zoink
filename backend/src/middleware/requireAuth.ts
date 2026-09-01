@@ -17,22 +17,27 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ error: 'Invalid or expired token.' })
   }
 
-  // Stateless JWTs can't be revoked, so a deleted account's still-valid token
-  // has to be rejected here: one narrow lookup per authed request.
+  // Stateless JWTs can't be revoked, so this one narrow lookup per authed
+  // request is also where role and verificationStatus are resolved: they come
+  // from the live DB row, not the 30-day token, so a revoked admin (or a
+  // changed verification status) takes effect on the next request instead of
+  // only when the token expires.
+  let user: { deletedAt: Date | null; role: string | null; verificationStatus: string } | null
   try {
-    const user = await prisma.user.findUnique({
+    user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { deletedAt: true },
+      select: { deletedAt: true, role: true, verificationStatus: true },
     })
-    if (!user || user.deletedAt) {
-      return res.status(401).json({ error: 'This account is no longer active.' })
-    }
   } catch {
     return res.status(401).json({ error: 'Could not verify this session.' })
   }
 
+  if (!user || user.deletedAt) {
+    return res.status(401).json({ error: 'This account is no longer active.' })
+  }
+
   ;(req as any).userId = payload.userId
-  ;(req as any).verificationStatus = payload.verificationStatus
-  ;(req as any).role = payload.role || 'USER'
+  ;(req as any).verificationStatus = user.verificationStatus
+  ;(req as any).role = user.role || 'USER'
   next()
 }
