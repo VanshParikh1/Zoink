@@ -9,14 +9,15 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { RootStackParamList } from '../navigation'
 import { getPublicProfile } from '../services/usersApi'
+import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'PublicProfile'>
@@ -24,6 +25,7 @@ type ScreenRoute = RouteProp<RootStackParamList, 'PublicProfile'>
 export default function PublicProfileScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
+  const { user } = useAuth()
   const [profile, setProfile] = useState<PublicProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -53,14 +55,31 @@ export default function PublicProfileScreen() {
 
   if (!profile) return null
 
+  const isSelf = profile.id === user?.id
+
   return (
     <ScreenBackground>
-      <ScrollView 
+      <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.content} 
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <ProfileCard profile={profile} />
+
+        {!isSelf && (
+          <TouchableOpacity
+            style={styles.reportLink}
+            onPress={() =>
+              nav.navigate('FileReport', {
+                targetType: 'USER',
+                targetId: profile.id,
+                targetLabel: `${profile.firstName} ${profile.lastName}`,
+              })
+            }
+          >
+            <Text style={styles.reportLinkText}>Report this user</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </ScreenBackground>
   )
@@ -68,7 +87,7 @@ export default function PublicProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 18, paddingTop: 56, paddingBottom: 32 },
+  content: { padding: 18, paddingTop: theme.header.stackTop, paddingBottom: 32 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
@@ -97,10 +116,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    color: theme.text,
-    fontSize: 28,
-    fontWeight: '900',
-    lineHeight: 34,
+    ...theme.type.screenTitle,
   },
   subtitle: {
     color: theme.textMuted,
@@ -128,5 +144,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 10,
+  },
+  reportLink: {
+    alignSelf: 'center',
+    marginTop: 20,
+    paddingVertical: 8,
+  },
+  reportLinkText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
 })

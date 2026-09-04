@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -9,6 +8,8 @@ import { getMyDisputes } from '../services/disputesApi'
 import { useAuth } from '../context/AuthContext'
 import { Booking, Dispute, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import { formatLongDate } from '../utils/formatDate'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -24,6 +25,35 @@ function disputeOutcomeLabel(status: DisputeStatus) {
   if (status === 'RESOLVED_REFUND') return 'Dispute resolved: refund issued'
   if (status === 'RESOLVED_NO_ACTION') return 'Dispute resolved: no action taken'
   if (status === 'DISMISSED') return 'Dispute dismissed'
+  return null
+}
+
+// null means no deposit exists on this booking — the line is omitted entirely
+// rather than shown as some default. depositStatus already distinguishes the
+// two outcomes correctly, contrary to an earlier assumption here: CAPTURED
+// means an approved damage claim captured (some or all of) the deposit and
+// paid it to the owner via a separate Stripe transfer (see
+// disputeService.resolveDispute's nextDepositStatus = 'CAPTURED' branch and
+// paymentService.transferDepositCompensation) — it does NOT mean "still
+// held." RELEASED covers both ways the deposit goes back to the renter: the
+// normal auto-release with no dispute (cleanupJob.releaseDueDeposits) and a
+// dispute resolved with no damage found (refundedCents === 0).
+function ownerDepositStatusLabel(status: Booking['depositStatus']): string | null {
+  if (status === 'AUTHORIZED') return 'Held'
+  if (status === 'CAPTURED') return 'Released to you (damage compensation)'
+  if (status === 'RELEASED') return 'Returned to renter'
+  return null
+}
+
+// Renter-facing view of the same enum. AUTHORIZED = the hold is still on their
+// card; CAPTURED = an approved damage claim charged some or all of it and paid
+// the owner (a partial capture auto-releases the remainder); RELEASED = the
+// full hold came back to them (normal auto-release, or a dispute that found no
+// damage).
+function renterDepositStatusLabel(status: Booking['depositStatus']): string | null {
+  if (status === 'AUTHORIZED') return 'On hold on your card'
+  if (status === 'CAPTURED') return 'Charged for the damage claim'
+  if (status === 'RELEASED') return 'Returned to you'
   return null
 }
 
@@ -137,6 +167,13 @@ export default function BookingDetailScreen() {
   const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
   const canFileDispute = DISPUTABLE_BOOKING_STATUSES.includes(booking.status) && !disputeIsActive
 
+  // Derived, not stored — always computed from the two amounts the API
+  // already gives us, so it stays correct if the backend's commission tiers
+  // ever change without this screen needing to know what they are.
+  const commissionRatePct = booking.totalPrice > 0 ? (booking.commissionAmount / booking.totalPrice) * 100 : 0
+  const ownerDepositLabel = ownerDepositStatusLabel(booking.depositStatus)
+  const renterDepositLabel = renterDepositStatusLabel(booking.depositStatus)
+
   return (
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
@@ -151,7 +188,7 @@ export default function BookingDetailScreen() {
           <View style={styles.row}>
             <Text style={styles.label}>Dates</Text>
             <Text style={styles.value}>
-              {new Date(booking.startDate).toLocaleDateString()} - {new Date(booking.endDate).toLocaleDateString()}
+              {formatLongDate(booking.startDate)} - {formatLongDate(booking.endDate)}
             </Text>
           </View>
           <View style={styles.row}>
@@ -162,6 +199,28 @@ export default function BookingDetailScreen() {
             <Text style={styles.label}>Deposit</Text>
             <Text style={styles.value}>${booking.depositAmount.toFixed(2)}</Text>
           </View>
+          {!isOwner && renterDepositLabel ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>Deposit status</Text>
+              <Text style={styles.value}>{renterDepositLabel}</Text>
+            </View>
+          ) : null}
+          {booking.insuranceOptIn ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>Insurance</Text>
+              <Text style={styles.value}>${booking.insuranceFee.toFixed(2)}</Text>
+            </View>
+          ) : null}
+          <View style={styles.row}>
+            <Text style={styles.label}>HST (13%)</Text>
+            <Text style={styles.value}>${booking.hstAmount.toFixed(2)}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Total</Text>
+            <Text style={styles.value}>
+              ${(booking.totalPrice + booking.depositAmount + booking.insuranceFee + booking.hstAmount).toFixed(2)}
+            </Text>
+          </View>
           <View style={styles.row}>
             <Text style={styles.label}>{isOwner ? 'Renter' : 'Owner'}</Text>
             <Text style={styles.value}>
@@ -170,10 +229,47 @@ export default function BookingDetailScreen() {
           </View>
         </View>
 
-        {booking.message ? (
+        {isOwner ? (
           <View style={styles.card}>
-            <Text style={styles.messageTitle}>Request note</Text>
-            <Text style={styles.messageBody}>{booking.message}</Text>
+            <Text style={styles.messageTitle}>Your payout</Text>
+            <View style={styles.row}>
+              <Text style={styles.label}>Rental price</Text>
+              <Text style={styles.value}>${booking.totalPrice.toFixed(2)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Commission ({commissionRatePct.toFixed(1)}%)</Text>
+              <Text style={styles.value}>−${booking.commissionAmount.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.row, styles.payoutNetRow]}>
+              <Text style={styles.payoutNetLabel}>Net payout</Text>
+              <Text style={styles.payoutNetValue}>${booking.ownerPayout.toFixed(2)}</Text>
+            </View>
+
+            {booking.paymentStatus === 'PAYOUT_PENDING' || booking.paymentStatus === 'PAID_OUT' ? (
+              <View style={styles.row}>
+                <Text style={styles.label}>Payout status</Text>
+                <View style={[styles.payoutBadge, booking.paymentStatus === 'PAID_OUT' ? styles.payoutBadgePaid : styles.payoutBadgePending]}>
+                  <Text style={styles.payoutBadgeText}>{booking.paymentStatus === 'PAID_OUT' ? 'Paid out' : 'Pending'}</Text>
+                </View>
+              </View>
+            ) : null}
+            {booking.paymentStatus === 'PAID_OUT' && booking.payoutSentAt ? (
+              <Text style={styles.payoutDateText}>
+                Paid on {formatLongDate(booking.payoutSentAt)}
+              </Text>
+            ) : null}
+
+            {ownerDepositLabel ? (
+              <View style={styles.payoutDepositBox}>
+                <Text style={styles.payoutDepositLabel}>Security deposit — not part of your earnings</Text>
+                <Text style={styles.payoutDepositValue}>{ownerDepositLabel}</Text>
+                {booking.depositStatus === 'CAPTURED' ? (
+                  <Text style={styles.payoutDepositCaption}>
+                    Paid to you as a separate transfer — not included in the net payout above.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -248,7 +344,17 @@ export default function BookingDetailScreen() {
             </>
           ) : null}
 
-          {isOwner && booking.status === 'ACCEPTED' ? (
+          {isRenter && booking.status === 'ACCEPTED' ? (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => nav.navigate('Pay', { bookingId: booking.id })}
+              disabled={busy}
+            >
+              <Text style={styles.primaryText}>Pay now</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {isOwner && booking.status === 'CONFIRMED' ? (
             <TouchableOpacity
               style={styles.primaryButton}
               onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
@@ -309,7 +415,7 @@ export default function BookingDetailScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {booking.status === 'PENDING' || booking.status === 'ACCEPTED' || booking.status === 'PICKUP_PENDING' ? (
+          {booking.status === 'PENDING' || booking.status === 'ACCEPTED' || booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING' ? (
             <TouchableOpacity style={styles.secondaryButton} onPress={() => runAction(() => cancelBooking(booking.id))} disabled={busy}>
               <Text style={styles.secondaryText}>Cancel booking</Text>
             </TouchableOpacity>
@@ -368,7 +474,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', marginTop: 8 },
   card: {
     backgroundColor: theme.surface,
@@ -383,6 +489,25 @@ const styles = StyleSheet.create({
   value: { color: theme.text, fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
   messageTitle: { color: theme.text, fontSize: 15, fontWeight: '900' },
   messageBody: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
+  payoutNetRow: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12 },
+  payoutNetLabel: { color: theme.text, fontSize: 15, fontWeight: '900', flex: 1 },
+  payoutNetValue: { color: theme.primaryDeep, fontSize: 18, fontWeight: '900', flex: 1, textAlign: 'right' },
+  payoutBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.pill, borderWidth: 1 },
+  payoutBadgePending: { backgroundColor: theme.warningSurface, borderColor: theme.warning },
+  payoutBadgePaid: { backgroundColor: theme.primarySurface, borderColor: theme.primary },
+  payoutBadgeText: { color: theme.text, fontSize: 12, fontWeight: '800' },
+  payoutDateText: { color: theme.textMuted, fontSize: 12, textAlign: 'right' },
+  payoutDepositBox: {
+    backgroundColor: theme.surfaceSubdued,
+    borderRadius: 8,
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    gap: 4,
+  },
+  payoutDepositLabel: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
+  payoutDepositValue: { color: theme.text, fontSize: 14, fontWeight: '800' },
+  payoutDepositCaption: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   disputeBanner: {
     backgroundColor: theme.warningSurface,
     borderRadius: 8,

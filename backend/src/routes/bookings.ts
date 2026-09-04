@@ -15,7 +15,9 @@ import {
   activateBooking,
   cancelBooking,
   completeBooking,
+  confirmBookingPayment,
   createBooking,
+  createBookingPaymentIntent,
   declineBooking,
   getBooking,
   getHandoffPhotos,
@@ -57,13 +59,15 @@ router.post('/:id/pickup/confirm', validate(HandoffBookingIdParamsSchema), confi
 router.post('/:id/return/initiate', validate(InitiateHandoffSchema), initiateReturn)
 router.post('/:id/return/confirm', validate(HandoffBookingIdParamsSchema), confirmReturn)
 router.post('/:id/photos', validate(UploadHandoffPhotosSchema), uploadHandoffPhotos)
-router.post('/:id/photos/upload', upload.single('image'), uploadHandoffPhotoImage)
+router.post('/:id/photos/upload', validate(HandoffBookingIdParamsSchema), upload.single('image'), uploadHandoffPhotoImage)
 router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
 
 // Read / state-transition routes (param-only)
 router.get('/:id/photos', validate(HandoffBookingIdParamsSchema), getHandoffPhotos)
 router.get('/:id', validate(BookingIdParamsSchema), getBooking)
 router.patch('/:id/accept', validate(BookingIdParamsSchema), acceptBooking)
+router.post('/:id/payment-intent', validate(BookingIdParamsSchema), createBookingPaymentIntent)
+router.patch('/:id/confirm', validate(BookingIdParamsSchema), confirmBookingPayment)
 router.patch('/:id/decline', validate(BookingIdParamsSchema), declineBooking)
 router.patch('/:id/cancel', validate(BookingIdParamsSchema), cancelBooking)
 router.patch('/:id/activate', validate(BookingIdParamsSchema), activateBooking)

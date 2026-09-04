@@ -11,32 +11,21 @@ import {
 import { notifyUser } from './notificationService'
 import {
   calculateCommission,
+  calculateHst,
   calculateInsuranceFee,
   calculateOwnerPayout,
   cancelPaymentIntent,
   capturePaymentIntent,
+  createDepositPaymentIntent,
   createPaymentIntent,
   getConnectAccountStatus,
   getMockAuthorizedPaymentStatus,
+  getOrCreateStripeCustomer,
+  getPaymentIntentPaymentMethod,
   toCents,
   toDecimal,
 } from './paymentService'
-
-function scoreLabelsForRole(role: ReviewRole) {
-  if (role === ReviewRole.RENTER) {
-    return {
-      scoreAKey: 'accuracy',
-      scoreBKey: 'condition',
-      scoreCKey: 'communication',
-    }
-  }
-
-  return {
-    scoreAKey: 'reliability',
-    scoreBKey: 'care',
-    scoreCKey: 'communication',
-  }
-}
+import { scoreLabelsForRole } from './reviewService'
 
 const bookingSelect = {
   id: true,
@@ -51,7 +40,10 @@ const bookingSelect = {
   ownerPayout: true,
   insuranceOptIn: true,
   insuranceFee: true,
+  hstAmount: true,
   stripePaymentIntentId: true,
+  stripeDepositPaymentIntentId: true,
+  depositStatus: true,
   stripeChargeId: true,
   stripeTransferId: true,
   refundedAt: true,
@@ -68,10 +60,10 @@ const bookingSelect = {
   disputeStatus: true,
   disputedAt: true,
   disputeReason: true,
-  message: true,
   renterId: true,
   ownerId: true,
   listingId: true,
+  conversationId: true,
   createdAt: true,
   updatedAt: true,
   completedAt: true,
@@ -94,6 +86,7 @@ const bookingSelect = {
   renter: {
     select: {
       id: true,
+      email: true,
       firstName: true,
       lastName: true,
       avatarUrl: true,
@@ -183,14 +176,16 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     startDate: booking.startDate,
     endDate: booking.endDate,
     totalPrice,
-    message: booking.message,
     paymentStatus: booking.paymentStatus,
     depositAmount: Number(booking.depositAmount),
-    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
-    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
+    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice, booking.listing?.dailyPrice ?? 0)),
+    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice, booking.listing?.dailyPrice ?? 0)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
+    hstAmount: Number(booking.hstAmount ?? calculateHst(totalPrice)),
     stripePaymentIntentId: booking.stripePaymentIntentId,
+    stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId ?? null,
+    depositStatus: booking.depositStatus ?? null,
     stripeChargeId: booking.stripeChargeId,
     stripeTransferId: booking.stripeTransferId,
     paidAt: booking.paidAt,
@@ -210,6 +205,7 @@ function toBookingResponse(booking: any, userId?: string): BookingResponse {
     renterId: booking.renterId,
     ownerId: booking.ownerId,
     listingId: booking.listingId,
+    conversationId: booking.conversationId,
     completedAt: booking.completedAt,
     createdAt: booking.createdAt,
     updatedAt: booking.updatedAt,
@@ -289,7 +285,7 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
     where: {
       listingId,
       id: { not: bookingId },
-      status: { in: ['ACCEPTED', 'ACTIVE'] },
+      status: { in: ['CONFIRMED', 'ACTIVE'] },
       startDate: { lte: booking.endDate },
       endDate: { gte: booking.startDate },
     },
@@ -340,16 +336,36 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const dailyPrice = Number(listing.dailyPrice)
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
   const depositAmount = Number(listing.depositAmount)
-  const commissionAmount = calculateCommission(totalPrice)
-  const ownerPayout = calculateOwnerPayout(totalPrice)
+  const commissionAmount = calculateCommission(totalPrice, dailyPrice)
+  const ownerPayout = calculateOwnerPayout(totalPrice, dailyPrice)
   const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
+  const hstAmount = calculateHst(totalPrice)
 
-  const booking = await prisma.$transaction(async (tx) => {
+  const trimmedMessage = input.message?.trim() || null
+
+  const booking: any = await prisma.$transaction(async (tx) => {
+    const conversation = await tx.conversation.upsert({
+      where: {
+        listingId_renterId: {
+          listingId: listing.id,
+          renterId,
+        },
+      },
+      update: {},
+      create: {
+        listingId: listing.id,
+        renterId,
+        ownerId: listing.ownerId,
+      },
+      select: { id: true },
+    })
+
     const created: any = await tx.booking.create({
       data: {
         listingId: listing.id,
         renterId,
         ownerId: listing.ownerId,
+        conversationId: conversation.id,
         startDate: input.startDate,
         endDate: input.endDate,
         totalPrice: toDecimal(totalPrice),
@@ -358,7 +374,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
         ownerPayout: toDecimal(ownerPayout),
         insuranceOptIn: Boolean(input.insuranceOptIn),
         insuranceFee: toDecimal(insuranceFee),
-        message: input.message?.trim() || null,
+        hstAmount: toDecimal(hstAmount),
       } as any,
       select: bookingSelect as any,
     })
@@ -367,13 +383,54 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       status: created.status,
     })
 
+    if (trimmedMessage) {
+      await tx.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: renterId,
+          body: trimmedMessage,
+        },
+      })
+    }
+
     return created
   })
 
-  const paymentIntent = await createPaymentIntent(booking, booking.renter.stripeCustomerId)
+  void notifyUser({
+    userId: listing.ownerId,
+    type: 'BOOKING_REQUEST',
+    title: 'New booking request',
+    body: 'A renter requested dates for one of your listings.',
+    data: { bookingId: booking.id, listingId: listing.id },
+  })
+
+  return toBookingResponse(booking)
+}
+
+export async function createPaymentIntentForBooking(bookingId: string, renterId: string): Promise<BookingResponse> {
+  const booking = await getBookingForParticipant(bookingId, renterId)
+
+  if (booking.renterId !== renterId) {
+    throw new ForbiddenError('You do not have access to this booking.')
+  }
+
+  if (booking.status !== 'ACCEPTED') {
+    throw new ConflictError('This booking is not ready for payment.')
+  }
+
+  // A real Stripe Customer is required so the payment method attached here
+  // can be saved (setup_future_usage) and reused off-session for the
+  // deposit PaymentIntent once this one is confirmed (see
+  // transitionBookingStatus's CONFIRMED branch below).
+  const stripeCustomerId = await getOrCreateStripeCustomer(
+    booking.renter.id,
+    booking.renter.email,
+    booking.renter.stripeCustomerId
+  )
+  const paymentIntent = await createPaymentIntent(booking, stripeCustomerId)
   const paymentStatus = getMockAuthorizedPaymentStatus()
 
-  const bookingWithPayment: any = await prisma.$transaction(async (tx) => {
+  const updated: any = await prisma.$transaction(async (tx) => {
     await tx.booking.update({
       where: { id: booking.id },
       data: {
@@ -386,7 +443,6 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     await createBookingEvent(tx, booking.id, renterId, BookingEventType.PAYMENT_INTENT_CREATED, {
       paymentIntentId: paymentIntent.id,
       status: paymentIntent.status,
-      clientSecret: paymentIntent.client_secret,
       paymentStatus,
     })
 
@@ -396,16 +452,8 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     })
   })
 
-  void notifyUser({
-    userId: listing.ownerId,
-    type: 'BOOKING_REQUEST',
-    title: 'New booking request',
-    body: 'A renter requested dates for one of your listings.',
-    data: { bookingId: booking.id, listingId: listing.id },
-  })
-
   return {
-    ...toBookingResponse(bookingWithPayment),
+    ...toBookingResponse(updated, renterId),
     paymentClientSecret: paymentIntent.client_secret ?? null,
   }
 }
@@ -419,7 +467,11 @@ export async function getMyBookings(renterId: string): Promise<BookingResponse[]
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
     select: bookingSelect as any,
-    orderBy: { createdAt: 'desc' },
+    // Most-recent-activity ordering: updatedAt bumps on every status
+    // transition (PENDING -> ACCEPTED -> ... -> COMPLETED/CANCELLED/DECLINED),
+    // so a booking that was recently completed or cancelled surfaces near the
+    // top instead of sinking based on when it was originally requested.
+    orderBy: { updatedAt: 'desc' },
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, renterId))
@@ -429,7 +481,15 @@ export async function getIncomingRequests(ownerId: string): Promise<BookingRespo
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
     select: bookingSelect as any,
-    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    // status:'asc' keeps PENDING requests (needing the owner's action) pinned
+    // above everything else — that's a deliberate actionable-items-first
+    // priority, independent of the "most recent activity" fix below, and
+    // sorts by the BookingStatus enum's *declaration* order in schema.prisma
+    // (PENDING is declared first), not alphabetically. Within each status
+    // group, sort by updatedAt (most recent activity) rather than createdAt,
+    // so e.g. the most recently completed booking leads the COMPLETED group
+    // instead of the one requested longest ago.
+    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
@@ -462,40 +522,156 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     throw new ForbiddenError('You do not have access to this booking.')
   }
 
+  if (nextStatus === 'CONFIRMED' && !isRenter) {
+    throw new ForbiddenError('You do not have access to this booking.')
+  }
+
   assertBookingTransition(booking.status, nextStatus)
 
   if (nextStatus === 'ACCEPTED') {
+    // Only CONFIRMED/ACTIVE bookings hold dates now — ACCEPTED no longer implies
+    // payment, so this just rejects accepting into dates someone has already paid
+    // for. The payment-authorization precondition moves to the ACCEPTED ->
+    // CONFIRMED transition, since payment happens after acceptance now.
     await ensureNoOverlap(booking.listingId, booking.id)
     const stripeAccountId = await ensureOwnerStripeAccount(booking.ownerId)
     if (!stripeAccountId) {
       throw new ConflictError('The owner needs to connect Stripe before accepting bookings.')
     }
+  }
+
+  let depositPaymentIntentId: string | null = null
+
+  if (nextStatus === 'CONFIRMED') {
+    // This is the new payment checkpoint — dates only truly lock once payment
+    // is authorized, which is why ensureNoOverlap (CONFIRMED/ACTIVE only) is
+    // re-checked here: two different ACCEPTED-but-unpaid requests can overlap
+    // (accepting doesn't block on other ACCEPTED bookings), so the second one
+    // to reach this step must still be rejected if the first already confirmed.
+    await ensureNoOverlap(booking.listingId, booking.id)
 
     if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
       throw new ConflictError('Payment authorization is not ready yet.')
     }
+
+    if (!booking.stripePaymentIntentId) {
+      throw new ConflictError('Payment authorization is not ready yet.')
+    }
+
+    // The deposit is authorized as its own PaymentIntent, off-session, reusing
+    // the payment method the borrower just attached while confirming the
+    // rental PaymentIntent (see createPaymentIntent's setup_future_usage).
+    // This keeps it held through the full rental — resolved later at return
+    // handoff, not released as a side effect of the rental capture at pickup.
+    //
+    // If authorization fails here, the booking must NOT become CONFIRMED: the
+    // rental PaymentIntent is still just an uncaptured hold, so it's safe to
+    // cancel it and surface a clear error, leaving the booking exactly where
+    // it was (ACCEPTED) so the borrower can retry payment from scratch. A
+    // booking must never end up CONFIRMED with only the rental portion
+    // secured and no deposit hold in place.
+    try {
+      const stripeCustomerId = await getOrCreateStripeCustomer(
+        booking.renter.id,
+        booking.renter.email,
+        booking.renter.stripeCustomerId
+      )
+      const paymentMethodId = await getPaymentIntentPaymentMethod(booking.stripePaymentIntentId)
+
+      if (!stripeCustomerId || !paymentMethodId) {
+        throw new Error('No saved payment method is available to authorize the deposit.')
+      }
+
+      const depositIntent = await createDepositPaymentIntent(booking, stripeCustomerId, paymentMethodId)
+      depositPaymentIntentId = depositIntent.id
+    } catch (error) {
+      try {
+        await cancelPaymentIntent(booking)
+      } catch (cancelError) {
+        console.error(
+          '[transitionBookingStatus] Failed to cancel rental PaymentIntent after a deposit authorization failure for booking',
+          booking.id,
+          '— original error:', error,
+          '— cancel error:', cancelError
+        )
+      }
+
+      throw new ConflictError(
+        `Could not authorize the deposit — payment was not completed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}. Please try again.`
+      )
+    }
   }
 
   if (nextStatus !== 'COMPLETED') {
-    const updated: any = await prisma.$transaction(async (tx) => {
+    const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
       const result = await tx.booking.updateMany({
         where: { id: booking.id, version: booking.version },
-        data: { status: nextStatus, version: { increment: 1 } },
+        data: {
+          status: nextStatus,
+          version: { increment: 1 },
+          ...(nextStatus === 'CONFIRMED' && depositPaymentIntentId
+            ? { stripeDepositPaymentIntentId: depositPaymentIntentId, depositStatus: 'AUTHORIZED' as const }
+            : {}),
+        },
       })
 
       if (result.count !== 1) {
         throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
       }
 
-      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
-        from: booking.status,
-        to: nextStatus,
-      })
+      const eventMetadata: Record<string, string> = { from: booking.status, to: nextStatus }
+      if (nextStatus === 'DECLINED') {
+        eventMetadata.reason = 'manual_decline'
+      }
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, eventMetadata)
 
-      return tx.booking.findUniqueOrThrow({
+      if (nextStatus === 'CONFIRMED' && depositPaymentIntentId) {
+        await createBookingEvent(tx, booking.id, actorId, BookingEventType.PAYMENT_INTENT_CREATED, {
+          paymentIntentId: depositPaymentIntentId,
+          purpose: 'deposit',
+        })
+      }
+
+      // Accepting one request reserves the dates for it, so any other still-
+      // PENDING request on the same listing that overlaps those dates can no
+      // longer be honored — auto-decline it rather than leaving it to fail
+      // later when someone tries to accept it. These do NOT revive if the
+      // just-accepted booking is later cancelled (see handleCancellationPayment).
+      let autoRejected: { id: string; renterId: string }[] = []
+      if (nextStatus === 'ACCEPTED') {
+        autoRejected = await tx.booking.findMany({
+          where: {
+            listingId: booking.listingId,
+            id: { not: booking.id },
+            status: 'PENDING',
+            startDate: { lte: booking.endDate },
+            endDate: { gte: booking.startDate },
+          },
+          select: { id: true, renterId: true },
+        })
+
+        if (autoRejected.length > 0) {
+          await tx.booking.updateMany({
+            where: { id: { in: autoRejected.map((b) => b.id) } },
+            data: { status: 'DECLINED', version: { increment: 1 } },
+          })
+
+          for (const rejected of autoRejected) {
+            await createBookingEvent(tx, rejected.id, actorId, BookingEventType.STATUS_CHANGE, {
+              from: 'PENDING',
+              to: 'DECLINED',
+              reason: 'overlap_auto_reject',
+            })
+          }
+        }
+      }
+
+      const updated = await tx.booking.findUniqueOrThrow({
         where: { id: booking.id },
         select: bookingSelect as any,
       })
+
+      return { updated, autoRejected }
     })
 
     if (nextStatus === 'CANCELLED') {
@@ -510,6 +686,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         body: `${booking.listing.title} was approved by the owner.`,
         data: { bookingId: booking.id, listingId: booking.listingId },
       })
+
+      for (const rejected of autoRejected) {
+        void notifyUser({
+          userId: rejected.renterId,
+          type: 'BOOKING_DECLINED',
+          title: 'Booking declined',
+          body: `${booking.listing.title} was booked for those dates by another renter.`,
+          data: { bookingId: rejected.id, listingId: booking.listingId },
+        })
+      }
     }
 
     if (nextStatus === 'DECLINED') {
@@ -518,6 +704,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
         type: 'BOOKING_DECLINED',
         title: 'Booking declined',
         body: `${booking.listing.title} was declined.`,
+        data: { bookingId: booking.id, listingId: booking.listingId },
+      })
+    }
+
+    if (nextStatus === 'CONFIRMED') {
+      void notifyUser({
+        userId: booking.ownerId,
+        type: 'PAYMENT_RECEIVED',
+        title: 'Payment received',
+        body: `${booking.listing.title} is booked and paid for — you can start the handoff.`,
         data: { bookingId: booking.id, listingId: booking.listingId },
       })
     }
@@ -627,16 +823,16 @@ function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
 
 async function handleCancellationPayment(booking: any, actorId: string) {
   try {
-    if (booking.status === 'PENDING') {
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: PaymentStatus.REFUND_PENDING },
-      })
-      await cancelPaymentIntent(booking)
+    if (booking.status === 'PENDING' || booking.status === 'ACCEPTED') {
+      // Payment now only happens at the ACCEPTED -> CONFIRMED step, so a
+      // booking cancelled at PENDING or ACCEPTED has never had a PaymentIntent
+      // authorized — there's nothing for Stripe to release or capture. Skip
+      // the API call entirely rather than calling cancelPaymentIntent() with
+      // a stripePaymentIntentId that doesn't exist.
       return
     }
 
-    if (booking.status === 'ACCEPTED') {
+    if (booking.status === 'CONFIRMED') {
       const feeCents = calculateCancellationFeeCents(booking.totalPrice)
 
       // Stripe rejects amount_to_capture: 0 — capturing is only valid for a
@@ -689,4 +885,4 @@ async function handleCancellationPayment(booking: any, actorId: string) {
   }
 }
 
-export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect }
+export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect, toBookingResponse }

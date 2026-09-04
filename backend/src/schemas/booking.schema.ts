@@ -7,13 +7,15 @@ import { z } from 'zod'
  *   - listingId   String
  *   - startDate   DateTime
  *   - endDate     DateTime
- *   - message     String?
  *   - insuranceOptIn Boolean @default(false)
  */
 
 /**
  * POST /bookings
  * Requires listingId + ISO-8601 date strings; endDate must be after startDate.
+ * `message`, if present, is not stored on Booking (it has no message column) —
+ * bookingService.createBooking posts it as the first Message in the
+ * request's Conversation instead.
  */
 export const CreateBookingSchema = z.object({
   body: z
@@ -21,7 +23,7 @@ export const CreateBookingSchema = z.object({
       listingId: z.string().min(1, 'listingId is required.'),
       startDate: z.string().datetime({ message: 'startDate must be a valid ISO-8601 datetime string.' }),
       endDate: z.string().datetime({ message: 'endDate must be a valid ISO-8601 datetime string.' }),
-      message: z.string().optional(),
+      message: z.string().max(500, 'message cannot exceed 500 characters.').optional(),
       insuranceOptIn: z.boolean().optional().default(false),
     })
     .refine((data) => new Date(data.endDate) > new Date(data.startDate), {

@@ -27,10 +27,12 @@ import {
   getTestPrisma,
   disconnectTestPrisma,
   checkStripeConnectivity,
+  confirmTestPaymentIntent,
   getApp,
 } from './setup'
 import * as bookingService from '../services/bookingService'
 import * as handoffService from '../services/handoffService'
+import * as conversationService from '../services/conversationService'
 import { PaymentStatus, BookingStatus } from '@prisma/client'
 
 // notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
@@ -101,10 +103,7 @@ async function giveOwnerStripeAccount(ownerId: string) {
 // 1. Booking creation
 // ─────────────────────────────────────────────────────────────────────────────
 describe('createBooking', () => {
-  test('creates a PENDING booking with payment intent and correct financials', async () => {
-    if (!stripeAvailable) {
-      // Still runs — paymentService falls back to mock when Stripe is absent
-    }
+  test('creates a PENDING booking with a price snapshot and no payment intent yet', async () => {
     const { startDate, endDate } = futureDates(2, 3) // 3-day rental @ $20/day = $60
     const result = await bookingService.createBooking(renter.id, {
       listingId,
@@ -123,19 +122,71 @@ describe('createBooking', () => {
     assert.ok(result.commissionAmount > 0, 'commission should be positive')
     assert.ok(result.ownerPayout > 0, 'ownerPayout should be positive')
     assert.equal(result.insuranceFee, 0)
-    assert.ok(result.stripePaymentIntentId, 'paymentIntentId should be set')
-    assert.ok(
-      result.paymentStatus === PaymentStatus.AUTHORIZED ||
-      result.paymentStatus === PaymentStatus.PENDING_AUTH,
-      `unexpected paymentStatus: ${result.paymentStatus}`
-    )
-    assert.ok(result.paymentClientSecret, 'clientSecret should be returned for frontend PaymentSheet')
+    // Payment now only happens once the lender accepts and the borrower pays
+    // on the Pay screen — createBooking no longer touches Stripe at all.
+    assert.equal(result.stripePaymentIntentId, null, 'no payment intent should exist yet')
+    assert.equal(result.paymentStatus, PaymentStatus.PENDING_AUTH)
+    assert.equal(result.paymentClientSecret, undefined, 'no clientSecret until the Pay step')
 
     // Verify persisted in DB
     const db = getTestPrisma()
     const booking = await db.booking.findUniqueOrThrow({ where: { id: result.id } })
     assert.equal(booking.status, BookingStatus.PENDING)
-    assert.ok(booking.stripePaymentIntentId)
+    assert.equal(booking.stripePaymentIntentId, null)
+  })
+
+  test('creates a Conversation and posts the request message into it, rather than storing it on the booking', async () => {
+    const { startDate, endDate } = futureDates(2, 3)
+    const result = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      message: 'Can I pick it up in the morning?',
+    })
+
+    assert.ok(result.conversationId, 'booking should be linked to a conversation')
+
+    const db = getTestPrisma()
+    const conversation = await db.conversation.findUniqueOrThrow({ where: { id: result.conversationId! } })
+    assert.equal(conversation.listingId, listingId)
+    assert.equal(conversation.renterId, renter.id)
+    assert.equal(conversation.ownerId, owner.id)
+
+    const messages = await db.message.findMany({ where: { conversationId: conversation.id } })
+    assert.equal(messages.length, 1)
+    assert.equal(messages[0].body, 'Can I pick it up in the morning?')
+    assert.equal(messages[0].senderId, renter.id)
+  })
+
+  test('reuses the existing conversation for a second booking on the same listing/renter pair', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const first = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    const { startDate: s2, endDate: e2 } = futureDates(20, 2)
+    const second = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(s2),
+      endDate: new Date(e2),
+    })
+
+    assert.equal(first.conversationId, second.conversationId)
+  })
+
+  test('does not create a conversation message when no request message is provided', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const result = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    const db = getTestPrisma()
+    const messages = await db.message.findMany({ where: { conversationId: result.conversationId! } })
+    assert.equal(messages.length, 0)
   })
 
   test('creates booking with insurance when insuranceOptIn=true', async () => {
@@ -189,7 +240,7 @@ describe('createBooking', () => {
 // 2. Owner accept / decline
 // ─────────────────────────────────────────────────────────────────────────────
 describe('owner accept / decline', () => {
-  test('owner can accept a PENDING booking (transitions to ACCEPTED)', async () => {
+  test('owner can accept a PENDING booking with no payment yet (transitions to ACCEPTED)', async () => {
     await giveOwnerStripeAccount(owner.id)
 
     const { startDate, endDate } = futureDates(2, 2)
@@ -199,19 +250,18 @@ describe('owner accept / decline', () => {
       endDate: new Date(endDate),
     })
 
-    // Ensure payment is marked authorized so accept doesn't reject
-    const db = getTestPrisma()
-    await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
-    })
+    // Payment authorization is no longer a precondition for ACCEPTED — that
+    // check moved to the ACCEPTED -> CONFIRMED transition. This booking has
+    // never had a payment intent created (paymentStatus is still the default
+    // PENDING_AUTH), and accept should still succeed.
+    assert.equal(booking.paymentStatus, PaymentStatus.PENDING_AUTH)
 
     const accepted = await bookingService.transitionBookingStatus(
       booking.id, owner.id, BookingStatus.ACCEPTED
     )
     assert.equal(accepted.status, BookingStatus.ACCEPTED)
 
-    // Verify persisted
+    const db = getTestPrisma()
     const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(persisted.status, BookingStatus.ACCEPTED)
 
@@ -221,8 +271,7 @@ describe('owner accept / decline', () => {
     assert.ok(statusEvents.length >= 1, 'at least one STATUS_CHANGE event should exist')
   })
 
-  test('owner accept fails when payment is not authorized', async () => {
-    await giveOwnerStripeAccount(owner.id)
+  test('a manual decline records reason=manual_decline on its STATUS_CHANGE event', async () => {
     const { startDate, endDate } = futureDates(2, 2)
     const booking = await bookingService.createBooking(renter.id, {
       listingId,
@@ -230,21 +279,13 @@ describe('owner accept / decline', () => {
       endDate: new Date(endDate),
     })
 
-    // Force payment status back to PENDING_AUTH
-    const db = getTestPrisma()
-    await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.PENDING_AUTH },
-    })
+    await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.DECLINED)
 
-    await assert.rejects(
-      () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED),
-      (err: any) => {
-        assert.equal(err.statusCode, 409)
-        assert.match(err.message, /payment authorization is not ready/i)
-        return true
-      }
-    )
+    const db = getTestPrisma()
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'STATUS_CHANGE' } })
+    const declineEvent = events.find((e: any) => (e.metadata as any)?.to === 'DECLINED')
+    assert.ok(declineEvent, 'a STATUS_CHANGE event to DECLINED should exist')
+    assert.equal((declineEvent!.metadata as any).reason, 'manual_decline')
   })
 
   test('owner can decline a PENDING booking', async () => {
@@ -299,10 +340,9 @@ describe('owner accept / decline', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Pickup handoff — photos + Zoink It tap → ACTIVE
+// 2b. Renter pays — ACCEPTED -> CONFIRMED (the new payment checkpoint)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('pickup handoff', () => {
-  // Helper: creates an ACCEPTED booking ready for handoff
+describe('renter pays for an ACCEPTED booking', () => {
   async function makeAcceptedBooking() {
     await giveOwnerStripeAccount(owner.id)
     const { startDate, endDate } = futureDates(2, 2)
@@ -311,12 +351,171 @@ describe('pickup handoff', () => {
       startDate: new Date(startDate),
       endDate: new Date(endDate),
     })
+    return bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+  }
+
+  test('createPaymentIntentForBooking creates a payment intent on an ACCEPTED booking', async () => {
+    const booking = await makeAcceptedBooking()
+
+    const result = await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+    assert.ok(result.stripePaymentIntentId, 'a payment intent id should now be set')
+    assert.ok('paymentClientSecret' in result, 'clientSecret should be returned for the Pay screen')
+    assert.ok(
+      result.paymentStatus === PaymentStatus.AUTHORIZED || result.paymentStatus === PaymentStatus.PENDING_AUTH,
+      `unexpected paymentStatus: ${result.paymentStatus}`
+    )
+
+    const db = getTestPrisma()
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'PAYMENT_INTENT_CREATED' } })
+    assert.equal(events.length, 1)
+  })
+
+  test('a renter paying for a second booking reuses their existing Stripe Customer, not a new one', async () => {
+    const db = getTestPrisma()
+
+    const bookingA = await makeAcceptedBooking()
+    const withIntentA = await bookingService.createPaymentIntentForBooking(bookingA.id, renter.id)
+    assert.ok(withIntentA.stripePaymentIntentId)
+
+    const userAfterFirst = await db.user.findUniqueOrThrow({ where: { id: renter.id } })
+    assert.ok(userAfterFirst.stripeCustomerId, 'a Stripe Customer id should now be stored on the user')
+
+    // A second, independent booking for the SAME renter.
+    const bookingB = await makeAcceptedBooking()
+    const withIntentB = await bookingService.createPaymentIntentForBooking(bookingB.id, renter.id)
+    assert.ok(withIntentB.stripePaymentIntentId)
+
+    const userAfterSecond = await db.user.findUniqueOrThrow({ where: { id: renter.id } })
+    assert.equal(
+      userAfterSecond.stripeCustomerId,
+      userAfterFirst.stripeCustomerId,
+      'the stored Stripe Customer id must not change between the two payments'
+    )
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+
+      // Ground truth: exactly one real Stripe Customer object exists, and both
+      // PaymentIntents were created against it — not two separate Customers.
+      const customer = await stripe.customers.retrieve(userAfterSecond.stripeCustomerId!)
+      assert.equal(customer.deleted, undefined, 'the Customer object should exist and not be deleted')
+      assert.equal(customer.id, userAfterSecond.stripeCustomerId)
+
+      const intentA = await stripe.paymentIntents.retrieve(withIntentA.stripePaymentIntentId!)
+      const intentB = await stripe.paymentIntents.retrieve(withIntentB.stripePaymentIntentId!)
+      assert.equal(intentA.customer, userAfterSecond.stripeCustomerId)
+      assert.equal(intentB.customer, userAfterSecond.stripeCustomerId)
+      assert.equal(intentA.customer, intentB.customer, 'both PaymentIntents must reference the same Stripe Customer')
+    }
+  })
+
+  test('createPaymentIntentForBooking rejects a booking that is not ACCEPTED', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const pending = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    await assert.rejects(
+      () => bookingService.createPaymentIntentForBooking(pending.id, renter.id),
+      (err: any) => {
+        assert.equal(err.statusCode, 409)
+        return true
+      }
+    )
+  })
+
+  test('createPaymentIntentForBooking rejects the owner (renter-only action)', async () => {
+    const booking = await makeAcceptedBooking()
+
+    await assert.rejects(
+      () => bookingService.createPaymentIntentForBooking(booking.id, owner.id),
+      (err: any) => {
+        assert.equal(err.statusCode, 403)
+        return true
+      }
+    )
+  })
+
+  test('transitioning to CONFIRMED fails until payment is authorized', async () => {
+    const booking = await makeAcceptedBooking()
+
+    await assert.rejects(
+      () => bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CONFIRMED),
+      (err: any) => {
+        assert.equal(err.statusCode, 409)
+        assert.match(err.message, /payment authorization is not ready/i)
+        return true
+      }
+    )
+  })
+
+  test('renter confirms after payment is authorized — booking moves to CONFIRMED', async () => {
+    const booking = await makeAcceptedBooking()
+    const withIntent = await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+
+    const db = getTestPrisma()
+    // The CONFIRMED transition now authorizes the deposit off-session against
+    // the payment method attached to this PaymentIntent, so it must actually
+    // be confirmed with a real test card — a bare paymentStatus write is no
+    // longer enough (see confirmTestPaymentIntent in setup.ts).
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
+    await db.booking.update({ where: { id: booking.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    const confirmed = await bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CONFIRMED)
+    assert.equal(confirmed.status, BookingStatus.CONFIRMED)
+
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(persisted.status, BookingStatus.CONFIRMED)
+  })
+
+  test('owner cannot confirm payment (renter-only action)', async () => {
+    const booking = await makeAcceptedBooking()
+    await bookingService.createPaymentIntentForBooking(booking.id, renter.id)
+    const db = getTestPrisma()
+    await db.booking.update({ where: { id: booking.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    await assert.rejects(
+      () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.CONFIRMED),
+      (err: any) => {
+        assert.equal(err.statusCode, 403)
+        return true
+      }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. Pickup handoff — photos + Zoink It tap → ACTIVE
+// ─────────────────────────────────────────────────────────────────────────────
+describe('pickup handoff', () => {
+  // Helper: creates a CONFIRMED booking ready for handoff (paid — pickup can
+  // only start once the booking has cleared the ACCEPTED -> CONFIRMED payment
+  // step). Sets up the CONFIRMED precondition with a direct write, same as
+  // makeActiveBooking() below does for ACTIVE — the Pay screen's own request
+  // -> accept -> pay -> confirm path is exercised separately in the
+  // "confirm payment" tests, not re-walked here.
+  async function makeAcceptedBooking() {
+    await giveOwnerStripeAccount(owner.id)
+    const { startDate, endDate } = futureDates(2, 2)
+    const created = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
     const db = getTestPrisma()
     await db.booking.update({
-      where: { id: booking.id },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
+      where: { id: created.id },
+      data: {
+        status: BookingStatus.CONFIRMED,
+        paymentStatus: PaymentStatus.AUTHORIZED,
+        stripePaymentIntentId: `pi_mock_confirmed_${Date.now()}`,
+        version: { increment: 1 },
+      },
     })
-    return bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    return bookingService.getBookingById(created.id, owner.id)
   }
 
   test('owner initiates pickup — booking moves to PICKUP_PENDING', async () => {
@@ -679,7 +878,7 @@ describe('return handoff and completion', () => {
 // 5. Full end-to-end happy path via HTTP (supertest)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('full happy path via HTTP', () => {
-  test('POST /bookings creates booking and returns 201 with clientSecret', async () => {
+  test('POST /bookings creates a PENDING booking with no payment intent yet', async () => {
     const app = getApp()
     const { startDate, endDate } = futureDates(3, 2)
 
@@ -691,8 +890,8 @@ describe('full happy path via HTTP', () => {
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`)
     assert.equal(res.body.status, 'PENDING')
     assert.ok(res.body.id, 'booking id should be present')
-    assert.ok(res.body.stripePaymentIntentId, 'payment intent id should be present')
-    assert.ok('paymentClientSecret' in res.body, 'paymentClientSecret should be in response')
+    assert.equal(res.body.stripePaymentIntentId, null, 'no payment intent until the Pay step')
+    assert.ok(res.body.conversationId, 'booking should be linked to a conversation')
   })
 
   test('GET /bookings/:id returns booking for renter', async () => {
@@ -789,11 +988,13 @@ describe('full happy path via HTTP', () => {
 // 6. Overlap detection
 // ─────────────────────────────────────────────────────────────────────────────
 describe('booking overlap detection', () => {
-  test('accepting a booking that overlaps with an existing ACCEPTED booking is rejected', async () => {
+  test('accepting one of two overlapping PENDING requests auto-declines the other', async () => {
     await giveOwnerStripeAccount(owner.id)
     const db = getTestPrisma()
 
-    // Both rentals use the same listing and overlapping dates
+    // Both rentals use the same listing and overlapping dates. Neither has
+    // been paid for — ACCEPTED no longer implies payment, so both requests
+    // can freely reach PENDING without conflict.
     const { startDate, endDate } = futureDates(5, 3)
     const renter2 = await createTestUser({ email: `renter2_${Date.now()}@test.com` })
 
@@ -808,16 +1009,54 @@ describe('booking overlap detection', () => {
       endDate: new Date(endDate),
     })
 
-    // Authorize both
-    await db.booking.updateMany({
-      where: { id: { in: [b1.id, b2.id] } },
-      data: { paymentStatus: PaymentStatus.AUTHORIZED },
+    // A third, non-overlapping PENDING request on the same listing should be
+    // left alone by the auto-reject.
+    const { startDate: laterStart, endDate: laterEnd } = futureDates(30, 3)
+    const renter3 = await createTestUser({ email: `renter3_${Date.now()}@test.com` })
+    const b3 = await bookingService.createBooking(renter3.id, {
+      listingId,
+      startDate: new Date(laterStart),
+      endDate: new Date(laterEnd),
     })
 
-    // Accept b1 — succeeds
-    await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.ACCEPTED)
+    const accepted = await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.ACCEPTED)
+    assert.equal(accepted.status, BookingStatus.ACCEPTED)
 
-    // Accept b2 — should fail with 409 overlap
+    const persistedB2 = await db.booking.findUniqueOrThrow({ where: { id: b2.id } })
+    assert.equal(persistedB2.status, BookingStatus.DECLINED, 'overlapping PENDING request should be auto-declined')
+
+    const persistedB3 = await db.booking.findUniqueOrThrow({ where: { id: b3.id } })
+    assert.equal(persistedB3.status, BookingStatus.PENDING, 'non-overlapping PENDING request should be untouched')
+
+    const b2Events = await db.bookingEvent.findMany({ where: { bookingId: b2.id, type: 'STATUS_CHANGE' } })
+    const autoRejectEvent = b2Events.find((e: any) => (e.metadata as any)?.to === 'DECLINED')
+    assert.ok(autoRejectEvent, 'auto-rejected booking should have a STATUS_CHANGE event')
+    assert.equal((autoRejectEvent!.metadata as any).reason, 'overlap_auto_reject')
+  })
+
+  test('accepting a booking that overlaps with an existing CONFIRMED booking is rejected', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const db = getTestPrisma()
+
+    const { startDate, endDate } = futureDates(5, 3)
+    const renter2 = await createTestUser({ email: `renter2confirmed_${Date.now()}@test.com` })
+
+    const b1 = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    await db.booking.update({
+      where: { id: b1.id },
+      data: { status: BookingStatus.CONFIRMED, paymentStatus: PaymentStatus.AUTHORIZED, version: { increment: 1 } },
+    })
+
+    const b2 = await bookingService.createBooking(renter2.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
     await assert.rejects(
       () => bookingService.transitionBookingStatus(b2.id, owner.id, BookingStatus.ACCEPTED),
       (err: any) => {
@@ -926,5 +1165,41 @@ describe('booking data access', () => {
     assert.equal(result.pendingReview.reviewee.id, owner.id)
     // Score labels differ by role
     assert.ok('scoreAKey' in result.pendingReview.scoreLabels)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Conversation payment badge/banner source — acceptedUnpaidBookingId
+// ─────────────────────────────────────────────────────────────────────────────
+describe('conversation acceptedUnpaidBookingId (messages UI payment prompt)', () => {
+  test('is null for a PENDING booking, set once ACCEPTED, and null again once CONFIRMED', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const { startDate, endDate } = futureDates(2, 2)
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    assert.ok(booking.conversationId)
+
+    const conversationsBeforeAccept = await conversationService.getMyConversations(renter.id)
+    const beforeAccept = conversationsBeforeAccept.find((c) => c.id === booking.conversationId)
+    assert.equal(beforeAccept?.acceptedUnpaidBookingId, null, 'PENDING booking should not trigger the payment prompt')
+
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+
+    const conversationsAfterAccept = await conversationService.getMyConversations(renter.id)
+    const afterAccept = conversationsAfterAccept.find((c) => c.id === booking.conversationId)
+    assert.equal(afterAccept?.acceptedUnpaidBookingId, accepted.id, 'ACCEPTED-unpaid booking should surface for the payment prompt')
+
+    const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+    const db = getTestPrisma()
+    await confirmTestPaymentIntent(withIntent.stripePaymentIntentId!)
+    await db.booking.update({ where: { id: accepted.id }, data: { paymentStatus: PaymentStatus.AUTHORIZED } })
+    await bookingService.transitionBookingStatus(accepted.id, renter.id, BookingStatus.CONFIRMED)
+
+    const conversationsAfterConfirm = await conversationService.getMyConversations(renter.id)
+    const afterConfirm = conversationsAfterConfirm.find((c) => c.id === booking.conversationId)
+    assert.equal(afterConfirm?.acceptedUnpaidBookingId, null, 'the prompt should disappear once the booking is paid (CONFIRMED)')
   })
 })

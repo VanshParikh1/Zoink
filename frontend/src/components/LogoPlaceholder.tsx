@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, Text, StyleSheet, ViewStyle } from 'react-native'
 import ZoinkLogo from './ZoinkLogo'
+import { theme } from '../theme/colors'
 
 type LogoPlaceholderProps = {
   size?: 'small' | 'medium' | 'large'
@@ -33,7 +34,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    color: '#1A1A1A',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 2,

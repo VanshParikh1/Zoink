@@ -2,10 +2,14 @@ import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
+import { validate } from '../middleware/validate'
+import { UpdateMeSchema, UpdateNotificationPrefsSchema } from '../schemas/user.schema'
 import {
   getMe,
   getPublicProfile,
   updateMe,
+  updateNotificationPrefs,
+  deleteMe,
   updatePushToken,
   uploadAvatar,
   onboardStripeConnect,
@@ -29,7 +33,9 @@ const upload = multer({
 
 // Own profile
 router.get('/me', requireAuth, getMe)
-router.patch('/me', requireAuth, updateMe)
+router.patch('/me', requireAuth, validate(UpdateMeSchema), updateMe)
+router.delete('/me', requireAuth, deleteMe)
+router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
 router.patch('/me/push-token', requireAuth, updatePushToken)
 router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar)
 router.post('/me/stripe-connect/onboard', requireAuth, onboardStripeConnect)

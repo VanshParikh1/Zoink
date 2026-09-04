@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native'
-import { BlurView } from 'expo-blur'
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { theme } from '../theme/colors'
+import HardBlock from './HardBlock'
 
 type Tone = 'default' | 'error'
 
@@ -30,27 +30,34 @@ export default function StateCard({
   const [isPressed, setIsPressed] = useState(false)
 
   return (
-    <View style={[styles.cardContainer, isError && styles.cardError]}>
+    <HardBlock
+      radius={theme.radius.sm}
+      offset={theme.hard.offset.md}
+      backgroundColor={isError ? theme.colors.dangerSurface : theme.cardBackground}
+      borderColor={isError ? theme.colors.danger : theme.hard.ink}
+      style={styles.wrap}
+      contentStyle={styles.cardContainer}
+    >
       {eyebrow ? <Text style={[styles.eyebrow, isError && styles.eyebrowError]}>{eyebrow}</Text> : null}
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{body}</Text>
 
       {actionLabel && onAction ? (
         <View style={styles.actions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             activeOpacity={0.7}
             onPressIn={() => setIsPressed(true)}
             onPressOut={() => setIsPressed(false)}
             style={[
-              styles.primaryButton, 
+              styles.primaryButton,
               isError && styles.primaryButtonError,
               isPressed && styles.primaryButtonPressed
-            ]} 
+            ]}
             onPress={onAction}
           >
             <Text style={styles.primaryButtonText}>{actionLabel}</Text>
           </TouchableOpacity>
-          
+
           {secondaryActionLabel && onSecondaryAction ? (
             <TouchableOpacity style={styles.secondaryButton} onPress={onSecondaryAction}>
               <Text style={styles.secondaryButtonText}>{secondaryActionLabel}</Text>
@@ -58,32 +65,21 @@ export default function StateCard({
           ) : null}
         </View>
       ) : null}
-    </View>
+    </HardBlock>
   )
 }
 
 const styles = StyleSheet.create({
-  cardContainer: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    padding: 22,
+  wrap: {
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
   },
-  cardError: {
-    borderColor: theme.colors.danger,
-    backgroundColor: theme.colors.dangerSurface,
+  cardContainer: {
+    padding: 22,
   },
   eyebrow: {
     color: theme.primary,
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '800',
     letterSpacing: 1.3,
     marginBottom: 10,
     textTransform: 'uppercase',
@@ -94,13 +90,13 @@ const styles = StyleSheet.create({
   title: {
     color: theme.text,
     fontSize: 22,
-    fontWeight: '500',
+    fontWeight: '900',
     marginBottom: 8,
   },
   body: {
     color: theme.textMuted,
     fontSize: 15,
-    fontWeight: '300',
+    fontWeight: '400',
     lineHeight: 22,
   },
   actions: {
@@ -110,36 +106,34 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: theme.primarySurface,
-    borderRadius: 14,
+    borderRadius: theme.radius.sm,
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: theme.borderFocus,
-    borderTopColor: 'rgba(22, 255, 110, 0.4)',
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   primaryButtonPressed: {
-    backgroundColor: 'rgba(22, 255, 110, 0.25)',
+    backgroundColor: theme.primaryLight,
   },
   primaryButtonError: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: theme.colors.dangerSurface,
+    borderColor: theme.colors.danger,
   },
   primaryButtonText: {
-    color: theme.primary,
+    color: theme.text,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   secondaryButton: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
   secondaryButtonText: {
     color: theme.text,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '700',
   },
 })
-

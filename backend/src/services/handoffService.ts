@@ -1,7 +1,7 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
-import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking } from './bookingService'
+import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse } from './bookingService'
 import { notifyUser } from './notificationService'
 import { capturePaymentIntent } from './paymentService'
 
@@ -43,17 +43,6 @@ function completedStatus(phase: HandoffPhase) {
   return phase === 'pickup' ? BookingStatus.ACTIVE : BookingStatus.COMPLETED
 }
 
-function toBookingResponse(booking: any) {
-  return {
-    ...booking,
-    totalPrice: Number(booking.totalPrice),
-    depositAmount: Number(booking.depositAmount),
-    commissionAmount: Number(booking.commissionAmount),
-    ownerPayout: Number(booking.ownerPayout),
-    insuranceFee: Number(booking.insuranceFee),
-  }
-}
-
 function sanitizePhotoUrls(photoUrls: unknown) {
   if (!Array.isArray(photoUrls)) {
     throw new BadRequestError('photos must contain 2 to 3 Cloudinary URLs.')
@@ -90,7 +79,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
 
   const isOwner = booking.ownerId === actorId
   const isRenter = booking.renterId === actorId
-  const startStatus = phase === 'pickup' ? BookingStatus.ACCEPTED : BookingStatus.ACTIVE
+  const startStatus = phase === 'pickup' ? BookingStatus.CONFIRMED : BookingStatus.ACTIVE
 
   if (phase === 'pickup' && !isOwner) throw new ForbiddenError('Only the booking owner can initiate pickup.')
   if (phase === 'return' && !isRenter) throw new ForbiddenError('Only the booking renter can initiate return.')
@@ -156,7 +145,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
     })
   }
 
-  return toBookingResponse(updated)
+  return toBookingResponse(updated, actorId)
 }
 
 export async function confirmHandoff(bookingId: string, actorId: string, phase: HandoffPhase) {
@@ -175,7 +164,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
   }
 
   if (booking.status === completedStatus(phase)) {
-    return { bothConfirmed: true, booking: toBookingResponse(booking) }
+    return { bothConfirmed: true, booking: toBookingResponse(booking, actorId) }
   }
 
   const now = new Date()
@@ -257,7 +246,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
     }
   }
 
-  return { bothConfirmed, booking: toBookingResponse(updated) }
+  return { bothConfirmed, booking: toBookingResponse(updated, actorId) }
 }
 
 export async function getCompletedHandoffPhotos(bookingId: string, actorId: string) {
@@ -276,6 +265,19 @@ export async function getCompletedHandoffPhotos(bookingId: string, actorId: stri
 
 export async function uploadHandoffPhotos(bookingId: string, actorId: string, phase: HandoffPhase, photoUrls: string[]) {
   return initiateHandoff(bookingId, actorId, phase, photoUrls)
+}
+
+/**
+ * Authorization gate for the raw photo-file upload route
+ * (POST /bookings/:id/photos/upload). Unlike initiateHandoff/uploadHandoffPhotos,
+ * that endpoint streams the file straight to Cloudinary from the controller and
+ * never enters this service, so it needs the same booking-participant check that
+ * every other handoff operation performs — 404 for an unknown booking, 403 for a
+ * caller who is neither the renter nor the owner.
+ */
+export async function assertHandoffParticipant(bookingId: string, actorId: string) {
+  const booking = await getBooking(bookingId)
+  assertParticipant(booking, actorId)
 }
 
 export async function registerTap(bookingId: string, actorId: string, phase: HandoffPhase) {

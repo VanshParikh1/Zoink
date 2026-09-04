@@ -1,108 +1,99 @@
-import React from 'react'
-// 1. Added TouchableOpacity and Text imports
-import { View, StyleSheet, Dimensions, Platform, TouchableOpacity, Text } from 'react-native'
-import { BlurView } from 'expo-blur'
+import React, { useMemo } from 'react'
+import { View, StyleSheet, useWindowDimensions } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { theme } from '../theme/colors'
-import { useAuth } from '../context/AuthContext'
-
-const { width: W, height: H } = Dimensions.get('window')
 
 interface Props {
   children: React.ReactNode
   style?: any
 }
 
-/**
- * ScreenBackground – Blurred blob backdrop.
- * Three organic circles at balanced positions, blurred into soft ambient glows.
- */
+// Alternating-triangle texture tile, matching the landing page background.
+// Built from plain Views (a small rotated square reads as a diamond, and a
+// diamond clipped in half by its neighbor's overlap reads as a triangle
+// weave) instead of an SVG/image asset, so it needs no new native
+// dependency and no extra rebuild.
+const TILE = 34
+const DOT = 15
+
+type Tile = { key: string; x: number; y: number }
+
+// Rendered once at the app root behind the navigator (see navigation/index.tsx),
+// not per-screen — screens sit on top with a transparent background so this
+// canvas never unmounts/repaints on push, pop, or tab swipe. Sized from
+// useWindowDimensions (not a Dimensions.get() snapshot taken at import time)
+// so the tile grid always covers the live window, including rotation/resize,
+// with no gap at the bottom edge.
+const ROW_STEP = TILE * 0.75
+
+function buildTexture(width: number, height: number): Tile[] {
+  const cols = Math.ceil(width / TILE) + 2
+  // Rows advance by ROW_STEP (0.75 * TILE), not a full TILE, so the row
+  // count has to divide by that same step — dividing by TILE here
+  // undercounted rows by 25% and left the bottom of every screen bare.
+  const rows = Math.ceil(height / ROW_STEP) + 2
+  const tiles: Tile[] = []
+  for (let row = 0; row < rows; row += 1) {
+    const rowOffset = row % 2 === 0 ? 0 : TILE / 2
+    for (let col = 0; col < cols; col += 1) {
+      tiles.push({
+        key: `${row}-${col}`,
+        x: col * TILE + rowOffset - TILE,
+        y: row * ROW_STEP - TILE,
+      })
+    }
+  }
+  return tiles
+}
+
 export default function ScreenBackground({ children, style }: Props) {
-  const { logout } = useAuth()
+  const { width, height } = useWindowDimensions()
+  const tiles = useMemo(() => buildTexture(width, height), [width, height])
 
   return (
     <View style={[styles.container, style]}>
-      {/* Colored circles */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <View style={[styles.blob, styles.blobA]} />
-        <View style={[styles.blob, styles.blobB]} />
-        <View style={[styles.blob, styles.blobC]} />
-      </View>
-
-      {/* Blur layer */}
-      <BlurView
-        intensity={Platform.OS === 'ios' ? 55 : 25}
-        tint="light"
+      {/*
+        Horizontal, not diagonal: theme.backgroundGradient's 3rd stop is pure
+        white, and a top-left -> bottom-right diagonal put that stop right at
+        the bottom edge of every screen, so the bottom read as a flat white
+        strip once background coverage itself was fixed. Running the same
+        locked color stops left-to-right keeps top and bottom identical.
+      */}
+      <LinearGradient
+        colors={theme.backgroundGradient}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
         style={StyleSheet.absoluteFill}
-        pointerEvents="none"
       />
 
-      {children}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {tiles.map((tile) => (
+          <View
+            key={tile.key}
+            style={[
+              styles.diamond,
+              { left: tile.x, top: tile.y },
+            ]}
+          />
+        ))}
+      </View>
 
-      {__DEV__ && (
-        <TouchableOpacity
-          onPress={() => logout()}
-          style={styles.devLogoutButton}
-        >
-          <Text style={styles.devLogoutText}>Force Logout</Text>
-        </TouchableOpacity>
-      )}
+      {children}
     </View>
   )
 }
-
-const BLOB_SIZE_A = 260
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.screen,
-    overflow: 'hidden',
   },
-
-  blob: {
+  diamond: {
     position: 'absolute',
-    borderRadius: 999,
-  },
-
-  // ● Top-right — brand green highlight
-  blobA: {
-    width: BLOB_SIZE_A,
-    height: BLOB_SIZE_A,
-    backgroundColor: 'rgba(109, 216, 50, 0.28)',
-    top: 40,
-    right: -50,
-  },
-  // ● Bottom-left — brand green highlight
-  blobB: {
-    width: 320,
-    height: 320,
-    backgroundColor: 'rgba(109, 216, 50, 0.20)',
-    bottom: -80,
-    left: -80,
-  },
-  // ● Middle-right — brand green highlight
-  blobC: {
-    width: 250,
-    height: 250,
-    backgroundColor: 'rgba(109, 216, 50, 0.16)',
-    top: '45%',
-    right: -40,
-  },
-
-  // 2. Added missing dev button styles
-  devLogoutButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    backgroundColor: 'rgba(255, 0, 0, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    zIndex: 999,
-  },
-  devLogoutText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: 'bold',
+    width: DOT,
+    height: DOT,
+    backgroundColor: theme.textureColor,
+    opacity: 0.06,
+    transform: [{ rotate: '45deg' }],
   },
 })

@@ -9,10 +9,9 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Platform,
   Image,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
+import { ScrollView as GestureHandlerScrollView } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
@@ -23,6 +22,8 @@ import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
+import ScreenBackground from '../components/ScreenBackground'
+import RatingPill from '../components/RatingPill'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -46,7 +47,6 @@ function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
           <Text style={styles.verifiedTick}> {"\u2713"}</Text>
         ) : null}
       </Text>
-      <Text style={styles.miniRating}>{"\u2605"} {((owner as any).rating || 5.0).toFixed(1)}</Text>
     </View>
   )
 }
@@ -54,6 +54,7 @@ function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
 function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
+    <View style={styles.glassCardVerticalWrap}>
     <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailLarge}>
         {imageUrl ? (
@@ -71,19 +72,22 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
       <View style={styles.glassCardBody}>
         <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
         <MiniProfile owner={item.owner} />
-        
+        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
+
         <View style={styles.glassCardFooter}>
           <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
           <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
         </View>
       </View>
     </TouchableOpacity>
+    </View>
   )
 }
 
 function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
   const imageUrl = item.images?.[0]?.url
   return (
+    <View style={styles.glassCardHorizontalWrap}>
     <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
       <View style={styles.glassThumbnailSmall}>
         {imageUrl ? (
@@ -96,6 +100,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
       <View style={styles.glassRowMiddle}>
         <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
         <MiniProfile owner={item.owner} />
+        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
       </View>
       
       <View style={styles.glassRowRight}>
@@ -103,6 +108,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
         <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
       </View>
     </TouchableOpacity>
+    </View>
   )
 }
 
@@ -207,7 +213,7 @@ export default function SearchScreen() {
   }
 
   const renderCategoryChips = () => (
-    <ScrollView
+    <GestureHandlerScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={styles.chipsScroll}
@@ -232,7 +238,7 @@ export default function SearchScreen() {
           </TouchableOpacity>
         )
       })}
-    </ScrollView>
+    </GestureHandlerScrollView>
   )
 
   const renderHeaderComponent = () => (
@@ -251,7 +257,7 @@ export default function SearchScreen() {
           {trending.length > 0 && (
             <>
               <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
-              <ScrollView
+              <GestureHandlerScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.horizontalScrollContent}
@@ -261,7 +267,7 @@ export default function SearchScreen() {
                 {trending.map((item) => (
                   <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
                 ))}
-              </ScrollView>
+              </GestureHandlerScrollView>
             </>
           )}
 
@@ -281,11 +287,11 @@ export default function SearchScreen() {
   )
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenBackground>
       <FlatList
         data={isResultsState ? results : []}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeaderComponent}
+        ListHeaderComponent={renderHeaderComponent()}
         ListEmptyComponent={
           isResultsState ? (
             <View style={styles.emptyStateWrap}>
@@ -298,9 +304,7 @@ export default function SearchScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
-            <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
-          </Animated.View>
+          <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
         )}
         contentContainerStyle={styles.idleContent}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -308,13 +312,13 @@ export default function SearchScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       />
-    </View>
+    </ScreenBackground>
   )
 }
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: 56,
+    paddingTop: theme.header.tabTop,
     paddingBottom: 12,
     zIndex: 10,
   },
@@ -322,9 +326,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   headerTitle: {
-    color: theme.text,
-    fontSize: 28,
-    fontWeight: '500',
+    ...theme.type.screenTitle,
     paddingHorizontal: 24,
     marginBottom: 4,
     letterSpacing: -0.5,
@@ -343,7 +345,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     color: theme.textMuted,
     fontSize: 12,
-    fontWeight: '300',
+    fontWeight: '800',
     letterSpacing: 1.5,
     paddingHorizontal: 24,
     marginBottom: 16,
@@ -360,33 +362,32 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   
-  /* --- Glass Cards --- */
-  glassCardVertical: {
+  /* --- Listing cards (neobrutalist, matches Home) --- */
+  glassCardVerticalWrap: {
     width: (SCREEN_WIDTH - 48) * 0.75,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
+  },
+  glassCardVertical: {
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
     overflow: 'hidden',
     padding: 16,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   glassThumbnailLarge: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassThumbnailFallbackText: {
     color: theme.primary,
@@ -402,19 +403,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: theme.hard.borderThin,
   },
   badgeAvailable: {
     backgroundColor: theme.primarySurface,
-    borderColor: theme.borderFocus,
+    borderColor: theme.hard.ink,
   },
   badgeUnavailable: {
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    borderColor: theme.border,
+    backgroundColor: theme.surfaceSubdued,
+    borderColor: theme.hard.ink,
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '800',
     textTransform: 'uppercase',
   },
   badgeTextAvailable: {
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
   glassTitle: {
     color: theme.text,
     fontSize: 18,
-    fontWeight: '500',
+    fontWeight: '800',
   },
   glassCardFooter: {
     flexDirection: 'row',
@@ -439,12 +440,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    borderTopColor: theme.border,
   },
   glassPrice: {
-    color: theme.primary,
+    color: theme.primaryDeep,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '900',
   },
   glassPriceUnit: {
     color: theme.textDisabled,
@@ -457,37 +458,36 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
 
-  /* --- Horizontal Glass Cards --- */
+  /* --- Horizontal listing cards (neobrutalist, matches Home) --- */
   verticalRowsContainer: {
     paddingHorizontal: 24,
     gap: 12,
+  },
+  glassCardHorizontalWrap: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.hard.ink,
   },
   glassCardHorizontal: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    marginRight: theme.hard.offset.sm,
+    marginBottom: theme.hard.offset.sm,
   },
   glassThumbnailSmall: {
     width: 64,
     height: 64,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassThumbnailFallbackTextSmall: {
     color: theme.primary,
@@ -521,28 +521,24 @@ const styles = StyleSheet.create({
   glassChip: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   glassChipSelected: {
-    backgroundColor: theme.primarySurface,
-    borderColor: theme.borderFocus,
-    borderTopColor: 'rgba(22, 255, 110, 0.4)',
+    backgroundColor: theme.primary,
   },
   glassChipUnselected: {
-    backgroundColor: theme.surfaceSubdued,
-    borderColor: theme.border,
-    borderTopColor: theme.border,
-    borderBottomColor: theme.borderBottom,
+    backgroundColor: theme.surface,
   },
   chipTextSelected: {
-    color: theme.primary,
-    fontWeight: '600',
+    color: theme.textOnPrimary,
+    fontWeight: '800',
     fontSize: 14,
   },
   chipTextUnselected: {
-    color: theme.textMuted,
-    fontWeight: '400',
+    color: theme.text,
+    fontWeight: '700',
     fontSize: 14,
   },
 
@@ -556,9 +552,11 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: theme.surfaceSubdued,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.hard.ink,
   },
   miniAvatarText: {
     color: theme.text,
@@ -574,12 +572,6 @@ const styles = StyleSheet.create({
     color: theme.primary,
     fontWeight: '600',
   },
-  miniRating: {
-    color: theme.primary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
   resultsContainer: {
     flex: 1,
   },

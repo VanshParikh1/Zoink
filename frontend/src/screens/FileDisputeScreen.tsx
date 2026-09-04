@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import ScreenBackground from '../components/ScreenBackground'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createDispute } from '../services/disputesApi'
 import { DisputeReason } from '../types'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileDispute'>
@@ -53,8 +54,9 @@ export default function FileDisputeScreen() {
   }
 
   return (
-    <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content}>
           <TouchableOpacity onPress={() => nav.goBack()}>
             <Text style={styles.backText}>Back</Text>
@@ -102,14 +104,15 @@ export default function FileDisputeScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ScreenBackground>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800' },
   copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
   card: {

@@ -1,7 +1,7 @@
-import { Prisma } from '@prisma/client'
-import type { ConversationResponse, MessageResponse } from '@zoink/shared'
+import { Prisma, BookingStatus } from '@prisma/client'
+import type { ConversationDetailResponse, ConversationResponse, MessageResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
-import { sendDirectPush } from './notificationService'
+import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 
 const conversationSelect = {
@@ -51,6 +51,11 @@ const conversationSelect = {
     orderBy: { createdAt: 'desc' as const },
     take: 1,
   },
+  bookings: {
+    where: { status: 'ACCEPTED' as const },
+    select: { id: true },
+    take: 1,
+  },
   renterLastReadAt: true,
   ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
@@ -91,6 +96,7 @@ function toConversationSummary(conversation: any, currentUserId: string): Conver
     updatedAt: conversation.updatedAt ?? conversation.createdAt,
     lastMessage,
     unread,
+    acceptedUnpaidBookingId: conversation.bookings?.[0]?.id ?? null,
   }
 }
 
@@ -164,6 +170,48 @@ export async function getMyConversations(currentUserId: string): Promise<Convers
   return conversations.map((conversation: any) => toConversationSummary(conversation, currentUserId))
 }
 
+// "In flight" for the chat header: any booking that still needs either party
+// to act on it. Deliberately broader than acceptedUnpaidBookingId's
+// ACCEPTED-and-unpaid — a completed booking plus a fresh PENDING request on
+// the same listing is a real case, and the header should reflect the PENDING
+// one.
+const IN_FLIGHT_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACCEPTED,
+  BookingStatus.ACTIVE,
+]
+
+export async function getConversationById(currentUserId: string, conversationId: string): Promise<ConversationDetailResponse> {
+  await getConversationForParticipant(conversationId, currentUserId)
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: conversationSelect as any,
+  })
+
+  if (!conversation) {
+    throw new NotFoundError('Conversation not found.')
+  }
+
+  const inFlightBookings = await prisma.booking.findMany({
+    where: {
+      conversationId,
+      status: { in: IN_FLIGHT_BOOKING_STATUSES },
+    },
+    select: { id: true, status: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  return {
+    ...toConversationSummary(conversation, currentUserId),
+    bookings: inFlightBookings.map((booking) => ({
+      id: booking.id,
+      status: booking.status,
+      updatedAt: booking.updatedAt.toISOString(),
+    })),
+  }
+}
+
 export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {
   await getConversationForParticipant(conversationId, currentUserId)
 
@@ -219,12 +267,14 @@ export async function sendMessage(currentUserId: string, conversationId: string,
   })
 
   const recipientId = conversation.renterId === currentUserId ? conversation.ownerId : conversation.renterId
-  void sendDirectPush(
-    recipientId,
-    'New message on Zoink',
-    trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody,
-    { conversationId: conversation.id, listingId: conversation.listingId }
-  )
+  // Push + DB row, in line with every other event type (was push-only before).
+  void notifyUser({
+    userId: recipientId,
+    type: 'MESSAGE_RECEIVED',
+    title: 'New message on Zoink',
+    body: trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody,
+    data: { conversationId: conversation.id, listingId: conversation.listingId },
+  })
 
   return toMessage(message)
 }

@@ -1,5 +1,5 @@
 import { DEMO_USER } from '../config/demoMode'
-import { MyProfile, PublicProfile, User } from '../types'
+import { MyProfile, NotificationPreferences, PublicProfile, User } from '../types'
 
 const now = new Date().toISOString()
 
@@ -14,6 +14,13 @@ export const demoProfile: MyProfile = {
   verificationStatus: 'VERIFIED',
   verifiedAt: now,
   createdAt: '2026-02-12T15:30:00.000Z',
+  notificationPreferences: {
+    notifyMessages: true,
+    notifyBookingActivity: true,
+    notifyPaymentsPayouts: true,
+    notifyDepositUpdates: true,
+    notifyReviews: true,
+  },
   spotlightTags: ['Snow gear lender', 'Fast replies', 'Downtown campus'],
   reviewHighlights: [
     {
@@ -141,4 +148,15 @@ export async function mockUploadMyAvatar(uri: string): Promise<{ id: string; ava
   demoProfile.avatarUrl = uri
   publicProfiles[demoProfile.id] = demoProfile
   return { id: demoProfile.id, avatarUrl: demoProfile.avatarUrl }
+}
+
+export async function mockUpdateNotificationPreferences(
+  patch: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  demoProfile.notificationPreferences = { ...demoProfile.notificationPreferences, ...patch }
+  return demoProfile.notificationPreferences
+}
+
+export async function mockDeleteMyAccount(): Promise<void> {
+  // Demo mode has no persistent account to scrub — the caller still logs out.
 }

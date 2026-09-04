@@ -14,7 +14,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
 
 function shortDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function daysLeft(endDate: string) {
@@ -105,7 +105,7 @@ export default function ActiveRentalScreen() {
   const readyLabel = showPickupBanner ? 'Owner is ready - tap to Zoink It' : 'Renter is ready - tap to Zoink It'
 
   const action =
-    isOwner && booking.status === 'ACCEPTED'
+    isOwner && booking.status === 'CONFIRMED'
       ? { label: 'Start Handoff', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
       : booking.status === 'PICKUP_PENDING'
         ? { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
   readyText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '900', textAlign: 'center' },
   titleRow: { gap: 10 },
-  title: { color: '#111114', fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   categoryPill: {
     alignSelf: 'flex-start',
     borderRadius: 999,

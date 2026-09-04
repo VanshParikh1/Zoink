@@ -8,18 +8,23 @@
  *
  *   Stage at cancellation | Payment action
  *   ─────────────────────────────────────────────────────────────────────
- *   PENDING               | cancelPaymentIntent()  → paymentStatus = REFUND_PENDING
- *   ACCEPTED              | cancellation fees are disabled for launch (product
+ *   PENDING / ACCEPTED    | No PaymentIntent has ever been authorized at these
+ *                         |   stages — payment now only happens at the
+ *                         |   ACCEPTED -> CONFIRMED step (see paymentService.ts /
+ *                         |   bookingService.createPaymentIntentForBooking).
+ *                         |   handleCancellationPayment skips Stripe entirely
+ *                         |   and paymentStatus is left untouched.
+ *   CONFIRMED              | cancellation fees are disabled for launch (product
  *                         |   decision — see calculateCancellationFeeCents() in
- *                         |   bookingService.ts), so this now behaves like PENDING:
- *                         |   cancelPaymentIntent() → paymentStatus = REFUND_PENDING.
- *                         |   The tiered clamp($5, $25, totalPrice × 5%) logic is
- *                         |   retained but unreachable until a future owner
- *                         |   opt-in feature re-enables it — see the skipped
- *                         |   tests below, which assert that behavior.
+ *                         |   bookingService.ts): cancelPaymentIntent() →
+ *                         |   paymentStatus = REFUND_PENDING. The tiered clamp
+ *                         |   ($5, $25, totalPrice × 5%) logic is retained but
+ *                         |   unreachable until a future owner opt-in feature
+ *                         |   re-enables it — see the skipped tests below,
+ *                         |   which assert that behavior.
  *   PICKUP_PENDING        | not exercised here (cancellation from PICKUP_PENDING
- *                         | falls through to the ACCEPTED branch since
- *                         | assertBookingTransition allows PICKUP_PENDING → CANCELLED)
+ *                         | falls through with no Stripe call — its status
+ *                         | doesn't match any branch in handleCancellationPayment)
  *
  * We poll the DB briefly after the transition to assert the payment status
  * change (handleCancellationPayment is now awaited end-to-end, but Stripe's
@@ -120,13 +125,14 @@ function expectedCancellationFeeCents(totalPrice: number): number {
 // 1. Cancel from PENDING — no fee, payment intent voided
 // ─────────────────────────────────────────────────────────────────────────────
 describe('cancel from PENDING status', () => {
-  test('renter can cancel a PENDING booking', async () => {
+  test('renter can cancel a PENDING booking — no Stripe call, no payment intent exists yet', async () => {
     const { startDate, endDate } = futureDates(3, 2)
     const booking = await bookingService.createBooking(renter.id, {
       listingId,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
     })
+    assert.equal(booking.stripePaymentIntentId, null)
 
     const cancelled = await bookingService.transitionBookingStatus(
       booking.id, renter.id, BookingStatus.CANCELLED
@@ -134,16 +140,13 @@ describe('cancel from PENDING status', () => {
 
     assert.equal(cancelled.status, BookingStatus.CANCELLED)
 
-    // After cancellation from PENDING, payment intent should be voided.
-    // handleCancellationPayment sets REFUND_PENDING then calls cancelPaymentIntent.
-    // The final DB state after cancellation should be REFUND_PENDING (set before the
-    // async cancelPaymentIntent call) or remain there if Stripe is mocked.
-    const finalStatus = await waitForPaymentStatus(booking.id, booking.paymentStatus)
-    const acceptableStatuses: PaymentStatus[] = [PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED]
-    assert.ok(
-      acceptableStatuses.includes(finalStatus),
-      `Expected REFUND_PENDING or REFUNDED after PENDING cancellation, got: ${finalStatus}`
-    )
+    // createBooking no longer creates a PaymentIntent, so there's nothing for
+    // Stripe to release — handleCancellationPayment's PENDING/ACCEPTED branch
+    // is a pure no-op, and paymentStatus stays at its untouched default.
+    const db = getTestPrisma()
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(persisted.paymentStatus, PaymentStatus.PENDING_AUTH)
+    assert.equal(persisted.stripePaymentIntentId, null)
   })
 
   test('owner can cancel a PENDING booking', async () => {
@@ -194,8 +197,66 @@ describe('cancel from PENDING status', () => {
   })
 })
 
-/** Create and accept a booking with the given daily price / duration. */
-async function makeAcceptedBooking(dailyPrice: number, durationDays: number) {
+// ─────────────────────────────────────────────────────────────────────────────
+// 1b. Cancel from ACCEPTED — still unpaid, same no-Stripe-call behavior as PENDING
+// ─────────────────────────────────────────────────────────────────────────────
+describe('cancel from ACCEPTED status — no payment yet', () => {
+  test('cancelling an ACCEPTED-but-unpaid booking makes no Stripe call', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const { startDate, endDate } = futureDates(3, 2)
+    const booking = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+    assert.equal(accepted.stripePaymentIntentId, null, 'no payment intent should exist before the Pay step')
+
+    const cancelled = await bookingService.transitionBookingStatus(accepted.id, renter.id, BookingStatus.CANCELLED)
+    assert.equal(cancelled.status, BookingStatus.CANCELLED)
+
+    const db = getTestPrisma()
+    const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(persisted.paymentStatus, PaymentStatus.PENDING_AUTH, 'paymentStatus should be untouched — nothing was ever authorized')
+  })
+
+  test('auto-rejected overlapping requests do not revive when the accepted booking is later cancelled', async () => {
+    await giveOwnerStripeAccount(owner.id)
+    const db = getTestPrisma()
+    const { startDate, endDate } = futureDates(5, 3)
+    const renter2 = await createTestUser({ email: `renter2_revive_${Date.now()}@test.com` })
+
+    const b1 = await bookingService.createBooking(renter.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+    const b2 = await bookingService.createBooking(renter2.id, {
+      listingId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+    })
+
+    await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.ACCEPTED)
+    const declinedB2 = await db.booking.findUniqueOrThrow({ where: { id: b2.id } })
+    assert.equal(declinedB2.status, BookingStatus.DECLINED, 'sanity check: b2 was auto-rejected by accepting b1')
+
+    await bookingService.transitionBookingStatus(b1.id, owner.id, BookingStatus.CANCELLED)
+
+    const b2AfterCancel = await db.booking.findUniqueOrThrow({ where: { id: b2.id } })
+    assert.equal(b2AfterCancel.status, BookingStatus.DECLINED, 'auto-rejected booking must stay DECLINED, not revive to PENDING')
+  })
+})
+
+/** Create, accept, pay, and directly confirm a booking with the given daily
+ *  price / duration — CONFIRMED is where the paid-cancellation fee logic
+ *  now lives (it used to be keyed on ACCEPTED, before ACCEPTED stopped
+ *  implying payment). The payment intent is created for real (via
+ *  createPaymentIntentForBooking, same as the Pay screen would call) so the
+ *  fee tests below exercise a real Stripe capture/cancel; only the final
+ *  ACCEPTED -> CONFIRMED status flip is a direct write, since re-driving
+ *  ensureNoOverlap/notifications through that transition isn't the point here. */
+async function makeConfirmedBooking(dailyPrice: number, durationDays: number) {
   // Recreate listing with the desired price for this test
   const pricedListing = await createTestListing(owner.id, { dailyPrice, itemValue: 100 })
   await giveOwnerStripeAccount(owner.id)
@@ -207,24 +268,25 @@ async function makeAcceptedBooking(dailyPrice: number, durationDays: number) {
     endDate: new Date(endDate),
   })
 
+  const accepted = await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED)
+  const withIntent = await bookingService.createPaymentIntentForBooking(accepted.id, renter.id)
+
   const db = getTestPrisma()
   await db.booking.update({
-    where: { id: booking.id },
-    data: { paymentStatus: PaymentStatus.AUTHORIZED },
+    where: { id: withIntent.id },
+    data: { status: BookingStatus.CONFIRMED, paymentStatus: PaymentStatus.AUTHORIZED, version: { increment: 1 } },
   })
 
-  const accepted = await bookingService.transitionBookingStatus(
-    booking.id, owner.id, BookingStatus.ACCEPTED
-  )
-  return { booking: accepted, totalPrice: dailyPrice * durationDays }
+  const confirmed = await bookingService.getBookingById(withIntent.id, renter.id)
+  return { booking: confirmed, totalPrice: dailyPrice * durationDays }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Cancel from ACCEPTED — cancellation fee charged (5% of total, $5–$25)
+// 2. Cancel from CONFIRMED — cancellation fee charged (5% of total, $5–$25)
 //    NOTE: fees are disabled for launch (see below) — these tests assert the
 //    tiered fee math and are skipped until the opt-in feature re-enables it.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('cancel from ACCEPTED status — cancellation fee applies', () => {
+describe('cancel from CONFIRMED status — cancellation fee applies', () => {
   const FEES_DISABLED_SKIP_REASON =
     'Cancellation fees disabled for launch — see calculateCancellationFeeCents() ' +
     'in bookingService.ts. Re-enable when the owner opt-in cancellation-fee ' +
@@ -235,7 +297,7 @@ describe('cancel from ACCEPTED status — cancellation fee applies', () => {
     { skip: FEES_DISABLED_SKIP_REASON },
     async () => {
       // $5/day × 1 day = $5 total → 5% = $0.25 → clamped to $5 minimum
-      const { booking, totalPrice } = await makeAcceptedBooking(5, 1)
+      const { booking, totalPrice } = await makeConfirmedBooking(5, 1)
       assert.equal(totalPrice, 5)
       const expected = expectedCancellationFeeCents(totalPrice)
       assert.equal(expected, 500, 'Minimum fee should be $5 = 500 cents')
@@ -256,7 +318,7 @@ describe('cancel from ACCEPTED status — cancellation fee applies', () => {
     { skip: FEES_DISABLED_SKIP_REASON },
     async () => {
       // $200/day × 3 days = $600 total → 5% = $30 → clamped to $25 maximum
-      const { booking, totalPrice } = await makeAcceptedBooking(200, 3)
+      const { booking, totalPrice } = await makeConfirmedBooking(200, 3)
       assert.equal(totalPrice, 600)
       const expected = expectedCancellationFeeCents(totalPrice)
       assert.equal(expected, 2500, 'Maximum fee should be $25 = 2500 cents')
@@ -277,7 +339,7 @@ describe('cancel from ACCEPTED status — cancellation fee applies', () => {
     { skip: FEES_DISABLED_SKIP_REASON },
     async () => {
       // $20/day × 5 days = $100 total → 5% = $5 → exactly at the minimum
-      const { booking, totalPrice } = await makeAcceptedBooking(20, 5)
+      const { booking, totalPrice } = await makeConfirmedBooking(20, 5)
       assert.equal(totalPrice, 100)
       const expected = expectedCancellationFeeCents(totalPrice)
       assert.equal(expected, 500, '$100 × 5% = $5 = 500 cents')
@@ -293,9 +355,9 @@ describe('cancel from ACCEPTED status — cancellation fee applies', () => {
     }
   )
 
-  test('booking status is CANCELLED in DB after owner cancels ACCEPTED booking', async () => {
+  test('booking status is CANCELLED in DB after owner cancels a CONFIRMED booking', async () => {
     const db = getTestPrisma()
-    const { booking } = await makeAcceptedBooking(20, 2)
+    const { booking } = await makeConfirmedBooking(20, 2)
 
     await bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.CANCELLED)
 
@@ -311,9 +373,9 @@ describe('cancel from ACCEPTED status — cancellation fee applies', () => {
 //     branch, instead of a partial capture. See calculateCancellationFeeCents()
 //     in bookingService.ts.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('cancel from ACCEPTED status — fees disabled for launch', () => {
+describe('cancel from CONFIRMED status — fees disabled for launch', () => {
   async function assertNoFeeCharged(dailyPrice: number, durationDays: number) {
-    const { booking } = await makeAcceptedBooking(dailyPrice, durationDays)
+    const { booking } = await makeConfirmedBooking(dailyPrice, durationDays)
 
     await bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CANCELLED)
 

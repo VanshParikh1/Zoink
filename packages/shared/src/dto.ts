@@ -2,6 +2,7 @@ import type {
   VerificationStatus,
   BookingStatus,
   PaymentStatus,
+  DepositStatus,
   DisputeStatus,
   ReviewRole,
   ReviewObligationStatus,
@@ -33,6 +34,10 @@ export interface ListingResponse {
   itemValue: string
   depositAmount: string
   isAvailable: boolean
+  // Denormalized item-rating rollup (see Listing.avgRating). avgRating is null
+  // until the listing has at least one borrower-authored item rating.
+  avgRating: number | null
+  reviewCount: number
   latitude: number
   longitude: number
   city: string
@@ -84,6 +89,16 @@ export interface PublicProfileResponse {
   reputation: UserReputationResponse | null
 }
 
+// Per-category push/notification toggles. Default true; VERIFICATION_*
+// notifications are account-critical and not covered by any toggle.
+export interface NotificationPreferences {
+  notifyMessages: boolean
+  notifyBookingActivity: boolean
+  notifyPaymentsPayouts: boolean
+  notifyDepositUpdates: boolean
+  notifyReviews: boolean
+}
+
 // getMe() does not fetch reputation — this is intentionally its own shape
 // rather than extending PublicProfileResponse.
 export interface MyProfileResponse {
@@ -97,6 +112,7 @@ export interface MyProfileResponse {
   verificationStatus: VerificationStatus
   verifiedAt: string | null
   createdAt: string
+  notificationPreferences: NotificationPreferences
 }
 
 export interface ReviewObligationScoreLabels {
@@ -131,7 +147,9 @@ export interface ReviewResponse {
   scoreA: number
   scoreB: number
   scoreC: number
-  comment: string | null
+  itemRating: number | null
+  itemNotes: string | null
+  personNotes: string | null
   createdAt: string
 }
 
@@ -175,14 +193,16 @@ export interface BookingResponse {
   startDate: string
   endDate: string
   totalPrice: number
-  message: string | null
   paymentStatus: PaymentStatus
   depositAmount: number
   commissionAmount: number
   ownerPayout: number
   insuranceOptIn: boolean
   insuranceFee: number
+  hstAmount: number
   stripePaymentIntentId: string | null
+  stripeDepositPaymentIntentId: string | null
+  depositStatus: DepositStatus | null
   stripeChargeId: string | null
   stripeTransferId: string | null
   paidAt: string | null
@@ -202,6 +222,7 @@ export interface BookingResponse {
   renterId: string
   ownerId: string
   listingId: string
+  conversationId: string | null
   completedAt: string | null
   createdAt: string
   updatedAt: string
@@ -241,6 +262,23 @@ export interface ConversationResponse {
   updatedAt: string
   lastMessage: ConversationMessagePreview | null
   unread: boolean
+  // The conversation's currently ACCEPTED-and-unpaid booking, if any — the
+  // only booking status that needs a "pay now" prompt in the messages UI.
+  // Null once it's CONFIRMED (paid) or if there's no such booking at all.
+  acceptedUnpaidBookingId: string | null
+}
+
+export interface ConversationInFlightBooking {
+  id: string
+  status: BookingStatus
+  updatedAt: string
+}
+
+// GET /conversations/:id — the single conversation plus its in-flight
+// bookings (status PENDING/ACCEPTED/ACTIVE), most-recent-by-updatedAt first.
+// The chat header's listing context and lender CTA derive from bookings[0].
+export interface ConversationDetailResponse extends ConversationResponse {
+  bookings: ConversationInFlightBooking[]
 }
 
 export interface MessageResponse {

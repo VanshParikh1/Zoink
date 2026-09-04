@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,8 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
+import HardBlock from '../components/HardBlock'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -18,9 +19,8 @@ import { getListing } from '../services/listingsApi'
 import { createBooking } from '../services/bookingsApi'
 import { Listing } from '../types'
 import { theme } from '../theme/colors'
-import { useStripe } from '@stripe/stripe-react-native'
-import { isStripePublishableKeyConfigured } from '../config/stripe'
-import { useAuth } from '../context/AuthContext'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -34,6 +34,12 @@ type CalendarDay = {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_COUNT = 2
+// Mirrors MAX_RENTAL_DAYS in backend/src/services/bookingUtils.ts — keep in sync.
+const MAX_RENTAL_DAYS = 7
+// Mirrors HST_RATE in backend/src/services/paymentService.ts — keep in sync.
+// This is a client-side preview only; the real hstAmount is snapshotted
+// server-side in createBooking() and is what actually gets charged.
+const HST_RATE = 0.13
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -107,13 +113,11 @@ function buildMonthDays(monthDate: Date) {
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
-  const { user } = useAuth()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [insuranceOptIn, setInsuranceOptIn] = useState(false)
-  const { initPaymentSheet, presentPaymentSheet } = useStripe()
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
@@ -146,6 +150,7 @@ export default function BookingRequestScreen() {
     [listing, rentalDays]
   )
   const depositAmount = Number(listing?.depositAmount ?? 0)
+  const hstAmount = useMemo(() => Number((totalPrice * HST_RATE).toFixed(2)), [totalPrice])
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return
@@ -166,6 +171,11 @@ export default function BookingRequestScreen() {
       return
     }
 
+    if (getRentalDays(startDate, day) > MAX_RENTAL_DAYS) {
+      Alert.alert('Date range too long', `Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`)
+      return
+    }
+
     setEndDate(day)
   }
 
@@ -181,16 +191,6 @@ export default function BookingRequestScreen() {
     setSubmitting(true)
 
     try {
-      if (!isStripePublishableKeyConfigured()) {
-        const message = 'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
-        setPaymentError(message)
-        Alert.alert(
-          'Stripe key missing',
-          message
-        )
-        return
-      }
-
       const booking = await createBooking({
         listingId: listing.id,
         startDate: `${formatApiDate(startDate)}T00:00:00.000Z`,
@@ -198,29 +198,6 @@ export default function BookingRequestScreen() {
         message,
         insuranceOptIn,
       })
-
-      if (booking.paymentClientSecret) {
-        const { error: initError } = await initPaymentSheet({
-          merchantDisplayName: 'Zoink',
-          paymentIntentClientSecret: booking.paymentClientSecret,
-          defaultBillingDetails: { name: user?.firstName },
-          allowsDelayedPaymentMethods: true,
-          returnURL: 'zoink://stripe-redirect',
-        })
-
-        if (initError) {
-          setPaymentError(initError.message)
-          Alert.alert('Payment Setup Error', initError.message)
-          return
-        }
-
-        const { error: presentError } = await presentPaymentSheet()
-        if (presentError) {
-          setPaymentError(presentError.message)
-          Alert.alert('Payment Failed or Canceled', presentError.message)
-          return
-        }
-      }
 
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
@@ -243,7 +220,9 @@ export default function BookingRequestScreen() {
   if (!listing) return null
 
   return (
-    <ScreenBackground>
+    <DismissKeyboardView>
+      <ScreenBackground>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
       <TouchableOpacity onPress={() => nav.goBack()}>
         <Text style={styles.backText}>Back</Text>
@@ -254,7 +233,7 @@ export default function BookingRequestScreen() {
         {listing.title} in {listing.city}
       </Text>
 
-      <View style={styles.card}>
+      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.lg} style={styles.cardWrap} contentStyle={styles.card}>
         <Text style={styles.sectionEyebrow}>YOUR DATES</Text>
         <Text style={styles.sectionTitle}>Pick a rental range</Text>
         <Text style={styles.sectionSubtitle}>
@@ -320,6 +299,7 @@ export default function BookingRequestScreen() {
                       style={styles.dayCell}
                       onPress={() => handleDayPress(day.date)}
                       disabled={isPast}
+                      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                     >
                       <View
                         style={[
@@ -369,10 +349,11 @@ export default function BookingRequestScreen() {
           style={[styles.input, styles.textarea]}
           multiline
           textAlignVertical="top"
+          maxLength={500}
         />
-      </View>
+      </HardBlock>
 
-      <View style={styles.card}>
+      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.md} style={styles.cardWrap} contentStyle={styles.card}>
         <Text style={styles.breakdownTitle}>Price breakdown</Text>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Daily rate</Text>
@@ -390,15 +371,27 @@ export default function BookingRequestScreen() {
           <Text style={styles.rowLabel}>Deposit hold</Text>
           <Text style={styles.rowValue}>${depositAmount.toFixed(2)}</Text>
         </View>
-      </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>HST (13%)</Text>
+          <Text style={styles.rowValue}>${hstAmount.toFixed(2)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Total</Text>
+          <Text style={styles.rowValue}>${(totalPrice + depositAmount + hstAmount).toFixed(2)}</Text>
+        </View>
+      </HardBlock>
 
       {paymentError ? <Text style={styles.errorText}>{paymentError}</Text> : null}
 
-      <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
-      </TouchableOpacity>
+      <View style={styles.submitButtonWrap}>
+        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
+          {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
+        </TouchableOpacity>
+      </View>
       </ScrollView>
-    </ScreenBackground>
+      </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 
@@ -407,17 +400,15 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 120, gap: 18 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  title: { fontSize: 32, fontWeight: '900', color: theme.text },
-  subtitle: { color: theme.textMuted, fontSize: 16, marginTop: 4, marginBottom: 12 },
+  title: { ...theme.type.screenTitle },
+  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 4, marginBottom: 12 },
+  cardWrap: {
+    marginBottom: 0,
+  },
   card: {
-    backgroundColor: theme.surface,
-    borderRadius: 32,
+    backgroundColor: theme.cardBackground,
+    borderRadius: theme.radius.lg,
     padding: 24,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-    elevation: 6,
     gap: 16,
   },
   sectionEyebrow: {
@@ -444,9 +435,11 @@ const styles = StyleSheet.create({
   dateSummaryCard: {
     flex: 1,
     backgroundColor: theme.screen,
-    borderRadius: 20,
+    borderRadius: theme.radius.md,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   summaryLabel: {
     color: theme.textMuted,
@@ -467,12 +460,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   calendarArrow: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.pill,
     backgroundColor: theme.screen,
-    borderWidth: 1,
-    borderColor: theme.border,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -517,17 +510,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dayPill: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: theme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dayPillSelected: {
     backgroundColor: theme.primary,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
   },
   dayPillRange: {
-    backgroundColor: 'rgba(0, 239, 32, 0.16)',
+    backgroundColor: theme.primarySurface,
   },
   dayText: {
     color: theme.text,
@@ -558,7 +553,9 @@ const styles = StyleSheet.create({
   label: { color: theme.text, fontSize: 14, fontWeight: '800', marginTop: 4 },
   input: {
     backgroundColor: theme.screen,
-    borderRadius: 20,
+    borderRadius: theme.radius.md,
+    borderWidth: theme.hard.borderThin,
+    borderColor: theme.hard.ink,
     paddingHorizontal: 16,
     paddingVertical: 14,
     color: theme.text,
@@ -570,17 +567,20 @@ const styles = StyleSheet.create({
   rowLabel: { color: theme.textMuted, fontSize: 14 },
   rowValue: { color: theme.text, fontSize: 15, fontWeight: '800' },
   errorText: { color: theme.danger, fontSize: 14, fontWeight: '800', lineHeight: 20 },
+  submitButtonWrap: {
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.hard.ink,
+  },
   submitButton: {
     backgroundColor: theme.primary,
-    borderRadius: 99,
+    borderRadius: theme.radius.pill,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
+    marginRight: theme.hard.offset.md,
+    marginBottom: theme.hard.offset.md,
   },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '800' },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
 })

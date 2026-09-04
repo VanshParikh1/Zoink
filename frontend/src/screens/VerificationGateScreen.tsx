@@ -1,13 +1,13 @@
 import React from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'VerificationGate'>
 
@@ -54,8 +54,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  title: { fontSize: 26, fontWeight: '900', color: theme.text, marginBottom: 10, textAlign: 'center' },
-  subtitle: { fontSize: 14, color: theme.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 14 },
+  title: { ...theme.type.screenTitle, marginBottom: 10, textAlign: 'center' },
+  subtitle: { fontSize: 15, color: theme.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 14 },
   email: { fontSize: 14, fontWeight: '800', color: theme.primary, marginBottom: 28 },
   button: {
     backgroundColor: theme.primary,

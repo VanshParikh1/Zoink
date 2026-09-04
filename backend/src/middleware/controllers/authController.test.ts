@@ -87,6 +87,40 @@ test('validate(RegisterSchema) accepts and normalizes formatted Canadian phone n
   }
 })
 
+test('validate(RegisterSchema) rejects a firstName over 50 characters', () => {
+  const { capturedError, req, res } = runValidate({
+    email: 'student@school.edu',
+    password: 'password123',
+    firstName: 'A'.repeat(51),
+    lastName: 'Lovelace',
+    phone: '4165550192',
+  })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.firstName'), 'should flag firstName over 50 characters')
+})
+
+test('validate(RegisterSchema) rejects a lastName over 50 characters', () => {
+  const { capturedError, req, res } = runValidate({
+    email: 'student@school.edu',
+    password: 'password123',
+    firstName: 'Ada',
+    lastName: 'L'.repeat(51),
+    phone: '4165550192',
+  })
+
+  assert.ok(capturedError, 'ZodError should be passed to next()')
+  errorHandler(capturedError, req, res as any, () => {})
+
+  assert.equal(res.statusCode, 400)
+  const paths = (res.body as any).issues.map((i: any) => i.path)
+  assert.ok(paths.includes('body.lastName'), 'should flag lastName over 50 characters')
+})
+
 test('register returns 201 with the normalized phone passed through to registerUser', async () => {
   ;(authService as any).registerUser = async (
     email: string,

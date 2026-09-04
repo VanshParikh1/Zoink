@@ -14,6 +14,8 @@ const listingSelect = {
   itemValue: true,
   depositAmount: true,
   isAvailable: true,
+  avgRating: true,
+  reviewCount: true,
   latitude: true,
   longitude: true,
   city: true,
@@ -141,9 +143,34 @@ export async function getMyListings(ownerId: string): Promise<ListingResponse[]>
   const listings = await prisma.listing.findMany({
     where: { ownerId },
     select: listingSelect,
-    orderBy: { createdAt: 'desc' },
   })
-  return listings.map(toListingResponse)
+
+  if (listings.length === 0) return []
+
+  // "Most recent activity" for a listing means the most recent booking made
+  // against it (any status change bumps Booking.updatedAt), NOT the
+  // listing's own updatedAt — editing price/description shouldn't bump a
+  // listing up this list on its own. Computed via an aggregate query rather
+  // than a denormalized column: this app already has booking-status writes
+  // spread across bookingService/handoffService/cleanupJob, and a
+  // denormalized lastActivityAt would be one more place all of those would
+  // need to remember to touch. A listing with no bookings at all falls back
+  // to its own createdAt, landing wherever that puts it relative to listings
+  // that do have activity.
+  const activity = await prisma.booking.groupBy({
+    by: ['listingId'],
+    where: { listingId: { in: listings.map((listing) => listing.id) } },
+    _max: { updatedAt: true },
+  })
+  const lastActivityByListingId = new Map(activity.map((row) => [row.listingId, row._max.updatedAt]))
+
+  const sorted = [...listings].sort((a, b) => {
+    const aTime = (lastActivityByListingId.get(a.id) ?? a.createdAt).getTime()
+    const bTime = (lastActivityByListingId.get(b.id) ?? b.createdAt).getTime()
+    return bTime - aTime
+  })
+
+  return sorted.map(toListingResponse)
 }
 
 // ── Browse/search listings ────────────────────────────────────────────────────

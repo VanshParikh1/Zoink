@@ -4,6 +4,7 @@ import {
   Animated,
   Alert,
   Dimensions,
+  Easing,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -20,6 +22,7 @@ import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
+import ZoinkLogo from '../components/ZoinkLogo'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -30,6 +33,7 @@ const RIPPLE_SIZE = Math.max(Dimensions.get('window').width, Dimensions.get('win
 
 export default function ZoinkItScreen() {
   const nav = useNavigation<Nav>()
+  const insets = useSafeAreaInsets()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const { bookingId, mode } = route.params
@@ -38,7 +42,9 @@ export default function ZoinkItScreen() {
   const [success, setSuccess] = useState(false)
   const [timedOut, setTimedOut] = useState(false)
   const pulse = useRef(new Animated.Value(0)).current
+  const pulseTrail = useRef(new Animated.Value(0)).current
   const ripple = useRef(new Animated.Value(0)).current
+  const bounce = useRef(new Animated.Value(1)).current
   const statusOpacity = useRef(new Animated.Value(1)).current
   const successHandled = useRef(false)
 
@@ -48,7 +54,7 @@ export default function ZoinkItScreen() {
   const [saving, setSaving] = useState(false)
 
   const pendingStatus = mode === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
-  const startStatus = mode === 'pickup' ? 'ACCEPTED' : 'ACTIVE'
+  const startStatus = mode === 'pickup' ? 'CONFIRMED' : 'ACTIVE'
   const isOwner = booking?.ownerId === user?.id
   const isRenter = booking?.renterId === user?.id
   const isUploader = mode === 'pickup' ? isOwner : isRenter
@@ -88,20 +94,42 @@ export default function ZoinkItScreen() {
   useEffect(() => {
     if (!isReady || success) {
       pulse.stopAnimation()
+      pulseTrail.stopAnimation()
       pulse.setValue(0)
+      pulseTrail.setValue(0)
       return
     }
 
-    const duration = pressed ? 850 : 1600
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ])
-    )
-    animation.start()
-    return () => animation.stop()
-  }, [isReady, pressed, pulse, success])
+    // Two rings, offset by half a cycle, so it reads as a continuous sonar
+    // sweep instead of one ring resetting — pressed tightens and speeds the
+    // sweep up to signal "sent, waiting on them."
+    const duration = pressed ? 750 : 1700
+    const ring = (value: Animated.Value) =>
+      Animated.loop(
+        Animated.timing(value, {
+          toValue: 1,
+          duration,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        })
+      )
+
+    pulse.setValue(0)
+    pulseTrail.setValue(0)
+    const primary = ring(pulse)
+    primary.start()
+
+    const trailDelay = setTimeout(() => {
+      pulseTrail.setValue(0)
+      ring(pulseTrail).start()
+    }, duration / 2)
+
+    return () => {
+      clearTimeout(trailDelay)
+      primary.stop()
+      pulseTrail.stopAnimation()
+    }
+  }, [isReady, pressed, pulse, pulseTrail, success])
 
   useEffect(() => {
     if (pressed && !success) {
@@ -117,12 +145,31 @@ export default function ZoinkItScreen() {
     successHandled.current = true
     setBooking(nextBooking)
     setSuccess(true)
-    Animated.timing(ripple, { toValue: 1, duration: 850, useNativeDriver: true }).start()
+    Animated.timing(ripple, {
+      toValue: 1,
+      duration: 850,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start()
+    Animated.sequence([
+      Animated.timing(bounce, {
+        toValue: 1.14,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(bounce, {
+        toValue: 1,
+        friction: 4,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start()
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
     setTimeout(() => {
       nav.replace(mode === 'pickup' ? 'ActiveRental' : 'BookingDetail', { bookingId })
     }, 1500)
-  }, [bookingId, mode, nav, ripple])
+  }, [bounce, bookingId, mode, nav, ripple])
 
   useEffect(() => {
     if (!pressed || success) return
@@ -159,6 +206,7 @@ export default function ZoinkItScreen() {
   async function pressZoink() {
     if (locked) return
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
     setTimedOut(false)
     setPressed(true)
     try {
@@ -223,7 +271,7 @@ export default function ZoinkItScreen() {
   if (showPickerUI) {
     return (
       <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.pickerContent}>
+        <ScrollView contentContainerStyle={[styles.pickerContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
           <TouchableOpacity
             onPress={() => (editing ? setEditing(false) : nav.goBack())}
             disabled={saving}
@@ -251,7 +299,7 @@ export default function ZoinkItScreen() {
             onPress={submitPhotos}
             disabled={!isPickerValid || saving}
           >
-            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitText}>Submit</Text>}
+            {saving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit</Text>}
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -273,6 +321,14 @@ export default function ZoinkItScreen() {
     outputRange: [1, pressed ? 1.45 : 1.28],
   })
   const ringOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [pressed ? 0.8 : 0.42, 0],
+  })
+  const trailScale = pulseTrail.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, pressed ? 1.45 : 1.28],
+  })
+  const trailOpacity = pulseTrail.interpolate({
     inputRange: [0, 1],
     outputRange: [pressed ? 0.8 : 0.42, 0],
   })
@@ -300,8 +356,14 @@ export default function ZoinkItScreen() {
 
       {existingPhotos.length > 0 ? (
         <View style={styles.existingPhotosRow}>
-          {existingPhotos.map((url) => (
-            <Image key={url} source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+          {existingPhotos.map((url, index) => (
+            <TouchableOpacity
+              key={url}
+              activeOpacity={0.85}
+              onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
+            >
+              <Image source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+            </TouchableOpacity>
           ))}
         </View>
       ) : null}
@@ -314,36 +376,46 @@ export default function ZoinkItScreen() {
 
       <View style={styles.buttonStage}>
         {isReady && !success ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.pulseRing,
-              {
-                opacity: ringOpacity,
-                transform: [{ scale: ringScale }],
-              },
-            ]}
-          />
+          <>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.pulseRing,
+                {
+                  opacity: trailOpacity,
+                  transform: [{ scale: trailScale }],
+                },
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.pulseRing,
+                {
+                  opacity: ringOpacity,
+                  transform: [{ scale: ringScale }],
+                },
+              ]}
+            />
+          </>
         ) : null}
 
-        <TouchableOpacity
-          style={[
-            styles.circle,
-            !isReady && styles.circleLocked,
-            isReady && !success && styles.circleReady,
-            pressed && styles.circlePressed,
-            success && styles.circleSuccess,
-          ]}
-          onPress={pressZoink}
-          disabled={locked}
-          activeOpacity={0.86}
-        >
-          <Image
-            source={require('../../assets/logo.png')}
-            resizeMode="contain"
-            style={styles.logo}
-          />
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: bounce }] }}>
+          <TouchableOpacity
+            style={[
+              styles.circle,
+              !isReady && styles.circleLocked,
+              isReady && !success && styles.circleReady,
+              pressed && styles.circlePressed,
+              success && styles.circleSuccess,
+            ]}
+            onPress={pressZoink}
+            disabled={locked}
+            activeOpacity={0.86}
+          >
+            <ZoinkLogo size={118} style={styles.logo} />
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       <Animated.Text style={[styles.status, { opacity: statusOpacity }]}>{statusText}</Animated.Text>
@@ -354,7 +426,7 @@ export default function ZoinkItScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -362,34 +434,36 @@ const styles = StyleSheet.create({
   },
   pickerContent: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 18, width: '100%' },
   backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  title: { color: '#111114', fontSize: 28, fontWeight: '900' },
+  title: { ...theme.type.screenTitle },
   uploadArea: {
     minHeight: 180,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.borderThin,
     borderStyle: 'dashed',
-    borderColor: '#111114',
+    borderColor: theme.hard.ink,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.surface,
   },
-  uploadText: { color: '#111114', fontSize: 16, fontWeight: '900' },
+  uploadText: { color: theme.text, fontSize: 16, fontWeight: '900' },
   uploadSubtext: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
   thumbnailRow: { flexDirection: 'row', gap: 10 },
-  thumbnail: { width: 96, height: 96, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
+  thumbnail: { width: 96, height: 96, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
   submitButton: {
     minHeight: 54,
-    borderRadius: 8,
-    backgroundColor: '#111114',
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 'auto',
   },
-  submitButtonDisabled: { backgroundColor: '#E0E0E0' },
-  submitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  submitButtonDisabled: { backgroundColor: theme.colors.gray200, borderColor: theme.colors.gray300 },
+  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
   existingPhotosRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  existingPhoto: { width: 84, height: 84, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
+  existingPhoto: { width: 84, height: 84, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
   editPhotosButton: { marginBottom: 24 },
   editPhotosText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
   buttonStage: {
@@ -404,42 +478,42 @@ const styles = StyleSheet.create({
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
     borderWidth: 3,
-    borderColor: '#00FF88',
+    borderColor: theme.primary,
   },
   circle: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
-    borderWidth: 2,
-    borderColor: '#111114',
-    backgroundColor: '#FFFFFF',
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+    backgroundColor: theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   circleLocked: {
-    backgroundColor: '#E0E0E0',
-    borderWidth: 0,
+    backgroundColor: theme.colors.gray200,
+    borderColor: theme.colors.gray300,
     shadowOpacity: 0,
   },
   circleReady: {
-    shadowColor: '#00FF88',
+    shadowColor: theme.primary,
     shadowOpacity: 0.4,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
   circlePressed: {
-    shadowColor: '#00FF88',
+    shadowColor: theme.primary,
     shadowOpacity: 0.8,
     shadowRadius: 35,
     shadowOffset: { width: 0, height: 0 },
     elevation: 12,
   },
   circleSuccess: {
-    borderColor: '#00C768',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#00FF88',
+    borderColor: theme.primaryDeep,
+    backgroundColor: theme.primarySurface,
+    shadowColor: theme.primary,
     shadowOpacity: 0.85,
     shadowRadius: 36,
     shadowOffset: { width: 0, height: 0 },
@@ -454,10 +528,10 @@ const styles = StyleSheet.create({
     width: RIPPLE_SIZE,
     height: RIPPLE_SIZE,
     borderRadius: RIPPLE_SIZE / 2,
-    backgroundColor: '#00FF88',
+    backgroundColor: theme.primary,
   },
   status: {
-    color: '#111114',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',

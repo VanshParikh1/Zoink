@@ -1,6 +1,25 @@
-import type { MyProfileResponse, PublicProfileResponse } from '@zoink/shared'
+import { randomBytes } from 'crypto'
+import type { MyProfileResponse, NotificationPreferences, PublicProfileResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError } from '../utils/errors'
+
+const NOTIFICATION_PREF_COLUMNS = [
+  'notifyMessages',
+  'notifyBookingActivity',
+  'notifyPaymentsPayouts',
+  'notifyDepositUpdates',
+  'notifyReviews',
+] as const satisfies readonly (keyof NotificationPreferences)[]
+
+function pickNotificationPreferences(row: NotificationPreferences): NotificationPreferences {
+  return {
+    notifyMessages: row.notifyMessages,
+    notifyBookingActivity: row.notifyBookingActivity,
+    notifyPaymentsPayouts: row.notifyPaymentsPayouts,
+    notifyDepositUpdates: row.notifyDepositUpdates,
+    notifyReviews: row.notifyReviews,
+  }
+}
 
 function toNumber(value: unknown) {
   return value == null ? null : Number(value)
@@ -22,6 +41,11 @@ export async function getMe(userId: string): Promise<MyProfileResponse> {
       verificationStatus: true,
       verifiedAt: true,
       createdAt: true,
+      notifyMessages: true,
+      notifyBookingActivity: true,
+      notifyPaymentsPayouts: true,
+      notifyDepositUpdates: true,
+      notifyReviews: true,
     },
   })
   if (!user) throw new NotFoundError('User not found.')
@@ -29,7 +53,72 @@ export async function getMe(userId: string): Promise<MyProfileResponse> {
     ...user,
     verifiedAt: user.verifiedAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
+    notificationPreferences: pickNotificationPreferences(user),
   }
+}
+
+// ── Notification preferences ─────────────────────────────────────────────────
+
+export async function updateNotificationPreferences(
+  userId: string,
+  patch: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  const data = Object.fromEntries(
+    NOTIFICATION_PREF_COLUMNS.filter((key) => patch[key] !== undefined).map((key) => [key, patch[key]]),
+  )
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data,
+    select: {
+      notifyMessages: true,
+      notifyBookingActivity: true,
+      notifyPaymentsPayouts: true,
+      notifyDepositUpdates: true,
+      notifyReviews: true,
+    },
+  })
+  return pickNotificationPreferences(user)
+}
+
+// ── Account deletion (soft-delete + anonymize) ──────────────────────────────
+
+// Scrubs PII off the User row and marks it deleted, without cascading into
+// Booking/Review/Dispute/Report — those stay intact for the other party's
+// transaction history, now pointing at an anonymized row. The user's listings
+// are pulled from circulation. Idempotent: a second call on an already-deleted
+// row is a no-op.
+export async function deleteMe(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, deletedAt: true },
+  })
+  if (!user) throw new NotFoundError('User not found.')
+  if (user.deletedAt) return
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: 'Deleted',
+        lastName: 'User',
+        phone: '',
+        avatarUrl: null,
+        bio: null,
+        // Tombstone address — unique, non-reusable, frees the original email
+        // for re-registration.
+        email: `deleted+${userId}@deleted.zoink.app`,
+        // Random, unrecoverable — no password can ever match it again.
+        passwordHash: randomBytes(48).toString('hex'),
+        expoPushToken: null,
+        deletedAt: new Date(),
+      },
+    }),
+    prisma.listing.updateMany({
+      where: { ownerId: userId },
+      data: { isAvailable: false },
+    }),
+  ])
 }
 
 // ── Public profile (safe fields only — no email, no phone) ───────────────────

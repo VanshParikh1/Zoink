@@ -16,8 +16,9 @@ import {
   View,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import ScreenBackground from '../components/ScreenBackground'
-import DraggableLocationMap from '../components/DraggableLocationMap'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import LocationMapPreview from '../components/LocationMapPreview'
+import LocationMapModal from '../components/LocationMapModal'
 import * as ImagePicker from 'expo-image-picker'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
@@ -27,6 +28,7 @@ import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
+import ScreenBackground from '../components/ScreenBackground'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Step = 1 | 2 | 3 | 4 | 5
@@ -36,10 +38,10 @@ type FormData = {
   category: string
   description: string
   dailyPrice: string
+  itemValue: string
   deposit: string
   availableNow: boolean
   city: string
-  address: string
 }
 
 const CATEGORIES = [
@@ -66,6 +68,7 @@ function getProgress(step: Step) {
 
 export default function CreateListingScreen() {
   const nav = useNavigation<Nav>()
+  const insets = useSafeAreaInsets()
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
   const [photos, setPhotos] = useState<string[]>([])
@@ -74,10 +77,10 @@ export default function CreateListingScreen() {
     category: '',
     description: '',
     dailyPrice: '',
+    itemValue: '',
     deposit: '',
     availableNow: true,
     city: DEFAULT_CITY,
-    address: '',
   })
   const [deviceCoords, setDeviceCoords] = useState<{ latitude: number; longitude: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle')
@@ -85,6 +88,7 @@ export default function CreateListingScreen() {
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSearching, setLocationSearching] = useState(false)
   const [locationSearchError, setLocationSearchError] = useState('')
+  const [mapModalVisible, setMapModalVisible] = useState(false)
 
   const effectiveCoords = pinOverride ?? deviceCoords
 
@@ -118,9 +122,7 @@ export default function CreateListingScreen() {
           const [place] = await Location.reverseGeocodeAsync(nextCoords)
           if (place) {
             const city = place.city || place.subregion || place.region || ''
-            const address = [place.streetNumber, place.street].filter(Boolean).join(' ')
             if (city) updateForm('city', city)
-            if (address) updateForm('address', address)
           }
         } catch {
           // Reverse geocoding is a nice-to-have; keep the raw coords either way.
@@ -168,6 +170,7 @@ export default function CreateListingScreen() {
     [step]
   )
   const parsedDailyPrice = useMemo(() => Number.parseFloat(formData.dailyPrice || '0') || 0, [formData.dailyPrice])
+  const parsedItemValue = useMemo(() => Number.parseFloat(formData.itemValue || '0') || 0, [formData.itemValue])
   const parsedDeposit = useMemo(() => Number.parseFloat(formData.deposit || '0') || 0, [formData.deposit])
 
   function updateForm<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -238,6 +241,21 @@ export default function CreateListingScreen() {
         return
       }
 
+      if (formData.itemValue.trim() && (Number.isNaN(parsedItemValue) || parsedItemValue < 0)) {
+        Alert.alert('Invalid item value', 'Item value must be zero or more.')
+        return
+      }
+
+      if (formData.deposit.trim() && !formData.itemValue.trim()) {
+        Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
+        return
+      }
+
+      if (formData.deposit.trim() && formData.itemValue.trim() && parsedDeposit > parsedItemValue) {
+        Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
+        return
+      }
+
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
       setStep(3)
       return
@@ -263,8 +281,8 @@ export default function CreateListingScreen() {
     }
   }
 
-  async function geocodeTypedLocation() {
-    const query = [formData.address.trim(), formData.city.trim()].filter(Boolean).join(', ')
+  async function geocodeTypedCity() {
+    const query = formData.city.trim()
     if (!query) return null
 
     try {
@@ -282,16 +300,16 @@ export default function CreateListingScreen() {
     setLoading(true)
 
     try {
-      const coords = effectiveCoords ?? (await geocodeTypedLocation()) ?? DEFAULT_COORDS
+      const coords = effectiveCoords ?? (await geocodeTypedCity()) ?? DEFAULT_COORDS
 
       const listing = await createListing({
         title: formData.title.trim(),
         description: formData.description.trim(),
         category: formData.category,
         dailyPrice: parsedDailyPrice,
+        itemValue: formData.itemValue.trim() ? parsedItemValue : undefined,
         depositAmount: formData.deposit.trim() ? parsedDeposit : undefined,
         city: formData.city.trim(),
-        address: formData.address.trim() || undefined,
         latitude: coords.latitude,
         longitude: coords.longitude,
       })
@@ -376,7 +394,7 @@ export default function CreateListingScreen() {
             onChangeText={(value) => updateForm('description', value)}
             multiline
             textAlignVertical="top"
-            maxLength={240}
+            maxLength={1000}
           />
         </View>
       </View>
@@ -407,6 +425,18 @@ export default function CreateListingScreen() {
 
         <View style={styles.twoColumnRow}>
           <View style={[styles.fieldGroup, styles.twoColumnField]}>
+            <Text style={styles.label}>Item value</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={formData.deposit.trim() ? '0' : 'Optional'}
+              placeholderTextColor={theme.textDisabled}
+              value={formData.itemValue}
+              onChangeText={(value) => updateForm('itemValue', value)}
+              keyboardType="decimal-pad"
+            />
+          </View>
+
+          <View style={[styles.fieldGroup, styles.twoColumnField]}>
             <Text style={styles.label}>Deposit</Text>
             <TextInput
               style={styles.input}
@@ -417,24 +447,24 @@ export default function CreateListingScreen() {
               keyboardType="decimal-pad"
             />
           </View>
+        </View>
 
-          <View style={[styles.fieldGroup, styles.twoColumnField]}>
-            <Text style={styles.label}>Available now</Text>
-            <View style={styles.toggleCard}>
-              <Text style={styles.toggleLabel}>{formData.availableNow ? 'Live on publish' : 'Keep paused'}</Text>
-              <View style={styles.toggleSwitchWrap}>
-                <Switch
-                  value={formData.availableNow}
-                  onValueChange={(value) => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                    updateForm('availableNow', value)
-                  }}
-                  trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
-                  thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
-                  ios_backgroundColor={theme.surfaceSubdued}
-                  style={styles.toggleSwitch}
-                />
-              </View>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Available now</Text>
+          <View style={styles.toggleCard}>
+            <Text style={styles.toggleLabel}>{formData.availableNow ? 'Live on publish' : 'Keep paused'}</Text>
+            <View style={styles.toggleSwitchWrap}>
+              <Switch
+                value={formData.availableNow}
+                onValueChange={(value) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  updateForm('availableNow', value)
+                }}
+                trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
+                thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
+                ios_backgroundColor={theme.surfaceSubdued}
+                style={styles.toggleSwitch}
+              />
             </View>
           </View>
         </View>
@@ -527,17 +557,17 @@ export default function CreateListingScreen() {
           </View>
           {locationSearchError ? <Text style={styles.locationSearchError}>{locationSearchError}</Text> : null}
 
-          <DraggableLocationMap
+          <LocationMapPreview
             latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
             longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
-            onChange={setPinOverride}
+            onPress={() => setMapModalVisible(true)}
           />
           <Text style={styles.mapCaption}>
             {locationStatus === 'loading' && !effectiveCoords
-              ? 'Finding your location… drag the circle or search to set it manually.'
+              ? 'Finding your location… tap the map or search to set it manually.'
               : locationStatus === 'denied' && !effectiveCoords
-              ? 'Location permission denied — drag the circle or search to set your spot.'
-              : 'Drag the circle to the exact spot you want renters to see.'}
+              ? 'Location permission denied — tap the map or search to set your spot.'
+              : 'Tap the map to fine-tune the exact spot renters will see.'}
           </Text>
 
           {pinOverride ? (
@@ -558,23 +588,17 @@ export default function CreateListingScreen() {
             value={formData.city}
             onChangeText={(value) => updateForm('city', value)}
             maxLength={60}
-            returnKeyType="next"
+            returnKeyType="done"
           />
         </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Address or cross-street (optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 123 College St"
-            placeholderTextColor={theme.textDisabled}
-            value={formData.address}
-            onChangeText={(value) => updateForm('address', value)}
-            maxLength={120}
-            returnKeyType="done"
-          />
-          <Text style={styles.fieldHint}>This helps renters plan pickup. You can keep it vague.</Text>
-        </View>
+        <LocationMapModal
+          visible={mapModalVisible}
+          latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
+          longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
+          onClose={() => setMapModalVisible(false)}
+          onConfirm={setPinOverride}
+        />
       </View>
     )
   }
@@ -605,11 +629,12 @@ export default function CreateListingScreen() {
             </View>
             <Text style={styles.reviewPrice}>${parsedDailyPrice.toFixed(2)} / day</Text>
             <Text style={styles.reviewDeposit}>
+              Item value: {formData.itemValue.trim() ? `$${parsedItemValue.toFixed(2)}` : 'None'}
+            </Text>
+            <Text style={styles.reviewDeposit}>
               Deposit: {formData.deposit.trim() ? `$${parsedDeposit.toFixed(2)}` : 'None'}
             </Text>
-            <Text style={styles.reviewLocation}>
-              {formData.city}{formData.address ? ` - ${formData.address}` : ''}
-            </Text>
+            <Text style={styles.reviewLocation}>{formData.city}</Text>
             <Text style={styles.reviewDescription}>{formData.description.trim()}</Text>
             <Text style={styles.reviewPhotoCount}>{photos.length} photo{photos.length !== 1 ? 's' : ''} attached</Text>
           </View>
@@ -623,7 +648,7 @@ export default function CreateListingScreen() {
       <ScreenBackground>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={{ flex: 1 }}>
             <View style={styles.topBar}>
@@ -648,7 +673,7 @@ export default function CreateListingScreen() {
               {step === 5 ? renderStepFive() : null}
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
               {step < 5 ? (
                 <ZoinkButton 
                   label={'continue \u2192'} 
@@ -677,7 +702,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topBar: {
-    paddingTop: 58,
+    paddingTop: theme.header.stackTop,
     paddingHorizontal: 24,
     paddingBottom: 18,
     gap: 18,
@@ -727,10 +752,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   header: {
-    color: theme.text,
-    fontSize: 30,
-    fontWeight: '900',
-    lineHeight: 34,
+    ...theme.type.screenTitle,
   },
   subheader: {
     color: theme.textMuted,
@@ -1090,12 +1112,6 @@ const styles = StyleSheet.create({
     borderColor: theme.primary,
     borderWidth: 2,
     borderStyle: 'dashed',
-  },
-  fieldHint: {
-    color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '600',
   },
   reviewLocation: {
     color: theme.textMuted,

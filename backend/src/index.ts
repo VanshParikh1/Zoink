@@ -14,8 +14,13 @@ if (process.env.NODE_ENV !== 'test') {
   dotenv.config()
 }
 
+// Must be imported (and thus initialized) before anything else below so
+// Sentry is capturing from the earliest possible point in the app.
+import './instrument'
+
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
@@ -24,19 +29,36 @@ import bookingsRouter from './routes/bookings'
 import conversationsRouter from './routes/conversations'
 import reviewsRouter from './routes/reviews'
 import disputesRouter from './routes/disputes'
+import reportsRouter from './routes/reports'
 import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
-import { cleanupStaleHandoffs, releaseDuePayouts } from './services/cleanupJob'
+import { cleanupStaleHandoffs, releaseDuePayouts, releaseDueDeposits } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
+import { globalLimiter } from './middleware/rateLimiter'
 
 const app = express()
 const PORT = process.env.PORT || 3000
 
+// Hosting target isn't decided yet (local dev goes through a single ngrok
+// tunnel; production could be Fly.io/Railway/Render/etc., all of which sit
+// behind their own reverse proxy). Trust exactly one hop so req.ip resolves
+// to the real client IP from X-Forwarded-For instead of the proxy's IP —
+// otherwise every client behind that proxy collapses onto one rate-limit key.
+// Revisit this once the actual deployment topology is chosen: `1` is correct
+// for exactly one proxy in front of the app, but wrong (too many or too few
+// hops trusted) for anything else, e.g. a CDN + load balancer chain.
+app.set('trust proxy', 1)
+
+app.use(helmet())
 app.use(cors())
+// Stripe webhook is authenticated via signature, not by rate limit — keep it
+// exempt so a burst of legitimate webhook deliveries/retries never gets
+// dropped by the blanket limiter below.
 app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
+app.use(globalLimiter)
 app.use(express.json())
 
 app.get('/', (req, res) => {
@@ -118,6 +140,7 @@ app.use('/bookings', bookingsRouter)
 app.use('/conversations', conversationsRouter)
 app.use('/reviews', reviewsRouter)
 app.use('/disputes', disputesRouter)
+app.use('/reports', reportsRouter)
 app.use('/admin', adminRouter)
 
 app.use(errorHandler)
@@ -127,7 +150,8 @@ if (process.env.NODE_ENV !== 'test') {
     try {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
-      console.log('Cleanup job completed:', { handoffs, payouts })
+      const deposits = await releaseDueDeposits()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

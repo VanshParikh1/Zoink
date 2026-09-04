@@ -33,6 +33,19 @@ model User {
   stripeCustomerId    String?
   stripeAccountId     String?
   role                Role                @default(USER)
+  // Soft-delete / anonymization marker, set by DELETE /users/me. A row with
+  // this set has had its PII scrubbed and its sessions invalidated (requireAuth
+  // and login both reject it); Booking/Review/Dispute/Report rows are left
+  // intact and keep referencing the now-anonymized row.
+  deletedAt           DateTime?
+  // Per-category notification toggles (see notificationService.notifyUser).
+  // Default on; VERIFICATION_* notifications are account-critical and not
+  // covered by any toggle.
+  notifyMessages         Boolean          @default(true)
+  notifyBookingActivity  Boolean          @default(true)
+  notifyPaymentsPayouts  Boolean          @default(true)
+  notifyDepositUpdates   Boolean          @default(true)
+  notifyReviews          Boolean          @default(true)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   bookingsAsOwner     Booking[]           @relation("OwnerBookings")
@@ -49,6 +62,8 @@ model User {
   verificationTokens  VerificationToken[]
   raisedDisputes      Dispute[]           @relation("RaisedDisputes")
   resolvedDisputes    Dispute[]           @relation("ResolvedDisputes")
+  filedReports        Report[]            @relation("FiledReports")
+  reviewedReports     Report[]            @relation("ReviewedReports")
 
   @@map("users")
 }
@@ -62,6 +77,12 @@ model Listing {
   itemValue     Decimal        @default(0) @db.Decimal(10, 2)
   depositAmount Decimal        @default(0) @db.Decimal(10, 2)
   isAvailable   Boolean        @default(true)
+  // Denormalized item-rating rollup for listing cards. Recomputed from the
+  // listing's reviews (Review.itemRating, borrower-authored only) on every
+  // review submission — see reviewService.recomputeListingRating. avgRating is
+  // null until the listing has at least one rated review.
+  avgRating     Float?
+  reviewCount   Int            @default(0)
   latitude      Float
   longitude     Float
   city          String
@@ -89,49 +110,62 @@ model ListingImage {
 }
 
 model Booking {
-  id                    String             @id @default(uuid())
-  status                BookingStatus      @default(PENDING)
-  version               Int                @default(0)
-  startDate             DateTime
-  endDate               DateTime
-  totalPrice            Decimal            @db.Decimal(10, 2)
-  message               String?
-  paymentStatus         PaymentStatus      @default(PENDING_AUTH)
-  depositAmount         Decimal            @default(0) @db.Decimal(10, 2)
-  commissionAmount      Decimal            @default(0) @db.Decimal(10, 2)
-  ownerPayout           Decimal            @default(0) @db.Decimal(10, 2)
-  insuranceOptIn        Boolean            @default(false)
-  insuranceFee          Decimal            @default(0) @db.Decimal(10, 2)
-  stripePaymentIntentId String?
-  stripeChargeId        String?
-  stripeTransferId      String?
-  paidAt                DateTime?
-  refundedAt            DateTime?
-  payoutSentAt          DateTime?
-  pickupPhotos          String[]           @default([])
-  returnPhotos          String[]           @default([])
-  handoffInitiatedAt    DateTime?
-  returnInitiatedAt     DateTime?
-  ownerPickupTappedAt   DateTime?
-  renterPickupTappedAt  DateTime?
-  ownerReturnTappedAt   DateTime?
-  renterReturnTappedAt  DateTime?
-  disputeStatus         DisputeStatus      @default(NONE)
-  disputedAt            DateTime?
-  disputeReason         String?
-  disputes          Dispute[]
-  renterId              String
-  ownerId               String
-  listingId             String
-  completedAt           DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  events                BookingEvent[]
-  listing               Listing            @relation(fields: [listingId], references: [id])
-  owner                 User               @relation("OwnerBookings", fields: [ownerId], references: [id])
-  renter                User               @relation("RenterBookings", fields: [renterId], references: [id])
-  reviewObligations     ReviewObligation[]
-  reviews               Review[]
+  id                           String             @id @default(uuid())
+  status                       BookingStatus      @default(PENDING)
+  version                      Int                @default(0)
+  startDate                    DateTime
+  endDate                      DateTime
+  totalPrice                   Decimal            @db.Decimal(10, 2)
+  paymentStatus                PaymentStatus      @default(PENDING_AUTH)
+  depositAmount                Decimal            @default(0) @db.Decimal(10, 2)
+  commissionAmount             Decimal            @default(0) @db.Decimal(10, 2)
+  ownerPayout                  Decimal            @default(0) @db.Decimal(10, 2)
+  insuranceOptIn               Boolean            @default(false)
+  insuranceFee                 Decimal            @default(0) @db.Decimal(10, 2)
+  hstAmount                    Decimal            @default(0) @db.Decimal(10, 2)
+  stripePaymentIntentId        String?
+  stripeDepositPaymentIntentId String?
+  depositStatus                DepositStatus?
+  stripeChargeId               String?
+  stripeTransferId             String?
+  paidAt                       DateTime?
+  refundedAt                   DateTime?
+  // Cumulative cents refunded to the renter from the RENTAL payment (never the
+  // deposit). Set by disputeService.resolveDispute's rental-refund branch and
+  // reconciled by the charge.refunded / refund.succeeded webhook. 0 = nothing
+  // refunded; 0 < x < full-charge = partially refunded (paymentStatus stays
+  // CAPTURED/PAYOUT_PENDING, it is NOT stamped REFUNDED); x >= full-charge =
+  // fully refunded. releaseDuePayouts() uses this to release the owner's
+  // proportional remaining payout instead of excluding the booking entirely.
+  refundedAmountCents          Int                @default(0)
+  payoutSentAt                 DateTime?
+  pickupPhotos                 String[]           @default([])
+  returnPhotos                 String[]           @default([])
+  handoffInitiatedAt           DateTime?
+  returnInitiatedAt            DateTime?
+  ownerPickupTappedAt          DateTime?
+  renterPickupTappedAt         DateTime?
+  ownerReturnTappedAt          DateTime?
+  renterReturnTappedAt         DateTime?
+  disputeStatus                DisputeStatus      @default(NONE)
+  disputedAt                   DateTime?
+  disputeReason                String?
+  disputes                     Dispute[]
+  renterId                     String
+  ownerId                      String
+  listingId                    String
+  conversationId               String?
+  completedAt                  DateTime?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
+  events                       BookingEvent[]
+  listing                      Listing            @relation(fields: [listingId], references: [id])
+  owner                        User               @relation("OwnerBookings", fields: [ownerId], references: [id])
+  renter                       User               @relation("RenterBookings", fields: [renterId], references: [id])
+  conversation                 Conversation?      @relation(fields: [conversationId], references: [id])
+  reviewObligations            ReviewObligation[]
+  reviews                      Review[]
+
   @@map("bookings")
 }
 
@@ -147,6 +181,23 @@ model BookingEvent {
   @@map("booking_events")
 }
 
+// Idempotency ledger for inbound Stripe webhook deliveries. Stripe explicitly
+// documents that a webhook can be delivered more than once (automatic retries,
+// `stripe events resend`), and a validly-signed body can also be replayed by a
+// caller. stripeWebhookController inserts a row here as the FIRST statement of
+// the same transaction that writes the booking update + WEBHOOK_RECEIVED audit
+// row; the unique constraint on stripeEventId makes a redelivery collide, and
+// the handler then skips the booking mutation entirely while still returning
+// HTTP 200 so Stripe stops retrying. This is a second, independent layer on top
+// of the state-machine monotonicity guards (e.g. depositStatus canAdvance).
+model ProcessedStripeEvent {
+  id            String   @id @default(uuid())
+  stripeEventId String   @unique
+  eventType     String
+  createdAt     DateTime @default(now())
+
+  @@map("processed_stripe_events")
+}
 
 model Conversation {
   id               String    @id @default(uuid())
@@ -160,6 +211,7 @@ model Conversation {
   owner            User      @relation("OwnerConversations", fields: [ownerId], references: [id])
   renter           User      @relation("RenterConversations", fields: [renterId], references: [id])
   messages         Message[]
+  bookings         Booking[]
 
   @@unique([listingId, renterId])
   @@map("conversations")
@@ -183,7 +235,18 @@ model Review {
   scoreA       Int
   scoreB       Int
   scoreC       Int
-  comment      String?
+  // Item/listing-scoped rating+notes ("How was the item itself?") — borrower-
+  // reviewer only (reviewerRole RENTER). Separate from scoreA/B/C, which stay
+  // person-directed for both roles. Nullable because reviews submitted before
+  // this field existed never collected one, and lender-authored reviews never
+  // populate it at all.
+  itemRating   Int?
+  itemNotes    String?
+  // Free-text notes about the person being reviewed — lender-reviewer only
+  // (reviewerRole LENDER). Mutually exclusive with itemRating/itemNotes above;
+  // enforced in reviewService.submitReview based on the obligation's real
+  // reviewerRole, not client input.
+  personNotes  String?
   reviewerId   String
   revieweeId   String
   bookingId    String
@@ -262,23 +325,53 @@ model VerificationToken {
 }
 
 model Dispute {
-  id              String         @id @default(uuid())
-  bookingId       String
-  raisedByUserId  String
-  reason          DisputeReason
-  description     String
-  status          DisputeStatus  @default(OPEN)
-  resolutionNotes String?
+  id                String        @id @default(uuid())
+  bookingId         String
+  raisedByUserId    String
+  reason            DisputeReason
+  description       String
+  status            DisputeStatus @default(OPEN)
+  resolutionNotes   String?
   resolvedByAdminId String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  resolvedAt      DateTime?
+  // Cents actually refunded via Stripe when status is RESOLVED_REFUND. Set once at
+  // resolution time; null for every other resolution. May be less than the booking's
+  // totalPrice (partial refund) — releaseDuePayouts() does not read this, it excludes
+  // RESOLVED_REFUND bookings from auto-payout entirely regardless of amount, so this
+  // is the number a human uses for the owner's manual remaining payout.
+  refundAmountCents Int?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  resolvedAt        DateTime?
 
-  booking         Booking        @relation(fields: [bookingId], references: [id])
-  raisedByUser    User           @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
-  resolvedByAdmin User?          @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
+  booking         Booking @relation(fields: [bookingId], references: [id])
+  raisedByUser    User    @relation("RaisedDisputes", fields: [raisedByUserId], references: [id])
+  resolvedByAdmin User?   @relation("ResolvedDisputes", fields: [resolvedByAdminId], references: [id])
 
   @@map("disputes")
+}
+
+// Abuse reporting for listings and users — distinct from Dispute, which is
+// booking-specific. targetId is a polymorphic pointer (no FK) into either
+// User or Listing depending on targetType, since a report can outlive its
+// target (e.g. a listing gets deleted) and multiple reports may point at the
+// same target, unlike Dispute's one-open-dispute-per-booking constraint.
+model Report {
+  id                String           @id @default(uuid())
+  reporterId        String
+  targetType        ReportTargetType
+  targetId          String
+  reason            ReportReason
+  description       String?
+  status            ReportStatus     @default(OPEN)
+  adminNotes        String?
+  createdAt         DateTime         @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId String?
+
+  reporter        User  @relation("FiledReports", fields: [reporterId], references: [id])
+  reviewedByAdmin User? @relation("ReviewedReports", fields: [reviewedByAdminId], references: [id])
+
+  @@map("reports")
 }
 
 enum Role {
@@ -296,6 +389,7 @@ enum VerificationStatus {
 enum BookingStatus {
   PENDING
   ACCEPTED
+  CONFIRMED
   PICKUP_PENDING
   DECLINED
   ACTIVE
@@ -316,6 +410,12 @@ enum PaymentStatus {
   FAILED
 }
 
+enum DepositStatus {
+  AUTHORIZED
+  CAPTURED
+  RELEASED
+}
+
 enum DisputeStatus {
   NONE
   OPEN
@@ -331,6 +431,25 @@ enum DisputeReason {
   ITEM_NOT_AS_DESCRIBED
   PAYMENT_ISSUE
   OTHER
+}
+
+enum ReportTargetType {
+  USER
+  LISTING
+}
+
+enum ReportReason {
+  SPAM
+  SCAM
+  INAPPROPRIATE
+  HARASSMENT
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
 }
 
 enum BookingEventType {
@@ -359,6 +478,8 @@ enum NotificationType {
   REVIEW_RECEIVED
   VERIFICATION_APPROVED
   VERIFICATION_FAILED
+  MESSAGE_RECEIVED
+  DEPOSIT_RELEASED
 }
 
 enum ReviewRole {

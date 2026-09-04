@@ -91,6 +91,12 @@ async function createBookingInStatus(
       insuranceFee: new Prisma.Decimal(0),
       status,
       paymentStatus,
+      // paidAt is the real signal resolveDispute() reads to decide refund vs. cancel
+      // (see disputeService.ts) — it's set exactly once, on actual capture, and never
+      // cleared afterward even once paymentStatus later moves to REFUNDED. Mirror that
+      // invariant here so CAPTURED-designated test bookings route the same way a real
+      // captured booking would.
+      paidAt: paymentStatus === PaymentStatus.CAPTURED ? new Date() : null,
       stripePaymentIntentId: `pi_mock_dispute_${Date.now()}`,
       version: 1,
     },
@@ -206,13 +212,13 @@ describe('createDispute — service layer', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: creates a real captured Stripe PaymentIntent using Stripe's test
-// payment-method token (pm_card_visa), which Stripe supports confirming
-// server-side without a client — needed here because refundPaymentIntent()
-// calls the live Stripe refunds API, and a refund is only valid against a
-// PaymentIntent that has actually been captured.
+// Helper: creates a real, confirmed-but-uncaptured Stripe PaymentIntent using
+// Stripe's test payment-method token (pm_card_visa) — a manual-capture
+// authorization hold, matching what both an AUTHORIZED rental payment (before
+// pickup) and a deposit PaymentIntent (from CONFIRMED through dispute
+// resolution/cleanupJob.releaseDueDeposits) look like on Stripe's side.
 // ─────────────────────────────────────────────────────────────────────────────
-async function createCapturedStripePaymentIntent(amountCents: number): Promise<string> {
+async function createAuthorizedStripePaymentIntent(amountCents: number): Promise<string> {
   const Stripe = require('stripe')
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
   const intent = await stripe.paymentIntents.create({
@@ -223,7 +229,6 @@ async function createCapturedStripePaymentIntent(amountCents: number): Promise<s
     confirm: true,
     capture_method: 'manual',
   })
-  await stripe.paymentIntents.capture(intent.id, { amount_to_capture: amountCents })
   return intent.id
 }
 
@@ -261,12 +266,23 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     assert.equal((resolvedEvent.metadata as any)?.status, DisputeStatus.RESOLVED_NO_ACTION)
   })
 
-  test('RESOLVED_REFUND on a captured booking refunds via Stripe and updates Booking.paymentStatus', async () => {
+  // As of the separate-deposit-PaymentIntent change, a dispute resolved on a
+  // COMPLETED booking targets the deposit PaymentIntent (via a Stripe capture
+  // — it's still just an authorization at that point) rather than issuing a
+  // refunds.create() against the rental payment, which already settled at
+  // pickup. See bookingFullFlow.integration.test.ts's "dispute resolution
+  // with a partial refundAmountCents" describe block for the deposit-specific
+  // coverage (amount-correctness, and the one-shot-capture rejection); these
+  // tests below just confirm the COMPLETED-booking dispute flow still works
+  // end-to-end through this file's createBookingInStatus() fixture.
+  test('RESOLVED_REFUND on a COMPLETED booking captures the deposit via Stripe and sets Booking.depositStatus', async () => {
     const db = getTestPrisma()
-    const totalPrice = 90
-    const stripePaymentIntentId = await createCapturedStripePaymentIntent(9000)
-    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.CAPTURED, totalPrice)
-    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+    const stripeDepositPaymentIntentId = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
 
     const dispute = await disputeService.createDispute(
       booking.id, renter.id, 'ITEM_DAMAGED',
@@ -275,23 +291,112 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
 
     const resolved = await disputeService.resolveDispute(
       dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
-      'Confirmed damage — refunding the renter in full.'
+      'Confirmed damage — charging the full deposit.'
     )
 
     assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
 
-    // Booking.paymentStatus must reflect the refund that already happened via Stripe above —
-    // this is the fix for the bug where paymentStatus was left stale (e.g. still CAPTURED).
+    // Booking.depositStatus must reflect the capture that already happened via
+    // Stripe above — the rental payment's own paymentStatus is untouched.
     const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
-    assert.equal(updatedBooking.paymentStatus, PaymentStatus.REFUNDED)
-    assert.ok(updatedBooking.refundedAt, 'refundedAt should be set')
+    assert.equal(updatedBooking.depositStatus, 'CAPTURED')
+    assert.equal(updatedBooking.paymentStatus, PaymentStatus.PAYOUT_PENDING)
     assert.equal(updatedBooking.disputeStatus, DisputeStatus.RESOLVED_REFUND)
   })
 
-  test('RESOLVED_REFUND on booking without stripePaymentIntentId throws 409', async () => {
+  test('RESOLVED_REFUND with a partial refundAmountCents captures only that amount from the deposit via Stripe', async () => {
+    const db = getTestPrisma()
+    const stripeDepositPaymentIntentId = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Minor cosmetic scratch on the casing — a partial deposit charge is appropriate here.'
+    )
+
+    const partialCaptureCents = 1200 // less than the full $27 (2700 cents) deposit
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed minor cosmetic damage — charging part of the deposit.',
+      partialCaptureCents
+    )
+
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+    assert.equal(resolved.refundAmountCents, partialCaptureCents)
+
+    const updatedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updatedBooking.depositStatus, 'CAPTURED')
+    assert.equal(updatedBooking.disputeStatus, DisputeStatus.RESOLVED_REFUND)
+
+    // Confirm against the real Stripe test-mode PaymentIntent that only the
+    // partial amount was actually captured, not the full $27 deposit.
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const depositIntent = await stripe.paymentIntents.retrieve(stripeDepositPaymentIntentId)
+    assert.equal(depositIntent.amount_received, partialCaptureCents)
+  })
+
+  test('a second dispute on the same COMPLETED booking cannot capture the deposit a second time', async () => {
+    const db = getTestPrisma()
+    const stripeDepositPaymentIntentId = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
+
+    // First dispute — resolved with a partial deposit capture.
+    const firstDispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'First issue — charging part of the deposit for the damage found.'
+    )
+    const firstCaptureCents = 1200
+    const firstResolved = await disputeService.resolveDispute(
+      firstDispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed damage — charging $12 of the $27 deposit.',
+      firstCaptureCents
+    )
+    assert.equal(firstResolved.refundAmountCents, firstCaptureCents)
+
+    // A second dispute on the SAME booking, opened after the first is resolved, is
+    // now rejected at filing time (createDispute), not later at resolution — see
+    // the depositStatus check added to createDispute(). Unlike the pre-completion
+    // refund flow (which can issue several sequential partial refunds against one
+    // captured Charge), the deposit PaymentIntent was captured once above and
+    // Stripe has no concept of a second partial capture on top of that, so there
+    // is nothing left for a new dispute on this booking to act on.
+    await assert.rejects(
+      () => disputeService.createDispute(
+        booking.id, renter.id, 'OTHER',
+        'Second, separate issue discovered after the first dispute was already resolved.'
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /deposit.*already been resolved/i)
+        return true
+      }
+    )
+
+    // No second dispute should have been created at all.
+    const disputesOnBooking = await db.dispute.findMany({ where: { bookingId: booking.id } })
+    assert.equal(disputesOnBooking.length, 1, 'only the first, already-resolved dispute should exist')
+
+    // Stripe ground truth: only the original $12 capture exists.
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const depositIntent = await stripe.paymentIntents.retrieve(stripeDepositPaymentIntentId)
+    assert.equal(depositIntent.amount_received, firstCaptureCents)
+  })
+
+  test('RESOLVED_REFUND on a COMPLETED booking without a deposit PaymentIntent throws 409', async () => {
     const db = getTestPrisma()
     const { startDate, endDate } = futureDates(3, 3)
-    // Booking with no payment intent — simulates a booking that never got a PI
+    // Booking that completed without ever getting a deposit PaymentIntent —
+    // e.g. a booking from before the separate-deposit-PaymentIntent change.
     const booking = await db.booking.create({
       data: {
         listingId,
@@ -305,8 +410,11 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
         ownerPayout: new Prisma.Decimal(76.5),
         insuranceFee: new Prisma.Decimal(0),
         status: BookingStatus.COMPLETED,
-        paymentStatus: PaymentStatus.CAPTURED,
-        stripePaymentIntentId: null,  // intentionally null
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        paidAt: new Date(),
+        completedAt: new Date(),
+        stripePaymentIntentId: `pi_mock_rental_${Date.now()}`,
+        stripeDepositPaymentIntentId: null, // intentionally null
       },
     })
     const dispute = await disputeService.createDispute(
@@ -314,19 +422,147 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
       'Item was severely damaged and needs to be replaced entirely now.'
     )
 
-    // resolveDispute calls refundPaymentIntent which throws ConflictError for null PI
     await assert.rejects(
       () => disputeService.resolveDispute(
         dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
         'Refund approved.'
       ),
       (err: any) => {
-        // Service wraps as InternalServerError with the ConflictError message
-        assert.ok(err.statusCode === 500 || err.statusCode === 409,
-          `Expected 500 or 409, got ${err.statusCode}`)
+        assert.equal(err.statusCode, 409, `Expected 409, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /no deposit paymentintent/i)
         return true
       }
     )
+  })
+
+  test('RESOLVED_REFUND (full) on an uncaptured (AUTHORIZED) booking cancels the PaymentIntent instead of refunding', async () => {
+    const db = getTestPrisma()
+    const totalPrice = 90
+    const stripePaymentIntentId = await createAuthorizedStripePaymentIntent(9000)
+    const booking = await createBookingInStatus(BookingStatus.PICKUP_PENDING, PaymentStatus.AUTHORIZED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_NOT_AS_DESCRIBED',
+      'Renter wants to cancel before pickup — item is not as described in the listing.'
+    )
+
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Approved — payment was never captured, releasing the authorization hold.'
+    )
+
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_REFUND)
+
+    // Stripe never had a refundable Charge here — confirm the PaymentIntent was
+    // canceled, not refunded (refunds.create against an uncaptured PI's charge
+    // would throw, which is exactly the 500 this fix eliminates).
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const intent = await stripe.paymentIntents.retrieve(stripePaymentIntentId)
+    assert.equal(intent.status, 'canceled')
+
+    const refunds = await stripe.refunds.list({ payment_intent: stripePaymentIntentId })
+    assert.equal(refunds.data.length, 0, 'no refund should have been created for an uncaptured PaymentIntent')
+  })
+
+  test('RESOLVED_REFUND with a partial refundAmountCents on an uncaptured booking is rejected with a clear error, not a raw Stripe 500', async () => {
+    const totalPrice = 90
+    const stripePaymentIntentId = await createAuthorizedStripePaymentIntent(9000)
+    const db = getTestPrisma()
+    const booking = await createBookingInStatus(BookingStatus.PICKUP_PENDING, PaymentStatus.AUTHORIZED, totalPrice)
+    await db.booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId } })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'OTHER',
+      'Testing a partial refund request before the payment has been captured.'
+    )
+
+    await assert.rejects(
+      () => disputeService.resolveDispute(
+        dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+        'Attempting a partial refund pre-capture — should be rejected.',
+        3000
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected a clear 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /partial refund.*not possible.*captured/i)
+        return true
+      }
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. resolveDispute — deposit compensation transfer to the owner
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveDispute — deposit compensation transfer to owner', () => {
+  // transferDepositCompensation() calls the real stripe.transfers.create() API,
+  // which can only draw from the platform's *available* balance — same setup
+  // as payoutRelease.integration.test.ts's releaseDuePayouts tests.
+  function requireOwnerStripeAccount() {
+    const accountId = process.env.DEV_STRIPE_ACCOUNT_ID
+    if (!accountId) {
+      throw new Error(
+        'DEV_STRIPE_ACCOUNT_ID is not set in .env.test — required for this test, ' +
+        'which calls the real Stripe Connect transfers API.'
+      )
+    }
+    return accountId
+  }
+
+  async function fundPlatformAvailableBalance(amountCents: number): Promise<void> {
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      payment_method: 'pm_card_bypassPending',
+      payment_method_types: ['card'],
+      confirm: true,
+      capture_method: 'manual',
+    })
+    await stripe.paymentIntents.capture(intent.id, { amount_to_capture: amountCents })
+  }
+
+  test('the FULL captured deposit amount reaches the owner connected account, with no commission deducted', async () => {
+    const db = getTestPrisma()
+    const ownerAccountId = requireOwnerStripeAccount()
+    await db.user.update({ where: { id: owner.id }, data: { stripeAccountId: ownerAccountId } })
+    await fundPlatformAvailableBalance(50000) // headroom to cover the transfer + Stripe fees
+
+    const stripeDepositPaymentIntentId = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
+
+    const dispute = await disputeService.createDispute(
+      booking.id, owner.id, 'ITEM_DAMAGED',
+      'Renter returned the item with significant damage — filing for the full deposit.'
+    )
+
+    const resolved = await disputeService.resolveDispute(
+      dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND,
+      'Confirmed significant damage — charging the full $27 deposit to compensate the owner.'
+      // refundAmountCents omitted -> defaults to the full deposit (2700 cents)
+    )
+    assert.equal(resolved.refundAmountCents, 2700)
+
+    const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id, type: 'PAYOUT_TRIGGERED' } })
+    assert.equal(events.length, 1, 'a PAYOUT_TRIGGERED event should record the deposit-compensation transfer')
+    const transferMetadata = events[0].metadata as any
+    assert.equal(transferMetadata.purpose, 'deposit_compensation')
+    assert.equal(transferMetadata.amountCents, 2700, 'the full captured amount, no commission cut')
+
+    if (stripeAvailable) {
+      const Stripe = require('stripe')
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+      const transfer = await stripe.transfers.retrieve(transferMetadata.stripeTransferId)
+      assert.equal(transfer.amount, 2700, 'the owner must receive the full captured deposit, not a commission-reduced amount')
+      assert.equal(transfer.destination, ownerAccountId)
+    }
   })
 })
 
@@ -642,6 +878,112 @@ describe('PATCH /admin/disputes/:id/resolve — HTTP layer', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 5b. PATCH /admin/disputes/:id/resolve — refundAmountCents bounds validation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('PATCH /admin/disputes/:id/resolve — refundAmountCents validation', () => {
+  test('rejects a negative refundAmountCents before it reaches the service', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a negative refund amount, which should be rejected up front.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: -100 })
+
+    assert.equal(res.status, 400)
+    assert.ok(res.body.error)
+
+    const untouched = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouched.status, 'OPEN', 'dispute must be untouched by a rejected request')
+  })
+
+  test('rejects a zero refundAmountCents before it reaches the service', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a zero refund amount, which should be rejected up front.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: 0 })
+
+    assert.equal(res.status, 400)
+
+    const untouched = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouched.status, 'OPEN', 'dispute must be untouched by a rejected request')
+  })
+
+  test('rejects a refundAmountCents that exceeds the deposit amount', async () => {
+    const db = getTestPrisma()
+    const app = getApp()
+    // createBookingInStatus's default depositAmount is $27 (2700 cents) — a
+    // COMPLETED booking's RESOLVED_REFUND cap is the deposit, not totalPrice,
+    // since that's the only thing still an open authorization at that point.
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripeDepositPaymentIntentId: `pi_mock_deposit_cap_${Date.now()}`, depositStatus: 'AUTHORIZED', completedAt: new Date() },
+    })
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing a refund amount above the deposit amount, which should be rejected.'
+    )
+
+    const res = await supertest(app)
+      .patch(`/admin/disputes/${dispute.id}/resolve`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'RESOLVED_REFUND', resolutionNotes: 'Should not go through.', refundAmountCents: 2701 })
+
+    assert.equal(res.status, 400, `Expected 400, got ${res.status}: ${JSON.stringify(res.body)}`)
+    assert.match(res.body.error, /cannot exceed the deposit amount/i)
+
+    // Nothing should have been mutated — no Stripe call, no dispute/booking update.
+    const untouchedDispute = await db.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    assert.equal(untouchedDispute.status, 'OPEN')
+    const untouchedBooking = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(untouchedBooking.disputeStatus, 'OPEN')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5c. GET /admin/disputes/:id — depositAmount must be exposed to the admin UI
+// so it can cap a COMPLETED-booking's refund/charge amount against the
+// deposit rather than the rental total (see AdminDisputeDetailScreen.tsx's
+// getRefundCapAmount()).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('GET /admin/disputes/:id — HTTP layer', () => {
+  test('response includes booking.depositAmount', async () => {
+    const app = getApp()
+    const booking = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.PAYOUT_PENDING, 90)
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Testing that the admin dispute detail response includes depositAmount.'
+    )
+
+    const res = await supertest(app)
+      .get(`/admin/disputes/${dispute.id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+
+    assert.equal(res.status, 200)
+    assert.ok(res.body.booking, 'response should include the booking relation')
+    assert.equal(
+      Number(res.body.booking.depositAmount),
+      27,
+      'depositAmount should match createBookingInStatus\'s default $27 deposit'
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 6. GET /disputes — user's own disputes
 // ─────────────────────────────────────────────────────────────────────────────
 describe('GET /disputes — user dispute list', () => {
@@ -721,5 +1063,79 @@ describe('GET /disputes — user dispute list', () => {
       .set('Authorization', `Bearer ${stranger.token}`)
 
     assert.equal(res.status, 403)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. createDispute — 24h post-completion filing window
+// ─────────────────────────────────────────────────────────────────────────────
+describe('createDispute — dispute window on a COMPLETED booking', () => {
+  /** Creates a COMPLETED booking whose completedAt is `hoursAgo` hours in the
+   *  past, to exercise createDispute's DISPUTE_WINDOW_HOURS check at either
+   *  side of the cutoff. */
+  async function createCompletedBooking(hoursAgo: number) {
+    const db = getTestPrisma()
+    const { startDate, endDate } = futureDates(3, 3)
+    const completedAt = new Date(Date.now() - hoursAgo * 60 * 60 * 1000)
+    return db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(90),
+        depositAmount: new Prisma.Decimal(27),
+        commissionAmount: new Prisma.Decimal(13.5),
+        ownerPayout: new Prisma.Decimal(76.5),
+        insuranceFee: new Prisma.Decimal(0),
+        status: BookingStatus.COMPLETED,
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        paidAt: new Date(completedAt.getTime() - 60 * 60 * 1000),
+        completedAt,
+        stripePaymentIntentId: `pi_mock_dispute_window_${Date.now()}`,
+        version: 1,
+      },
+    })
+  }
+
+  test('dispute filed 23h after completion succeeds — still inside the window', async () => {
+    const booking = await createCompletedBooking(23)
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'Filing this dispute well within the 24-hour post-completion window.'
+    )
+
+    assert.equal(dispute.status, 'OPEN')
+  })
+
+  test('dispute filed 25h after completion is rejected — window has closed', async () => {
+    const booking = await createCompletedBooking(25)
+
+    await assert.rejects(
+      () => disputeService.createDispute(
+        booking.id, renter.id, 'ITEM_DAMAGED',
+        'Filing this dispute after the 24-hour post-completion window has closed.'
+      ),
+      (err: any) => {
+        assert.equal(err.statusCode, 400, `Expected 400, got ${err.statusCode}: ${err.message}`)
+        assert.match(err.message, /dispute window has closed/i)
+        return true
+      }
+    )
+  })
+
+  test('dispute filed against a booking not yet COMPLETED is unaffected by the window', async () => {
+    // ACTIVE booking, no completedAt at all — the window only applies once a
+    // booking has actually completed return handoff.
+    const booking = await createBookingInStatus(BookingStatus.ACTIVE)
+
+    const dispute = await disputeService.createDispute(
+      booking.id, renter.id, 'ITEM_DAMAGED',
+      'A booking still in progress should never be gated by the completion window.'
+    )
+
+    assert.equal(dispute.status, 'OPEN')
   })
 })

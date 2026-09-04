@@ -6,6 +6,12 @@ export type {
   DisputeReason,
   Dispute,
   ReviewRole,
+  BookingEvent,
+  BookingEventType,
+  ReportTargetType,
+  ReportReason,
+  ReportStatus,
+  Report,
 } from '@zoink/shared'
 
 export type {
@@ -21,18 +27,25 @@ export type {
   PendingReviewResponse as PendingReview,
   SubmitReviewResult as SubmittedReviewResult,
   ConversationResponse as Conversation,
+  ConversationDetailResponse as ConversationDetail,
+  ConversationInFlightBooking,
   ConversationMessagePreview,
   MessageResponse as Message,
+  NotificationPreferences,
 } from '@zoink/shared'
 
 import type {
   PublicProfileResponse,
   MyProfileResponse,
+  NotificationPreferences,
   ListingBrowseItem,
   BookingStatus,
   PaymentStatus,
   DisputeStatus,
   DisputeReason,
+  ReportTargetType,
+  ReportReason,
+  ReportStatus,
 } from '@zoink/shared'
 
 // Decorative, demo-mode-only fields — the real backend never returns these.
@@ -52,7 +65,7 @@ export type PublicProfile = PublicProfileResponse & {
 // composed frontend MyProfile extends the public shape rather than getMe()'s
 // raw response.
 export type MyProfile = PublicProfileResponse &
-  Pick<MyProfileResponse, 'email' | 'phone'> & {
+  Pick<MyProfileResponse, 'email' | 'phone' | 'notificationPreferences'> & {
     spotlightTags?: string[]
     reviewHighlights?: ProfileReviewHighlight[]
   }
@@ -76,6 +89,9 @@ export interface AdminDisputeListItem {
   status: DisputeStatus
   resolutionNotes: string | null
   resolvedByAdminId: string | null
+  // Cents refunded via Stripe, set only when status is RESOLVED_REFUND (may be less
+  // than booking.totalPrice for a partial refund). Null for every other resolution.
+  refundAmountCents: number | null
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -97,6 +113,7 @@ export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'
     status: BookingStatus
     paymentStatus: PaymentStatus
     totalPrice: string
+    depositAmount: string
     pickupPhotos: string[]
     returnPhotos: string[]
     handoffInitiatedAt: string | null
@@ -107,4 +124,29 @@ export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'
     email: string
     firstName: string
   } | null
+}
+
+// Admin report endpoint returns raw Prisma rows (not DTO-mapped), same shape
+// as AdminDisputeListItem above.
+export interface AdminReportListItem {
+  id: string
+  reporterId: string
+  targetType: ReportTargetType
+  targetId: string
+  // Human-readable target name resolved server-side (listing title / user's
+  // full name). Falls back to "[deleted listing]" / "[deleted user]" when
+  // the target no longer exists.
+  targetLabel: string
+  reason: ReportReason
+  description: string | null
+  status: ReportStatus
+  adminNotes: string | null
+  createdAt: string
+  reviewedAt: string | null
+  reviewedByAdminId: string | null
+  reporter: {
+    id: string
+    email: string
+    firstName: string
+  }
 }

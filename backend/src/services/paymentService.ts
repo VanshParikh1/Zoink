@@ -3,10 +3,17 @@ import { InternalServerError, ConflictError } from '../utils/errors'
 import prisma from '../utils/prisma'
 
 
-const PLATFORM_COMMISSION_RATE = Number(process.env.PLATFORM_COMMISSION_RATE ?? 0.15)
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
 const MIN_INSURANCE_FEE = Number(process.env.MIN_INSURANCE_FEE ?? 1)
 const MAX_INSURANCE_FEE = Number(process.env.MAX_INSURANCE_FEE ?? 50)
+
+// Ontario HST. Applied to the rental price only — not the deposit (a hold,
+// not a sale) and not insurance (a separate optional product). Charged on
+// top of what the borrower pays; it is never subtracted from totalPrice
+// before commission/ownerPayout are computed, so it has no effect on the
+// owner's earnings. The platform has no per-listing jurisdiction field
+// today, so this applies to every booking (see calculateHst callers).
+const HST_RATE = 0.13
 
 type StripeClient = any
 
@@ -73,24 +80,56 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
-export function calculateCommission(totalPrice: Prisma.Decimal | number) {
-  return Math.round(Number(totalPrice) * PLATFORM_COMMISSION_RATE * 100) / 100
+export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
+  return Math.round(Number(rentalTotalPrice) * HST_RATE * 100) / 100
 }
 
-export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
-  return Math.round((Number(totalPrice) - calculateCommission(totalPrice)) * 100) / 100
+// Bracket is keyed on the listing's DAILY rate, not the booking's total value —
+// a long rental of a cheap item stays in the cheap-item tier, it doesn't creep
+// into a lower rate just because rentalDays pushed totalPrice up. The bracket
+// is looked up once (at booking-request time, alongside every other snapshotted
+// price field — see createBooking() in bookingService.ts) and applied to the
+// full rental total; it is never recomputed per day or re-derived later.
+const COMMISSION_TIERS: { maxDailyRate: number; rate: number }[] = [
+  { maxDailyRate: 20, rate: 0.15 },
+  { maxDailyRate: 50, rate: 0.125 },
+  { maxDailyRate: Infinity, rate: 0.1 },
+]
+
+export function getCommissionRate(dailyRate: Prisma.Decimal | number): number {
+  const rate = Number(dailyRate)
+  // Boundaries are inclusive on the lower-rate side ($20/day exactly is still
+  // the 15% tier, $50/day exactly is still the 12.5% tier) — the same
+  // convention as INSURANCE_RATE's min/max clamp above.
+  const tier = COMMISSION_TIERS.find((t) => rate <= t.maxDailyRate)
+  return tier!.rate
 }
 
-export function getAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'depositAmount' | 'insuranceFee'>) {
-  return toCents(Number(booking.totalPrice) + Number(booking.depositAmount) + Number(booking.insuranceFee))
+export function calculateCommission(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
+  return Math.round(Number(totalPrice) * getCommissionRate(dailyRate) * 100) / 100
+}
+
+export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
+  return Math.round((Number(totalPrice) - calculateCommission(totalPrice, dailyRate)) * 100) / 100
+}
+
+// Rental + insurance + HST — the deposit is authorized separately (see
+// createDepositPaymentIntent) so it can stay held through the full rental
+// and be resolved at return handoff instead of being released at pickup
+// as a side effect of this PaymentIntent's partial capture. HST is folded
+// in here (not tracked as its own PaymentIntent) since it settles on
+// exactly the same schedule as the rental price — captured together at
+// pickup, same as insurance.
+export function getRentalAuthorizationAmount(booking: Pick<Booking, 'totalPrice' | 'insuranceFee' | 'hstAmount'>) {
+  return toCents(Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount))
 }
 
 export async function createPaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'totalPrice' | 'depositAmount' | 'insuranceFee'>,
+  booking: Pick<Booking, 'id' | 'version' | 'totalPrice' | 'depositAmount' | 'insuranceFee' | 'hstAmount'>,
   stripeCustomerId?: string | null
 ) {
   const stripe = getStripe()
-  const amount = getAuthorizationAmount(booking as any)
+  const amount = getRentalAuthorizationAmount(booking as any)
 
   if (!stripe) {
     return {
@@ -108,14 +147,95 @@ export async function createPaymentIntent(
       customer: stripeCustomerId ?? undefined,
       capture_method: 'manual',
       automatic_payment_methods: { enabled: true },
+      // The deposit PaymentIntent (created once this one is confirmed — see
+      // createDepositPaymentIntent) reuses the payment method attached here,
+      // off-session, so it needs to be saved for later reuse against the
+      // same customer.
+      setup_future_usage: stripeCustomerId ? 'off_session' : undefined,
       metadata: { bookingId: booking.id },
     },
     { idempotencyKey: `payment-intent-${booking.id}-${booking.version}` }
   )
 }
 
+/** Creates and immediately confirms a manual-capture PaymentIntent for the
+ *  deposit, off-session, against the payment method the borrower already
+ *  attached while confirming the rental PaymentIntent. Called once the
+ *  rental PaymentIntent has actually been confirmed (see
+ *  bookingService.transitionBookingStatus's CONFIRMED branch) — a payment
+ *  method only becomes reusable off-session after that confirmation. */
+export async function createDepositPaymentIntent(
+  booking: Pick<Booking, 'id' | 'version' | 'depositAmount'>,
+  stripeCustomerId: string,
+  paymentMethodId: string
+) {
+  const stripe = getStripe()
+  const amount = toCents(booking.depositAmount)
+
+  if (!stripe) {
+    return {
+      id: `pi_mock_deposit_${booking.id}`,
+      status: 'requires_capture',
+      amount,
+    }
+  }
+
+  return stripe.paymentIntents.create(
+    {
+      amount,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      capture_method: 'manual',
+      off_session: true,
+      confirm: true,
+      metadata: { bookingId: booking.id, purpose: 'deposit' },
+    },
+    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.version}` }
+  )
+}
+
+/** Reads back the payment method attached to a confirmed PaymentIntent, so
+ *  it can be reused off-session for the deposit PaymentIntent. */
+export async function getPaymentIntentPaymentMethod(paymentIntentId: string): Promise<string | null> {
+  const stripe = getStripe()
+  if (!stripe) {
+    return `pm_mock_${paymentIntentId}`
+  }
+
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  if (!intent.payment_method) return null
+  return typeof intent.payment_method === 'string' ? intent.payment_method : intent.payment_method.id
+}
+
+/** Returns the user's Stripe Customer id, creating one if they don't have
+ *  one yet. A real Customer is required so the rental PaymentIntent's
+ *  payment method can be saved (setup_future_usage) and reused off-session
+ *  for the deposit PaymentIntent. */
+export async function getOrCreateStripeCustomer(
+  userId: string,
+  email: string,
+  existingCustomerId?: string | null
+): Promise<string | null> {
+  if (existingCustomerId) return existingCustomerId
+
+  const stripe = getStripe()
+  if (!stripe) {
+    return `cus_mock_${userId}`
+  }
+
+  const customer = await stripe.customers.create({ email, metadata: { userId } })
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { stripeCustomerId: customer.id },
+  })
+
+  return customer.id
+}
+
 export async function capturePaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId' | 'totalPrice' | 'insuranceFee'>,
+  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId' | 'totalPrice' | 'insuranceFee' | 'hstAmount'>,
   amountOverrideCents?: number
 ) {
   if (!booking.stripePaymentIntentId) {
@@ -123,7 +243,7 @@ export async function capturePaymentIntent(
   }
 
   const stripe = getStripe()
-  const amount = amountOverrideCents ?? toCents(Number(booking.totalPrice) + Number(booking.insuranceFee))
+  const amount = amountOverrideCents ?? toCents(Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount ?? 0))
 
   if (!stripe) {
     return {
@@ -161,7 +281,12 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
   )
 }
 
-export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>, partialAmountCents?: number, db: typeof prisma = prisma) {
+export async function refundPaymentIntent(
+  booking: Pick<Booking, 'id' | 'version' | 'stripePaymentIntentId'>,
+  partialAmountCents?: number,
+  idempotencySalt?: string,
+  db: typeof prisma = prisma
+) {
   if (!booking.stripePaymentIntentId) {
     throw new ConflictError('Payment authorization is missing.')
   }
@@ -183,13 +308,27 @@ export async function refundPaymentIntent(booking: Pick<Booking, 'id' | 'version
       amount: partialAmountCents,
       metadata: { bookingId: booking.id },
     },
-    { idempotencyKey: `refund-${booking.id}-${booking.version}` }
+    // A booking can now legitimately be refunded more than once (sequential disputes,
+    // each a different amount — see disputeService.ts's remaining-balance check). Keying
+    // idempotency on booking.version alone breaks that: nothing bumps the booking's
+    // version between two dispute resolutions, so a second, different-amount refund
+    // would reuse the exact same key and Stripe rejects it as a conflicting retry.
+    // idempotencySalt (the dispute id, from the only caller) is unique per refund
+    // attempt since a dispute can only ever be resolved once, while still being stable
+    // across an actual retry of that same request.
+    { idempotencyKey: `refund-${booking.id}-${idempotencySalt ?? booking.version}` }
   )
 }
 
-export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | 'ownerPayout'>, stripeAccountId: string) {
+export async function transferPayout(
+  booking: Pick<Booking, 'id' | 'version' | 'ownerPayout'>,
+  stripeAccountId: string,
+  amountCentsOverride?: number
+) {
   const stripe = getStripe()
-  const amount = toCents(booking.ownerPayout)
+  // releaseDuePayouts() passes an explicit amount when a partial dispute refund
+  // means the owner is owed less than their originally-snapshotted ownerPayout.
+  const amount = amountCentsOverride ?? toCents(booking.ownerPayout)
 
   if (!stripe) {
     return {
@@ -207,6 +346,42 @@ export async function transferPayout(booking: Pick<Booking, 'id' | 'version' | '
       metadata: { bookingId: booking.id },
     },
     { idempotencyKey: `payout-${booking.id}-${booking.version}` }
+  )
+}
+
+/** Transfers a captured deposit amount to the owner, in full — no commission
+ *  cut, unlike the rental payout above. Used when a dispute is resolved as
+ *  valid damage against the borrower (disputeService.resolveDispute's
+ *  COMPLETED branch): the deposit was captured from the renter specifically
+ *  to compensate the owner, so none of it belongs to the platform. Tracked
+ *  with its own idempotency key (keyed on the dispute, which can only ever
+ *  be resolved once) rather than reusing transferPayout's, since a booking's
+ *  rental payout and its deposit compensation are two independent transfers
+ *  that can happen at different times for the same booking/version. */
+export async function transferDepositCompensation(
+  booking: Pick<Booking, 'id'>,
+  stripeAccountId: string,
+  amountCents: number,
+  disputeId: string
+) {
+  const stripe = getStripe()
+
+  if (!stripe) {
+    return {
+      id: `tr_mock_deposit_${booking.id}`,
+      amount: amountCents,
+      destination: stripeAccountId,
+    }
+  }
+
+  return stripe.transfers.create(
+    {
+      amount: amountCents,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      destination: stripeAccountId,
+      metadata: { bookingId: booking.id, disputeId, purpose: 'deposit_compensation' },
+    },
+    { idempotencyKey: `deposit-payout-${booking.id}-${disputeId}` }
   )
 }
 

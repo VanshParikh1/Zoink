@@ -24,33 +24,58 @@ const imageId = z.string().min(1, 'Image ID is required.')
 
 // ── POST /listings ────────────────────────────────────────────────────────────
 
+const depositNotOverItemValue = {
+  message: 'depositAmount cannot exceed itemValue.',
+  path: ['depositAmount'] as PropertyKey[],
+}
+
+const itemValueRequiredForDeposit = {
+  message: 'itemValue is required when depositAmount is set.',
+  path: ['itemValue'] as PropertyKey[],
+}
+
 export const CreateListingSchema = z.object({
-  body: z.object({
-    title: z.string().min(1, 'title is required.'),
-    description: z.string().min(1, 'description is required.'),
-    category: z.string().min(1, 'category is required.'),
-    dailyPrice: z.coerce
-      .number({ error: 'dailyPrice must be a number.' })
-      .positive('dailyPrice must be greater than 0.'),
-    itemValue: z.coerce
-      .number({ error: 'itemValue must be a number.' })
-      .nonnegative('itemValue cannot be negative.')
-      .optional(),
-    depositAmount: z.coerce
-      .number({ error: 'depositAmount must be a number.' })
-      .nonnegative('depositAmount cannot be negative.')
-      .optional(),
-    latitude: z.coerce
-      .number({ error: 'latitude must be a number.' })
-      .min(-90, 'latitude must be >= -90.')
-      .max(90, 'latitude must be <= 90.'),
-    longitude: z.coerce
-      .number({ error: 'longitude must be a number.' })
-      .min(-180, 'longitude must be >= -180.')
-      .max(180, 'longitude must be <= 180.'),
-    city: z.string().min(1, 'city is required.'),
-    address: z.string().optional(),
-  }),
+  body: z
+    .object({
+      title: z.string().min(1, 'title is required.').max(80, 'title cannot exceed 80 characters.'),
+      description: z
+        .string()
+        .min(1, 'description is required.')
+        .max(1000, 'description cannot exceed 1000 characters.'),
+      category: z.string().min(1, 'category is required.').max(40, 'category cannot exceed 40 characters.'),
+      dailyPrice: z.coerce
+        .number({ error: 'dailyPrice must be a number.' })
+        .positive('dailyPrice must be greater than 0.')
+        .max(1000, 'dailyPrice cannot exceed 1000.'),
+      itemValue: z.coerce
+        .number({ error: 'itemValue must be a number.' })
+        .nonnegative('itemValue cannot be negative.')
+        .max(10000, 'itemValue cannot exceed 10000.')
+        .optional(),
+      depositAmount: z.coerce
+        .number({ error: 'depositAmount must be a number.' })
+        .nonnegative('depositAmount cannot be negative.')
+        .max(5000, 'depositAmount cannot exceed 5000.')
+        .optional(),
+      latitude: z.coerce
+        .number({ error: 'latitude must be a number.' })
+        .min(-90, 'latitude must be >= -90.')
+        .max(90, 'latitude must be <= 90.'),
+      longitude: z.coerce
+        .number({ error: 'longitude must be a number.' })
+        .min(-180, 'longitude must be >= -180.')
+        .max(180, 'longitude must be <= 180.'),
+      city: z.string().min(1, 'city is required.').max(60, 'city cannot exceed 60 characters.'),
+      address: z.string().max(200, 'address cannot exceed 200 characters.').optional(),
+    })
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue === undefined || data.depositAmount <= data.itemValue,
+      depositNotOverItemValue
+    )
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue !== undefined,
+      itemValueRequiredForDeposit
+    ),
 })
 
 
@@ -58,18 +83,27 @@ export const CreateListingSchema = z.object({
 
 export const UpdateListingSchema = z.object({
   params: z.object({ id: listingId }),
-  body: z.object({
-    title: z.string().min(1).optional(),
-    description: z.string().min(1).optional(),
-    category: z.string().min(1).optional(),
-    dailyPrice: z.coerce.number().positive().optional(),
-    itemValue: z.coerce.number().nonnegative().optional(),
-    depositAmount: z.coerce.number().nonnegative().optional(),
-    latitude: z.coerce.number().min(-90).max(90).optional(),
-    longitude: z.coerce.number().min(-180).max(180).optional(),
-    city: z.string().min(1).optional(),
-    address: z.string().optional(),
-  }),
+  body: z
+    .object({
+      title: z.string().min(1).max(80).optional(),
+      description: z.string().min(1).max(1000).optional(),
+      category: z.string().min(1).max(40).optional(),
+      dailyPrice: z.coerce.number().positive().max(1000).optional(),
+      itemValue: z.coerce.number().nonnegative().max(10000).optional(),
+      depositAmount: z.coerce.number().nonnegative().max(5000).optional(),
+      latitude: z.coerce.number().min(-90).max(90).optional(),
+      longitude: z.coerce.number().min(-180).max(180).optional(),
+      city: z.string().min(1).max(60).optional(),
+      address: z.string().max(200).optional(),
+    })
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue === undefined || data.depositAmount <= data.itemValue,
+      depositNotOverItemValue
+    )
+    .refine(
+      (data) => data.depositAmount === undefined || data.itemValue !== undefined,
+      itemValueRequiredForDeposit
+    ),
 })
 
 // ── PATCH /listings/:id/availability ─────────────────────────────────────────
@@ -87,6 +121,7 @@ export const ToggleAvailabilitySchema = z.object({
 
 const optionalNonNegativeNumber = z.coerce.number().nonnegative().optional()
 const optionalPositiveNumber = z.coerce.number().positive().optional()
+const optionalPriceFilter = z.coerce.number().nonnegative().max(1000).optional()
 const optionalCoercedBoolean = z
   .union([z.literal('true'), z.literal('false'), z.boolean()])
   .transform((v) => v === true || v === 'true')
@@ -98,8 +133,8 @@ export const BrowseListingsQuerySchema = z
       q: z.string().optional(),
       category: z.string().optional(),
       city: z.string().optional(),
-      minPrice: optionalNonNegativeNumber,
-      maxPrice: optionalNonNegativeNumber,
+      minPrice: optionalPriceFilter,
+      maxPrice: optionalPriceFilter,
       latitude: z.coerce.number().min(-90).max(90).optional(),
       longitude: z.coerce.number().min(-180).max(180).optional(),
       radiusKm: optionalPositiveNumber,

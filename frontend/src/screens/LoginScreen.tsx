@@ -13,9 +13,10 @@ import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import ScreenBackground from '../components/ScreenBackground'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
+import ScreenBackground from '../components/ScreenBackground'
+import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
@@ -45,65 +46,67 @@ export default function LoginScreen() {
   }
 
   return (
-    <ScreenBackground>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.inner}>
+    <DismissKeyboardView>
+      <ScreenBackground>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.inner}>
 
-          {/* Header & Logo */}
-          <ZoinkFullLogo width={280} height={80} style={styles.logo} />
-          <Text style={styles.kicker}>Access over Ownership</Text>
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
+            {/* Header & Logo */}
+            <ZoinkFullLogo width={325} height={325} style={{ ...styles.logo, marginBottom: -110, marginTop: -180 }} />
+            <Text style={{ ...styles.kicker, marginBottom: 120 }}>Accessibility over Ownership</Text>
+            <Text style={styles.title}>Welcome back</Text>
+            <Text style={styles.subtitle}>Sign in and find useful gear nearby.</Text>
 
-          {/* Form */}
-          <View style={styles.form}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {/* Form */}
+            <View style={styles.form}>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <TextInput
-              style={styles.input}
-              placeholder="University email"
-              placeholderTextColor={theme.textDisabled}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor={theme.textDisabled}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
+              <TextInput
+                style={styles.input}
+                placeholder="University email"
+                placeholderTextColor={theme.textDisabled}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor={theme.textDisabled}
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
 
-            {/* Tactile stamped button */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.75}
-            >
-              {loading
-                ? <ActivityIndicator color={theme.textOnPrimary} />
-                : <Text style={styles.buttonText}>Sign in</Text>
-              }
-            </TouchableOpacity>
+              {/* Tactile stamped button */}
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.75}
+              >
+                {loading
+                  ? <ActivityIndicator color={theme.textOnPrimary} />
+                  : <Text style={styles.buttonText}>Sign in</Text>
+                }
+              </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => navigation.navigate('Register')} activeOpacity={0.7}>
-              <Text style={styles.link}>
-                Don't have an account?{' '}
-                <Text style={styles.linkBold}>Sign up</Text>
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity onPress={() => navigation.navigate('Register')} activeOpacity={0.7}>
+                <Text style={styles.link}>
+                  Don't have an account?{' '}
+                  <Text style={styles.linkBold}>Sign up</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
+
           </View>
-
-        </View>
-      </KeyboardAvoidingView>
-    </ScreenBackground>
+        </KeyboardAvoidingView>
+      </ScreenBackground>
+    </DismissKeyboardView>
   )
 }
 
@@ -137,9 +140,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   title: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: theme.text,
+    ...theme.type.screenTitle,
 
     // tighter
     marginBottom: 4,
@@ -149,9 +150,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: theme.textMuted,
-    lineHeight: 20,
+    lineHeight: 22,
 
     textAlign: 'center',
   },

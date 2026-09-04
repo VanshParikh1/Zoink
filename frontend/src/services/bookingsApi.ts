@@ -7,7 +7,9 @@ import {
   mockActivateBooking,
   mockCancelBooking,
   mockCompleteBooking,
+  mockConfirmBookingPayment,
   mockCreateBooking,
+  mockCreateBookingPaymentIntent,
   mockDeclineBooking,
   mockGetBooking,
   mockGetIncomingRequests,
@@ -59,6 +61,17 @@ async function patchBooking(path: string, fallback: () => Promise<Booking>) {
 
 export function acceptBooking(id: string) {
   return patchBooking(`/bookings/${id}/accept`, () => mockAcceptBooking(id))
+}
+
+export async function createBookingPaymentIntent(id: string): Promise<Booking> {
+  if (DEMO_MODE) return mockCreateBookingPaymentIntent(id)
+
+  const res = await api.post(`/bookings/${id}/payment-intent`)
+  return res.data
+}
+
+export function confirmBookingPayment(id: string) {
+  return patchBooking(`/bookings/${id}/confirm`, () => mockConfirmBookingPayment(id))
 }
 
 export function declineBooking(id: string) {

@@ -51,6 +51,7 @@ let conversations: Conversation[] = [
       createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
     },
     unread: true,
+    acceptedUnpaidBookingId: null,
   },
 ]
 
@@ -108,6 +109,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     ? Number(Math.min(50, Math.max(1, Number(listing.itemValue) * 0.03)).toFixed(2))
     : 0
   const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
+  const hstAmount = Number((totalPrice * 0.13).toFixed(2))
 
   const booking: Booking = {
     id: `demo-booking-${Date.now()}`,
@@ -122,7 +124,10 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
     insuranceOptIn: Boolean(data.insuranceOptIn),
     insuranceFee,
+    hstAmount,
     stripePaymentIntentId: `pi_demo_${Date.now()}`,
+    stripeDepositPaymentIntentId: null,
+    depositStatus: null,
     stripeChargeId: null,
     stripeTransferId: null,
     paidAt: null,
@@ -139,12 +144,12 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     disputeStatus: 'NONE',
     disputedAt: null,
     disputeReason: null,
-    message: data.message ?? null,
     renterId: demoUser.id,
     renter: demoUser,
     ownerId: listing.ownerId,
     owner: listing.owner,
     listingId: listing.id,
+    conversationId: null,
     listing: toListingPreview(listing),
     reviewObligations: [],
     pendingReview: null,
@@ -173,6 +178,18 @@ export async function mockGetBooking(id: string) {
 
 export async function mockAcceptBooking(id: string) {
   return updateBookingStatus(id, 'ACCEPTED')
+}
+
+export async function mockCreateBookingPaymentIntent(id: string) {
+  const booking = bookings.find((item) => item.id === id)
+  if (!booking) throw new Error('Booking not found.')
+  booking.stripePaymentIntentId = `pi_demo_${Date.now()}`
+  booking.paymentStatus = 'AUTHORIZED'
+  return { ...booking, paymentClientSecret: `pi_demo_secret_${Date.now()}` }
+}
+
+export async function mockConfirmBookingPayment(id: string) {
+  return updateBookingStatus(id, 'CONFIRMED')
 }
 
 export async function mockDeclineBooking(id: string) {
@@ -251,7 +268,9 @@ export async function mockSubmitReview(data: SubmitReviewPayload): Promise<Submi
       scoreA: data.scoreA,
       scoreB: data.scoreB,
       scoreC: data.scoreC,
-      comment: data.comment ?? null,
+      itemRating: data.itemRating ?? null,
+      itemNotes: data.itemNotes ?? null,
+      personNotes: data.personNotes ?? null,
       createdAt: new Date().toISOString(),
     },
     pendingRemaining: pendingReviews.length,
@@ -292,6 +311,7 @@ export async function mockCreateDispute(data: CreateDisputePayload): Promise<Dis
     description: data.description,
     status: 'OPEN',
     resolutionNotes: null,
+    refundAmountCents: null,
     resolvedByAdminId: null,
     createdAt: now,
     updatedAt: now,
@@ -336,6 +356,7 @@ export async function mockOpenConversation(listingId: string) {
     updatedAt: new Date().toISOString(),
     lastMessage: null,
     unread: false,
+    acceptedUnpaidBookingId: null,
   }
 
   conversations = [conversation, ...conversations]
@@ -345,6 +366,13 @@ export async function mockOpenConversation(listingId: string) {
 
 export async function mockGetMyConversations() {
   return [...conversations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+}
+
+export async function mockGetConversation(conversationId: string) {
+  const conversation = conversations.find((item) => item.id === conversationId)
+  if (!conversation) throw new Error('Conversation not found.')
+  // Demo mode doesn't model in-flight bookings against a conversation.
+  return { ...conversation, bookings: [] }
 }
 
 export async function mockMarkConversationRead(conversationId: string) {

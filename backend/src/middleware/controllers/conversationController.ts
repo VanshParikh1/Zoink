@@ -21,6 +21,14 @@ export const getMyConversations = asyncHandler(async (req: Request, res: Respons
   return res.json(conversations)
 })
 
+export const getConversationById = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId as string
+  const conversationId = req.params.id as string
+
+  const conversation = await conversationService.getConversationById(userId, conversationId)
+  return res.json(conversation)
+})
+
 export const getConversationMessages = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
   const conversationId = req.params.id as string

@@ -1,596 +1,580 @@
 # Zoink Codebase Overview
 
-This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It is based on the code present in this repo at the time of writing
+This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It reflects the code in this repo as of the booking-flow rework, the separately-authorized security deposit, 13% HST, tiered commission, abuse reports, rate limiting / Sentry, the review rework, the app-wide neobrutalist design system, and a security-hardening pass (fail-closed Stripe webhook verification, DB-backed `role`/`verificationStatus` resolution in `requireAuth`, and per-caller response shaping on the dispute and handoff endpoints).
 
 ## 1. Project Overview
 
-Zoink is a student-focused peer-to-peer rental marketplace where users can rent items from other verified students. The app supports university email + phone registration and OTP verification, listing creation with images and an owner-configured deposit, browse/search, booking requests, renter/owner messaging with real per-user read tracking, Stripe-based payment and payout flows, photo-backed pickup/return handoffs, reviews, push notifications, a role-based dispute-filing and admin-resolution flow (backend + frontend, though nothing yet grants the admin role itself), and a static marketing/waitlist landing page.
+Zoink is a student-focused peer-to-peer rental marketplace. Verified university students list items and rent from each other. The app covers university-email + phone registration with OTP verification, listing creation (images, item value, owner-configured security deposit, real GPS location), browse/search, booking requests, renter/owner messaging with real per-participant read tracking, a Stripe-based booking → pay → handoff → payout lifecycle with a separately-held security deposit, 13% Ontario HST and tiered platform commission, photo-verified synchronized pickup/return ("Zoink It"), reviews (including an item review), push notifications, a role-based dispute-filing and admin-resolution flow, abuse reporting for listings and users, rate limiting, error tracking, and a static marketing/waitlist landing page.
 
-The repository has three main areas:
+The repository has four areas:
 
 | Area | Purpose |
 |---|---|
-| `frontend/` | Expo React Native mobile app and web-capable Expo frontend. |
-| `backend/` | Express API, Prisma database access, auth, payments, bookings, messaging, reviews, notifications, and tests. |
+| `frontend/` | Expo React Native mobile app (also web-capable). |
+| `backend/` | Express API, Prisma DB access, auth, payments, bookings, messaging, reviews, disputes, reports, notifications, jobs, tests. |
+| `packages/shared/` | Prisma-generated TypeScript interfaces + hand-written response DTOs, published to both sides as `@zoink/shared`. |
 | `landing/` | Standalone static HTML/CSS/JS landing page for waitlist and marketing. |
 
 ## 2. Tech Stack
 
 | Concern | Tools Used |
 |---|---|
-| Frontend app | React Native, Expo, TypeScript, React 19 |
+| Frontend app | React Native 0.81, Expo SDK 54, TypeScript, React 19 |
 | Frontend navigation | `@react-navigation/native`, `@react-navigation/native-stack` |
 | Frontend HTTP | `axios` with a shared interceptor in `frontend/src/services/api.ts` |
 | Frontend auth storage | `expo-secure-store` on native, `localStorage` on web |
-| Frontend images | `expo-image-picker`; shared upload part helper in `frontend/src/services/uploadFormData.ts`; assets under `frontend/assets/` |
-| Frontend location | `expo-location` |
+| Frontend images | `expo-image-picker`; shared upload-part helper in `frontend/src/services/uploadFormData.ts` |
+| Frontend location / maps | `expo-location`; hand-rolled slippy-map tile math in `frontend/src/utils/mapTiles.ts` over MapTiler raster tiles (OSM fallback). No map SDK. |
 | Frontend notifications | `expo-notifications` |
-| Frontend payments | `@stripe/stripe-react-native`, Stripe PaymentSheet |
-| Frontend styling | React Native `StyleSheet`, shared colors in `frontend/src/theme/colors.ts`, Expo linear gradients/blur |
-| Frontend gestures/animation | `react-native-gesture-handler`, `react-native-reanimated` + `react-native-worklets`, `react-native-zoom-toolkit` (pinch-to-zoom `PhotoViewerScreen`) — versions pinned exactly to Expo SDK 54's compatible set (`node_modules/expo/bundledNativeModules.json`); see README's "Native dependency versions" note before changing them |
+| Frontend payments | `@stripe/stripe-react-native` (pinned `0.62.0`), Stripe PaymentSheet |
+| Frontend styling | React Native `StyleSheet` + a shared neobrutalist theme in `frontend/src/theme/colors.ts` (type scale, radius scale, hard "block" shadow), `expo-linear-gradient`, `expo-blur` |
+| Frontend gestures/animation | `react-native-gesture-handler`, `react-native-reanimated` + `react-native-worklets`, `react-native-zoom-toolkit` — versions pinned to Expo SDK 54's compatible set; see README "Native dependency versions" |
+| Frontend error tracking | `@sentry/react-native`, initialized in `App.tsx` (DSN-only) |
 | Backend API | Node.js, Express 5, TypeScript |
-| Backend auth | JWT via `jsonwebtoken`, password hashing via `bcryptjs` |
-| Backend upload handling | `multer` memory storage |
-| Backend image storage | Cloudinary |
+| Backend auth | JWT (`jsonwebtoken`), bcrypt (`bcryptjs`) |
+| Backend hardening | `helmet`, `express-rate-limit`, `app.set('trust proxy', 1)` |
+| Backend upload handling | `multer` memory storage → Cloudinary |
 | Backend email | AWS SES |
-| Backend payments | Stripe SDK |
+| Backend payments | Stripe SDK (rental + separate deposit PaymentIntents, Connect transfers) |
+| Backend error tracking | `@sentry/node` (`backend/src/instrument.ts`, sensitive keys scrubbed, skipped in test) |
 | Database | PostgreSQL |
 | ORM | Prisma 7 with `@prisma/adapter-pg` and `pg` |
-| Validation style | Zod v4 schema validation via `src/middleware/validate.ts` and `src/schemas/*.schema.ts`; `ZodError` flows to the centralized error handler |
-| Testing | Node built-in test runner with `ts-node/register` (unit tests); `supertest` + a real Postgres test DB + Stripe test mode (integration tests in `backend/src/integration-tests/`) |
+| Shared types | `prisma-generator-typescript-interfaces` → `packages/shared/generated/prisma-models.ts`; DTOs in `packages/shared/src/dto.ts` |
+| Validation | Zod v4 schemas in `src/schemas/*.schema.ts` + `src/middleware/validate.ts`; `ZodError` → centralized error handler |
+| Testing | Node built-in test runner with `ts-node/register` (unit); `supertest` + real Postgres test DB + Stripe test mode (`backend/src/integration-tests/`) |
 | Scheduled jobs | `node-cron`, registered in `backend/src/index.ts` (skipped when `NODE_ENV=test`) |
-| Authorization roles | `Role` enum (`USER`/`ADMIN`) on `User`, embedded in the JWT, enforced by `requireAdmin` middleware |
+| Authorization roles | `Role` enum (`USER`/`ADMIN`) on `User`. The JWT carries a `role` claim, but `requireAuth` re-reads `role` + `verificationStatus` from the DB per request; `requireAdmin` / `requireVerified` enforce that live value |
 | Landing page | Static HTML, Tailwind CDN, Lucide CDN, inline CSS/JS |
 
 ## 3. Folder Structure
 
 ```text
 Zoink/
-  .gitignore
-  README.md
-  package.json
-  package-lock.json
-  CODEBASE_OVERVIEW.md
+  .gitignore  README.md  CODEBASE_OVERVIEW.md  PRODUCT.md  ZOINK_PUNCHLIST.md
+  package.json           # npm workspaces: backend, frontend, packages/shared
   backend/
-    .env
-    .env.test
-    nodemon.json
-    package.json
-    prisma.config.ts
-    tsconfig.json
     prisma/
-      schema.prisma
-      seed.ts
-      migrations/
+      schema.prisma  seed.ts  migrations/
     src/
-      index.ts
+      index.ts  instrument.ts
       middleware/
-        requireAuth.ts
-        requireAdmin.ts
-        requiredVerified.ts
-        errorHandler.ts
-        validate.ts
+        requireAuth.ts  requireAdmin.ts  requiredVerified.ts
+        errorHandler.ts  validate.ts  rateLimiter.ts
         bookingStateMachine.ts
         *.test.ts
         controllers/
       routes/
-      schemas/
-        auth.schema.ts
-        booking.schema.ts
-        dispute.schema.ts
-        handoff.schema.ts
-        listing.schema.ts
-        stripe.schema.ts
-      scripts/
+      schemas/          # auth, booking, conversation, dispute, handoff,
+                        # listing, report, review, stripe, user
+      scripts/          # week7SmokeFlow.ts, manageAdminRole.ts(+test)
       services/
       integration-tests/
       testUtils/
-      utils/
+      utils/            # asyncHandler, cloudinary, errors, prisma
   frontend/
-    .env
-    App.tsx
-    app.json
-    eas.json
-    index.ts
-    package.json
-    tsconfig.json
-    assets/
+    App.tsx  app.json  eas.json  metro.config.js  index.ts
     src/
-      components/
-      config/
-      context/
-      navigation/
-      screens/
-      services/
-      theme/
-      types/
+      components/  config/  context/  navigation/
+      screens/  services/  theme/  types/  utils/
+  packages/shared/
+    generated/prisma-models.ts   # generated from schema.prisma
+    src/dto.ts  src/index.ts      # response DTOs → @zoink/shared
   landing/
-    index.html
-    assets/
+    index.html  assets/
 ```
 
-Generated/dependency folders such as `node_modules`, `dist`, build outputs, `.expo`, and lockfile internals are not documented file-by-file.
+Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/generated` output) are not documented file-by-file.
 
 ## 4. File-by-File Explanation
 
 ### Root Files
 
-| File | What It Does | Depends On | Used By / Notes |
-|---|---|---|---|
-| `.gitignore` | Defines ignored development files. Ignores `backend/.env` and `frontend/.env`, but not `backend/.env.test`. | None. | Git only. `backend/.env.test` currently shows as untracked rather than ignored — see risks section. |
-| `README.md` | High-level product status, setup commands, flows, and roadmap. | None. | Developer-facing overview. |
-| `package.json` | Root convenience scripts (`dev:backend`, `dev:frontend`, `build:backend`, `test:backend`, `typecheck:backend`, `typecheck:frontend`) that shell out into `backend/` and `frontend/`. No dependencies of its own. | npm. | Root-level `npm run <script>` from either sub-project. |
-| `package-lock.json` | Root npm lockfile for the root `package.json` (no dependencies to lock). | npm. | npm install bookkeeping. |
-| `CODEBASE_OVERVIEW.md` | This living codebase documentation. | Repository scan. | Developers. |
+| File | What It Does |
+|---|---|
+| `.gitignore` | Ignores `node_modules`, `dist/`, `build/`, `packages/shared/generated/`, `.expo/`, and env files: `backend/.env`, `backend/.env.test`, `frontend/.env`, `.env.local`, `.env.production`. Also `.claude/launch.json` and `backend/prisma/migrations/migration_lock.toml`. |
+| `README.md` | Product status, setup, booking lifecycle, payments/handoff/disputes, env vars, roadmap. |
+| `CODEBASE_OVERVIEW.md` | This document. |
+| `PRODUCT.md` | Product narrative / positioning. |
+| `ZOINK_PUNCHLIST.md` | Running punchlist of pre-launch items. |
+| `package.json` | npm workspaces (`backend`, `frontend`, `packages/shared`); `overrides` pin `react-native`, `expo`, and `semver 7.8.5` (monorepo hoisting fix). Scripts: `dev:backend`, `dev:frontend`, `build:backend`, `test:backend`, `typecheck:backend`, `typecheck:frontend`, `generate`. |
+
+### `packages/shared`
+
+| File | What It Does |
+|---|---|
+| `packages/shared/generated/prisma-models.ts` | Generated by the `typescriptInterfaces` generator in `schema.prisma` — plain TS interfaces + enums for every Prisma model, `dateType: 'string'`, `decimalType: 'string'`. Git-ignored; produced by `prisma generate`. |
+| `packages/shared/src/dto.ts` | Hand-written API response DTOs built on the generated enums: `UserSummary`, `ListingResponse`, `ListingBrowseItem`, `BookingResponse`, `BookingListingSnapshot`, `PendingReviewResponse`, `ReviewResponse`, `ConversationResponse` (`unread`, `acceptedUnpaidBookingId`), `UserReputationResponse`, `PublicProfileResponse`, `MyProfileResponse`, dispute/report shapes, etc. |
+| `packages/shared/src/index.ts` | Re-exports `dto.ts` and the generated enums as `@zoink/shared`. |
+| `packages/shared/package.json` | Declares the `@zoink/shared` package name and its `main`/`types`. |
 
 ### Backend Config Files
 
-| File | What It Does | Depends On | Used By / Notes |
-|---|---|---|---|
-| `backend/package.json` | Defines backend dependencies and scripts: `dev`, `build`, `start`, `test`, `test:integration`, `smoke:week7`; configures Prisma seed. Adds `node-cron` (runtime) and `supertest`/`@types/supertest` (dev, integration tests). | npm, TypeScript, Prisma, Express. | Backend development and CI-style commands. |
-| `backend/package-lock.json` | Backend dependency lockfile. | npm. | Important for reproducible installs, but internals are generated. |
-| `backend/tsconfig.json` | TypeScript config targeting ES2020 CommonJS, outputting to `dist/`, strict mode enabled. | TypeScript. | `npm run build`. |
-| `backend/nodemon.json` | Watches `src`, ignores `dist`, `node_modules`, and tests, runs `ts-node src/index.ts`. | nodemon, ts-node. | `npm run dev`. |
-| `backend/prisma.config.ts` | Loads `.env`, points Prisma to `backend/prisma/schema.prisma`, configures datasource URL and seed command. | `dotenv`, `@prisma/config`, `DATABASE_URL`. | Prisma CLI. |
-| `backend/.env` | Backend environment variables for database, JWT, email, Cloudinary, Stripe, payout settings. | Runtime config. | Do not commit real secrets. See risks section. |
-| `backend/.env.test` | Backend environment variables for the integration test run, pointed at a separate `zoink_test` database and Stripe test-mode keys. | Runtime config. | `npm run test:integration`. Currently **not** covered by `.gitignore` — see risks section. |
+| File | What It Does |
+|---|---|
+| `backend/package.json` | Backend deps and scripts: `dev`, `build`, `start`, `test`, `test:integration`, `smoke:week7`, `admin:grant`, `admin:revoke`. Runtime deps now include `helmet`, `express-rate-limit`, `@sentry/node`, `node-cron`; dev deps include `supertest`, `prisma-generator-typescript-interfaces`. `test:integration` sets `NODE_ENV=test` and relies on `backend/.env.test` for `DATABASE_URL` (`setup.ts` aborts if it isn't a `zoink_test` URL). Configures the Prisma seed. |
+| `backend/tsconfig.json` | TS config, strict, CommonJS, outputs to `dist/`. |
+| `backend/nodemon.json` | Watches `src`, runs `ts-node src/index.ts`. |
+| `backend/prisma.config.ts` | Loads `.env`, points Prisma at `backend/prisma/schema.prisma`, configures datasource URL and seed. |
+| `backend/.env` / `backend/.env.test` | Runtime config; both gitignored. `.env.test` points at a separate `zoink_test` DB with `sk_test_...` keys and a real `DEV_STRIPE_ACCOUNT_ID`. |
 
-### Backend Prisma Files
+### Backend Prisma
 
-| File | What It Does | Depends On | Used By / Notes |
-|---|---|---|---|
-| `backend/prisma/schema.prisma` | Defines all enums and models: users, verification tokens, listings/images, bookings/events, conversations/messages, reviews/obligations, reputations, notifications. | PostgreSQL, Prisma client generator. | Source of truth for DB shape. Services import generated Prisma types. |
-| `backend/prisma/seed.ts` | Seeds database data. It imports `prisma`, `VerificationStatus`, `bcrypt`, and uses `DEV_STRIPE_ACCOUNT_ID`. | Prisma, bcrypt, `.env`. | Run through Prisma seed command. Exact seeded records should be reviewed before relying on it. |
-| `backend/prisma/migrations/20260428151800_init/migration.sql` | Initial schema migration: core enums, users, listings, bookings, conversations, messages, reviews, reputations, notifications, verification tokens. | PostgreSQL. | Applied by Prisma migrations. |
-| `backend/prisma/migrations/20260524000000_week7_payments_handoff/migration.sql` | Adds payment statuses, dispute statuses, booking event types, listing `itemValue`, booking payment/deposit/insurance/handoff/dispute columns, and `booking_events`. | PostgreSQL. | Supports payment lifecycle and audit logs. |
-| `backend/prisma/migrations/20260602000000_zoink_it_handoff/migration.sql` | Adds `PICKUP_PENDING` and `RETURN_PENDING` booking statuses plus handoff initiation timestamps. | PostgreSQL. | Supports synchronized Zoink It handoff states. |
-| `backend/prisma/migrations/20260721000000_add_role_and_disputes/migration.sql` | Adds `Role` enum, `User.role`, expands `DisputeStatus` to 6 values, adds `DisputeReason` enum and the `disputes` table with FKs to `bookings`/`users`. | PostgreSQL. | Supports the admin/dispute feature. **Bug:** the generated SQL runs `ALTER TABLE "disputes" ALTER COLUMN "status" ...` (inside the `DisputeStatus` `AlterEnum` block) before the later `CREATE TABLE "disputes"` statement, so `prisma migrate deploy` fails on a database that doesn't already have a `disputes` table. |
-| `backend/prisma/migrations/20260721000000_add_role_and_disputes/apply_to_test_db.sql` | Manually reordered version of the same migration (creates the `disputes` table before altering its `status` column) plus a manual `_prisma_migrations` insert so Prisma treats it as applied. | PostgreSQL. | **Obsolete/historical** — `migration.sql` itself is fixed now, so a fresh `prisma migrate deploy` no longer needs this workaround. Kept only for reference. |
-| `backend/prisma/migrations/20260730000000_make_phone_required/migration.sql` | Backfills any `NULL` `users.phone` with an obviously-fake placeholder (`+10000000000`), then sets the column `NOT NULL`. | PostgreSQL. | Supports required phone number at registration (see `auth.schema.ts`). |
-| `backend/prisma/migrations/20260802231040_add_conversation_read_state/migration.sql` | Adds nullable `conversations.renterLastReadAt` / `conversations.ownerLastReadAt` timestamp columns. | PostgreSQL. | Supports real per-participant "unread" tracking in `conversationService.ts` (previously unread was just "last sender ≠ me", which never cleared after reading). |
-| `backend/prisma/migrations/20260802233912_add_listing_deposit_amount/migration.sql` | Adds `listings.depositAmount` (`DECIMAL(10,2) DEFAULT 0`). | PostgreSQL. | Supports owner-configured per-listing deposits, replacing the old auto-calculated 30%-of-total deposit. |
+| File | What It Does |
+|---|---|
+| `backend/prisma/schema.prisma` | Source of truth for the DB. Two generators: `prisma-client-js` and `typescriptInterfaces` (→ `packages/shared/generated/prisma-models.ts`). See section 7. |
+| `backend/prisma/seed.ts` | Upserts one verified test user and two Toronto listings if none exist. Uses `DEV_STRIPE_ACCOUNT_ID` for the user's `stripeAccountId`. |
+| `backend/prisma/migrations/*` | See the migration list below. |
 
-### Backend Entry, Middleware, Utils, and Test Helpers
+**Migrations (chronological):**
 
-| File | What It Does | Depends On | Used By / Notes |
-|---|---|---|---|
-| `backend/src/index.ts` | Express server entrypoint. Loads `.env` (skipped when `NODE_ENV=test`), configures CORS, the Stripe raw webhook endpoint (`/stripe/webhook`), JSON body parsing, health routes, Stripe Connect return pages, and mounts `auth`, `users`, `listings`, `bookings`, `conversations`, `reviews`, `disputes`, and `admin` routers. Registers `node-cron` jobs (stale-handoff cleanup + payout release every 15 min, Stripe reconciliation hourly) and skips both the cron registration and `app.listen()` when `NODE_ENV=test` so `supertest` can drive the exported `app` directly. | Express, route files, `stripeWebhook`, `requireAuth`, `getStripeConnectStatus`, `node-cron`, `cleanupJob`, `reconciliationJob`. | `nodemon` and production `dist/index.js`; also imported directly by integration tests via `setup.ts`. |
-| `backend/src/middleware/requireAuth.ts` | Reads `Authorization: Bearer <token>`, verifies JWT with `JWT_SECRET`, attaches `userId`, `verificationStatus`, and `role` (defaults to `USER` if absent from the token) to `req`. | `jsonwebtoken`, `JWT_SECRET`. | Protected routes. |
-| `backend/src/middleware/requireAdmin.ts` | Rejects the request with a `ForbiddenError` (403) unless `req.role === 'ADMIN'`. Must run after `requireAuth`. | `requireAuth`, `utils/errors.ts`. | `routes/admin.ts`. |
-| `backend/src/middleware/requiredVerified.ts` | Blocks requests unless JWT payload verification status is `VERIFIED`. | `requireAuth` must run first. | Marketplace, bookings, conversations, reviews, disputes, public profile routes. |
-| `backend/src/middleware/bookingStateMachine.ts` | Defines allowed booking status transitions and exports `assertBookingTransition`. | Prisma `BookingStatus`. | `bookingService`; tested by `bookingStateMachine.test.ts`. |
-| `backend/src/middleware/bookingStateMachine.test.ts` | Unit tests allowed/blocked booking transitions. | Node test runner, state machine. | `npm test`. |
-| `backend/src/middleware/errorHandler.ts` | Centralized Express error handler (4-arg signature). Handles `ZodError` first (→ `400 { error, issues[] }`), then `AppError` subclasses (→ mapped status + `{ error }`), then falls back to `500`. Mounted as the last middleware in `src/index.ts`. | `zod`, `AppError` hierarchy in `utils/errors.ts`. | All routes via Express error propagation. |
-| `backend/src/middleware/validate.ts` | Generic `validate(schema)` middleware factory. Accepts a Zod schema shaped as `{ body?, params?, query? }`, runs `safeParse`, replaces `req.body/params/query` with coerced values on success, or calls `next(ZodError)` on failure. On Express 5, `req.query` is a getter-only accessor with no setter, so direct assignment throws; the `query` branch instead uses `Object.defineProperty(req, 'query', { value, writable: true, configurable: true, enumerable: true })` to redefine it as an own writable property. `req.body`/`req.params` are plain properties (set by body-parser/the router) and don't need this. | `zod`. | All route files that need input validation. |
-| `backend/src/utils/errors.ts` | `AppError` base class and typed subclasses: `BadRequestError` (400), `UnauthorizedError` (401), `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `TooManyRequestsError` (429), `InternalServerError` (500). | None. | Services, controllers, `errorHandler`. |
-| `backend/src/utils/asyncHandler.ts` | Wraps async route handlers so thrown errors propagate to `next()` without try/catch boilerplate. | None. | All controllers. |
-| `backend/src/utils/prisma.ts` | Creates a PostgreSQL pool, Prisma adapter, and Prisma client. | `DATABASE_URL`, `pg`, `@prisma/adapter-pg`, `@prisma/client`. | All backend services. |
-| `backend/src/utils/cloudinary.ts` | Configures Cloudinary and exports `uploadImage`, `deleteImage`, `extractPublicId`. Applies avatar/listing transformations. | Cloudinary env vars. | Listing and user controllers. |
-| `backend/src/testUtils/httpMocks.ts` | Provides `createMockResponse()` for controller tests. | None. | Controller test files. |
+| Migration | Adds |
+|---|---|
+| `20260428151800_init` | Core enums + tables: users, listings/images, bookings/events, conversations, messages, reviews, obligations, reputations, notifications, verification tokens. |
+| `20260524000000_week7_payments_handoff` | Payment/dispute statuses, booking event types, `Listing.itemValue`, booking payment/deposit/insurance/handoff/dispute columns, `booking_events`. |
+| `20260602000000_zoink_it_handoff` | `PICKUP_PENDING`/`RETURN_PENDING` statuses + handoff-initiation timestamps. |
+| `20260721000000_add_role_and_disputes` | `Role` enum, `User.role`, 6-value `DisputeStatus`, `DisputeReason`, `disputes` table. (Historical: had an enum-alter-before-create-table ordering bug, since fixed in the file; `apply_to_test_db.sql` is obsolete.) |
+| `20260730000000_make_phone_required` | Backfills `NULL` `users.phone` with `+10000000000`, then `NOT NULL`. |
+| `20260802231040_add_conversation_read_state` | `conversations.renterLastReadAt` / `ownerLastReadAt`. |
+| `20260802233912_add_listing_deposit_amount` | `listings.depositAmount DECIMAL(10,2) DEFAULT 0`. |
+| `20260803185737_add_dispute_refund_amount` | `disputes.refundAmountCents INTEGER` (cents actually refunded on `RESOLVED_REFUND`). |
+| `20260803233651_add_report` | `ReportTargetType` / `ReportReason` / `ReportStatus` enums + `reports` table (FK-less polymorphic `targetId`). |
+| `20260803233745_add_report_admin_notes` | `reports.adminNotes`. |
+| `20260822183636_add_item_review_remove_person_notes` | Drops `reviews.comment`; adds `reviews.itemRating` + `itemNotes`. |
+| `20260822193008_add_review_person_notes` | Adds `reviews.personNotes`. |
+| `20260822201926_booking_flow_rework` | `BookingStatus.CONFIRMED`; drops `bookings.message`; adds `bookings.conversationId` (FK → conversations, `ON DELETE SET NULL`). |
+| `20260825185736_add_deposit_payment_intent_tracking` | `DepositStatus` enum; `bookings.depositStatus` + `stripeDepositPaymentIntentId`. |
+| `20260825212850_add_booking_hst_amount` | `bookings.hstAmount DECIMAL(10,2) NOT NULL DEFAULT 0`. |
+| `20260827000000_add_booking_refunded_amount_cents` | `bookings.refundedAmountCents INTEGER` (cumulative renter refund; drives the proportional payout math). |
+| `20260831212304_add_listing_rating_aggregates` | `listings` item-rating aggregate columns (count + average), shown on listing cards. |
+| `20260831213825_add_notification_prefs_and_types` | `NotificationType` gains `MESSAGE_RECEIVED` + `DEPOSIT_RELEASED`; `users` gains per-category toggle columns `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (all `DEFAULT true`). |
+| `20260831214548_add_user_deleted_at` | `users.deletedAt DateTime?` — soft-delete / anonymize; `requireAuth` and `loginUser` reject a row with `deletedAt` set. |
+
+### Backend Entry, Instrument, Middleware, Utils, Test Helpers
+
+| File | What It Does |
+|---|---|
+| `backend/src/index.ts` | Express entrypoint. Loads `.env` (skipped when `NODE_ENV=test`), imports `./instrument` first (Sentry), applies `helmet()` + `cors()` + `trust proxy 1`, mounts the raw `/stripe/webhook` **before** `express.json()` and the `globalLimiter`, serves `/`, `/health`, and the `/stripe-return` / `/stripe-refresh` HTML redirect pages, exposes `GET /stripe/connect/status`, and mounts routers: `auth`, `users`, `listings`, `bookings`, `conversations`, `reviews`, `disputes`, `reports`, `admin`. Registers `node-cron` jobs (stale-handoff cleanup + payout release + deposit release every 15 min; reconciliation hourly) and calls `app.listen()` — both skipped when `NODE_ENV=test`. Exports `app`. |
+| `backend/src/instrument.ts` | Initializes `@sentry/node` when `SENTRY_DSN` is set and `NODE_ENV !== 'test'`. `beforeSend` scrubs any header/body/cookie/extra key matching `/password|token|secret|key|authorization/i`. Exports `Sentry`. |
+| `backend/src/middleware/requireAuth.ts` | Verifies the `Bearer` JWT with `JWT_SECRET`, then does one `User` lookup per request selecting `deletedAt`, `role`, `verificationStatus`. Rejects a deleted/missing user (401); attaches `userId` (from the token) plus `role` (DB value, defaults `USER`) and `verificationStatus` (DB value) — **not** the JWT claims, so a role/verification change in the DB is enforced on the next request rather than at token expiry. |
+| `backend/src/middleware/requireAdmin.ts` | 403 unless `req.role === 'ADMIN'` (the DB-sourced value set by `requireAuth`). Runs after `requireAuth`. |
+| `backend/src/middleware/requiredVerified.ts` | Blocks unless `req.verificationStatus === 'VERIFIED'` (DB-sourced by `requireAuth`). |
+| `backend/src/middleware/rateLimiter.ts` | `express-rate-limit` factory. `keyByIpAndUser` combines `req.ip` with the token's `userId` when present. `authLimiter` = 10 / 15 min (mounted on `/auth`); `globalLimiter` = 300 / 15 min (mounted app-wide, after the webhook). In-memory store — noted as needing a shared store if scaled to multiple instances. |
+| `backend/src/middleware/bookingStateMachine.ts` | `allowedTransitions` map + `assertBookingTransition`. Current graph: `PENDING→{ACCEPTED,DECLINED,CANCELLED}`, `ACCEPTED→{CONFIRMED,CANCELLED}`, `CONFIRMED→{PICKUP_PENDING,ACTIVE,CANCELLED}`, `PICKUP_PENDING→{ACTIVE,CANCELLED}`, `ACTIVE→{RETURN_PENDING,COMPLETED}`, `RETURN_PENDING→{COMPLETED}`. |
+| `backend/src/middleware/errorHandler.ts` | 4-arg handler: `ZodError` → `400 { error, issues[] }`; `AppError` subclasses → mapped status + `{ error }`; else `500`. Mounted last. |
+| `backend/src/middleware/validate.ts` | `validate(schema)` factory — `safeParse` of `{ body?, params?, query? }`, replaces `req.*` with coerced values, or `next(ZodError)`. Redefines `req.query` via `Object.defineProperty` (Express 5's `req.query` has no setter). |
+| `backend/src/utils/errors.ts` | `AppError` base + `BadRequestError` (400), `UnauthorizedError` (401), `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `TooManyRequestsError` (429), `InternalServerError` (500). |
+| `backend/src/utils/asyncHandler.ts` | Wraps async handlers so throws reach `next()`. |
+| `backend/src/utils/prisma.ts` | Builds the `pg` pool, Prisma adapter, and singleton Prisma client from `DATABASE_URL`. |
+| `backend/src/utils/cloudinary.ts` | Configures Cloudinary; exports `uploadImage`, `deleteImage`, `extractPublicId` with avatar/listing transforms. |
+| `backend/src/testUtils/httpMocks.ts` | `createMockResponse()` for controller unit tests. |
 
 ### Backend Routes
 
-| File | Routes | Controllers | Notes |
-|---|---|---|---|
-| `backend/src/routes/auth.ts` | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-otp` | `authController` | Validation: `RegisterSchema`, `LoginSchema`, `VerifyEmailSchema`. Verification routes require auth but not verified status. |
-| `backend/src/routes/users.ts` | `GET/PATCH /users/me`, `PATCH /users/me/push-token`, `POST /users/me/avatar`, `POST /users/me/stripe-connect/onboard`, `GET /users/me/stripe-connect/status`, `GET /users/:id` | `userController` | Public profile route requires verified user. Avatar upload uses Multer memory storage. |
-| `backend/src/routes/listings.ts` | Browse, categories, get by id, own listings, create, update, availability, delete, image upload/delete. | `listingController` | All routes require auth and verified status. Validation: `BrowseListingsQuerySchema` (with `z.coerce` for numeric params), `CreateListingSchema`, `UpdateListingSchema`, `ToggleAvailabilitySchema`, `ListingIdParamsSchema`, `ListingImageParamsSchema`. |
-| `backend/src/routes/bookings.ts` | Create, my bookings, incoming requests, detail, accept/decline/cancel/activate/complete, pickup/return initiate/confirm, handoff photos, photo upload, `zoink-tap`. | `bookingController` | Router-level auth and verified middleware. Validation: `CreateBookingSchema`, `InitiateHandoffSchema` (photos 2–3 URLs), `ZoinkTapSchema` (strict phase enum), `UploadHandoffPhotosSchema`, `BookingIdParamsSchema`. |
-| `backend/src/routes/conversations.ts` | Open conversation, list my conversations, list messages, send message, mark conversation read (`POST /conversations/:id/read`). | `conversationController` | Router-level auth and verified middleware. |
-| `backend/src/routes/reviews.ts` | `GET /reviews/pending`, `POST /reviews` | `reviewController` | Router-level auth and verified middleware. |
-| `backend/src/routes/disputes.ts` | `POST /disputes`, `GET /disputes`, `GET /disputes/:id` | `disputeController` | Router-level auth and verified middleware. Validation: `CreateDisputeSchema`, `DisputeIdParamsSchema`. |
-| `backend/src/routes/admin.ts` | `GET /admin/disputes`, `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve` | `adminController` | Router-level `requireAuth` + `requireAdmin`. Validation: `AdminListDisputesQuerySchema`, `DisputeIdParamsSchema`, `ResolveDisputeSchema`. |
+| File | Routes | Notes |
+|---|---|---|
+| `routes/auth.ts` | `POST /auth/register`, `/login`, `/verify-email`, `/resend-otp` | `authLimiter` on the whole router. `RegisterSchema` (Canadian/NANP phone, normalized), `LoginSchema`, `VerifyEmailSchema`. `verify-email` / `resend-otp` require auth, not verified. |
+| `routes/users.ts` | `GET/PATCH /users/me`, `PATCH /users/me/push-token`, `POST /users/me/avatar`, `POST /users/me/stripe-connect/onboard`, `GET /users/me/stripe-connect/status`, `GET /users/:id` | `/me/*` need auth only; `GET /users/:id` needs verified. `UpdateMeSchema`. Avatar via Multer (5 MB). |
+| `routes/listings.ts` | browse, categories, get, `me`, create, update, availability, delete, image upload/delete | All require auth + verified. Schemas: `BrowseListingsQuerySchema` (coerced, superRefine on lat/lng/radius/price pairs), `CreateListingSchema` / `UpdateListingSchema` (deposit ≤ itemValue, itemValue required when deposit set), `ToggleAvailabilitySchema`, `ListingIdParamsSchema`, `ListingImageParamsSchema`. Image upload via Multer (10 MB). |
+| `routes/bookings.ts` | create, `me`, `requests`, `:id`, `:id/accept`, `:id/payment-intent`, `:id/confirm`, `:id/decline`, `:id/cancel`, `:id/activate`, `:id/complete`, pickup/return `initiate`/`confirm`, `:id/photos`, `:id/photos/upload`, `:id/zoink-tap` | Router-level auth + verified. `CreateBookingSchema`, `BookingIdParamsSchema`, and the handoff schemas. Photo upload via Multer (10 MB). |
+| `routes/conversations.ts` | `POST /conversations`, `GET /conversations/me`, `GET /:id/messages`, `POST /:id/messages`, `POST /:id/read` | Router-level auth + verified. `SendMessageSchema`. |
+| `routes/reviews.ts` | `GET /reviews/pending`, `POST /reviews` | Router-level auth + verified. `SubmitReviewSchema` (role-conditional item vs person fields). |
+| `routes/disputes.ts` | `POST /disputes`, `GET /disputes`, `GET /disputes/:id` | Router-level auth + verified. `CreateDisputeSchema`, `DisputeIdParamsSchema`. |
+| `routes/reports.ts` | `POST /reports` | Router-level auth + verified. `CreateReportSchema`. |
+| `routes/admin.ts` | `GET /admin/disputes`, `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve`, `GET /admin/bookings/:id/events`, `GET /admin/reports`, `PATCH /admin/reports/:id` | Router-level `requireAuth` + `requireAdmin`. `AdminListDisputesQuerySchema`, `ResolveDisputeSchema` (optional `refundAmountCents`), `AdminListReportsQuerySchema`, `ResolveReportSchema`, `BookingIdParamsSchema`, `ReportIdParamsSchema`, `DisputeIdParamsSchema`. |
 
-### Backend Controllers
+### Backend Controllers (`backend/src/middleware/controllers/`)
 
-| File | What It Contains | Calls / Depends On | Used By |
-|---|---|---|---|
-| `backend/src/middleware/controllers/authController.ts` | `register` (now also takes/forwards `phone`), `login`, `verifyEmail`, `resendOTP`; delegates all structural validation to the Zod middleware layer; maps service errors to JSON responses. | `authService`. | `routes/auth.ts`. |
-| `backend/src/middleware/controllers/userController.ts` | `getMe`, `getPublicProfile`, `updateMe`, `uploadAvatar`, `updatePushToken`, `onboardStripeConnect`, `getStripeConnectStatus`. | `userService`, `paymentService`, `uploadImage`. | `routes/users.ts`, `src/index.ts` for `/stripe/connect/status`. |
-| `backend/src/middleware/controllers/listingController.ts` | Listing CRUD (create/update now also accept `depositAmount`), browse (receives pre-coerced query values), categories, availability, listing image upload/delete. Manual `parseNumber`/`parseBoolean` helpers removed — `BrowseListingsQuerySchema` owns coercion. | `listingService`, Cloudinary utils, Multer file data. | `routes/listings.ts`. |
-| `backend/src/middleware/controllers/bookingController.ts` | Booking creation/detail/listing, owner actions, cancellation, legacy activate/complete, handoff photo/tap endpoints, upload handoff images. Inline required-field guards and `parsePhase` helper removed — validate middleware owns all input checks. | `bookingService`, `handoffService`, `uploadImage`. | `routes/bookings.ts`. |
-| `backend/src/middleware/controllers/conversationController.ts` | Conversation creation, conversation list, message list, send message, `markConversationRead`. | `conversationService`. | `routes/conversations.ts`. |
-| `backend/src/middleware/controllers/reviewController.ts` | Pending review list and review submission. | `reviewService`. | `routes/reviews.ts`. |
-| `backend/src/middleware/controllers/disputeController.ts` | `createDispute` (renter/owner opens a dispute), `getDispute` (admin or booking participant only), `getMyDisputes`. | `disputeService`, Prisma. | `routes/disputes.ts`. |
-| `backend/src/middleware/controllers/adminController.ts` | `listDisputes` (optional status filter), `getDisputeDetail`, `resolveDispute` (validates target status, delegates to `disputeService.resolveDispute`). | `disputeService`, Prisma. | `routes/admin.ts`. |
-| `backend/src/middleware/controllers/stripeWebhookController.ts` | Constructs Stripe event, verifies signature when configured, records webhook event, updates booking payment status from payment intent events. Receives raw `Buffer` body — intentionally excluded from Zod body validation. | Prisma, Stripe env vars. | Raw webhook route in `src/index.ts` (`/stripe/webhook`). |
-| `*.test.ts` controller files | Unit tests for controller behavior using mocked services/responses, including `adminController.test.ts` and `disputeController.test.ts`. `bookingController.test.ts` now exercises the `validate()` + `errorHandler` pipeline and asserts the `{ error, issues }` shape. New `authController.test.ts` runs `RegisterSchema` through `validate()` + `errorHandler` and asserts a missing/invalid phone number is flagged with `body.phone` in the issues list. | Node test runner, `httpMocks`, service modules. | `npm test`. |
+| File | What It Contains |
+|---|---|
+| `authController.ts` | `register` (forwards `phone`), `login`, `verifyEmail`, `resendOTP`. Delegates structural validation to Zod. |
+| `userController.ts` | `getMe`, `getPublicProfile`, `updateMe`, `uploadAvatar`, `updatePushToken`, `onboardStripeConnect`, `getStripeConnectStatus`. |
+| `listingController.ts` | Listing CRUD (create/update accept `itemValue` + `depositAmount`), browse (pre-coerced query), categories, availability, image upload/delete. |
+| `bookingController.ts` | `createBooking`, `getBooking`, `getMyBookings`, `getIncomingRequests`, `acceptBooking`, `createBookingPaymentIntent`, `confirmBookingPayment`, `declineBooking`, `cancelBooking`, legacy `activateBooking` / `completeBooking`, handoff `initiatePickup`/`confirmPickup`/`initiateReturn`/`confirmReturn`, `uploadHandoffPhotos`, `uploadHandoffPhotoImage`, `zoinkTap`. |
+| `conversationController.ts` | `openConversation`, `getMyConversations`, `getConversationMessages`, `sendMessage`, `markConversationRead`. |
+| `reviewController.ts` | `getPendingReviews`, `submitReview`. |
+| `disputeController.ts` | `createDispute`; `getDispute` (admin or booking participant) and `getMyDisputes` — both project the row through `toDisputeResponse(row, callerId, role)` instead of returning it raw: `resolvedByAdminId` is admin-only, the raiser's `description` is withheld from the counterparty, and the embedded booking is narrowed to `id`/`status`/`startDate`/`endDate`/`listing.title` (`renterId`/`ownerId` are selected only to run the authz check, then stripped). `toDisputeResponse` is exported for unit testing. |
+| `reportController.ts` | `createReport` (201). |
+| `adminController.ts` | `listDisputes` (raw Prisma rows — admin-only, unlike the shaped user-facing `getDispute`), `getDisputeDetail`, `resolveDispute` (validates status, delegates to `disputeService`), `getBookingEvents`, `listReports` (+ `attachTargetLabels`), `resolveReport`. |
+| `stripeWebhookController.ts` | `stripeWebhook` — `constructEvent` **fails closed**: it verifies the `stripe-signature` header against `STRIPE_WEBHOOK_SECRET` and, when it can't (header absent or secret unset), throws `BadRequestError` → `400 { error: 'Invalid Stripe webhook signature.' }` and does not process the body. The unsigned `JSON.parse` fallback survives only when `NODE_ENV === 'test'` **and** no secret is configured (the synthetic-event fixtures). Then `updateBookingFromEvent`: `amount_capturable_updated` → `AUTHORIZED`; `succeeded` → `CAPTURED` + `paidAt` + `stripeChargeId`; `payment_failed`/`canceled` → `FAILED`/`REFUNDED` (+ `refundedAt`); `charge.refunded`/`refund.succeeded` compare `amount_refunded` to the full charge (partial → `refundedAmountCents` + `refundedAt` only; full → `REFUNDED`). Writes a `WEBHOOK_RECEIVED` event. No `event.id` de-dupe yet (replay guard is a known gap — see §14). |
+| `*.test.ts` | Unit tests for every controller, plus `rateLimiter.test.ts`, `bookingStateMachine.test.ts`. `bookingController.test.ts` / `authController.test.ts` run the `validate()` + `errorHandler` pipeline and assert the `{ error, issues }` shape. |
 
-### Backend Services
+### Backend Services (`backend/src/services/`)
 
-| File | What It Contains | Calls / Depends On | Used By |
-|---|---|---|---|
-| `backend/src/services/authService.ts` | Email domain allowlist, OTP generation, JWT signing, registration, login, OTP verification/resend, SES email sending. | Prisma, bcrypt, JWT, crypto, AWS SES, auth env vars. | `authController`. |
-| `backend/src/services/userService.ts` | Profile reads/updates, avatar URL update, Expo push token update, Stripe account ID getters/setters, public profile/reputation formatting. | Prisma. | `userController`. |
-| `backend/src/services/listingService.ts` | Listing create/read/update/delete, image add/delete, availability, category list, browse/search with location/distance filtering. | Prisma, raw SQL for distance. | `listingController`. |
-| `backend/src/services/bookingService.ts` | Booking creation, totals/deposits, payment intent setup, owner request handling, state transitions, cancellation handling, review obligation creation, response formatting. `calculateCancellationFeeCents()` currently short-circuits to `return 0` — cancellation fees are disabled for launch (product decision); the original tiered clamp($5, $25, totalPrice × 5%) logic is retained below the early return, unreachable, for a planned owner opt-in "cancellation fee" feature (same pattern as `Listing.insuranceOptIn`). `handleCancellationPayment()` is awaited end-to-end by `transitionBookingStatus` (not fire-and-forget); when the fee is 0 it calls `cancelPaymentIntent` (full release) instead of `capturePaymentIntent` with a zero amount, since Stripe rejects `amount_to_capture: 0`. A failure to write the `cancel_payment` audit `BookingEvent` is caught separately and logged, not thrown, since the booking's `CANCELLED` status has already committed by that point. | Prisma, `bookingStateMachine`, `bookingUtils`, `paymentService`, `notificationService`, `bookingEventService`. | `bookingController`, `handoffService`. |
-| `backend/src/services/bookingUtils.ts` | Currency rounding, rental day count, date validation, deposit calculation. | None. | `bookingService`; tested by `bookingUtils.test.ts`. |
-| `backend/src/services/bookingEventService.ts` | Creates immutable booking audit events. | Prisma, Prisma JSON types. | Booking/payment/handoff flows. |
-| `backend/src/services/handoffService.ts` | Pickup/return photo initiation, synchronized confirmations, tap registration, completed photo retrieval. Enforces participant checks and confirmation windows. | Prisma, `bookingService`, `paymentService`, `notificationService`. | `bookingController`. |
-| `backend/src/services/paymentService.ts` | Stripe/mocked payment behavior, cents/decimal helpers, commission, insurance, owner payout calculations, PaymentIntent auth/capture/cancel/refund, transfers, Connect onboarding/status. | Stripe SDK, payment env vars. | `bookingService`, `handoffService`, `userController`, jobs. |
-| `backend/src/services/conversationService.ts` | Opens or finds a conversation for listing/renter, lists conversations (computing `unread` per-viewer from `lastMessage.createdAt` vs. that viewer's `renterLastReadAt`/`ownerLastReadAt`, not just who sent the last message), fetches messages, sends messages, `markConversationRead` (sets the caller's own last-read timestamp), sends direct push notifications. | Prisma, `notificationService`. | `conversationController`. |
-| `backend/src/services/reviewService.ts` | Pending reviews, review submission, score validation, user reputation recomputation, notifications. | Prisma, `notificationService`. | `reviewController`. |
-| `backend/src/services/disputeService.ts` | `createDispute` (validates the requester is a booking participant, blocks a second open dispute, writes a `DISPUTE_OPENED` `BookingEvent`, sets `Booking.disputeStatus = OPEN`); `resolveDispute` (refunds via Stripe on `RESOLVED_REFUND` — and now also sets `Booking.paymentStatus = REFUNDED` + `refundedAt` in the same transaction, instead of leaving `paymentStatus` stale — then transactionally updates the dispute, the booking's `disputeStatus`, and writes a `DISPUTE_RESOLVED` `BookingEvent`). | Prisma, `paymentService.refundPaymentIntent`. | `disputeController`, `adminController`. |
-| `backend/src/services/notificationService.ts` | Creates DB notifications and sends Expo push notifications when a token exists. | Prisma, Expo push endpoint, `EXPO_ACCESS_TOKEN`. | Booking, conversation, review services. |
-| `backend/src/services/cleanupJob.ts` | Helpers for stale handoff cleanup and releasing due payouts (`releaseDuePayouts` selects bookings with `disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED'] }` — `RESOLVED_REFUND` is excluded to avoid double-paying the owner on top of the Stripe refund already sent). | Prisma, payment/handoff env vars, `paymentService`. | Scheduled every 15 minutes via `node-cron` in `src/index.ts` (skipped when `NODE_ENV=test`); also importable directly. |
-| `backend/src/services/reconciliationJob.ts` | Reconciles Stripe payment state against local bookings. | Prisma, Stripe env vars. | Scheduled hourly via `node-cron` in `src/index.ts` (skipped when `NODE_ENV=test`); also importable directly. |
-| `backend/src/services/*.test.ts` | Unit tests, currently including booking utility tests. | Node test runner. | `npm test`. |
+| File | What It Contains |
+|---|---|
+| `authService.ts` | Email-domain allowlist, OTP generation, JWT signing (payload: `userId`, `verificationStatus`, `email`, `firstName`, `role` — but `role`/`verificationStatus` in the token are informational only; `requireAuth` authorizes off the DB), registration, login, OTP verify/resend, SES email. |
+| `userService.ts` | Profile reads/updates, avatar URL, push token, Stripe account id getters/setters, public-profile/reputation formatting. |
+| `listingService.ts` | Listing CRUD, image add/delete, availability, category list, browse/search with raw-SQL distance filtering. Returns an `{ items, meta: { total, offset, limit, hasMore } }` envelope. |
+| `bookingService.ts` | `createBooking` (validates dates ≤ `MAX_RENTAL_DAYS`, upserts the listing/renter `Conversation`, snapshots `totalPrice` / `depositAmount` (from `listing.depositAmount`) / `commissionAmount` / `ownerPayout` / `insuranceFee` / `hstAmount`, posts the optional message into the conversation, notifies the owner); `createPaymentIntentForBooking` (renter-only, `ACCEPTED` only — ensures a Stripe Customer, creates the rental PaymentIntent with `setup_future_usage`); `getBookingById` / `getMyBookings` (`updatedAt desc`) / `getIncomingRequests` (`[status asc, updatedAt desc]` — PENDING pinned); `transitionBookingStatus` (state-machine + per-status authorization; `ACCEPTED` re-checks overlap + owner payouts; `CONFIRMED` re-checks overlap, requires `AUTHORIZED`/`CAPTURED` rental payment, then authorizes the **deposit** as its own off-session PaymentIntent and rolls back to `ACCEPTED` on failure; `ACCEPTED` auto-declines overlapping `PENDING` requests; `COMPLETED` sets `completedAt`, flips `CAPTURED → PAYOUT_PENDING`, creates review obligations); `handleCancellationPayment` (`PENDING`/`ACCEPTED` → no Stripe call; `CONFIRMED` → full release, fee path retained but unreachable); `calculateCancellationFeeCents` → `return 0`. `toBookingResponse(booking, userId?)` builds the `BookingResponse` DTO — `renter`/`owner` mapped through `toUserSummary` (id/firstName/lastName/avatarUrl/verificationStatus only). Exports `bookingSelect`, `createBookingEvent`, `createReviewObligationsForCompletedBooking`, `toBookingResponse` for `handoffService`. |
+| `bookingUtils.ts` | `MAX_RENTAL_DAYS = 7`, `roundCurrency`, `getRentalDays` (UTC, inclusive), `ensureValidBookingDates` (NaN / order / max-days). Deposit calculation was removed. |
+| `bookingEventService.ts` | `getBookingEvents(bookingId)` (for the admin endpoint) and a `createBookingEvent` helper (tx-aware). |
+| `handoffService.ts` | `initiateHandoff` (2–3 photos; pickup starts from `CONFIRMED` and is owner-only, return from `ACTIVE` and renter-only; first submission transitions to `PICKUP_PENDING`/`RETURN_PENDING` + `UPLOAD_PHOTOS`/`STATUS_CHANGE` events + notifies the other party; later edits only update photos with `edited: true`); `confirmHandoff` (records the actor's tap; if both taps land within `ZOINK_TAP_WINDOW_MS`, pickup → `ACTIVE` + `startDate = now` + captures the rental PaymentIntent, return → `COMPLETED` + `completedAt` + `PAYOUT_PENDING` + review obligations); `getCompletedHandoffPhotos`; legacy `uploadHandoffPhotos` / `registerTap` aliases. The three response producers return `bookingService.toBookingResponse(updated, actorId)` (the shared scrubbed serializer) — there is no local raw-spread serializer anymore — so `renter`/`owner` are `UserSummary` and `renter.stripeCustomerId` / `renter.email` / `owner.stripeAccountId` never reach the counterparty. `capturePaymentIntent` is still handed the raw Prisma row, not the DTO. |
+| `paymentService.ts` | Mock-vs-real Stripe (`STRIPE_SECRET_KEY` empty → mock). `calculateInsuranceFee`; `calculateHst` (`HST_RATE = 0.13`, hardcoded); `getCommissionRate` / `calculateCommission` / `calculateOwnerPayout` (`COMMISSION_TIERS` keyed on daily rate: ≤20 → 15%, ≤50 → 12.5%, else 10%); `getRentalAuthorizationAmount` (rental + insurance + HST); `getOrCreateStripeCustomer`; `createPaymentIntent` (manual capture, `setup_future_usage: 'off_session'`); `createDepositPaymentIntent` (separate PI, `off_session`, `confirm: true`, reusing the saved payment method); `getPaymentIntentPaymentMethod`; `capturePaymentIntent` / `cancelPaymentIntent` / `refundPaymentIntent` (idempotency salt = dispute id, so sequential different-amount refunds are allowed); `transferPayout` (commission already netted out); `transferDepositCompensation` (full amount, no commission, keyed on dispute id); `createConnectAccountLink` / `getConnectAccountStatus`; `getStripeConnectRedirectUrl` (requires `http://localhost` or `https://`). |
+| `conversationService.ts` | `openConversation` (upsert by `listingId+renterId`, rejects your own listing), `getMyConversations` (computes `unread` per viewer from `lastMessage.createdAt` vs that viewer's `renterLastReadAt`/`ownerLastReadAt`, and `acceptedUnpaidBookingId` from any `ACCEPTED` booking on the conversation), `getConversationMessages`, `sendMessage` (+ push), `markConversationRead` (sets the caller's own last-read). |
+| `reviewService.ts` | `scoreLabelsForRole` (`RENTER` → accuracy/condition/**pickupExperience**; `LENDER` → reliability/care/communication), `getPendingReviews`, `submitReview` (1–5 score guards; `resolveReviewFields` derives item-vs-person fields strictly from the obligation's real `reviewerRole`; recomputes `UserReputation`; returns `pendingRemaining`; notifies the reviewee). |
+| `disputeService.ts` | `DISPUTE_WINDOW_HOURS = 24`. `createDispute` (participant check; on a `COMPLETED` booking rejects if past the window or if `depositStatus` already `CAPTURED`/`RELEASED`; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`). `resolveDispute` — one `$transaction` holding `SELECT … FOR UPDATE` on the booking: **COMPLETED + `RESOLVED_REFUND`** → acts on the deposit PI (must be `AUTHORIZED`); a charge → `capturePaymentIntent` + `transferDepositCompensation` to the owner (full, no commission) + `depositStatus = CAPTURED`; no charge → `cancelPaymentIntent` + `depositStatus = RELEASED`. **Pre-completion `RESOLVED_REFUND`** → over-refund guard against the *remaining* refundable balance (total − prior refunds); if `paidAt` set → partial/full `refundPaymentIntent`; else → full-only `cancelPaymentIntent`; records the cumulative renter refund in `Booking.refundedAmountCents` + `refundedAt`, and only moves `Booking.paymentStatus = REFUNDED` when the refund covers the whole charge (a partial refund leaves it `CAPTURED`/`PAYOUT_PENDING`). Always updates the dispute (+ `refundAmountCents`), `Booking.disputeStatus`, and writes `DISPUTE_RESOLVED`. |
+| `reportService.ts` | `createReport` (rejects self / own listing; polymorphic `targetId`), `resolveReport` (only from `OPEN`), `attachTargetLabels` (batched lookup of user/listing names for the admin list; `[deleted user]` / `[deleted listing]` fallback). |
+| `notificationService.ts` | Creates `Notification` rows and attempts Expo push when a token exists (`EXPO_ACCESS_TOKEN` optional). |
+| `cleanupJob.ts` | `cleanupStaleHandoffs` (clears one-sided taps older than `ZOINK_TAP_WINDOW_MS`); `releaseDuePayouts` (`COMPLETED` + past `PAYOUT_HOLD_HOURS` + `payoutSentAt` null; `PAYOUT_PENDING` with `disputeStatus ∈ {NONE, RESOLVED_NO_ACTION, DISMISSED, RESOLVED_REFUND}`, or `REFUNDED` + `RESOLVED_REFUND`. Pays the owner's proportional remaining share — `(total − refundedAmountCents) × ownerPayout ÷ total` — via Stripe Transfer + `PAID_OUT`; a fully-refunded booking gets `payoutSentAt` stamped with no transfer; `OPEN`/`UNDER_REVIEW` excluded); `releaseDueDeposits` (`COMPLETED` + `depositStatus AUTHORIZED` + past `DEPOSIT_HOLD_HOURS` + no `OPEN`/`UNDER_REVIEW` dispute → cancel the deposit PI + `depositStatus = RELEASED`). |
+| `reconciliationJob.ts` | Reconciles Stripe payment state against local bookings (hourly). |
+| `authService`/`paymentService`/`bookingUtils`/`reportService` `*.test.ts` | Unit tests (commission/HST/payout math, report rules, booking-date utils, etc.). |
 
-### Backend Script Files
+### Backend Scripts
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `backend/src/scripts/week7SmokeFlow.ts` | Runs a backend-only smoke flow for users, listing, booking, payment authorization, pickup/return photos, synchronized taps, and final state checks. | Prisma/services/env. | `npm run smoke:week7`. |
+| File | What It Does |
+|---|---|
+| `scripts/week7SmokeFlow.ts` | Backend-only users → listing → booking → handoff smoke flow in forced mock-Stripe mode. Walks the current path (`accept → payment-intent → confirm/CONFIRMED → pickup → active → return → complete`); a quick wiring check, with the integration suite as the authoritative coverage. |
+| `scripts/manageAdminRole.ts` (+ `.test.ts`) | `admin:grant` / `admin:revoke` CLI. Looks up by email (case-insensitive), never creates a user, refuses to revoke the last admin, prints the role transition. `db` is an injectable param, so the core logic is unit-tested against a mocked db. |
 
-### Backend Integration Tests
+### Backend Integration Tests (`backend/src/integration-tests/`)
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `backend/src/integration-tests/README.md` | Explains setup (`zoink_test` DB, `.env.test`, Stripe test-mode network access), the truncate-and-reseed test isolation strategy, and why transaction-per-test isn't used (the `pg` pool can hand the test setup and the code under test different connections). | None. | Developers running `npm run test:integration`. |
-| `backend/src/integration-tests/setup.ts` | Shared test utilities: `truncateAllTables`, `createTestUser`, `createTestListing`, `futureDates`, `buildSignedWebhookPayload`, `signTestJwt`, `checkStripeConnectivity`, `getApp` (imports the real `app` from `src/index.ts`). | Prisma, `jsonwebtoken`, Stripe, `src/index.ts`. | All `*.integration.test.ts` files. |
-| `backend/src/integration-tests/bookingLifecycle.integration.test.ts` | Full happy path over real HTTP via `supertest`: create → accept → pickup handoff → `ACTIVE` → return handoff → `COMPLETED` → review obligations → `PAYOUT_PENDING`. Plus validation, overlap detection, and access-control checks. `giveOwnerStripeAccount()` reads a real account id from `process.env.DEV_STRIPE_ACCOUNT_ID` (a fully-onboarded, `payouts_enabled: true` Stripe Express test-mode Connect account) and throws immediately if it's unset — accept-flow tests make a real `stripe.accounts.retrieve` call that a fake id would fail. | `supertest`, `setup.ts`, real Postgres + Stripe test mode. | `npm run test:integration`. |
-| `backend/src/integration-tests/bookingCancellation.integration.test.ts` | Cancellation behavior at each booking stage (`PENDING`/`ACCEPTED`/`PICKUP_PENDING`), invalid-cancellation rejections, and HTTP status codes. Same `DEV_STRIPE_ACCOUNT_ID` requirement/fail-fast as `bookingLifecycle.integration.test.ts` for `giveOwnerStripeAccount()`. Since cancellation fees are disabled for launch (see `bookingService.ts`), the original tiered-fee assertions (`cancellation fee is clamped to $5 minimum`, `...$25 maximum`, `...5% for a mid-range rental`) are kept but marked `{ skip: '...' }` with a reason pointing back to `calculateCancellationFeeCents()`, ready to re-enable if the opt-in feature ships; a new `cancel from ACCEPTED status — fees disabled for launch` describe block asserts the current $0-fee behavior (full payment-intent release, same as the `PENDING` branch) across cheap/expensive/mid-range rentals. | `supertest`, `setup.ts`. | `npm run test:integration`. |
-| `backend/src/integration-tests/disputeResolution.integration.test.ts` | `disputeService.createDispute`/`resolveDispute` at the service and HTTP layer; all three resolution outcomes; the admin-only resolve endpoint; `BookingEvent` audit trail. New: `RESOLVED_REFUND` against a real captured Stripe PaymentIntent (`pm_card_visa` test token) asserts `Booking.paymentStatus` becomes `REFUNDED` with `refundedAt` set — the fix for the previously-stale-`paymentStatus` bug. | `supertest`, `setup.ts`, `disputeService`, real Stripe test-mode payment intents. | `npm run test:integration`. |
-| `backend/src/integration-tests/payoutRelease.integration.test.ts` | `cleanupJob.releaseDuePayouts()` against a real Stripe Connect test account: a `COMPLETED`/`PAYOUT_PENDING` booking past the hold window with `disputeStatus` `NONE`/`RESOLVED_NO_ACTION`/`DISMISSED` is released (`paymentStatus` → `PAID_OUT`); one with `RESOLVED_REFUND` is deliberately not (would double-pay the owner); `OPEN`/`UNDER_REVIEW` disputes also block release. | `supertest`, `setup.ts`, `cleanupJob`, real Stripe Connect test account (`DEV_STRIPE_ACCOUNT_ID`). | `npm run test:integration`. |
-| `backend/src/integration-tests/stripeWebhooks.integration.test.ts` | Synthetic signed webhook events posted to `/stripe/webhook`; signature verification, unknown event types, replay idempotency. | `supertest`, `setup.ts`, Stripe webhook signing. | `npm run test:integration`. |
+| File | What It Tests |
+|---|---|
+| `README.md` | Setup (`zoink_test` DB, `.env.test`, Stripe network), truncate-and-reseed isolation, why not transaction-per-test. (Its file table lags the current set below.) |
+| `setup.ts` | `truncateAllTables`, `createTestUser`, `createTestListing`, `futureDates`, `buildSignedWebhookPayload`, `signTestJwt`, `checkStripeConnectivity`, `getApp` (imports the real `app`). |
+| `bookingLifecycle.integration.test.ts` | Happy path over HTTP (older accept→handoff shape), validations, overlap, access control. |
+| `bookingFullFlow.integration.test.ts` | The **new** flow: request → accept → `payment-intent` → `confirm` (deposit authorized) → handoff → `COMPLETED` → `PAYOUT_PENDING`. |
+| `bookingCancellation.integration.test.ts` | Cancellation at each stage; fee assertions skipped (fees disabled for launch); `$0`-fee behavior asserted. |
+| `bookingListingSortOrder.integration.test.ts` | `getMyBookings` / `getIncomingRequests` / listings ordering (most-recent activity; PENDING pinned). |
+| `disputeResolution.integration.test.ts` | `createDispute` / `resolveDispute` at service + HTTP; all three outcomes; deposit-vs-rental resolution; over-refund guard; `paymentStatus` / `refundedAt`; audit trail. |
+| `payoutRelease.integration.test.ts` | `releaseDuePayouts` against a real Connect test account — full payout for `NONE`/`RESOLVED_NO_ACTION`/`DISMISSED` and for `RESOLVED_REFUND` with no rental refund; proportional remainder after a partial rental refund; nothing (but closed out) when fully refunded; blocked for `OPEN`/`UNDER_REVIEW`. |
+| `handoffRace.integration.test.ts` | Two concurrent handoff-confirm calls (`Promise.all`) for the same phase — exactly one transition, one `ZOINK_TAP`, no duplicate `STATUS_CHANGE`, clean 409 for the loser. Return phase (→ `COMPLETED`) and pickup phase (→ `ACTIVE`, Stripe-gated). |
+| `reportFlow.integration.test.ts` | `POST /reports`, self/own-listing rejection, admin list + `attachTargetLabels`, `PATCH /admin/reports/:id`. |
+| `stripeWebhooks.integration.test.ts` | Synthetic events to `/stripe/webhook`: signed events with a secret configured (verified via `constructEvent`); malformed-signature → 400; the fail-open exception path (`NODE_ENV=test`, no secret → unsigned parse still accepted); unknown type; replay idempotency; deposit-vs-rental routing. |
 
-### Frontend Config and App Shell
+### Frontend Config & App Shell
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `frontend/package.json` | Defines Expo scripts: `start`, `android`, `ios`, `web`; lists React Native, Expo, Stripe, navigation, axios dependencies. | npm, Expo. | Frontend development. |
-| `frontend/package-lock.json` | Frontend dependency lockfile. | npm. | Reproducible installs. |
-| `frontend/tsconfig.json` | Extends Expo TypeScript config with strict mode. | Expo TypeScript base. | Type checking. |
-| `frontend/app.json` | Expo app config: name, scheme `zoink`, icons/splash, iOS/Android IDs, plugins for secure store, notifications, image picker, Stripe, and (newly added) `expo-location` with a usage-description string. Before this plugin was added, location permission requests had no `NSLocationWhenInUseUsageDescription` in the generated iOS Info.plist and would silently fail — this affected `HomeScreen`/`SearchScreen`'s existing GPS usage too, not just the new `CreateListingScreen` flow. | Expo/EAS. | Expo runtime and builds; requires a native rebuild (not just reload) to take effect. |
-| `frontend/eas.json` | EAS build profiles for development, preview, production. | EAS CLI. | Native development/release builds, especially Stripe native modules. |
-| `frontend/.env` | Frontend public env vars for API URL, Stripe publishable key, demo mode. | Expo public env. | Frontend services/config. |
-| `frontend/index.ts` | Registers `App` as Expo root component. | Expo, `App.tsx`. | Expo startup. |
-| `frontend/App.tsx` | Wraps the app in `StripeProvider`, `AuthProvider`, and `Navigation`. | Stripe config, auth context, navigation. | Root frontend component. |
-| `frontend/src/config/demoMode.ts` | Defines `DEMO_MODE`, `DEMO_TOKEN`, and `DEMO_USER`. | `EXPO_PUBLIC_DEMO_MODE`. | Auth and API service mock branches. |
-| `frontend/src/config/stripe.ts` | Exposes `STRIPE_PUBLISHABLE_KEY` and `isStripePublishableKeyConfigured`. | `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`. | `App.tsx`, booking/payment screens. |
-| `frontend/src/theme/colors.ts` | Shared color palette and theme tokens. | None. | Screens/components. |
-| `frontend/src/types/index.ts` | Shared frontend TypeScript types for users, listings, bookings, conversations, reviews, etc. `DisputeStatus` and `Dispute` are now re-exported from `@zoink/shared` (previously a hand-rolled, drifted 3-value union). New `AdminDisputeListItem`/`AdminDisputeDetail` types model the raw-Prisma-row shape the admin endpoints return (distinct from the DTO-mapped shapes used elsewhere — e.g. `totalPrice` comes through as a string, not a number). | None. | Frontend services/screens/components. |
+| File | What It Does |
+|---|---|
+| `frontend/package.json` | Expo scripts: `start` (`expo start`), `android`/`ios` (native dev-client `expo run:*`), `web`. `@stripe/stripe-react-native` pinned `0.62.0`; `@sentry/react-native`, `expo-camera`, `expo-haptics`, `expo-dev-client`, `expo-build-properties` present. |
+| `frontend/tsconfig.json` | Extends Expo's base, strict. |
+| `frontend/app.json` | Expo config: scheme `zoink`, bundle ids `com.zoink.app`, light UI, plugins for secure store, notifications, image picker, **`expo-location`** (with usage-description strings), Stripe (`merchantIdentifier`, Google Pay), and `expo-font`. Android `RECORD_AUDIO` permission (camera). EAS `projectId`, owner `zoinkit`. Requires a native rebuild to take effect. |
+| `frontend/eas.json` | Build profiles `development` / `preview` / `production`; `submit.production.ios.ascAppId`. |
+| `frontend/metro.config.js` | `resolver.disableHierarchicalLookup = true` + flat `nodeModulesPaths` (monorepo hygiene — see README's native-deps note). |
+| `frontend/index.ts` | Registers `App` as the Expo root. |
+| `frontend/App.tsx` | Initializes Sentry (`EXPO_PUBLIC_SENTRY_DSN`), wraps the tree in `GestureHandlerRootView` → `SafeAreaProvider` → `StripeProvider` (`urlScheme: "zoink"`) → `AuthProvider` → `Navigation`. |
+| `frontend/src/config/demoMode.ts` | `DEMO_MODE = EXPO_PUBLIC_DEMO_MODE?.toLowerCase() === 'true'` (case-insensitive now), `DEMO_TOKEN`, `DEMO_USER` (includes `role: 'USER'`). |
+| `frontend/src/config/stripe.ts` | `STRIPE_PUBLISHABLE_KEY`, `isStripePublishableKeyConfigured`. |
+| `frontend/src/theme/colors.ts` | The design system: `colors` (logo grass-green ramp), semantic `theme` tokens, `radius` scale (`sm`/`md`/`lg`/`pill`), three elevation shadow presets, the **`hard`** neobrutalist system (`ink`, border weights, `offset` sm/md/lg for the block shadow), `backgroundGradient` + `textureColor`, one `type` scale (`screenTitle`/`sectionTitle`/`body`/`label`/`caption`/`eyebrow`), and shared `header` rhythm values. |
+| `frontend/src/types/index.ts` | Re-exports enums + response DTOs from `@zoink/shared` (aliasing `BookingResponse as Booking`, etc.). Adds demo-only decoration types (`PublicProfile`/`MyProfile` spotlight/highlight fields), `BrowseListingsResult`, and the raw-Prisma-row admin shapes `AdminDisputeListItem` / `AdminDisputeDetail` / `AdminReportListItem` (string `totalPrice`, etc.). |
 
-### Frontend Context and Navigation
+### Frontend Context & Navigation
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `frontend/src/context/AuthContext.tsx` | Holds `user` (now includes `role`, decoded from the JWT's `role` claim — previously dropped, which is why no frontend screen could gate on admin status before), `token`, loading state, `register` (now also takes `phone`), `login`, `logout`, `setVerified`; persists JWT with SecureStore/localStorage; sets axios auth header; syncs push token after verified login. | `api`, `demoMode`, `pushNotifications`, SecureStore. | `Navigation`, auth screens, many screens via `useAuth`. |
-| `frontend/src/navigation/index.tsx` | Defines `RootStackParamList`; chooses auth stack, verification stack, or verified app stack; checks pending reviews on verified app startup. Now registers `FileDispute`, `AdminDisputes`, and `AdminDisputeDetail` screens/routes. | `useAuth`, screens, `getPendingReviews`, theme. | `App.tsx`. |
+| File | What It Does |
+|---|---|
+| `context/AuthContext.tsx` | `user` (`id`, `email`, `firstName`, `verificationStatus`, `role` — `parseJWT` maps `role` to `'ADMIN'`/`'USER'`), `token`, `isLoading`, `register(email, password, firstName, lastName, phone)`, `login`, `logout`, `setVerified`. Persists the JWT with SecureStore/localStorage, sets the axios auth header, syncs the push token after a verified non-demo login. |
+| `navigation/index.tsx` | `RootStackParamList` + three stacks (auth / verification / verified). The verified stack checks `getPendingReviews()` and starts at `ReviewPrompt` if any. Registered screens include `Pay`, `FileDispute`, `AdminDisputes`, `AdminDisputeDetail`, `FileReport`, `AdminReports`, `PhotoViewer` (`fullScreenModal`), `PublicProfile` (`modal`). |
 
-### Frontend API and Mock Services
+### Frontend API & Mock Services
 
-| File | What It Does | Backend Routes Called / Depends On | Used By |
-|---|---|---|---|
-| `frontend/src/services/api.ts` | Shared axios instance with base URL, auth request interceptor, and 401 token cleanup. | `EXPO_PUBLIC_API_URL`, SecureStore/localStorage. | All real API service wrappers. |
-| `frontend/src/services/uploadFormData.ts` | Builds React Native image upload parts from local URIs, preserving filename extensions where present and mapping common image MIME types including PNG, GIF, HEIC/HEIF, and JPEG fallback. | FormData-compatible `{ uri, name, type }` objects. | `listingsApi`, `bookingsApi`, `usersApi`. |
-| `frontend/src/services/listingsApi.ts` | Browse/search, nearby listings, categories, CRUD (create/update payloads now include optional `depositAmount`), availability, image upload/delete; image uploads use `getImageUploadPart`; falls back to mocks in demo mode. | `/listings`, `/listings/me`, `/listings/categories`, `/listings/:id/images`. | Listing/search screens. |
-| `frontend/src/services/bookingsApi.ts` | Create/list/detail bookings, accept/decline/cancel/activate/complete, handoff initiation/confirm, photo upload, completed photos; handoff photo uploads use `getImageUploadPart`. | `/bookings/*`. | Booking, active rental, handoff, Zoink It screens. |
-| `frontend/src/services/conversationsApi.ts` | Open/list conversations, get messages, send messages, `markConversationRead` (calls `POST /conversations/:id/read`). | `/conversations/*`. | Inbox, listing detail, active rental, thread screens. |
-| `frontend/src/services/adminApi.ts` | `listDisputes` (optional status filter), `getDisputeDetail`, `resolveDispute`. No demo-mode branch — admin screens require a real backend. | `/admin/disputes*`. | `AdminDisputesScreen`, `AdminDisputeDetailScreen`. |
-| `frontend/src/services/disputesApi.ts` | `createDispute`, `getMyDisputes`, `getDispute`; falls back to `mockWeek6.ts`'s dispute mocks in demo mode. | `/disputes*`. | `FileDisputeScreen`, `BookingDetailScreen`. |
-| `frontend/src/services/usersApi.ts` | My/public profile, profile update, avatar upload through `getImageUploadPart`, push token update, Stripe Connect onboarding/status. | `/users/*`, `/stripe/connect/status`. | Profile screens, push notification sync. |
-| `frontend/src/services/reviewsApi.ts` | Pending reviews and review submission. | `/reviews/pending`, `/reviews`. | Navigation review gate, review prompt screen. |
-| `frontend/src/services/pushNotifications.ts` | Requests notification permission, gets Expo push token, configures Android channel, syncs/clears token through `usersApi`. | Expo notifications/constants, `updateMyPushToken`. | `AuthContext`. |
-| `frontend/src/services/mockListings.ts` | Demo-mode listing data and fake listing CRUD/image behavior. | Types. | `listingsApi`. |
-| `frontend/src/services/mockProfiles.ts` | Demo-mode public/my profile data and profile/avatar updates. | Types. | `usersApi`. |
-| `frontend/src/services/mockWeek6.ts` | Demo-mode bookings, conversations, messages, reviews, and (new) disputes behavior (`mockCreateDispute`, `mockGetMyDisputes`, `mockGetDispute`). `mockMarkConversationRead` flips a conversation's `unread` flag off, matching the real read-tracking fix. Deposit calculation now reads the listing's configured `depositAmount` instead of computing 30% of the total. | Types. | `bookingsApi`, `conversationsApi`, `disputesApi`, `reviewsApi`. |
+| File | Backend Routes / Behavior |
+|---|---|
+| `services/api.ts` | Shared axios instance: base URL, auth request interceptor, 401 token cleanup. |
+| `services/uploadFormData.ts` | `getImageUploadPart(uri, name?)` — builds RN `{ uri, name, type }` parts, preserving extensions, mapping PNG/GIF/HEIC/HEIF/JPEG. |
+| `services/listingsApi.ts` | `/listings*` — browse/nearby (reads the `{ items, meta }` envelope), categories, CRUD (`itemValue` + `depositAmount` in payloads), availability, image upload/delete. Demo → `mockListings`. |
+| `services/bookingsApi.ts` | `/bookings*` — create, list, detail, accept, **`createBookingPaymentIntent` (`POST /:id/payment-intent`)**, **`confirmBookingPayment` (`PATCH /:id/confirm`)**, decline/cancel/activate/complete, handoff initiate/confirm, `zoinkTap`, photo upload, completed photos. Demo → `mockWeek6`. |
+| `services/conversationsApi.ts` | `/conversations*` — open, list, messages (`after` cursor), `markConversationRead` (`POST /:id/read`), send. Demo → `mockWeek6`. |
+| `services/disputesApi.ts` | `/disputes*` — `createDispute`, `getMyDisputes`, `getDispute`. Demo → `mockWeek6` dispute mocks. |
+| `services/reportsApi.ts` | `POST /reports` — `createReport`. No demo branch. |
+| `services/adminApi.ts` | `/admin/*` — `listDisputes`, `getDisputeDetail`, `resolveDispute` (optional `refundAmountCents`), `getBookingEvents` (`GET /admin/bookings/:id/events`), `listReports`, `resolveReport`. No demo branch. |
+| `services/usersApi.ts` | `/users/*` + `/stripe/connect/status` — `getMyProfile` (merges `/users/me` with `/users/:id`), public profile, update, avatar, push token, Connect onboard/status. Demo → `mockProfiles`. |
+| `services/reviewsApi.ts` | `/reviews/pending`, `POST /reviews`. |
+| `services/pushNotifications.ts` | Permission, Expo push token, Android channel, sync/clear via `usersApi`. |
+| `services/mockListings.ts` / `mockProfiles.ts` | Demo-mode listing / profile data + fake CRUD. |
+| `services/mockWeek6.ts` | Demo-mode bookings, conversations, messages, reviews, disputes. Deposit read from the listing's `depositAmount`; `hstAmount` computed at 13%; `mockCreateBookingPaymentIntent` / `mockConfirmBookingPayment` back the demo Pay flow; `mockMarkConversationRead` clears `unread`. |
 
 ### Frontend Components
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `frontend/src/components/ZoinkLogo.tsx` | Renders the transparent Zoink logo asset at a configurable size. | `frontend/assets/ZoinkTransparent.png`. | Screens/components needing compact logo. |
-| `frontend/src/components/ZoinkFullLogo.tsx` | Renders the full Zoink logo asset. | `frontend/assets/ZoinkFullLogo.jpeg`. | Login/register/profile/listing screens. |
-| `frontend/src/components/ZoinkButton.tsx` | Shared styled button with loading/disabled state and async press handling. | Theme, React Native components. | Create listing/profile and other form screens. |
-| `frontend/src/components/StateCard.tsx` | Reusable empty/error/info state card. | Theme. | Booking/history/message/listing screens. |
-| `frontend/src/components/SearchBar.tsx` | Search input component. | React Native. | `SearchScreen`. |
-| `frontend/src/components/ScreenBackground.tsx` | Shared screen wrapper/background. | React Native styles/theme. | Most screens. |
-| `frontend/src/components/ProfileCard.tsx` | Rich public/my profile display with avatar, badges, ratings, reputation bars, review highlights. | `types`, `theme`, `expo-blur`. | `MyProfileScreen`, `PublicProfileScreen`. |
-| `frontend/src/components/LogoPlaceholder.tsx` | Placeholder using logo and optional label when an image is missing. | `ZoinkLogo`. | Listing/profile UI where images may be absent. |
-| `frontend/src/components/DraggableLocationMap.tsx` | Draggable map for choosing a listing's location: fetches raw OpenStreetMap tiles (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`, no API key), renders a translucent green circle fixed at the container's center, and pans the tile layer under it via `PanResponder`/`Animated.ValueXY` as the user drags — the coordinate under the fixed circle is computed on release and passed to `onChange`. No map SDK dependency; see `frontend/src/utils/mapTiles.ts` for the slippy-map tile math (`toTileFloat`/`tileFloatToLatLon`/`buildTileGrid`). Fine for dev/demo traffic only — see the OSM tile usage gap in section 14. | `frontend/src/utils/mapTiles.ts`. | `CreateListingScreen`. |
-
-### Frontend Screens
-
-| File | What It Does | Key Dependencies |
-|---|---|---|
-| `frontend/src/screens/LoginScreen.tsx` | Login form; calls `useAuth().login`; links to register. | `AuthContext`, navigation, `ScreenBackground`, `ZoinkFullLogo`. |
-| `frontend/src/screens/RegisterScreen.tsx` | Registration form (now including a required phone field); calls `useAuth().register`; navigates into verification flow through auth state. | `AuthContext`, navigation, `ScreenBackground`, `ZoinkFullLogo`. |
-| `frontend/src/screens/VerificationGateScreen.tsx` | Explains verification requirement and links to OTP screen; supports logout. | `AuthContext`, navigation, `ZoinkFullLogo`. |
-| `frontend/src/screens/VerifyEmailScreen.tsx` | Six-digit OTP entry, verify and resend calls; uses `setVerified` with returned token. | `api`, `AuthContext`, `ZoinkLogo`. |
-| `frontend/src/screens/MainAppScreen.tsx` | Main verified app shell with custom bottom tabs for Home, Search, Inbox, MyProfile and center create-listing action. | `HomeScreen`, `SearchScreen`, `InboxScreen`, `MyProfileScreen`, navigation. |
-| `frontend/src/screens/HomeScreen.tsx` | Home feed: requests GPS via `expo-location` (falling back to a default Toronto coordinate if permission is denied or the request fails), fetches nearby listings within `DEFAULT_RADIUS_KM` (now `5000`, was `50` — the old value silently hid every seeded/demo listing whenever the test device's real GPS position was more than 50km from where the data was seeded), pull-to-refresh. No longer has its own category-chip filter (removed as redundant with `SearchScreen`'s). | `expo-location`, `listingsApi.getNearbyListings`, navigation. |
-| `frontend/src/screens/SearchScreen.tsx` | Browse/search UI with categories, nearby/browse API calls (same `50km` → `5000km` radius fix as `HomeScreen`, for the same reason), listing cards with text category-label fallback thumbnails (was a single emoji character), a proper empty-results state (`StateCard`), navigation to details. | `listingsApi`, `SearchBar`, `StateCard`, navigation. |
-| `frontend/src/screens/ListingDetailScreen.tsx` | Listing details, image carousel, owner info, chat/request actions. | `getListing`, `openConversation`, navigation, `useAuth`. |
-| `frontend/src/screens/CreateListingScreen.tsx` | Multi-step listing creation flow with category/details/pricing (including an optional owner-set deposit)/location/photos, image picker, listing API, image upload. The location step previously submitted a hardcoded Toronto coordinate for every listing regardless of the typed city/address — now it requests real device GPS (`expo-location`), lets the owner drag a pin on `DraggableLocationMap` or search a place name (`Location.geocodeAsync`) to set the exact submitted coordinate, and falls back gracefully (geocode the typed address, then the old Toronto default) if GPS was never available. | `listingsApi`, `expo-image-picker`, `expo-location`, `DraggableLocationMap`, `ZoinkButton`. |
-| `frontend/src/screens/EditListingScreen.tsx` | Owner listing editing, category/price/deposit fields, add/remove photos, save. | `listingsApi`, `expo-image-picker`, navigation. |
-| `frontend/src/screens/MyListingsScreen.tsx` | Owner listing list with active booking awareness and links to edit/active rentals. | `getMyListings`, `getIncomingRequests`. |
-| `frontend/src/screens/BookingRequestScreen.tsx` | Renter booking request form, insurance/payment setup, Stripe PaymentSheet path, creates booking. Deposit shown is now the listing's configured `depositAmount`, not 30% of the rental total. | `bookingsApi`, Stripe React Native, `stripe` config. |
-| `frontend/src/screens/BookingHistoryScreen.tsx` | Renter booking history with active rentals pinned. | `getMyBookings`, navigation. |
-| `frontend/src/screens/BookingRequestsScreen.tsx` | Owner incoming booking requests; accept/decline actions. | `getIncomingRequests`, `acceptBooking`, `declineBooking`. |
-| `frontend/src/screens/BookingDetailScreen.tsx` | Booking detail/actions for owner/renter, cancellation, photo viewing (navigates to `PhotoViewerScreen`), handoff navigation. Now shows a "Report a Problem" action (navigates to `FileDispute`) once the booking is `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no active dispute, a banner while a dispute is `OPEN`/`UNDER_REVIEW`, and the outcome (with resolution notes, if the viewer raised it) once resolved. | `bookingsApi`, `disputesApi`, `useAuth`. |
-| `frontend/src/screens/ActiveRentalScreen.tsx` | Live rental detail screen with item, dates, other party, deposit, chat, pickup/return actions. | `getBooking`, `openConversation`, `useAuth`. |
-| `frontend/src/screens/ZoinkItScreen.tsx` | Combined handoff photo capture + synchronized confirmation screen (absorbed the former `HandoffPhotoScreen`, now removed). Requests media-library permission, requires 2-3 photos, uploads and calls `initiateHandoff`; photos can be re-picked/resubmitted (calls `initiateHandoff` again) any time before the phase is confirmed. Once photos exist, polls booking state and calls `confirmHandoff` for the synchronized tap, with success animation and timeout. | `uploadHandoffPhotoImage`, `initiateHandoff`, `confirmHandoff`, `getBooking`, image picker Expo APIs, `useAuth`. |
-| `frontend/src/screens/PhotoViewerScreen.tsx` | Full-screen, swipeable, pinch-to-zoom photo viewer used for both listing photos and rental pickup/return photos. Takes `{ photos: string[], initialIndex: number }` route params; renders `react-native-zoom-toolkit`'s `Gallery`. Registered as a real navigator screen (`presentation: 'fullScreenModal'`), not React Native's `Modal` — `GestureDetector`-based components are unreliable inside an actual `Modal`'s separate native view hierarchy, especially on Android. | `react-native-zoom-toolkit` (`Gallery`, `fitContainer`). |
-| `frontend/src/screens/InboxScreen.tsx` | Conversation inbox; highlights conversations where `unread` is true (now backed by real per-participant read state — see `conversationService.ts` — instead of never clearing after being read). | `conversationsApi`, navigation. |
-| `frontend/src/screens/ConversationThreadScreen.tsx` | Message thread with polling and incremental message fetch; sends messages; now also calls `markConversationRead` on open and on every poll tick while the thread stays focused, so the inbox's unread badge actually clears (and stays cleared even if a new message arrives while the thread is open). | `getConversationMessages`, `sendMessage`, `markConversationRead`, `useAuth`. |
-| `frontend/src/screens/MyProfileScreen.tsx` | Own profile display/edit, avatar upload, payout status, Stripe onboarding, profile prompt, logout. Shows an "Admin" quick-action panel linking to `AdminDisputes`, but only when `user.role === 'ADMIN'`. | `usersApi`, `AuthContext`, image picker, AppState. |
-| `frontend/src/screens/FileDisputeScreen.tsx` | Dispute-filing form (reason picker + description, min 10 characters); calls `createDispute`, navigates back on success. | `disputesApi`, navigation. |
-| `frontend/src/screens/AdminDisputesScreen.tsx` | Admin-only status-filterable list of disputes (All/Open/Under Review/Refunded/No Action/Dismissed); taps through to detail. | `adminApi.listDisputes`, navigation. |
-| `frontend/src/screens/AdminDisputeDetailScreen.tsx` | Admin-only dispute detail: reason/description, booking context, pickup/return photos, and a resolve action (refund / no action / dismiss) requiring resolution notes; refetches after resolving since the resolve endpoint returns a bare dispute row without booking/user relations. | `adminApi.getDisputeDetail`/`resolveDispute`, navigation. |
-| `frontend/src/screens/PublicProfileScreen.tsx` | Modal public profile view. | `getPublicProfile`, `ProfileCard`. |
-| `frontend/src/screens/ReviewPromptScreen.tsx` | Required post-rental review form; submits scores/comment and chains to next pending review if present. | `reviewsApi`, navigation. |
-
-### Frontend Assets
-
-| Folder / File | What It Does |
+| File | What It Does |
 |---|---|
-| `frontend/assets/ZoinkTransparent.png` | Main transparent logo used in app splash/components. |
-| `frontend/assets/ZoinkFullLogo.jpeg` | Full logo used in auth/profile/listing UI. |
-| `frontend/assets/logo.png`, `icon.png`, `splash-icon.png`, `favicon.png` | Expo icon, splash, favicon assets. |
-| `frontend/assets/android-icon-*` | Android adaptive icon foreground/background/monochrome assets. |
+| `ZoinkLogo.tsx` / `ZoinkFullLogo.tsx` | Compact / full logo assets. |
+| `ZoinkButton.tsx` | Shared styled button with loading/disabled + async press handling. |
+| `HardBlock.tsx` | Neobrutalist "block shadow" primitive — an ink backing plate behind a bordered panel (two stacked Views, since RN's native shadow renders soft). Props: `radius`, `offset`, colors, `contentStyle`. |
+| `ScreenBackground.tsx` | Shared screen wrapper: a horizontal `LinearGradient` (`theme.backgroundGradient`) plus a generated alternating-triangle texture built from small rotated Views, sized from `useWindowDimensions`. |
+| `DismissKeyboardView.tsx` | Plain View with a passive `onTouchStart={Keyboard.dismiss}` (doesn't fight ScrollView gestures). |
+| `PaymentNeededBadge.tsx` | "Payment needed" pill linking a conversation to its `ACCEPTED`-unpaid booking's `Pay` screen; stays visible regardless of read state. |
+| `StateCard.tsx` | Reusable empty/error/info card. |
+| `SearchBar.tsx` | Search input. |
+| `ProfileCard.tsx` | Rich profile display: avatar, badges, ratings, reputation bars, review highlights. |
+| `LogoPlaceholder.tsx` | Logo + optional label placeholder for missing images. |
+| `LocationMapPreview.tsx` | Small static map preview — fetches tiles via `mapTiles.ts`, draws a translucent green circle at the chosen point, tappable to open `LocationMapModal`. Includes `MapAttribution`. |
+| `LocationMapModal.tsx` | Full-screen map editor — `react-native-zoom-toolkit`'s `ResumableZoom` over the raster tile layer with a fixed center pin; "Set location" commits, closing discards. Replaces the removed `DraggableLocationMap`. |
+| `MapAttribution.tsx` | Tappable "© MapTiler © OpenStreetMap contributors" (or OSM-only when no MapTiler key), linking to the relevant copyright page. Reads `usingMapTiler` from `mapTiles.ts`. |
 
-### Landing Files
+### Frontend Screens (`frontend/src/screens/`)
 
-| File | What It Does | Depends On | Used By |
-|---|---|---|---|
-| `landing/index.html` | Standalone marketing/waitlist page with sections for hero, how it works, trust, campuses, waitlist. Loads Tailwind CDN and Lucide CDN, embeds a Tally form if configured, otherwise mailto fallback. | `landing/assets/*`, CDN scripts. | Static hosting. |
-| `landing/assets/*` | Branding and app icon images mirrored from frontend assets. | None. | `landing/index.html`. |
+| File | What It Does |
+|---|---|
+| `LoginScreen.tsx` | Login form → `useAuth().login`. |
+| `RegisterScreen.tsx` | Registration form incl. a required **phone** field → `useAuth().register`. |
+| `VerificationGateScreen.tsx` | Explains verification, links to OTP, supports logout. |
+| `VerifyEmailScreen.tsx` | 6-digit OTP entry, verify/resend, `setVerified` with the returned token. |
+| `MainAppScreen.tsx` | Verified app shell — custom bottom tabs **Home / Search / Inbox / MyProfile** with a center create-listing action and a sliding highlight + haptics. |
+| `HomeScreen.tsx` | Nearby feed via `expo-location` GPS (Toronto fallback) → `getNearbyListings`, pull-to-refresh. No category chips (moved to Search). |
+| `SearchScreen.tsx` | Browse/search UI — categories, nearby/browse, listing cards with category-label thumbnail fallback, empty-results `StateCard`. |
+| `ListingDetailScreen.tsx` | Listing details, image carousel (tap → `PhotoViewer`), owner info, `LocationMapPreview`, chat/request actions, a "Report" link → `FileReport`. |
+| `CreateListingScreen.tsx` | Multi-step create flow: category / details / pricing (incl. optional deposit; deposit needs `itemValue`) / location (real GPS + `LocationMapPreview`/`LocationMapModal` or `Location.geocodeAsync`) / photos. |
+| `EditListingScreen.tsx` | Owner edit — category / price / `itemValue` / `depositAmount`, add/remove photos, save. |
+| `MyListingsScreen.tsx` | Owner listing list with active-booking awareness; links to edit and `ActiveRental`. |
+| `BookingRequestScreen.tsx` | Renter request form — calendar (≤ 7 days), optional insurance, client-side price/deposit/HST preview. **Creates the request only** (no payment) → `nav.replace('BookingDetail')`. |
+| `PayScreen.tsx` | The `ACCEPTED → CONFIRMED` payment step — price breakdown (rental + deposit hold + insurance + 13% HST), `createBookingPaymentIntent` → Stripe PaymentSheet → `confirmBookingPayment` → `nav.replace('BookingDetail')`. Uses `HardBlock`. |
+| `BookingHistoryScreen.tsx` | Renter bookings — live/confirmed rentals pinned above the rest (`isLiveBooking`, `sortBookings.ts`); the rest sorted by rental date. |
+| `BookingRequestsScreen.tsx` | Owner incoming requests — accept/decline; ordered live-first (`sortBookingsLiveFirst`); each card shows the gross total and "You net $X" (`ownerPayout`). |
+| `BookingDetailScreen.tsx` | Booking detail/actions for both parties — dates (long-form via `formatDate.ts`), price breakdown incl. HST + total, an owner-only payout card (rental price, commission %, net payout, payout-status badge, security-deposit status line with `CAPTURED` → "Released to you (damage compensation)"), a renter-facing deposit-status line, cancellation, photo viewing (→ `PhotoViewer`), handoff navigation, and the dispute surface ("Report a Problem" → `FileDispute` while `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no active dispute; in-progress banner; resolved outcome). |
+| `ActiveRentalScreen.tsx` | Live rental detail — item, dates, other party, deposit, chat, context-aware pickup/return actions. |
+| `ZoinkItScreen.tsx` | Combined handoff photo capture + synchronized confirmation. Media-library permission, 2–3 photos, `initiateHandoff` (re-submittable before the phase confirms), then polls state and calls `confirmHandoff`, with success animation + timeout. |
+| `PhotoViewerScreen.tsx` | Full-screen swipeable pinch-zoom viewer (`react-native-zoom-toolkit` `Gallery`). Registered as a real screen (`presentation: 'fullScreenModal'`), not RN `Modal`. |
+| `InboxScreen.tsx` | Conversation inbox — unread highlight (real per-participant state) + a `PaymentNeededBadge` on any `ACCEPTED`-unpaid conversation for the renter. |
+| `ConversationThreadScreen.tsx` | Message thread — polling + incremental fetch, `markConversationRead` on open and every poll tick while focused, auto-scroll to newest, a "pay for this booking" banner (`acceptedUnpaidBookingId`) → `Pay`. |
+| `MyProfileScreen.tsx` | Own profile display/edit, avatar, payout status, Stripe onboarding, logout. Shows an **Admin** panel (→ `AdminDisputes`, `AdminReports`) only when `user.role === 'ADMIN'`. |
+| `PublicProfileScreen.tsx` | Modal public profile view; "Report this user" → `FileReport`. |
+| `FileDisputeScreen.tsx` | Dispute-filing form (reason picker + description) → `createDispute`. |
+| `FileReportScreen.tsx` | Abuse-report form (reason picker + optional description) for a listing or user → `createReport`. |
+| `AdminDisputesScreen.tsx` | Admin status-filterable dispute list → detail. |
+| `AdminDisputeDetailScreen.tsx` | Admin dispute detail — reason/description, booking context, pickup/return photos, resolve (refund / no action / dismiss) with required notes and an amount capped against `depositAmount` for a `COMPLETED` booking; refetches after resolving. |
+| `AdminReportsScreen.tsx` | Admin status-filterable report list with inline resolve (`REVIEWED` / `DISMISSED` + notes). |
+| `ReviewPromptScreen.tsx` | Required post-rental review — three 1–5 scores, plus an item rating + notes (borrower) or free-text person notes (lender); chains to the next pending review. |
+
+### Frontend Utils
+
+| File | What It Does |
+|---|---|
+| `utils/mapTiles.ts` | Slippy-map tile math (`toTileFloat` / `tileFloatToLatLon` / `buildTileGrid`), the tile URL builder (MapTiler when `EXPO_PUBLIC_MAPTILER_API_KEY` is set, else raw OSM), and `usingMapTiler`. Production builds must set a key. |
+| `utils/formatDate.ts` | `formatLongDate(iso)` → `"August 28 2026"` (UTC-read; falls back to the raw string on an unparseable value). Used wherever a full booking date is shown. |
+| `utils/sortBookings.ts` | `isLiveBooking(status)` (`CONFIRMED` / `PICKUP_PENDING` / `ACTIVE` / `RETURN_PENDING`) and `sortBookingsLiveFirst(bookings)` — live bookings first (soonest rental first), then the rest by most recent rental date. Used by the owner requests list and the renter booking history. |
+
+### Frontend Assets & Landing
+
+| Item | What It Does |
+|---|---|
+| `frontend/assets/*` | Logos, Expo icon/splash/favicon, Android adaptive-icon layers. |
+| `landing/index.html` | Standalone marketing/waitlist page (Tally form or mailto fallback), Tailwind + Lucide CDN. |
+| `landing/assets/*` | Branding images mirrored from the frontend. |
 
 ## 5. Frontend Flow
 
-1. Expo starts at `frontend/index.ts`, which registers `App`.
-2. `App.tsx` wraps the UI with `StripeProvider`, then `AuthProvider`, then `Navigation`.
-3. `AuthProvider` loads `zoink_jwt` from SecureStore or localStorage. If present, it decodes the JWT payload locally and sets the axios `Authorization` header.
-4. `Navigation` chooses one of three stacks:
-   - No user: `Login` / `Register`.
-   - Logged in but not `VERIFIED`: `VerificationGate` / `VerifyEmail`.
-   - Verified: main app stack.
-5. The verified stack checks `getPendingReviews()` first. If there is a required review, it starts at `ReviewPrompt`; otherwise it starts at `MainApp`.
-6. `MainAppScreen` provides the main tabs: Home, Search, Inbox, MyProfile, with a central create-listing action.
-7. API calls go through `frontend/src/services/api.ts`, which adds the stored JWT to requests and clears the token on 401 responses.
-8. Demo mode is controlled by `EXPO_PUBLIC_DEMO_MODE`. Service wrappers short-circuit to mock data when enabled.
-9. Image uploads use `FormData` plus `getImageUploadPart` for consistent filename/MIME metadata. Listing images and avatars are sent to backend Multer endpoints, then uploaded to Cloudinary server-side. Handoff photos are uploaded to `/bookings/:id/photos/upload` and then attached to pickup/return initiation. The API wrappers let axios/React Native set the multipart boundary instead of forcing a manual `Content-Type`.
-10. PaymentSheet is initialized in the booking request flow using Stripe React Native and the backend-created PaymentIntent client secret.
-11. Push token sync runs after a verified non-demo session is active.
+1. `frontend/index.ts` registers `App`.
+2. `App.tsx` initializes Sentry, then wraps the tree: `GestureHandlerRootView` → `SafeAreaProvider` → `StripeProvider` → `AuthProvider` → `Navigation`.
+3. `AuthProvider` loads `zoink_jwt` from SecureStore/localStorage, decodes it locally (`parseJWT`, including `role`), and sets the axios `Authorization` header.
+4. `Navigation` picks a stack: no user → `Login`/`Register`; logged-in but not `VERIFIED` → `VerificationGate`/`VerifyEmail`; verified → the app stack.
+5. The verified stack calls `getPendingReviews()`; if any, it starts at `ReviewPrompt`, else `MainApp`.
+6. `MainAppScreen` renders the Home / Search / Inbox / MyProfile tabs with a center create-listing action.
+7. API calls go through `services/api.ts` (JWT header, 401 cleanup). Demo mode short-circuits each wrapper to mock data.
+8. Image uploads use `FormData` + `getImageUploadPart`; listing/avatar images hit Multer endpoints then Cloudinary; handoff photos upload to `/bookings/:id/photos/upload` then attach at initiation.
+9. **Booking → pay:** `BookingRequestScreen` creates a request; once the owner accepts, the renter is prompted (inbox badge / thread banner) to open `PayScreen`, which creates the rental PaymentIntent, presents PaymentSheet, and confirms — the backend then authorizes the deposit and the booking becomes `CONFIRMED`.
+10. Push token sync runs after a verified non-demo session is active.
 
 ## 6. Backend Flow
 
-1. `backend/src/index.ts` loads `.env` (skipped when `NODE_ENV=test`), creates an Express app, enables CORS, registers the raw Stripe webhook endpoint (`/stripe/webhook`) before JSON parsing, then enables `express.json()`. Local dev must run `stripe listen --forward-to localhost:3000/stripe/webhook` (not `/webhook`, which 404s on every event with no obvious failure signal) — see README's "Stripe Webhooks (local dev)". A misconfigured path here leaves `Booking.paymentStatus` stuck at `PENDING_AUTH` (see `stripeWebhookController.ts`'s `updateBookingFromEvent`), which then blocks owner acceptance via the `paymentStatus === AUTHORIZED || CAPTURED` check in `bookingService.ts`.
-2. Health/root routes return simple JSON.
-3. Stripe Connect return/refresh pages (`/stripe-return`, `/stripe-refresh`) serve small HTML responses that link back to `zoink://`. These page URLs — not the `zoink://` scheme itself — are what get passed to Stripe as `return_url`/`refresh_url` (via `STRIPE_CONNECT_RETURN_URL`/`STRIPE_CONNECT_REFRESH_URL`, required env vars); Stripe's account-link API only accepts `http(s)://` redirect URLs, so `paymentService.ts`'s `getStripeConnectRedirectUrl` fails fast with a config error if either var is unset rather than falling back to an invalid `zoink://` URI.
-4. Main routers are mounted at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, `/reviews`, `/disputes`, and `/admin`.
-5. `requireAuth` validates JWTs and attaches `userId`/`verificationStatus`/`role`.
-6. `requireVerified` blocks marketplace/dispute routes unless the JWT says the user is verified; `requireAdmin` blocks `/admin/*` routes unless the JWT role is `ADMIN`.
-7. `validate(schema)` middleware runs next for routes with request schemas; on Zod failure it calls `next(ZodError)` directly to the error handler.
-8. Route files call controller functions.
-9. Controllers receive pre-validated, type-coerced input from `req.body/params/query` and call services.
-10. Services contain business logic and database access through the shared Prisma client.
-11. Booking/payment/handoff/dispute flows also create `BookingEvent` audit records and send notifications where applicable.
-12. Stripe webhooks update booking payment status and create audit events.
-13. Outside of test mode (`NODE_ENV=test`), `node-cron` jobs run stale-handoff cleanup + payout release every 15 minutes and Stripe reconciliation hourly.
+1. `index.ts` loads `.env` (unless `NODE_ENV=test`), imports `./instrument`, applies `helmet` + `cors` + `trust proxy 1`, mounts the raw `/stripe/webhook` before JSON parsing and the `globalLimiter`, then `express.json()`.
+2. `/`, `/health` return JSON. `/stripe-return` / `/stripe-refresh` serve HTML that deep-links to `zoink://` (these page URLs — not the scheme — are the `return_url`/`refresh_url` Stripe gets).
+3. Routers mount at `/auth`, `/users`, `/listings`, `/bookings`, `/conversations`, `/reviews`, `/disputes`, `/reports`, `/admin`.
+4. `requireAuth` → `requireVerified` (marketplace/dispute/report routes) or `requireAdmin` (`/admin/*`).
+5. `validate(schema)` coerces/guards `req.body/params/query`, or `next(ZodError)`.
+6. Controllers call services; services hold business logic + Prisma access via the shared client.
+7. Booking / payment / handoff / dispute flows also write `BookingEvent` audit rows and send notifications.
+8. Stripe webhooks: `constructEvent` verifies the signature (400 on failure / missing secret, except `NODE_ENV=test` with no secret), then `updateBookingFromEvent` updates booking payment/deposit status and writes `WEBHOOK_RECEIVED`.
+9. Outside test mode, `node-cron` runs stale-handoff cleanup + payout release + deposit release every 15 min, and reconciliation hourly.
 
-Response format is generally plain JSON objects or arrays. Successful error responses from `AppError` subclasses look like:
-
-```json
-{ "error": "Human-readable message." }
-```
-
-Zod validation failures (400) include a structured issue list:
-
-```json
-{
-  "error": "Validation failed.",
-  "issues": [
-    { "path": "body.startDate", "message": "startDate must be a valid ISO-8601 datetime string." }
-  ]
-}
-```
+Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{ "error": "Validation failed.", "issues": [{ "path": "body.startDate", "message": "…" }] }`.
 
 ## 7. Database / Prisma
 
-`backend/prisma/schema.prisma` is the source of truth.
+`backend/prisma/schema.prisma` is the source of truth. Two generators run: the Prisma client and `typescriptInterfaces` (→ `packages/shared/generated/prisma-models.ts`).
 
 ### Enums
 
-| Enum | Values / Purpose |
+| Enum | Values |
 |---|---|
-| `VerificationStatus` | `PENDING`, `SUBMITTED`, `VERIFIED`, `FAILED`. |
-| `Role` | `USER`, `ADMIN`. Drives `requireAdmin` authorization. |
-| `BookingStatus` | `PENDING`, `ACCEPTED`, `DECLINED`, `PICKUP_PENDING`, `ACTIVE`, `RETURN_PENDING`, `COMPLETED`, `CANCELLED`. |
-| `PaymentStatus` | Payment authorization, capture, refund, payout, and failure states. |
-| `DisputeStatus` | `NONE`, `OPEN`, `UNDER_REVIEW`, `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, `DISMISSED`. Used by both `Booking.disputeStatus` and `Dispute.status`. |
-| `DisputeReason` | `ITEM_DAMAGED`, `ITEM_NOT_RETURNED`, `ITEM_NOT_AS_DESCRIBED`, `PAYMENT_ISSUE`, `OTHER`. |
-| `BookingEventType` | Audit event categories for status, payment, payout, handoff, disputes (`DISPUTE_OPENED`, `DISPUTE_RESOLVED`), webhooks, reconciliation, errors. |
-| `NotificationType` | Booking/payment/review/verification notification categories. |
-| `ReviewRole` | `RENTER` or `LENDER`. |
-| `ReviewObligationStatus` | `PENDING` or `SUBMITTED`. |
+| `Role` | `USER`, `ADMIN` |
+| `VerificationStatus` | `PENDING`, `SUBMITTED`, `VERIFIED`, `FAILED` |
+| `BookingStatus` | `PENDING`, `ACCEPTED`, `CONFIRMED`, `PICKUP_PENDING`, `DECLINED`, `ACTIVE`, `RETURN_PENDING`, `COMPLETED`, `CANCELLED` |
+| `PaymentStatus` | `PENDING_AUTH`, `AUTHORIZED`, `CAPTURE_PENDING`, `CAPTURED`, `REFUND_PENDING`, `REFUNDED`, `PAYOUT_PENDING`, `PAID_OUT`, `FAILED` |
+| `DepositStatus` | `AUTHORIZED`, `CAPTURED`, `RELEASED` (the security deposit's own PaymentIntent) |
+| `DisputeStatus` | `NONE`, `OPEN`, `UNDER_REVIEW`, `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, `DISMISSED` (both `Booking.disputeStatus` and `Dispute.status`) |
+| `DisputeReason` | `ITEM_DAMAGED`, `ITEM_NOT_RETURNED`, `ITEM_NOT_AS_DESCRIBED`, `PAYMENT_ISSUE`, `OTHER` |
+| `ReportTargetType` | `USER`, `LISTING` |
+| `ReportReason` | `SPAM`, `SCAM`, `INAPPROPRIATE`, `HARASSMENT`, `OTHER` |
+| `ReportStatus` | `OPEN`, `REVIEWED`, `DISMISSED` |
+| `BookingEventType` | `STATUS_CHANGE`, `PAYMENT_INTENT_CREATED`, `PAYMENT_CAPTURED`, `PAYMENT_REFUNDED`, `PAYOUT_TRIGGERED`, `ZOINK_TAP`, `UPLOAD_PHOTOS`, `DISPUTE_OPENED`, `DISPUTE_RESOLVED`, `WEBHOOK_RECEIVED`, `RECONCILIATION_MATCH`, `RECONCILIATION_MISMATCH`, `ERROR` |
+| `NotificationType` | `BOOKING_REQUEST`, `BOOKING_ACCEPTED`, `BOOKING_DECLINED`, `BOOKING_CANCELLED`, `PAYMENT_RECEIVED`, `PAYOUT_SENT`, `REVIEW_RECEIVED`, `VERIFICATION_APPROVED`, `VERIFICATION_FAILED`, `MESSAGE_RECEIVED`, `DEPOSIT_RELEASED` |
+| `ReviewRole` | `RENTER`, `LENDER` |
+| `ReviewObligationStatus` | `PENDING`, `SUBMITTED` |
 
 ### Models
 
-| Model | Purpose | Important Relationships |
+| Model | Purpose | Key Relationships |
 |---|---|---|
-| `User` | Account, profile, verification, role, push token, Stripe customer/account IDs. `phone` is required (`NOT NULL`) as of the `20260730000000_make_phone_required` migration. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; raised disputes (`raisedDisputes`); disputes resolved as admin (`resolvedDisputes`). |
-| `VerificationToken` | OTP codes for student email verification. | Belongs to `User`, cascade delete. |
-| `Listing` | Rentable item with title, description, category, price, value, availability, location, and an owner-configured `depositAmount` (added by `20260802233912_add_listing_deposit_amount`, replaces the old auto-calculated 30%-of-total deposit). | Belongs to owner `User`; has images, bookings, conversations. |
-| `ListingImage` | Image URL and display order for listings. | Belongs to `Listing`, cascade delete. |
-| `Booking` | Rental request and lifecycle state, dates, pricing, payment, handoff photos/taps, dispute status. | Belongs to renter, owner, listing; has reviews, obligations, events, `Dispute` records. |
-| `BookingEvent` | Immutable audit trail for booking/payment/handoff/dispute changes. | Belongs to `Booking`, cascade delete. |
-| `Dispute` | A single dispute raised on a booking: reason, description, status, resolution notes, resolving admin. | Belongs to `Booking`; `raisedByUser` and optional `resolvedByAdmin` both reference `User`. |
-| `Conversation` | Chat thread for one listing and renter/owner pair. Tracks each participant's last-read time (`renterLastReadAt`/`ownerLastReadAt`, added by `20260802231040_add_conversation_read_state`) so unread state reflects whether *that* participant has actually opened the thread, not just who sent the last message. | Unique by `listingId + renterId`; has messages. |
-| `Message` | Chat message body and sender. | Belongs to conversation and sender. |
-| `Review` | Post-rental score/comment by one user for another. | Unique by `bookingId + reviewerId`; tied to obligation. |
-| `ReviewObligation` | Required review task generated after completed rentals. | Unique by `bookingId + userId`; can link to submitted review. |
-| `UserReputation` | Aggregated review/reputation metrics. | One-to-one with `User`. |
-| `Notification` | Stored notification record. | Belongs to `User`. |
+| `User` | Account, profile, verification, `role`, push token, Stripe customer/account ids. `phone` is `NOT NULL`. `deletedAt` (nullable) — soft-delete/anonymize; a set value invalidates the account (`requireAuth` + `loginUser` reject it). Per-category notification toggles `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (default `true`; verification notices ignore them). ID fields (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`) exist but have no submission flow. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; `raisedDisputes` / `resolvedDisputes`; `filedReports` / `reviewedReports`. |
+| `Listing` | Rentable item: title, description, category, `dailyPrice`, `itemValue`, owner-configured `depositAmount`, availability, `latitude`/`longitude`/`city`, optional `address`. | Belongs to owner `User`; has images, bookings, conversations. |
+| `ListingImage` | URL + display order. | Belongs to `Listing` (cascade). |
+| `Booking` | Rental request + lifecycle. Money fields (`totalPrice`, `depositAmount`, `commissionAmount`, `ownerPayout`, `insuranceFee`, `hstAmount`) snapshotted at creation. Rental PI (`stripePaymentIntentId`) + separate deposit PI (`stripeDepositPaymentIntentId`, `depositStatus`). `paidAt`/`refundedAt`/`payoutSentAt`/`completedAt`. Handoff photo arrays + per-party tap timestamps. `disputeStatus`/`disputedAt`/`disputeReason`. `conversationId` (FK, `SET NULL`). No `message` column. | Belongs to renter, owner, listing, optional conversation; has events, reviews, obligations, `Dispute` records. |
+| `BookingEvent` | Immutable audit row (`type` + JSON `metadata`, optional `actorId`). | Belongs to `Booking` (cascade). |
+| `Conversation` | One listing + renter/owner pair. `renterLastReadAt` / `ownerLastReadAt` drive per-participant unread. | Unique `[listingId, renterId]`; has messages and bookings. |
+| `Message` | Body + sender. | Belongs to conversation + sender. |
+| `Review` | Post-rental scores by one user for another. `scoreA/B/C` (person-directed, both roles). `itemRating` + `itemNotes` (borrower reviewer only). `personNotes` (lender reviewer only). `comment` was removed. | Unique `[bookingId, reviewerId]`; linked to an obligation. |
+| `ReviewObligation` | Required review task after completion. | Unique `[bookingId, userId]`; can link the submitted review. |
+| `UserReputation` | Aggregated per-side rating averages + counts. | 1:1 with `User`. |
+| `Notification` | Stored notification. | Belongs to `User`. |
+| `VerificationToken` | OTP codes. | Belongs to `User` (cascade). |
+| `Dispute` | One dispute on a booking: `reason`, `description`, `status`, `resolutionNotes`, `resolvedByAdminId`, `refundAmountCents` (cents actually refunded on `RESOLVED_REFUND`; may be partial), `resolvedAt`. | Belongs to `Booking`; `raisedByUser` + optional `resolvedByAdmin`. |
+| `Report` | Abuse report on a listing or user — `targetType` + polymorphic FK-less `targetId`, `reason`, optional `description`, `status`, `adminNotes`, `reviewedByAdminId`, `reviewedAt`. Can outlive its target; multiple reports per target allowed. | `reporter` + optional `reviewedByAdmin` reference `User`. |
 
 ## 8. Authentication Flow
 
-1. Registration starts in `RegisterScreen`, which calls `AuthContext.register`.
-2. `AuthContext.register` posts to `/auth/register` unless demo mode is enabled.
-3. `authController.register` calls `authService.registerUser`.
-4. `authService.registerUser` checks allowed email domain, hashes the password, creates a user, creates an OTP verification token, sends an email through SES, and returns a JWT plus user data.
-5. The JWT includes `userId`, `verificationStatus`, `email`, `firstName`, and `role` (`USER` or `ADMIN`) based on the frontend parser and service signing function; `requireAuth` defaults `role` to `USER` if a token predates this field.
-6. The frontend stores the token under `zoink_jwt` and routes unverified users to the verification stack.
-7. `VerifyEmailScreen` posts the six-digit code to `/auth/verify-email`.
-8. `authService.verifyOTP` validates token ownership, expiry, and used status, marks the user verified, and returns a new `VERIFIED` JWT.
-9. `AuthContext.setVerified` swaps the token, updates the user, and sets the axios header.
-10. Login posts to `/auth/login`, validates password, and stores a returned token.
-11. Protected backend routes use `requireAuth`; marketplace routes also use `requireVerified`.
+1. `RegisterScreen` → `AuthContext.register(…, phone)` → `POST /auth/register` (unless demo).
+2. `authController.register` → `authService.registerUser`: allowlist check, bcrypt hash, create `User` (phone normalized to `+1XXXXXXXXXX` by `RegisterSchema`), create OTP `VerificationToken`, send SES email, return a JWT + user.
+3. The JWT payload carries `userId`, `verificationStatus`, `email`, `firstName`, `role`. On every request `requireAuth` looks the user up and takes `role` (defaulting to `USER`) and `verificationStatus` from the DB row, not the token — the token claims are only a hint for the frontend UI. A deleted/anonymized row (`deletedAt` set) is rejected with 401.
+4. The frontend stores the token as `zoink_jwt` and routes unverified users to the verification stack.
+5. `VerifyEmailScreen` → `POST /auth/verify-email` → `authService.verifyOTP` validates ownership/expiry/used, marks the user verified, returns a fresh `VERIFIED` JWT.
+6. `AuthContext.setVerified` swaps the token, updates the user, sets the axios header.
+7. Login → `POST /auth/login` → `authService.loginUser` → stored token.
 
-Unclear from current codebase: stronger ID verification fields exist on `User` (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`), but no current route/screen flow for ID document submission was found.
+ID-document verification fields exist on `User` but there is no route or screen for submission.
 
 ## 9. Main User Flows
 
-### Account Creation
+### Creating a listing
 
-`RegisterScreen` -> `AuthContext.register` -> `POST /auth/register` -> `authController.register` -> `authService.registerUser` -> Prisma `User` and `VerificationToken`.
+`CreateListingScreen` collects details (incl. optional `itemValue` + `depositAmount`) and a real GPS/map coordinate (`LocationMapPreview` → `LocationMapModal`, or `Location.geocodeAsync`, with a Toronto fallback) → `listingsApi.createListing` + `uploadListingImage` → `/listings` (+ `/listings/:id/images`) → `listingController` → `listingService` → Prisma + Cloudinary.
 
-### Student Verification
+### Requesting a rental
 
-`VerificationGateScreen` -> `VerifyEmailScreen` -> `POST /auth/verify-email` or `/auth/resend-otp` -> `authService.verifyOTP` / `resendOTP` -> verified JWT -> verified app stack.
+`BookingRequestScreen` (calendar ≤ 7 days, optional insurance, price/deposit/HST preview) → `createBooking` → `bookingService.createBooking`: computes `totalPrice` from `dailyPrice × rentalDays`, reads `depositAmount` from the listing, computes tiered `commissionAmount` / `ownerPayout`, `insuranceFee`, and `hstAmount`, upserts the listing/renter `Conversation` and posts the optional message into it, and notifies the owner. **No payment yet.**
 
-### Logging In
+### Owner accept / decline
 
-`LoginScreen` -> `AuthContext.login` -> `POST /auth/login` -> `authService.loginUser` -> stored JWT -> route based on verification status.
+`BookingRequestsScreen` / `BookingDetailScreen` → `PATCH /bookings/:id/accept`. `transitionBookingStatus` checks the state machine, re-checks date overlap against `CONFIRMED`/`ACTIVE` bookings, and requires the owner's Stripe account to have payouts enabled — **it does not take payment**. Accepting auto-declines any other overlapping `PENDING` request (these don't revive on a later cancel).
 
-### Creating a Listing
+### Renter payment (`ACCEPTED → CONFIRMED`)
 
-`CreateListingScreen` collects item details (title/category/description/price/optional deposit), creates a listing through `listingsApi.createListing`, uploads selected photos through `uploadListingImage`, and can set availability. Uploads share `getImageUploadPart` for URI filename/MIME handling. Backend path is `/listings` and `/listings/:id/images` -> `listingController` -> `listingService` -> Prisma `Listing`/`ListingImage` plus Cloudinary.
+Prompted by an inbox badge / thread banner (`acceptedUnpaidBookingId`), the renter opens `PayScreen` → `POST /bookings/:id/payment-intent` (`createPaymentIntentForBooking` — ensures a Stripe Customer, creates the rental PaymentIntent with `setup_future_usage`) → Stripe PaymentSheet → `PATCH /bookings/:id/confirm`. On confirm, `transitionBookingStatus` re-checks overlap, requires the rental payment to be `AUTHORIZED`/`CAPTURED`, then **authorizes the security deposit as its own off-session PaymentIntent** (`createDepositPaymentIntent`, reusing the saved card) and sets `stripeDepositPaymentIntentId` + `depositStatus = AUTHORIZED`. If the deposit auth fails, the rental PI is cancelled and the booking stays `ACCEPTED`.
 
-The location step requests device GPS via `expo-location` (requires the `expo-location` config plugin in `app.json` — previously missing, so this silently never worked), then shows a draggable map (`DraggableLocationMap`) with a translucent circle the owner can drag to the exact spot, or a text search box (`Location.geocodeAsync`) to jump to a named place. The submitted coordinate is whatever the owner ends up with — dragged/searched location if set, else the GPS reading, else a geocode of the typed city/address, else a hardcoded Toronto fallback as a last resort. Previously this step always silently submitted the Toronto fallback regardless of GPS or the typed address.
+### Pickup / return handoff ("Zoink It")
 
-### Browsing / Searching Listings
+`ZoinkItScreen` handles photos + confirmation. `handoffService.initiateHandoff` — pickup starts from `CONFIRMED` (owner-only), return from `ACTIVE` (renter-only); the first submission transitions to `PICKUP_PENDING`/`RETURN_PENDING`, writes `UPLOAD_PHOTOS` + `STATUS_CHANGE`, and notifies the other party; later edits only replace the photos (`edited: true`). `confirmHandoff` records each party's tap; both within `ZOINK_TAP_WINDOW_MS` → pickup becomes `ACTIVE` and captures the rental PaymentIntent; return becomes `COMPLETED`, sets `completedAt`, flips `CAPTURED → PAYOUT_PENDING`, and creates review obligations.
 
-`SearchScreen` calls `getNearbyListings` or `browseListings`. Backend `/listings` supports query/category/price/location/radius parameters in `listingController.browseListings`, then `listingService.browseListings`.
+### Deposits & payouts
 
-### Requesting a Rental
-
-`BookingRequestScreen` creates a booking with dates, message, and optional insurance. Backend `bookingService.createBooking` calculates rental days and total price, reads the deposit directly from the listing's configured `depositAmount` (no longer computes 30% of the total — `calculateDepositAmount()`/`BOOKING_DEPOSIT_RATE` have been removed), calculates insurance/commission/owner payout, creates a PaymentIntent or mock authorization, stores booking, and notifies the owner.
-
-### Owner Accept / Decline
-
-`BookingRequestsScreen` or `BookingDetailScreen` calls accept/decline endpoints. `bookingService.transitionBookingStatus` enforces the state machine and payment/payout prerequisites.
-
-### Pickup / Dropoff Photo Flow And Zoink It Confirmation
-
-`ZoinkItScreen` handles both photo capture and confirmation in one screen (the former separate `HandoffPhotoScreen` has been removed). It requests media-library permission, collects 2-3 photos, uploads images to `/bookings/:id/photos/upload`, then calls the pickup/return initiate endpoint. `handoffService.initiateHandoff` distinguishes the *first* submission — which sets `PICKUP_PENDING`/`RETURN_PENDING`, stores photo URLs, writes a `STATUS_CHANGE` audit event, and notifies the other party — from a later *edit* (calling initiate again while already in the pending status, allowed up until the phase is confirmed), which only updates the stored photos and logs an `UPLOAD_PHOTOS` event marked `edited: true`; it does not re-transition status, re-notify, or reset any tap already registered.
-
-Once photos exist, the same screen polls booking state and calls `confirmHandoff` for the synchronized tap. Backend `handoffService.confirmHandoff` records owner/renter tap timestamps. If both confirm within `ZOINK_TAP_WINDOW_MS`, pickup moves to `ACTIVE`; return moves to `COMPLETED`, triggers payment/payout/review updates. `ActiveRentalScreen`/`BookingDetailScreen` show a single "Zoink It" action once a phase is pending, for either party — not just whichever party didn't initiate it.
-
-### Deposits and Payments
-
-`paymentService` calculates commission, owner payout, and insurance (deposit now comes from `Listing.depositAmount` instead of being calculated here — see `bookingService.createBooking`). Booking creation creates a Stripe PaymentIntent when Stripe is configured or mock payment state when not. Capture happens around pickup confirmation. Payout helpers release funds after the configured hold and are scheduled via `node-cron` in `src/index.ts` (skipped when `NODE_ENV=test`).
+- **Deposit** is held from `CONFIRMED` as its own PI. `cleanupJob.releaseDueDeposits` cancels it (→ `RELEASED`) 24h (`DEPOSIT_HOLD_HOURS`) after completion if no dispute is open.
+- **Payout** sits in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS` (24). `cleanupJob.releaseDuePayouts` transfers the owner's share (commission already netted out) and marks `PAID_OUT`. `RESOLVED_REFUND` is included: it pays the proportional remainder after any renter refund — `(total − Booking.refundedAmountCents) × ownerPayout ÷ total` — and pays nothing (just stamps `payoutSentAt`) when the rental was fully refunded. `OPEN`/`UNDER_REVIEW` stay excluded.
 
 ### Messaging
 
-`ListingDetailScreen` and `ActiveRentalScreen` can open a conversation. `InboxScreen` lists conversations, highlighting ones with `unread: true`. `ConversationThreadScreen` polls messages, sends new ones, and calls `markConversationRead` on open and on every poll tick while focused. Backend uses `Conversation` (with per-participant `renterLastReadAt`/`ownerLastReadAt`) and `Message` models; `conversationService.getMyConversations` computes `unread` per-viewer as "last message wasn't sent by me, and is newer than my own last-read timestamp" — previously it ignored read state entirely and a thread stayed marked unread until the reader sent their own reply. Sends push notifications on new messages.
+`ListingDetailScreen` / `ActiveRentalScreen` open a conversation. `InboxScreen` lists them (unread highlight + `PaymentNeededBadge`). `ConversationThreadScreen` polls, sends, calls `markConversationRead` on open and every tick while focused, and shows a "pay for this booking" banner when applicable. `conversationService.getMyConversations` computes `unread` per viewer from `lastMessage.createdAt` vs that viewer's last-read timestamp.
 
 ### Reviews
 
-After completed rentals, backend creates review obligations. `Navigation` checks pending reviews before loading the main app. `ReviewPromptScreen` submits scores/comments and loads the next pending review if any.
+After completion both parties get an obligation. `Navigation` gates on pending reviews. `ReviewPromptScreen` submits three 1–5 scores plus an item rating + notes (borrower) or free-text person notes (lender). `reviewService.submitReview` derives the valid fields from the obligation's real role, recomputes `UserReputation`, and chains to the next obligation.
 
 ### Disputes
 
-`FileDisputeScreen` (reached from `BookingDetailScreen`'s "Report a Problem" action, shown once the booking is `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` and there's no already-open dispute) collects a reason and description, then `disputesApi.createDispute` -> `disputeController.createDispute` -> `disputeService.createDispute` (participant check, one-open-dispute-per-booking check, `DISPUTE_OPENED` `BookingEvent`, sets `Booking.disputeStatus = OPEN`) -> `POST /disputes`. Renter or owner can view their own disputes (`GET /disputes`) or a specific one they're party to (`GET /disputes/:id`); `BookingDetailScreen` shows an active-dispute banner or the resolution outcome once settled.
+`FileDisputeScreen` (from `BookingDetailScreen`, shown while `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no open dispute) → `createDispute`: participant check; on a `COMPLETED` booking rejects if past `DISPUTE_WINDOW_HOURS` or if the deposit was already resolved; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`. `BookingDetailScreen` then shows an in-progress banner or the resolved outcome (from `getMyDisputes`, whose `resolutionNotes` is the outcome text; `resolvedByAdminId` and the counterparty's `description` are not exposed to participants).
 
-### Admin / Moderation
+### Admin / moderation
 
-`User.role` (`USER`/`ADMIN`) is carried in the JWT (now also decoded into `AuthContext.user.role` on the frontend — it wasn't before) and enforced by `requireAdmin`. `MyProfileScreen` shows an "Admin" panel linking to `AdminDisputesScreen` only when `user.role === 'ADMIN'`. Admins list/filter disputes (`GET /admin/disputes`) via `AdminDisputesScreen`, inspect one (`GET /admin/disputes/:id`) via `AdminDisputeDetailScreen` (booking/photo context), and resolve it (`PATCH /admin/disputes/:id/resolve` -> `disputeService.resolveDispute`), which issues a Stripe refund and sets `Booking.paymentStatus = REFUNDED`/`refundedAt` on `RESOLVED_REFUND`, updates `Booking.disputeStatus`, and writes a `DISPUTE_RESOLVED` `BookingEvent`. There is still no admin route/screen to change a user's `role` — it must currently be set directly in the database or via `prisma/seed.ts`-style scripting, which means the new admin UI is unreachable for anyone without DB access.
+`user.role === 'ADMIN'` (the frontend decodes the JWT claim into `AuthContext.user`) reveals `MyProfileScreen`'s Admin panel → `AdminDisputesScreen` / `AdminReportsScreen`. Backend `/admin/*` access is enforced separately by `requireAdmin` against the **DB** `role`, so a revoked admin loses server access immediately even while a stale token still shows the panel.
+
+- **Disputes:** `GET /admin/disputes` (list, `?status`), `GET /admin/disputes/:id` (booking + photo context), `PATCH /admin/disputes/:id/resolve` → `disputeService.resolveDispute` (one transaction with `SELECT … FOR UPDATE` on the booking). For a `COMPLETED` booking it resolves against the **deposit** PI (capture + full transfer to the owner, or cancel); pre-completion it refunds/cancels the rental PI against the *remaining* refundable balance and sets `paymentStatus = REFUNDED`. `GET /admin/bookings/:id/events` exposes the audit trail.
+- **Reports:** `GET /admin/reports` (list with resolved target labels), `PATCH /admin/reports/:id` → `REVIEWED` / `DISMISSED` + `adminNotes`.
+- **Granting the `ADMIN` role** is still CLI-only (`npm run admin:grant/revoke -- --email=…`). No route or screen sets `User.role`. A revoke is now effective on the target's next request (previously their unexpired JWT kept admin access for up to 30 days).
 
 ## 10. How Files Interact
 
-### Frontend to Backend Route Map
+### Frontend → Backend route map
 
-| Frontend File | Backend Route(s) |
+| Frontend | Backend |
 |---|---|
 | `AuthContext.tsx` | `/auth/register`, `/auth/login` |
 | `VerifyEmailScreen.tsx` | `/auth/verify-email`, `/auth/resend-otp` |
 | `listingsApi.ts` | `/listings`, `/listings/me`, `/listings/categories`, `/listings/:id`, `/listings/:id/availability`, `/listings/:id/images` |
-| `bookingsApi.ts` | `/bookings`, `/bookings/me`, `/bookings/requests`, `/bookings/:id`, `/bookings/:id/*` |
+| `bookingsApi.ts` | `/bookings`, `/bookings/me`, `/bookings/requests`, `/bookings/:id`, `/bookings/:id/payment-intent`, `/bookings/:id/confirm`, `/bookings/:id/*` |
 | `conversationsApi.ts` | `/conversations`, `/conversations/me`, `/conversations/:id/messages`, `/conversations/:id/read` |
-| `usersApi.ts` | `/users/me`, `/users/:id`, `/users/me/avatar`, `/users/me/push-token`, `/users/me/stripe-connect/onboard`, `/stripe/connect/status` |
+| `usersApi.ts` | `/users/me`, `/users/:id`, `/users/me/avatar`, `/users/me/push-token`, `/users/me/stripe-connect/*`, `/stripe/connect/status` |
 | `reviewsApi.ts` | `/reviews/pending`, `/reviews` |
 | `disputesApi.ts` | `/disputes`, `/disputes/:id` |
-| `adminApi.ts` | `/admin/disputes`, `/admin/disputes/:id`, `/admin/disputes/:id/resolve` |
+| `reportsApi.ts` | `/reports` |
+| `adminApi.ts` | `/admin/disputes`, `/admin/disputes/:id`, `/admin/disputes/:id/resolve`, `/admin/bookings/:id/events`, `/admin/reports`, `/admin/reports/:id` |
 
-### Backend Layering Pattern
+### Backend layering
 
 ```text
 routes/*.ts
-  -> validate(schema)           # Zod middleware — coerces + guards input
-  -> middleware/controllers/*.ts # receives clean req.body/params/query
+  -> authLimiter/globalLimiter (rate limit)
+  -> requireAuth -> requireVerified | requireAdmin
+  -> validate(schema)                # Zod: coerce + guard
+  -> middleware/controllers/*.ts     # clean req.*
     -> services/*.ts
-      -> utils/prisma.ts
-      -> Prisma models in schema.prisma
-      -> payment/email/cloudinary/notification utilities as needed
-  -> middleware/errorHandler.ts  # catches ZodError + AppError + unknown
+      -> utils/prisma.ts -> schema.prisma
+      -> paymentService / cloudinary / notificationService / SES as needed
+  -> middleware/errorHandler.ts      # ZodError + AppError + unknown
 ```
 
-### Reused Frontend Components
+### Reused frontend components
 
-| Component | Reused By |
+| Component | Reused by |
 |---|---|
-| `ScreenBackground` | Most screens for consistent background. |
-| `ZoinkLogo` / `ZoinkFullLogo` | Auth, profile, listing, handoff/brand UI. |
-| `ZoinkButton` | Form/action-heavy screens. |
-| `StateCard` | Empty/error/loading state presentation. |
-| `ProfileCard` | Own and public profile views. |
-| `SearchBar` | Search screen. |
+| `ScreenBackground` | Most screens (gradient + texture). |
+| `HardBlock` | Cards/buttons across the neobrutalist screens (Pay, requests, etc.). |
+| `ZoinkLogo` / `ZoinkFullLogo` | Auth, profile, listing, brand UI. |
+| `ZoinkButton` | Form-heavy screens. |
+| `StateCard` | Empty/error/loading states. |
+| `ProfileCard` | Own + public profile. |
+| `DismissKeyboardView` | Form screens with scroll. |
+| `LocationMapPreview` / `LocationMapModal` / `MapAttribution` | Create/edit listing, listing detail. |
 
-### Global Config Impact
+### Global config impact
 
 | Config | Affects |
 |---|---|
-| `frontend/app.json` | Expo scheme, assets, native plugins, notification/image/Stripe permissions. |
-| `frontend/src/services/api.ts` | Every frontend API call and auth header behavior. |
-| `frontend/src/config/demoMode.ts` | Whether frontend uses real backend or mock services. |
-| `backend/src/index.ts` | Which backend route files are reachable. |
-| `backend/prisma/schema.prisma` | Generated Prisma client, DB shape, service model fields. |
+| `frontend/app.json` | Scheme, assets, native plugins (incl. `expo-location`), permissions. |
+| `frontend/src/theme/colors.ts` | Every screen's typography, radius, shadow, and background. |
+| `frontend/src/services/api.ts` | Every API call + auth header. |
+| `frontend/src/config/demoMode.ts` | Real backend vs mock services. |
+| `backend/src/index.ts` | Which routers, middleware, and cron jobs are active. |
+| `backend/prisma/schema.prisma` | Generated client + `@zoink/shared` interfaces, DB shape. |
 | `backend/src/middleware/bookingStateMachine.ts` | Legal booking transitions. |
+| `backend/src/services/paymentService.ts` | HST rate, commission tiers, insurance clamp, all Stripe behavior. |
 
 ## 11. Environment Variables
 
-Do not commit real secret values. The repo contains `.env` files with sensitive-looking values; rotate any exposed keys if this repo has been shared. `.gitignore` now covers `backend/.env`, `backend/.env.test`, and `frontend/.env`.
+Keep real secrets out of git — `.gitignore` covers `backend/.env`, `backend/.env.test`, `frontend/.env`, `.env.local`, `.env.production`.
 
 ### Backend
 
 | Variable | Used In | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `prisma.config.ts`, `utils/prisma.ts` | PostgreSQL connection string. |
-| `JWT_SECRET` | `requireAuth.ts`, `authService.ts` | Signs/verifies auth JWTs. |
-| `PORT` | `src/index.ts` | API listen port. |
+| `DATABASE_URL` | `prisma.config.ts`, `utils/prisma.ts` | Postgres connection string. |
+| `JWT_SECRET` | `requireAuth.ts`, `authService.ts`, `rateLimiter.ts` | Signs/verifies auth JWTs. |
+| `PORT` | `index.ts` | Listen port. |
 | `ALLOWED_EMAIL_DOMAINS` | `authService.ts` | Comma-separated student email allowlist. |
-| `OTP_EXPIRY_MINUTES` | `authService.ts` | Email verification OTP lifetime. |
-| `AWS_REGION` | `authService.ts` | SES region. |
-| `AWS_ACCESS_KEY_ID` | `authService.ts` | SES credentials. |
-| `AWS_SECRET_ACCESS_KEY` | `authService.ts` | SES credentials. |
-| `SES_FROM_EMAIL` | `authService.ts` | Sender address for OTP email. |
-| `CLOUDINARY_CLOUD_NAME` | `utils/cloudinary.ts` | Cloudinary account. |
-| `CLOUDINARY_API_KEY` | `utils/cloudinary.ts` | Cloudinary credential. |
-| `CLOUDINARY_API_SECRET` | `utils/cloudinary.ts` | Cloudinary credential. |
-| `STRIPE_SECRET_KEY` | `paymentService.ts`, `stripeWebhookController.ts`, `reconciliationJob.ts`, `disputeService.ts` | Stripe server API key; empty can trigger mock mode in payment service. In `.env.test`, must start with `sk_test_` (enforced by `integration-tests/setup.ts`). |
-| `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. |
-| `STRIPE_CURRENCY` | `paymentService.ts` | PaymentIntent/Stripe currency. |
-| `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed/smoke script, `integration-tests/bookingLifecycle.integration.test.ts`, `integration-tests/bookingCancellation.integration.test.ts` | Local/dev owner payout account override. In `.env.test`, must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id — the accept-flow and cancellation integration tests call the live Stripe Connect API (`accounts.retrieve`) against it, and the test helpers now throw immediately if it's unset rather than falling back to a fake id like `acct_mock_test`. |
-| `STRIPE_CONNECT_RETURN_URL` | `paymentService.ts` | Required. Must be an `http://localhost` or `https://` URL pointing at the backend's `/stripe-return` page (e.g. `<ngrok-url>/stripe-return`) — not the `zoink://` scheme itself, which Stripe's account-link API rejects. Missing/invalid values throw immediately instead of falling back. When testing through ngrok, must be updated (and the backend restarted) every time the tunnel URL changes, same as `EXPO_PUBLIC_API_URL`. |
-| `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | Required. Same rules as `STRIPE_CONNECT_RETURN_URL`, pointing at `/stripe-refresh`. |
-| `PAYOUT_HOLD_HOURS` | `cleanupJob.ts` | Delay before releasing owner payouts. |
-| `ZOINK_TAP_WINDOW_MS` | `handoffService.ts`, `cleanupJob.ts` | Confirmation window for synchronized taps/stale handoff cleanup. |
-| `PLATFORM_COMMISSION_RATE` | `paymentService.ts` | Platform commission calculation. |
-| `INSURANCE_RATE` | `paymentService.ts` | Optional insurance fee rate. |
-| `MIN_INSURANCE_FEE` | `paymentService.ts` | Minimum insurance fee. |
-| `MAX_INSURANCE_FEE` | `paymentService.ts` | Maximum insurance fee. |
-| `EXPO_ACCESS_TOKEN` | `notificationService.ts` | Optional Expo push service access token. |
-| `NODE_ENV` | `bookingService.ts`, `src/index.ts`, `utils/prisma.ts` | Development/production conditional behavior. When `test`, `src/index.ts` skips `dotenv.config()`, skips cron job registration, and skips `app.listen()` (so `supertest` can drive the exported `app`). |
+| `OTP_EXPIRY_MINUTES` | `authService.ts` | OTP lifetime. |
+| `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_FROM_EMAIL` | `authService.ts` | SES for OTP email. |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | `utils/cloudinary.ts` | Image storage. |
+| `STRIPE_SECRET_KEY` | `paymentService.ts`, `stripeWebhookController.ts`, `reconciliationJob.ts` | Stripe server key; empty → mock mode. In `.env.test` must start with `sk_test_`. |
+| `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. **Required outside tests** — if unset (or a request has no `stripe-signature` header), `constructEvent` throws and the webhook returns 400 without processing. Only `NODE_ENV=test` + no secret still accepts unsigned synthetic events. |
+| `STRIPE_CURRENCY` | `paymentService.ts` | PaymentIntent/transfer currency (default `cad`). |
+| `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed, smoke, integration tests | Dev/beta owner-payout account override (never in `production`). In `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Express test-mode Connect account. |
+| `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | **Required.** `http://localhost…` or `https://…` pointing at `/stripe-return` / `/stripe-refresh`. Missing/invalid → hard error. Move in lockstep with `EXPO_PUBLIC_API_URL` under ngrok. |
+| `PAYOUT_HOLD_HOURS` | `cleanupJob.ts` | Delay before releasing owner payouts (default 24). |
+| `DEPOSIT_HOLD_HOURS` | `cleanupJob.ts` | Delay before auto-releasing an undisputed deposit (default 24). |
+| `ZOINK_TAP_WINDOW_MS` | `handoffService.ts`, `cleanupJob.ts` | Synchronized-tap window / stale-handoff threshold (default 300000). |
+| `INSURANCE_RATE` / `MIN_INSURANCE_FEE` / `MAX_INSURANCE_FEE` | `paymentService.ts` | Optional insurance fee rate + clamp. |
+| `SENTRY_DSN` | `instrument.ts` | Backend error tracking; blank or `NODE_ENV=test` → skipped. |
+| `EXPO_ACCESS_TOKEN` | `notificationService.ts` | Optional Expo push access token. |
+| `NODE_ENV` | `index.ts`, `bookingService.ts`, `instrument.ts`, `utils/prisma.ts` | `test` skips `dotenv`, cron, `app.listen()`, and Sentry. |
+
+`HST_RATE` (`0.13`) and `COMMISSION_TIERS` are **hardcoded constants in `paymentService.ts`**, not env vars. `PLATFORM_COMMISSION_RATE` is no longer read.
 
 ### Frontend
 
 | Variable | Used In | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_API_URL` | `services/api.ts` | Backend base URL. When testing through ngrok, changes every tunnel session — see `STRIPE_CONNECT_RETURN_URL`/`REFRESH_URL` above, which must be updated in lockstep. |
-| `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `config/stripe.ts`, booking request flow | Stripe frontend publishable key. |
-| `EXPO_PUBLIC_DEMO_MODE` | `config/demoMode.ts` | Enables mock frontend data when exactly `true`. Note: current code checks lowercase string equality. |
+| `EXPO_PUBLIC_API_URL` | `services/api.ts` | Backend base URL. Changes every ngrok session. |
+| `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `config/stripe.ts`, Pay flow | Stripe publishable key. |
+| `EXPO_PUBLIC_MAPTILER_API_KEY` | `utils/mapTiles.ts` | Tile provider; blank → raw OSM (dev only). |
+| `EXPO_PUBLIC_SENTRY_DSN` | `App.tsx` | Frontend crash tracking. |
+| `EXPO_PUBLIC_DEMO_MODE` | `config/demoMode.ts` | `true` (case-insensitive) → mock data. |
 
 ## 12. Scripts and Commands
 
@@ -598,176 +582,125 @@ Do not commit real secret values. The repo contains `.env` files with sensitive-
 
 | Command | Meaning |
 |---|---|
-| `cd backend && npm install` | Install backend dependencies. |
-| `npm run dev` | Start backend with nodemon and ts-node. |
-| `npm run build` | Compile TypeScript to `dist/`. |
-| `npm start` | Run compiled backend from `dist/index.js`. Requires build first. |
-| `npm test` | Run Node unit tests for services, middleware, and controllers (`src/integration-tests/` is excluded). |
-| `npm run test:integration` | Run `src/integration-tests/*.integration.test.ts` against a real `zoink_test` Postgres DB and Stripe test mode; requires `backend/.env.test` and applied migrations. Runs with `--test-concurrency=1` since tests truncate shared tables. |
-| `npm run smoke:week7` | Run payment/handoff smoke flow. |
-| `npx prisma migrate dev` | Apply migrations locally and generate Prisma client. |
-| `npx prisma generate` | Generate Prisma client. |
-| `npx prisma validate` | Validate Prisma schema. |
-| `npx prisma db seed` | Run configured seed script. |
+| `npm run dev` | nodemon + ts-node. |
+| `npm run build` / `npm start` | Compile to `dist/` / run it. |
+| `npm test` | Unit tests: `src/services/*.test.ts`, `src/middleware/*.test.ts`, `src/middleware/controllers/*.test.ts`, `src/scripts/*.test.ts` (not `integration-tests/`). |
+| `npm run test:integration` | `src/integration-tests/*.integration.test.ts` against `zoink_test` + Stripe test mode, `--test-concurrency=1`. Needs `backend/.env.test` + applied migrations. |
+| `npm run smoke:week7` | Backend-only payment/handoff smoke, current flow, forced mock-Stripe. |
+| `npm run admin:grant -- --email=…` / `admin:revoke -- --email=…` | Grant/revoke the `ADMIN` role. |
+| `npx prisma migrate dev` / `generate` / `validate` / `db seed` | Prisma. |
 
 ### Frontend
 
 | Command | Meaning |
 |---|---|
-| `cd frontend && npm install` | Install frontend dependencies. |
-| `npm start` | Run `expo start`. |
-| `npm run android` | Start Expo for Android. |
-| `npm run ios` | Start Expo for iOS. |
-| `npm run web` | Start Expo web. |
-| `npx tsc --noEmit` | Type-check frontend. |
-| `npx eas-cli build --profile development --platform ios` | Build native dev client for Stripe native module testing. |
+| `npm start` | `expo start`. |
+| `npm run android` / `ios` | `expo run:android` / `expo run:ios` (native dev-client). |
+| `npm run web` | `expo start --web`. |
+| `npx tsc --noEmit` | Type-check. |
+| `npx eas-cli build --profile development --platform ios` | Native dev client for Stripe modules. |
 
-No linting or formatting scripts were found in `package.json` files.
+### Root
+
+`npm run dev:backend`, `dev:frontend`, `build:backend`, `test:backend`, `typecheck:backend`, `typecheck:frontend`, `generate`.
+
+No lint/format scripts are configured.
 
 ## 13. Important Patterns
 
-| Pattern | Current Implementation |
+| Pattern | Implementation |
 |---|---|
-| Backend layering | Routes are thin, controllers translate HTTP, services hold business logic and Prisma access. |
-| Auth protection | `requireAuth` first, then `requireVerified` for marketplace/dispute routes, or `requireAdmin` for `/admin/*` routes. |
-| Error handling | Centralized `errorHandler.ts` (Phase 4) handles `ZodError` → 400, `AppError` subclasses → mapped status, unknown → 500. All controllers use `asyncHandler` to propagate errors to it. |
-| Validation | Zod v4 schemas in `src/schemas/*.schema.ts`; `validate(schema)` middleware in `src/middleware/validate.ts` coerces and validates `req.body/params/query` before controllers run. `ZodError` flows to the centralized error handler. |
-| File upload | Frontend `getImageUploadPart` -> `FormData` -> Multer memory storage -> controller -> Cloudinary upload helper -> URL saved in DB. |
-| Booking state | `bookingStateMachine.ts` and service transaction checks enforce transitions. |
-| Payments | Backend is source of truth for pricing/payment states. Stripe webhooks update final states; mock mode exists. |
-| Notifications | Services call `notifyUser`/`sendDirectPush`; notification records are stored and Expo push is attempted. |
-| Frontend API | One axios client plus feature-specific API wrappers. Demo mode lives inside wrappers. |
-| Frontend navigation | Root navigation switches by auth and verification status; verified stack gates pending reviews. |
-| Component organization | Shared components under `src/components`; screens under `src/screens`; API wrappers under `src/services`. |
-| Types | Frontend has its own manually maintained types in `src/types/index.ts`; backend uses Prisma types. |
+| Backend layering | Thin routes, HTTP-translating controllers, business logic + Prisma in services. |
+| Auth protection | `requireAuth` (JWT verify + per-request `User` lookup; `role` / `verificationStatus` / `deletedAt` come from that row, not the token) → `requireVerified` (marketplace) or `requireAdmin` (`/admin/*`). |
+| Rate limiting | `express-rate-limit`, keyed by IP + userId; tight on `/auth`, blanket elsewhere; webhook exempt. |
+| Error handling | Centralized `errorHandler.ts` — `ZodError` → 400, `AppError` → mapped, unknown → 500. Controllers use `asyncHandler`. |
+| Validation | Zod v4 schemas + `validate(schema)`; coerces `req.body/params/query`. |
+| Price snapshotting | `totalPrice`, `depositAmount`, `commissionAmount`, `ownerPayout`, `hstAmount`, `insuranceFee` are computed once at booking creation and stored on the row. |
+| Two PaymentIntents | Rental PI (manual capture at pickup) + a separate deposit PI (off-session, held through the rental, resolved at return or by dispute). |
+| Booking state | `bookingStateMachine.ts` + `version`-guarded transactional `updateMany`. |
+| Dispute safety | One transaction with `SELECT … FOR UPDATE` on the booking; over-refund guard against the remaining balance; refund idempotency keyed on dispute id. |
+| Payments source of truth | Backend + Stripe webhooks; mock mode when `STRIPE_SECRET_KEY` is empty. |
+| Notifications | Services call `notifyUser`/`sendDirectPush`; a `Notification` row is stored and Expo push attempted. |
+| Frontend API | One axios client + feature wrappers; demo mode inside each wrapper. |
+| Shared types | `@zoink/shared` (Prisma-generated interfaces + DTOs); the frontend re-exports rather than hand-maintaining a parallel set. |
+| Jobs | `node-cron` in `index.ts`, skipped in test; every job function is also importable directly. |
+| Design system | One theme module (`theme/colors.ts`): type scale, radius scale, hard "block" shadow via `HardBlock`, gradient + texture via `ScreenBackground`. |
 
 ## 14. Current Gaps / TODOs / Risks
 
 | Area | Observation |
 |---|---|
-| Secrets | `backend/.env`, `backend/.env.test`, and `frontend/.env` contain real-looking credentials/keys and are gitignored — rotate them if this repo has been shared. |
-| `.env.test` not ignored | ~~Resolved~~ — `.gitignore` now lists `backend/.env.test` alongside `backend/.env`, `frontend/.env`, `.env.local`, `.env.production`. It was never committed to git history (confirmed via `git log --all --diff-filter=A -- '**/.env.test'`, no results). |
-| Migration ordering bug | ~~Resolved~~ — `backend/prisma/migrations/20260721000000_add_role_and_disputes/migration.sql` no longer alters `disputes.status` before `CREATE TABLE "disputes"` runs (that line was unnecessary: `CREATE TABLE "disputes"` already declares `"status" "DisputeStatus"`, and by that point in the same migration `"DisputeStatus"` already refers to the renamed 6-value enum). A fresh `prisma migrate deploy` now succeeds. The file's first line also had a stray Prisma CLI banner (non-SQL text) baked in, which has been stripped. `apply_to_test_db.sql` is now obsolete/historical only. **Caveat:** any local `zoink_test` database that already recorded this migration via the old workaround has a `_prisma_migrations` row with a fabricated `manual_apply` checksum (and, in at least one observed case, a second failed row with the real pre-fix checksum and `finished_at = NULL`) — editing the migration file changes its checksum, so `prisma migrate status`/`deploy` against such an already-migrated database will report drift. This only affects databases migrated before this fix; a fresh database is unaffected. |
-| Payout permanently blocked after dispute resolution | ~~Resolved~~ — `cleanupJob.releaseDuePayouts` now selects `disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED'] }` instead of only `'NONE'`, so bookings resolved with no refund become payout-eligible again. `RESOLVED_REFUND` is deliberately still excluded — `disputeService.resolveDispute` calls `refundPaymentIntent` on that path and (as of the follow-up below) also sets `Booking.paymentStatus = REFUNDED` + `refundedAt`, so it no longer matches the `PAYOUT_PENDING` filter at all. Covered by `backend/src/integration-tests/payoutRelease.integration.test.ts` (new). |
-| Admin/disputes frontend | ~~Mostly resolved~~ — `FileDisputeScreen` (renter/owner, from `BookingDetailScreen`'s "Report a Problem"), `AdminDisputesScreen` + `AdminDisputeDetailScreen` (admin list/resolve, from `MyProfileScreen`'s "Admin" panel, gated on `user.role === 'ADMIN'`) now exist — see `frontend/src/services/disputesApi.ts` and `adminApi.ts`. **Still missing:** there is no route/screen to change a user's `Role`; it must be set directly in the database or via `prisma/seed.ts`-style scripting, which means the new admin UI is unreachable for anyone without DB access. |
-| Grant/revoke admin role | New gap (see row above) — no API route or screen sets `User.role`. `requireAdmin.ts` and the JWT-embedded `role` claim work correctly once the column is set some other way. |
-| Listing-location map uses raw OSM tiles | `frontend/src/components/DraggableLocationMap.tsx` (used by `CreateListingScreen`) fetches tiles directly from `https://tile.openstreetmap.org/{z}/{x}/{y}.png` with no API key, via `frontend/src/utils/mapTiles.ts`'s hand-rolled slippy-map math. Fine for low-traffic dev/demo use, but OpenStreetMap's tile usage policy doesn't permit this at real app scale (no custom User-Agent, no rate limiting, no attribution beyond a small on-map label) — swap to a commercial static-tile provider before production traffic. |
-| Native build/release changes unverified | `frontend/eas.json` gained a `submit.production.ios` block (App Store Connect app id) and `frontend/package.json`'s `ios`/`android` scripts moved from Expo Go (`expo start --ios`) to native dev-client builds (`expo run:ios`/`run:android`); `@stripe/stripe-react-native` was bumped `0.50.3` → `0.61.0`. None of this has been confirmed to actually produce a working build or TestFlight submission yet. |
-| Frontend dispute type drift | ~~Resolved~~ — `frontend/src/types/index.ts` now imports `DisputeStatus` directly from `@zoink/shared` (generated from the Prisma enum), which has all six values (`NONE`, `OPEN`, `UNDER_REVIEW`, `RESOLVED_REFUND`, `RESOLVED_NO_ACTION`, `DISMISSED`) instead of a hand-rolled 3-value union. |
-| ID verification | User fields for ID photo/selfie/manual review exist, but no current submission/review flow was found. |
-| Validation | ~~Resolved~~ — Zod v4 schema layer added in Phase 5: `src/schemas/*.schema.ts` + `src/middleware/validate.ts`. |
-| Error handling | ~~Resolved~~ — Centralized `errorHandler.ts` added in Phase 4; extended for `ZodError` in Phase 5. |
-| Scheduled jobs | ~~Resolved~~ — `cleanupJob.ts` and `reconciliationJob.ts` are now registered with `node-cron` in `backend/src/index.ts` (skipped only when `NODE_ENV=test`). |
-| Unmounted payments route | ~~Resolved~~ — `backend/src/routes/payments.ts`, `paymentController.ts`, `backend/app.json`, `backend/stripe.ts`, and `frontend/src/services/paymentsApi.ts` have all been removed. Stripe Connect flows exclusively through `/users/me/stripe-connect/*` and `/stripe/connect/status` now. |
-| Tests | Unit tests cover services/middleware/controllers; integration tests (`backend/src/integration-tests/`) now cover booking lifecycle, cancellation, disputes, and Stripe webhooks end-to-end via `supertest` against a real Postgres test DB and Stripe test mode. `bookingLifecycle.integration.test.ts` now covers sequential-tap handoff confirmation, photo-resubmission-without-re-notifying, review-obligation creation, and notification-dedup assertions — narrower than originally noted here. Still not covered: true concurrent/simultaneous confirm requests (no test issues overlapping requests via e.g. `Promise.all`). Frontend test setup was not found. |
-| Cancellation fees disabled for launch | `bookingService.calculateCancellationFeeCents()` is short-circuited to always `return 0` (product decision — no fee at launch). The original tiered clamp($5, $25, totalPrice × 5%) logic is retained but unreachable, for a planned owner opt-in "cancellation fee" feature (same pattern as `Listing.insuranceOptIn`, not yet implemented — there's no `Listing`-level toggle or schema field for it yet). `README.md`'s "Cancellation Rules" section reflects the current fee-free behavior; the tiered-fee integration tests are skipped (not deleted) with a reason pointing back here. |
-| `req.query` fix (Express 5) | `validate.ts` previously did `req.query = data.query`, which throws on Express 5 since `req.query` is a getter-only accessor with no setter. Fixed via `Object.defineProperty`. Resolved, documented here as a note for anyone touching that middleware again. |
-| Integration test Stripe account (resolved) | `giveOwnerStripeAccount()` in both `bookingLifecycle.integration.test.ts` and `bookingCancellation.integration.test.ts` used to fall back to the fake id `'acct_mock_test'`, which caused live `StripePermissionError`s (403) on every accept/pickup/cancellation test once a real `sk_test_...` key was present in `.env.test`. Both now read a real Connect account id from `DEV_STRIPE_ACCOUNT_ID` and throw immediately if it's unset. See the `DEV_STRIPE_ACCOUNT_ID` env var row above. |
-| Type drift | Frontend types are separate from Prisma/backend response types, so API changes can drift silently (see the dispute-status drift above for a concrete current example). |
-| Demo mode env casing | `DEMO_MODE` checks `EXPO_PUBLIC_DEMO_MODE === 'true'`; uppercase `TRUE` will not enable demo mode. |
-| Duplicate webhook mount | ~~Resolved~~ — `backend/src/index.ts` mounted `stripeWebhook` at both `/stripe/webhook` and `/api/stripe/webhook`. The latter was removed and `/stripe/webhook` kept: it's the only path referenced anywhere in this repo (README's `stripe listen` instructions, `stripeWebhooks.integration.test.ts`), no other route uses an `/api` prefix, and checking the Stripe Dashboard (Developers → Webhooks) confirmed no webhook destination is configured there at all — the empty "+ Add destination" state. Pre-launch, so nothing in production depended on the removed path either. |
-| Encoding | Some source comments/output show mojibake characters from earlier non-ASCII text. Worth cleaning for readability. |
-| Messaging unread state never cleared | ~~Resolved~~ — `unread` was computed as `lastMessage.senderId !== currentUserId`, with no notion of having actually viewed the thread, so a conversation stayed "highlighted" indefinitely after being opened and read, clearing only once the reader sent their own reply. Fixed with `Conversation.renterLastReadAt`/`ownerLastReadAt` (new migration `20260802231040_add_conversation_read_state`), a `POST /conversations/:id/read` endpoint (`conversationService.markConversationRead`), and `ConversationThreadScreen` calling it on focus and on every 4s poll tick while the thread is open. |
-| Location permission silently broken | ~~Resolved~~ — `frontend/app.json` had no `expo-location` config plugin at all, so there was no `NSLocationWhenInUseUsageDescription` in the generated iOS Info.plist — `Location.requestForegroundPermissionsAsync()` calls (in `HomeScreen`, `SearchScreen`, and the now-added `CreateListingScreen` GPS flow) would fail on-device with no obvious error. Fixed by adding the `expo-location` plugin with a usage-description string; requires a native rebuild (not just a JS reload) to take effect. Separately, `CreateListingScreen` was submitting a hardcoded Toronto coordinate for every listing regardless of GPS or the typed address — also fixed (see `DraggableLocationMap` row below and the Frontend Screens table). |
-| Owner-configured deposits | ~~Feature added~~ — `Listing.depositAmount` (new migration `20260802233912_add_listing_deposit_amount`, `DECIMAL(10,2) DEFAULT 0`) replaces the old auto-calculated 30%-of-total deposit (`BOOKING_DEPOSIT_RATE`/`calculateDepositAmount()`, removed from `bookingUtils.ts`). Set by the owner in `CreateListingScreen`/`EditListingScreen`; `bookingService.createBooking` now reads `listing.depositAmount` directly. |
-| Phone number required at registration | ~~Feature added~~ — `RegisterSchema` (`backend/src/schemas/auth.schema.ts`) requires a 10-digit Canadian/NANP phone number, normalized to `+1XXXXXXXXXX` before storage; `User.phone` is a required (`NOT NULL`) column, backfilled for pre-existing rows by migration `20260730000000_make_phone_required` with a placeholder value (`+10000000000`) that's deliberately obviously-fake. `RegisterScreen` collects it; `AuthContext.register`'s signature gained a `phone` parameter. |
+| Grant/revoke admin role | Still CLI-only (`manageAdminRole.ts`). No API route or screen sets `User.role`; the admin UI is unreachable without CLI/DB access. |
+| Integration test coverage | Review-obligation and notification-delivery paths are only partially covered. `backend/src/integration-tests/README.md`'s file table lags the current file set. No frontend test setup. |
+| ID verification | `User` has ID-photo/selfie/manual-review fields but no submission or review flow. |
+| Listing-location tiles | `mapTiles.ts` falls back to raw `tile.openstreetmap.org` when `EXPO_PUBLIC_MAPTILER_API_KEY` is unset — fine for dev, not for production traffic (OSM tile-usage policy). Set a real key before launch. |
+| Rate-limit store | `express-rate-limit`'s in-memory store only enforces per-process; multi-instance deployment needs a shared store (e.g. `rate-limit-redis`). |
+| `trust proxy 1` | Correct for exactly one proxy hop; revisit when the deployment topology (CDN + LB chains) is chosen. |
+| Sentry source maps | DSN-only crash capture on both sides; source-map upload is not configured. |
+| Native build / release | Production EAS builds verified on iOS + Android; TestFlight submission not yet confirmed. `@stripe/stripe-react-native` pinned at `0.62.0` for the Expo SDK 54 Kotlin ceiling — see README. |
+| Cancellation fees | `calculateCancellationFeeCents()` short-circuits to `return 0` (launch decision); the tiered logic is retained but unreachable, for a future owner opt-in toggle that has no schema field yet. Integration fee assertions are skipped, not deleted. |
+| HST scope | Applied to every booking — there is no per-listing jurisdiction field. |
+| Cross-side type drift | Mitigated by `@zoink/shared` (generated from Prisma), but the admin endpoints return raw Prisma rows typed by hand in `frontend/src/types/index.ts` (`AdminDisputeListItem` etc.), which can still drift. Separately, the user-facing dispute reads now return an ad-hoc `toDisputeResponse` shape (conditional `description` / `resolvedByAdminId`, narrowed `booking`) that no longer matches the bare `Dispute` model `disputesApi` types it as; the app only reads `bookingId` + `resolutionNotes`, so it works, but the shape isn't in `@zoink/shared` yet. |
+| Stripe webhook replay | `constructEvent` now fails closed on bad/absent signatures, but `updateBookingFromEvent` still has no `event.id` de-dupe, so a validly-signed event that Stripe re-delivers (or an attacker resubmits) is re-applied. Monetary fields like `refundedAmountCents` are assigned, not `max`'d, so an out-of-order delivery can move them backwards. A uniquely-constrained processed-event table is the fix. |
+
+### Resolved since earlier revisions
+
+- **Validation / error handling** — Zod schema layer + centralized `errorHandler.ts`.
+- **Scheduled jobs** — `cleanupJob` + `reconciliationJob` run on `node-cron`; `releaseDueDeposits` added.
+- **Messaging unread state** — real per-participant `renterLastReadAt`/`ownerLastReadAt` + `POST /conversations/:id/read`.
+- **Location permission** — `expo-location` config plugin added; GPS + `LocationMapPreview`/`LocationMapModal` replace the removed `DraggableLocationMap` and the old hardcoded Toronto submit.
+- **Owner-configured deposits** — `Listing.depositAmount`; `bookingService.createBooking` reads it directly.
+- **Phone at registration** — required, Canadian/NANP, normalized; `User.phone` `NOT NULL`.
+- **Dispute payout block** — `releaseDuePayouts` accepts `RESOLVED_NO_ACTION`/`DISMISSED`; `RESOLVED_REFUND` sets `paymentStatus = REFUNDED`.
+- **Partial-refund owner payout** — `releaseDuePayouts` now includes `RESOLVED_REFUND` and pays the owner's proportional remaining share from `Booking.refundedAmountCents` (0 for the common case ⇒ full payout), or nothing (with `payoutSentAt` stamped) when fully refunded.
+- **Webhook partial-refund handling** — `stripeWebhookController.ts` compares `amount_refunded` to the full charge; a partial refund records `Booking.refundedAmountCents` + `refundedAt` without stamping `REFUNDED`; deposit-PI events are routed to `depositStatus` and never the rental fields.
+- **`week7SmokeFlow.ts`** — rewritten to the current `accept → payment-intent → confirm/CONFIRMED → pickup → active → return → complete` path.
+- **`test:integration` DB URL** — no longer hardcoded in `backend/package.json`; loaded from `backend/.env.test`, with `setup.ts` aborting if it isn't a `zoink_test` URL and `truncateAllTables()` double-checking before any `TRUNCATE`.
+- **Concurrent handoff-confirm test** — `handoffRace.integration.test.ts` covers simultaneous `Promise.all` confirms (one transition, one `ZOINK_TAP`, no duplicate `STATUS_CHANGE`, clean 409).
+- **Duplicate webhook mount / unmounted payments route / `.env.test` gitignore / migration ordering bug** — all resolved.
+- **Demo-mode env casing** — `EXPO_PUBLIC_DEMO_MODE` comparison is now case-insensitive.
+- **Booking-flow rework** — `CONFIRMED` status + `Pay` screen; accept no longer takes payment; overlapping `PENDING` requests auto-decline on accept; request-time message moved into the `Conversation` (`Booking.message` dropped).
+- **Separate deposit PaymentIntent** — `stripeDepositPaymentIntentId` + `depositStatus`; held through the rental, auto-released or resolved via dispute.
+- **13% HST + tiered commission** — `Booking.hstAmount`; commission keyed on the listing's daily rate.
+- **Abuse reports** — `Report` model + `/reports` and `/admin/reports*` + `FileReportScreen` / `AdminReportsScreen`.
+- **Review rework** — borrower item rating/notes + lender person notes (`reviews.comment` dropped); lender's third category renamed "Pickup Experience".
+- **Hardening** — `helmet`, `express-rate-limit`, Sentry (both sides), Stripe client secrets no longer persisted in the audit trail.
+- **Security-hardening pass** —
+  - `stripeWebhookController.constructEvent` fails closed: no `stripe-signature` header or no `STRIPE_WEBHOOK_SECRET` → 400, never an unverified `JSON.parse`; the unsigned path is confined to `NODE_ENV=test` with no secret.
+  - `requireAuth` resolves `role` and `verificationStatus` from the `User` row per request instead of trusting the 30-day JWT claim, so a demoted admin / de-verified user is enforced on the next request — closing the stale-token window (`requireAdmin` / `requireVerified` / `disputeController` all consume the DB value).
+  - `disputeController.getDispute` / `getMyDisputes` project through `toDisputeResponse` — `resolvedByAdminId` admin-only, raiser `description` withheld from the counterparty, `booking` narrowed — instead of `res.json`-ing the raw row.
+  - `handoffService` reuses `bookingService.toBookingResponse` (deleting its local raw-spread serializer), so pickup/return/tap responses no longer leak `renter.stripeCustomerId` / `renter.email` / `owner.stripeAccountId` to the counterparty.
 
 ## 15. Developer Onboarding Guide
 
-### Start Working on Zoink
+1. `cd backend && npm install`, then `cd ../frontend && npm install` (or just `npm install` at the root — it's a workspace).
+2. Create `backend/.env` and `frontend/.env` from the tables in §11.
+3. Start Postgres and create the `zoink` database from `DATABASE_URL`.
+4. `cd backend && npx prisma migrate dev && npx prisma generate` (generates the Prisma client **and** `packages/shared/generated/prisma-models.ts`).
+5. Optional: `npx prisma db seed`.
+6. `npm run dev` (health: `http://localhost:3000/health`). For real Stripe events: `stripe listen --forward-to localhost:3000/stripe/webhook`.
+7. `cd ../frontend && npm start`. Stripe PaymentSheet needs an EAS dev/release build, not Expo Go.
+8. Integration tests: `createdb zoink_test`, `DATABASE_URL=…zoink_test npx prisma migrate deploy`, create `backend/.env.test` (`sk_test_…` + a real `DEV_STRIPE_ACCOUNT_ID`), then `npm run test:integration`.
 
-1. Install backend dependencies:
+### Where to edit common features
 
-```bash
-cd backend
-npm install
-```
-
-2. Install frontend dependencies:
-
-```bash
-cd ../frontend
-npm install
-```
-
-3. Create local env files:
-
-```text
-backend/.env
-frontend/.env
-```
-
-Use the variable tables above. Keep real secrets out of git.
-
-4. Start PostgreSQL and create the `zoink` database that matches `DATABASE_URL`.
-
-5. Run backend migrations and generate Prisma:
-
-```bash
-cd backend
-npx prisma migrate dev
-npx prisma generate
-```
-
-6. Optionally seed:
-
-```bash
-npx prisma db seed
-```
-
-7. Start backend:
-
-```bash
-npm run dev
-```
-
-Backend health check:
-
-```text
-http://localhost:3000/health
-```
-
-8. Start frontend:
-
-```bash
-cd ../frontend
-npm start
-```
-
-For Stripe PaymentSheet, use an EAS development or release build rather than Expo Go.
-
-9. Optional — set up integration tests:
-
-```bash
-createdb zoink_test
-DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/zoink_test" npx prisma migrate deploy
-```
-
-Create `backend/.env.test` pointed at `zoink_test` with `sk_test_...` Stripe keys (see `backend/src/integration-tests/README.md`), **and set `DEV_STRIPE_ACCOUNT_ID` to a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id** — accept-flow and cancellation tests call the live Stripe Connect API against it and now fail fast with a clear error if it's missing, then:
-
-```bash
-npm run test:integration
-```
-
-Note the migration ordering bug above — `migrate deploy` on a fresh `zoink_test` DB may fail on the `20260721000000_add_role_and_disputes` migration; apply `apply_to_test_db.sql` manually if so.
-
-### Where to Edit Common Features
-
-| Feature | Frontend Files | Backend Files | Database |
+| Feature | Frontend | Backend | Database |
 |---|---|---|---|
-| Auth/login/register | `AuthContext.tsx`, `LoginScreen.tsx`, `RegisterScreen.tsx` (now collects phone), `VerifyEmailScreen.tsx` | `routes/auth.ts`, `authController.ts`, `authService.ts`, `requireAuth.ts`, `schemas/auth.schema.ts` (Canadian/NANP phone validation + normalization) | `User` (`phone` now required), `VerificationToken` |
-| Verification | `VerificationGateScreen.tsx`, `VerifyEmailScreen.tsx` | `authService.ts`, `requiredVerified.ts` | `VerificationStatus`, `VerificationToken` |
-| Listings | `CreateListingScreen.tsx` (now real GPS + `DraggableLocationMap`, plus optional deposit), `EditListingScreen.tsx` (deposit field), `ListingDetailScreen.tsx`, `MyListingsScreen.tsx`, `SearchScreen.tsx`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts`, `schemas/listing.schema.ts` | `Listing` (now has `depositAmount`), `ListingImage` |
-| Rentals/bookings | `BookingRequestScreen.tsx`, `BookingHistoryScreen.tsx`, `BookingRequestsScreen.tsx`, `BookingDetailScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingStateMachine.ts`, `bookingUtils.ts`, `schemas/booking.schema.ts` | `Booking`, `BookingEvent` |
-| Deposits/payments | `BookingRequestScreen.tsx`, `config/stripe.ts` | `paymentService.ts`, `stripeWebhookController.ts`, `cleanupJob.ts`, `reconciliationJob.ts`, `schemas/stripe.schema.ts` | `Booking.paymentStatus`, payment/deposit/payout fields |
-| Handoff photos / Zoink It | `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts`, `schemas/handoff.schema.ts` | `Booking.pickupPhotos`, `returnPhotos`, tap timestamps |
-| Photo viewing (listings + handoff) | `PhotoViewerScreen.tsx`, `ListingDetailScreen.tsx`, `BookingDetailScreen.tsx` | N/A (frontend-only) | N/A |
-| Input validation | N/A (handled server-side) | `src/middleware/validate.ts`, `src/schemas/*.schema.ts`, `src/middleware/errorHandler.ts` | N/A |
-| Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx` (calls `markConversationRead`), `conversationsApi.ts` | `routes/conversations.ts` (`POST /conversations/:id/read`), `conversationController.ts`, `conversationService.ts` | `Conversation` (now has `renterLastReadAt`/`ownerLastReadAt`), `Message` |
-| Reviews/reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `bookingService.ts` | `Review`, `ReviewObligation`, `UserReputation` |
-| Disputes/admin | `FileDisputeScreen.tsx`, `BookingDetailScreen.tsx`, `disputesApi.ts` (filing/viewing); `AdminDisputesScreen.tsx`, `AdminDisputeDetailScreen.tsx`, `adminApi.ts` (admin review/resolve, gated on `user.role === 'ADMIN'` in `MyProfileScreen.tsx`) | `routes/disputes.ts`, `routes/admin.ts`, `disputeController.ts`, `adminController.ts`, `disputeService.ts`, `requireAdmin.ts`, `schemas/dispute.schema.ts` | `Dispute`, `Booking.disputeStatus`, `User.role` (still no route/screen to *set* a user's role — DB/script only) |
-| Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts`, relevant feature services | `Notification`, `User.expoPushToken` |
-| UI theme | `theme/colors.ts`, shared components, screen styles | Not applicable | Not applicable |
-| Landing page | `landing/index.html`, `landing/assets/*` | Not applicable | Not applicable |
+| Auth / register / login | `AuthContext.tsx`, `LoginScreen.tsx`, `RegisterScreen.tsx` (phone), `VerifyEmailScreen.tsx` | `routes/auth.ts`, `authController.ts`, `authService.ts`, `requireAuth.ts`, `rateLimiter.ts`, `schemas/auth.schema.ts` | `User` (`phone` required), `VerificationToken` |
+| Listings | `CreateListingScreen.tsx`, `EditListingScreen.tsx`, `ListingDetailScreen.tsx`, `SearchScreen.tsx`, `LocationMap*`, `mapTiles.ts`, `listingsApi.ts` | `routes/listings.ts`, `listingController.ts`, `listingService.ts`, `cloudinary.ts`, `schemas/listing.schema.ts` | `Listing` (`itemValue`, `depositAmount`), `ListingImage` |
+| Booking request | `BookingRequestScreen.tsx`, `bookingsApi.ts` | `routes/bookings.ts`, `bookingController.ts`, `bookingService.ts`, `bookingUtils.ts`, `bookingStateMachine.ts`, `schemas/booking.schema.ts` | `Booking`, `BookingEvent`, `Conversation` |
+| Payment (`ACCEPTED → CONFIRMED`) | `PayScreen.tsx`, `PaymentNeededBadge.tsx`, `bookingsApi.ts` | `bookingService.createPaymentIntentForBooking` / `transitionBookingStatus`, `paymentService.ts`, `stripeWebhookController.ts` | `Booking.paymentStatus` / `stripePaymentIntentId` / `stripeDepositPaymentIntentId` / `depositStatus` |
+| Deposit lifecycle | `BookingDetailScreen.tsx` (status lines) | `paymentService.createDepositPaymentIntent`, `cleanupJob.releaseDueDeposits`, `disputeService.resolveDispute` | `Booking.depositStatus` |
+| Handoff / Zoink It | `ZoinkItScreen.tsx`, `ActiveRentalScreen.tsx`, `PhotoViewerScreen.tsx`, `bookingsApi.ts`, `uploadFormData.ts` | `handoffService.ts`, `bookingController.ts`, `cloudinary.ts`, `schemas/handoff.schema.ts` | `Booking` photo arrays + tap timestamps |
+| Pricing (HST / commission / insurance) | `BookingRequestScreen.tsx` + `PayScreen.tsx` previews | `paymentService.ts` (`HST_RATE`, `COMMISSION_TIERS`, insurance clamp) | `Booking.hstAmount` / `commissionAmount` / `ownerPayout` / `insuranceFee` |
+| Payouts | `BookingDetailScreen.tsx` payout card | `cleanupJob.releaseDuePayouts`, `paymentService.transferPayout` | `Booking.paymentStatus` / `payoutSentAt` / `stripeTransferId` |
+| Messaging | `InboxScreen.tsx`, `ConversationThreadScreen.tsx`, `conversationsApi.ts` | `routes/conversations.ts`, `conversationController.ts`, `conversationService.ts`, `schemas/conversation.schema.ts` | `Conversation` (`renterLastReadAt`/`ownerLastReadAt`), `Message` |
+| Reviews / reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `schemas/review.schema.ts` | `Review` (`itemRating`/`itemNotes`/`personNotes`), `ReviewObligation`, `UserReputation` |
+| Disputes | `FileDisputeScreen.tsx`, `BookingDetailScreen.tsx`, `AdminDisputes*Screen.tsx`, `disputesApi.ts`, `adminApi.ts` | `routes/disputes.ts`, `routes/admin.ts`, `disputeController.ts`, `adminController.ts`, `disputeService.ts`, `schemas/dispute.schema.ts` | `Dispute`, `Booking.disputeStatus` |
+| Abuse reports | `FileReportScreen.tsx`, `AdminReportsScreen.tsx`, `reportsApi.ts`, `adminApi.ts` | `routes/reports.ts`, `routes/admin.ts`, `reportController.ts`, `adminController.ts`, `reportService.ts`, `schemas/report.schema.ts` | `Report` |
+| Admin role | `MyProfileScreen.tsx` (panel gate) | `requireAuth.ts` (DB-sourced `role`), `requireAdmin.ts`, `scripts/manageAdminRole.ts` | `User.role` (CLI only) |
+| Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts` | `Notification`, `User.expoPushToken` |
+| UI theme / design system | `theme/colors.ts`, `HardBlock.tsx`, `ScreenBackground.tsx`, shared components | — | — |
+| Landing page | `landing/index.html`, `landing/assets/*` | — | — |
 
 Keep this document updated when routes, models, env vars, or major flows change.

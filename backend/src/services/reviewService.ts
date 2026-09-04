@@ -6,10 +6,16 @@ import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '.
 
 type SubmitReviewInput = {
   obligationId: string
+  // Client-declared, used only for the schema-level refine (see
+  // review.schema.ts). Never trusted here — the real reviewerRole always
+  // comes from the obligation row looked up below.
+  reviewerRole: ReviewRole
   scoreA: number
   scoreB: number
   scoreC: number
-  comment?: string
+  itemRating?: number
+  itemNotes?: string
+  personNotes?: string
 }
 
 function average(values: number[]) {
@@ -24,12 +30,12 @@ function toDecimal(value: number | null) {
   return value === null ? null : new Prisma.Decimal(value.toFixed(2))
 }
 
-function scoreLabelsForRole(role: ReviewRole) {
+export function scoreLabelsForRole(role: ReviewRole) {
   if (role === ReviewRole.RENTER) {
     return {
       scoreAKey: 'accuracy',
       scoreBKey: 'condition',
-      scoreCKey: 'communication',
+      scoreCKey: 'pickupExperience',
     }
   }
 
@@ -112,9 +118,62 @@ async function recomputeUserReputation(tx: Prisma.TransactionClient, userId: str
   })
 }
 
+// Recomputes Listing.avgRating / reviewCount from scratch off every
+// borrower-authored item rating the listing has ever received. Full recompute
+// (not incremental) because reviews are immutable once submitted and the row
+// count per listing is tiny — there's no write-amplification worth the extra
+// failure surface of maintaining a running sum.
+async function recomputeListingRating(tx: Prisma.TransactionClient, listingId: string) {
+  const agg = await tx.review.aggregate({
+    where: { booking: { listingId }, itemRating: { not: null } },
+    _avg: { itemRating: true },
+    _count: { itemRating: true },
+  })
+
+  await tx.listing.update({
+    where: { id: listingId },
+    data: {
+      avgRating: agg._avg.itemRating,
+      reviewCount: agg._count.itemRating,
+    },
+  })
+}
+
 function assertScore(value: number) {
   if (!Number.isInteger(value) || value < 1 || value > 5) {
     throw new BadRequestError('Scores must be whole numbers between 1 and 5.')
+  }
+}
+
+function assertItemRating(value: number) {
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    throw new BadRequestError('Item rating must be a whole number between 1 and 5.')
+  }
+}
+
+// A borrower reviewer (RENTER) rates the item; a lender reviewer (LENDER)
+// leaves free-text notes about the renter instead. Re-derives which fields
+// are valid strictly from the obligation's real reviewerRole (never from
+// client input), so a client can't smuggle itemRating into a lender-authored
+// review (or vice versa) by lying about its own role in the request body.
+function resolveReviewFields(reviewerRole: ReviewRole, input: SubmitReviewInput) {
+  if (reviewerRole === ReviewRole.RENTER) {
+    if (input.itemRating === undefined) {
+      throw new BadRequestError('itemRating is required for this review.')
+    }
+    assertItemRating(input.itemRating)
+
+    return {
+      itemRating: input.itemRating,
+      itemNotes: input.itemNotes?.trim() || null,
+      personNotes: null,
+    }
+  }
+
+  return {
+    itemRating: null,
+    itemNotes: null,
+    personNotes: input.personNotes?.trim() || null,
   }
 }
 
@@ -253,7 +312,11 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     throw new BadRequestError('This rental is not ready for review yet.')
   }
 
-  const comment = input.comment?.trim() || null
+  if (input.reviewerRole !== obligation.reviewerRole) {
+    throw new BadRequestError('reviewerRole does not match this review obligation.')
+  }
+
+  const reviewFields = resolveReviewFields(obligation.reviewerRole, input)
 
   const result = await prisma.$transaction(async (tx) => {
     const review = await tx.review.create({
@@ -265,7 +328,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreA: input.scoreA,
         scoreB: input.scoreB,
         scoreC: input.scoreC,
-        comment,
+        ...reviewFields,
       },
       select: {
         id: true,
@@ -276,7 +339,9 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
         scoreA: true,
         scoreB: true,
         scoreC: true,
-        comment: true,
+        itemRating: true,
+        itemNotes: true,
+        personNotes: true,
         createdAt: true,
       },
     })
@@ -290,6 +355,12 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     })
 
     await recomputeUserReputation(tx, obligation.targetUserId)
+
+    // Only borrower-authored (RENTER) reviews carry an itemRating; lender
+    // reviews never touch the listing rollup.
+    if (reviewFields.itemRating !== null) {
+      await recomputeListingRating(tx, obligation.booking.listing.id)
+    }
 
     const pendingRemaining = await tx.reviewObligation.count({
       where: {

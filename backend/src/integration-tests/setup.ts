@@ -58,11 +58,28 @@
 // ── Step 1: Load .env.test into process.env BEFORE any other import ──────────
 // This MUST be the very first executable code in this module so that when
 // src/utils/prisma.ts lazily builds its Pool, DATABASE_URL is already zoink_test.
+// DATABASE_URL / STRIPE_SECRET_KEY etc. come from backend/.env.test — the
+// test:integration npm script no longer hardcodes them. dotenv does not
+// override anything already in process.env, so an explicit override still works.
 import dotenv from 'dotenv'
 import path from 'path'
 dotenv.config({ path: path.resolve(__dirname, '../../.env.test') })
 
 // ── Step 2: Enforce test-mode invariants ─────────────────────────────────────
+// Hard stop if DATABASE_URL is not the dedicated test DB: every beforeEach calls
+// truncateAllTables(), so a misloaded .env.test pointing at the dev DB would wipe
+// real data. This must abort before any test (and any Pool) is created.
+const DB_URL = process.env.DATABASE_URL ?? ''
+if (!DB_URL.includes('zoink_test')) {
+  console.error(
+    '\n🚨  ABORT: DATABASE_URL is not the integration test database (expected it to contain "zoink_test").\n' +
+    `    Got: "${DB_URL || '(unset)'}"\n` +
+    '    Integration tests truncate all tables between cases — refusing to run against a non-test DB.\n' +
+    '    Check that backend/.env.test exists and sets DATABASE_URL=postgresql://.../zoink_test\n'
+  )
+  process.exit(1)
+}
+
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY ?? ''
 if (STRIPE_KEY && !STRIPE_KEY.startsWith('sk_test_')) {
   console.error(
@@ -118,11 +135,13 @@ export async function disconnectTestPrisma(): Promise<void> {
 
 // ── Table truncation ──────────────────────────────────────────────────────────
 const TRUNCATE_ORDER = [
+  'processed_stripe_events',
   'booking_events',
   'review_obligations',
   'reviews',
   'notifications',
   'disputes',
+  'reports',
   'bookings',
   'listing_images',
   'conversations',
@@ -138,8 +157,13 @@ export async function truncateAllTables(): Promise<void> {
   // TRUNCATE. This prevents any Prisma-managed connection from holding an open
   // transaction or advisory lock that would cause TRUNCATE to block or fail
   // with FK constraint errors in fast back-to-back beforeEach calls.
+  const connectionString = process.env.DATABASE_URL!
+  // Defence in depth — Step 2 already aborts the process if this is ever false.
+  if (!connectionString.includes('zoink_test')) {
+    throw new Error(`Refusing to TRUNCATE: DATABASE_URL "${connectionString}" is not the zoink_test database.`)
+  }
   const { Client } = require('pg')
-  const client = new Client({ connectionString: process.env.DATABASE_URL! })
+  const client = new Client({ connectionString })
   await client.connect()
   try {
     const tableList = TRUNCATE_ORDER.map((t: string) => `"${t}"`).join(', ')
@@ -243,13 +267,17 @@ export function futureDates(startOffsetDays = 1, durationDays = 2) {
 export function buildSignedWebhookPayload(
   eventType: string,
   data: object,
-  bookingId: string
+  bookingId: string,
+  // Pass an explicit id to simulate Stripe re-delivering the *same* event
+  // (retries / `stripe events resend`). Defaults to a unique id per call so
+  // ordinary tests stay independent of the controller's event-id de-dupe.
+  eventId?: string
 ): { body: Buffer; signature: string } {
   const Stripe = require('stripe')
   const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2025-04-30.basil' })
 
   const event = {
-    id: `evt_test_${Date.now()}`,
+    id: eventId ?? `evt_test_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     object: 'event',
     api_version: '2025-04-30.basil',
     created: Math.floor(Date.now() / 1000),
@@ -287,4 +315,25 @@ export function stripeSkipReason(): string | null {
   if (!STRIPE_KEY) return 'STRIPE_SECRET_KEY not set'
   if (!STRIPE_KEY.startsWith('sk_test_')) return 'Not a test-mode key'
   return null
+}
+
+/** Confirms a rental PaymentIntent (created via createPaymentIntentForBooking,
+ *  which leaves it at status=requires_payment_method) with a real Stripe test
+ *  card, same as the borrower's PaymentSheet would. Required as of the
+ *  separate-deposit-PaymentIntent change: transitionBookingStatus's CONFIRMED
+ *  branch reads back the payment method attached to this PaymentIntent to
+ *  authorize the deposit off-session, so it must actually be confirmed — a
+ *  bare `paymentStatus: AUTHORIZED` DB write is no longer enough to fake it. */
+export async function confirmTestPaymentIntent(paymentIntentId: string): Promise<void> {
+  if (!STRIPE_KEY) return
+  const Stripe = require('stripe')
+  const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2025-04-30.basil' })
+  // createPaymentIntent() (paymentService.ts) enables automatic_payment_methods
+  // with redirects allowed (matching the real PaymentSheet client flow, which
+  // supplies its own returnURL) — confirming server-side here needs the same
+  // return_url Stripe requires whenever redirect-based methods are possible.
+  await stripe.paymentIntents.confirm(paymentIntentId, {
+    payment_method: 'pm_card_visa',
+    return_url: 'https://example.com/stripe-redirect',
+  })
 }

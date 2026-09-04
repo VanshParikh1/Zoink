@@ -17,6 +17,7 @@ import ListingDetailScreen from '../screens/ListingDetailScreen'
 import EditListingScreen from '../screens/EditListingScreen'
 import MyListingsScreen from '../screens/MyListingsScreen'
 import BookingRequestScreen from '../screens/BookingRequestScreen'
+import PayScreen from '../screens/PayScreen'
 import BookingHistoryScreen from '../screens/BookingHistoryScreen'
 import BookingRequestsScreen from '../screens/BookingRequestsScreen'
 import BookingDetailScreen from '../screens/BookingDetailScreen'
@@ -24,6 +25,7 @@ import InboxScreen from '../screens/InboxScreen'
 import ConversationThreadScreen from '../screens/ConversationThreadScreen'
 import ReviewPromptScreen from '../screens/ReviewPromptScreen'
 import MyProfileScreen from '../screens/MyProfileScreen'
+import SettingsScreen from '../screens/SettingsScreen'
 import PublicProfileScreen from '../screens/PublicProfileScreen'
 import ZoinkItScreen from '../screens/ZoinkItScreen'
 import ActiveRentalScreen from '../screens/ActiveRentalScreen'
@@ -31,6 +33,8 @@ import PhotoViewerScreen from '../screens/PhotoViewerScreen'
 import FileDisputeScreen from '../screens/FileDisputeScreen'
 import AdminDisputesScreen from '../screens/AdminDisputesScreen'
 import AdminDisputeDetailScreen from '../screens/AdminDisputeDetailScreen'
+import FileReportScreen from '../screens/FileReportScreen'
+import AdminReportsScreen from '../screens/AdminReportsScreen'
 
 export type RootStackParamList = {
   Login: undefined
@@ -43,18 +47,22 @@ export type RootStackParamList = {
   EditListing: { listingId: string }
   MyListings: undefined
   BookingRequest: { listingId: string }
+  Pay: { bookingId: string }
   BookingHistory: undefined
   BookingRequests: undefined
   BookingDetail: { bookingId: string }
   FileDispute: { bookingId: string; listingTitle?: string }
   AdminDisputes: undefined
   AdminDisputeDetail: { disputeId: string }
+  FileReport: { targetType: import('../types').ReportTargetType; targetId: string; targetLabel?: string }
+  AdminReports: undefined
   ActiveRental: { bookingId: string }
   ZoinkIt: { bookingId: string; mode: 'pickup' | 'return' }
   PhotoViewer: { photos: string[]; initialIndex: number }
   ReviewPrompt: { review: import('../types').PendingReview }
   Inbox: undefined
   MyProfile: undefined
+  Settings: undefined
   PublicProfile: { userId: string }
   ConversationThread: { conversationId: string; title?: string }
 }
@@ -83,8 +91,8 @@ function VerifiedAppStack() {
   }
 
   return (
-    <Stack.Navigator 
-      screenOptions={{ headerShown: false }} 
+    <Stack.Navigator
+      screenOptions={{ headerShown: false }}
       initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
       <Stack.Screen name="MainApp" component={MainAppScreen} />
@@ -93,12 +101,15 @@ function VerifiedAppStack() {
       <Stack.Screen name="EditListing" component={EditListingScreen} />
       <Stack.Screen name="MyListings" component={MyListingsScreen} />
       <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
+      <Stack.Screen name="Pay" component={PayScreen} />
       <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
       <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
       <Stack.Screen name="FileDispute" component={FileDisputeScreen} />
       <Stack.Screen name="AdminDisputes" component={AdminDisputesScreen} />
       <Stack.Screen name="AdminDisputeDetail" component={AdminDisputeDetailScreen} />
+      <Stack.Screen name="FileReport" component={FileReportScreen} />
+      <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
       <Stack.Screen name="ActiveRental" component={ActiveRentalScreen} />
       <Stack.Screen name="ZoinkIt" component={ZoinkItScreen} />
       <Stack.Screen
@@ -114,6 +125,7 @@ function VerifiedAppStack() {
       />
       <Stack.Screen name="Inbox" component={InboxScreen} />
       <Stack.Screen name="MyProfile" component={MyProfileScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen 
         name="PublicProfile" 
         component={PublicProfileScreen} 

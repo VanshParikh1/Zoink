@@ -26,6 +26,20 @@ export const updateMe = asyncHandler(async (req: Request, res: Response) => {
   return res.json(user)
 })
 
+// PATCH /users/me/notification-prefs
+export const updateNotificationPrefs = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const prefs = await userService.updateNotificationPreferences(userId, req.body)
+  return res.json(prefs)
+})
+
+// DELETE /users/me — soft-delete + anonymize
+export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  await userService.deleteMe(userId)
+  return res.status(204).send()
+})
+
 // POST /users/me/avatar
 export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId

@@ -1,5 +1,6 @@
+import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
-import { BookingEventType, PaymentStatus } from '@prisma/client'
+import { BookingEventType, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../../utils/prisma'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { BadRequestError, InternalServerError } from '../../utils/errors'
@@ -14,6 +15,41 @@ function getBookingId(object: any) {
   return object?.metadata?.bookingId ?? object?.payment_intent?.metadata?.bookingId ?? null
 }
 
+/** The PaymentIntent id an event concerns. For payment_intent.* events that's
+ *  object.id; for charge.* / refund.* events it's object.payment_intent (a
+ *  string, or an expanded object). */
+function getEventPaymentIntentId(object: any): string | null {
+  if (object?.object === 'payment_intent') return object.id ?? null
+  const pi = object?.payment_intent
+  if (!pi) return null
+  return typeof pi === 'string' ? pi : (pi.id ?? null)
+}
+
+/** A booking now has two PaymentIntents: the rental payment
+ *  (booking.stripePaymentIntentId) and a separate deposit hold
+ *  (booking.stripeDepositPaymentIntentId, created by
+ *  paymentService.createDepositPaymentIntent with metadata.purpose === 'deposit').
+ *  Their webhook events must not be conflated — a deposit capture/cancel must
+ *  never rewrite the rental's paymentStatus/paidAt/stripeChargeId/refundedAt. */
+function isDepositEvent(
+  object: any,
+  booking: { stripePaymentIntentId: string | null; stripeDepositPaymentIntentId: string | null }
+): boolean {
+  const purpose = object?.metadata?.purpose ?? object?.payment_intent?.metadata?.purpose
+  if (purpose === 'deposit') return true
+
+  const eventPiId = getEventPaymentIntentId(object)
+  if (
+    eventPiId &&
+    booking.stripeDepositPaymentIntentId &&
+    eventPiId === booking.stripeDepositPaymentIntentId &&
+    eventPiId !== booking.stripePaymentIntentId
+  ) {
+    return true
+  }
+  return false
+}
+
 function constructEvent(req: Request): StripeEvent {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   const signature = req.headers['stripe-signature']
@@ -26,6 +62,20 @@ function constructEvent(req: Request): StripeEvent {
     return stripe.webhooks.constructEvent(req.body, signature, secret)
   }
 
+  // Fail closed. A genuine Stripe delivery always carries a `stripe-signature`
+  // header that must verify against STRIPE_WEBHOOK_SECRET. If the secret is not
+  // configured, or the header is absent, the request body is entirely
+  // caller-controlled and must NOT be trusted — reject it instead of falling
+  // back to parsing it as an authentic event.
+  //
+  // The only exception is the integration test suite (NODE_ENV === 'test'),
+  // which posts synthetic unsigned events on purpose when it runs without a
+  // STRIPE_WEBHOOK_SECRET configured. This branch is unreachable in any
+  // non-test environment and is also closed whenever a secret is present.
+  if (process.env.NODE_ENV !== 'test' || secret) {
+    throw new BadRequestError('Stripe webhook signature verification failed.')
+  }
+
   const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : req.body
   return typeof raw === 'string' ? JSON.parse(raw) : raw
 }
@@ -35,29 +85,126 @@ async function updateBookingFromEvent(event: StripeEvent) {
   const bookingId = getBookingId(object)
   if (!bookingId) return
 
+  // Load the booking up front so payment_intent.* events can be routed by which
+  // PaymentIntent they actually belong to (rental vs. deposit). A missing
+  // booking is a no-op (a real Stripe event for a booking we don't have is a
+  // prod bug, but the webhook must still 200 so Stripe stops retrying).
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      id: true,
+      stripePaymentIntentId: true,
+      stripeDepositPaymentIntentId: true,
+      depositStatus: true,
+      totalPrice: true,
+      insuranceFee: true,
+      hstAmount: true,
+      refundedAmountCents: true,
+    },
+  })
+  if (!booking) return
+
+  // The renter's full rental charge (rental + insurance + HST), in cents — what
+  // a "full" refund would total. Used to tell a partial refund from a full one.
+  const fullChargeCents = Math.round(
+    (Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount)) * 100
+  )
+
+  const isDeposit = isDepositEvent(object, booking)
   const data: any = {}
 
-  if (event.type === 'payment_intent.amount_capturable_updated') {
-    data.paymentStatus = PaymentStatus.AUTHORIZED
+  if (isDeposit) {
+    // Deposit-PI lifecycle events only ever move depositStatus — never the
+    // rental payment fields. depositStatus is normally set synchronously
+    // (bookingService.transitionBookingStatus / disputeService.resolveDispute /
+    // cleanupJob.releaseDueDeposits); these writes are an idempotent,
+    // forward-only backstop so a redelivered/stale event can't walk a terminal
+    // CAPTURED/RELEASED back to AUTHORIZED.
+    const canAdvance = booking.depositStatus == null || booking.depositStatus === DepositStatus.AUTHORIZED
+
+    if (event.type === 'payment_intent.amount_capturable_updated' && canAdvance) {
+      data.depositStatus = DepositStatus.AUTHORIZED
+    }
+
+    if (event.type === 'payment_intent.succeeded' && canAdvance) {
+      data.depositStatus = DepositStatus.CAPTURED
+    }
+
+    if (event.type === 'payment_intent.canceled' && canAdvance) {
+      data.depositStatus = DepositStatus.RELEASED
+    }
+    // payment_intent.payment_failed / charge.* for the deposit have no booking
+    // field to update here — the WEBHOOK_RECEIVED audit row below still records them.
+  } else {
+    if (event.type === 'payment_intent.amount_capturable_updated') {
+      data.paymentStatus = PaymentStatus.AUTHORIZED
+    }
+
+    if (event.type === 'payment_intent.succeeded') {
+      data.paymentStatus = PaymentStatus.CAPTURED
+      data.paidAt = new Date()
+      data.stripeChargeId = object.latest_charge ?? null
+    }
+
+    if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
+      data.paymentStatus = event.type === 'payment_intent.canceled' ? PaymentStatus.REFUNDED : PaymentStatus.FAILED
+      if (event.type === 'payment_intent.canceled') data.refundedAt = new Date()
+    }
+
+    if (event.type === 'charge.refunded' || event.type === 'refund.succeeded') {
+      // Tell a partial refund from a full one instead of always stamping REFUNDED.
+      //  - charge.refunded carries the cumulative amount_refunded and the charge
+      //    total.
+      //  - refund.succeeded is a single Refund object with no cumulative/total.
+      // Either way, max() against what we already recorded: Stripe does not
+      // guarantee webhook ordering, so a later-arriving-but-chronologically-
+      // earlier delivery carries a *smaller* cumulative and must not walk
+      // refundedAmountCents backwards.
+      const reportedRefundedCents =
+        event.type === 'charge.refunded'
+          ? Number(object.amount_refunded ?? object.amount ?? 0)
+          : Number(object.amount ?? 0)
+      const cumulativeRefundedCents = Math.max(booking.refundedAmountCents, reportedRefundedCents)
+
+      data.refundedAmountCents = cumulativeRefundedCents
+      data.refundedAt = new Date()
+
+      const isFullRefund =
+        object.refunded === true ||
+        (fullChargeCents > 0 && cumulativeRefundedCents >= fullChargeCents)
+
+      if (isFullRefund) {
+        data.paymentStatus = PaymentStatus.REFUNDED
+      }
+      // Partial refund: leave paymentStatus (CAPTURED / PAYOUT_PENDING) alone so
+      // the booking isn't overstated as fully refunded and releaseDuePayouts()
+      // can still release the owner's proportional remaining payout.
+    }
   }
 
-  if (event.type === 'payment_intent.succeeded') {
-    data.paymentStatus = PaymentStatus.CAPTURED
-    data.paidAt = new Date()
-    data.stripeChargeId = object.latest_charge ?? null
-  }
+  const duplicate = await prisma.$transaction(async (tx) => {
+    // Idempotency guard. Stripe documents that a webhook can be delivered more
+    // than once (automatic retries, `stripe events resend`), and a validly-
+    // signed body can be replayed by a caller. Claim event.id FIRST, in the
+    // same transaction as the booking mutation + audit write, so two near-
+    // simultaneous redeliveries can't both pass a check before either commits —
+    // the unique index on stripeEventId serializes them and exactly one wins.
+    // ON CONFLICT DO NOTHING + affected-row count is how we detect the loser
+    // (Prisma's create() would throw P2002, which is harder to distinguish
+    // from an unrelated failure inside an interactive transaction).
+    const inserted = await tx.$executeRaw`
+      INSERT INTO "processed_stripe_events" ("id", "stripeEventId", "eventType")
+      VALUES (${randomUUID()}, ${event.id}, ${event.type})
+      ON CONFLICT ("stripeEventId") DO NOTHING
+    `
+    if (inserted === 0) {
+      // Already processed — skip the booking mutation and the audit write
+      // entirely. The caller still returns { received: true } / HTTP 200 so
+      // Stripe stops retrying. This is independent of the state-machine
+      // monotonicity guards above (e.g. depositStatus canAdvance).
+      return true
+    }
 
-  if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
-    data.paymentStatus = event.type === 'payment_intent.canceled' ? PaymentStatus.REFUNDED : PaymentStatus.FAILED
-    if (event.type === 'payment_intent.canceled') data.refundedAt = new Date()
-  }
-
-  if (event.type === 'charge.refunded' || event.type === 'refund.succeeded') {
-    data.paymentStatus = PaymentStatus.REFUNDED
-    data.refundedAt = new Date()
-  }
-
-  await prisma.$transaction(async (tx) => {
     if (Object.keys(data).length > 0) {
       await tx.booking.update({
         where: { id: bookingId },
@@ -72,11 +219,28 @@ async function updateBookingFromEvent(event: StripeEvent) {
         metadata: {
           stripeEventId: event.id,
           type: event.type,
+          scope: isDeposit ? 'deposit' : 'rental',
           paymentStatus: data.paymentStatus,
+          depositStatus: data.depositStatus,
+          refundedAmountCents: data.refundedAmountCents,
+          partialRefund:
+            data.refundedAmountCents != null &&
+            data.refundedAmountCents > 0 &&
+            data.paymentStatus !== PaymentStatus.REFUNDED
+              ? true
+              : undefined,
         },
       },
     })
+
+    return false
   })
+
+  if (duplicate) {
+    console.warn(
+      `Stripe webhook ${event.id} (${event.type}) already processed — skipping duplicate delivery`
+    )
+  }
 }
 
 export const stripeWebhook = asyncHandler(async (req: Request, res: Response) => {
