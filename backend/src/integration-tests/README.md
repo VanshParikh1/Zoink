@@ -81,8 +81,10 @@ Expect the full suite to take **20–60 seconds** depending on Stripe API latenc
 | `bookingLifecycle.integration.test.ts` | Full happy path: create → accept → pickup handoff (photos + Zoink It) → ACTIVE → return handoff → COMPLETED → review obligations created → `PAYOUT_PENDING`. Also: validations, overlap detection, data access controls, full HTTP path via supertest. |
 | `bookingCancellation.integration.test.ts` | Cancellation fee rules at all stages: PENDING (no fee, PI voided), ACCEPTED (5% fee, $5–$25 clamp), PICKUP_PENDING. Invalid cancellations (COMPLETED/DECLINED). HTTP 200/401/403/404 paths. |
 | `disputeResolution.integration.test.ts` | `createDispute` / `resolveDispute` service layer + HTTP layer. All three resolution outcomes (RESOLVED_REFUND, RESOLVED_NO_ACTION, DISMISSED). Admin-only resolve endpoint. BookingEvent audit trail. |
-| `stripeWebhooks.integration.test.ts` | Synthetic signed webhook events POSTed to `/stripe/webhook`. All six event types. Signature verification (invalid sig → 400). Unknown event type. Replay idempotency. |
-| `setup.ts` | Shared utilities: `truncateAllTables`, `createTestUser`, `createTestListing`, `futureDates`, `buildSignedWebhookPayload`, `signTestJwt`, `checkStripeConnectivity`, `getApp`. |
+| `stripeWebhooks.integration.test.ts` | Synthetic signed webhook events POSTed to `/stripe/webhook`. Rental vs. deposit PaymentIntent routing (a deposit event never touches the rental's `paymentStatus`). Partial vs. full refund (`amount_refunded` < charge total ⇒ `refundedAmountCents` recorded, not stamped `REFUNDED`). Signature verification (invalid sig → 400). Unknown event type. Replay idempotency. |
+| `payoutRelease.integration.test.ts` | `releaseDuePayouts` / `releaseDueDeposits` against a real Connect test account. Full payout for `NONE`/`RESOLVED_NO_ACTION`/`DISMISSED` and for `RESOLVED_REFUND` with no rental refund; proportional remainder after a partial rental refund; nothing (closed out via `payoutSentAt`) when fully refunded; blocked for `OPEN`/`UNDER_REVIEW`. |
+| `handoffRace.integration.test.ts` | Two concurrent handoff-confirm calls (`Promise.all`) for the same phase → exactly one transition, one `ZOINK_TAP`, no duplicate `STATUS_CHANGE`, clean 409 for the loser. Return (→ `COMPLETED`) and pickup (→ `ACTIVE`) phases. |
+| `setup.ts` | Shared utilities: `truncateAllTables`, `createTestUser`, `createTestListing`, `futureDates`, `buildSignedWebhookPayload`, `signTestJwt`, `checkStripeConnectivity`, `getApp`. Aborts the run if `DATABASE_URL` is not a `zoink_test` URL. |
 
 ---
 

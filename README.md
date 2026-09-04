@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily — cameras, speakers, tools, sports gear, event equipment — with verification, messaging, payments, deposit protection, and a photo-verified handoff built into the rental flow.
 
-The project is in active MVP development. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, a separately-authorized security deposit, 13% HST, tiered commission, a dispute-filing/resolution flow (renter/owner + admin), abuse reporting (listings and users), rate limiting, error tracking, and a neobrutalist app-wide design system are all implemented. Remaining major work: broader automated test coverage, production deployment, and TestFlight/release readiness.
+The project is in active MVP development. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, a separately-authorized security deposit, 13% HST, tiered commission, a dispute-filing/resolution flow (renter/owner + admin), abuse reporting (listings and users), rate limiting, error tracking, a security-hardening pass (fail-closed Stripe webhook verification, DB-backed authorization, response-shape scrubbing on the dispute and handoff endpoints), and a neobrutalist app-wide design system are all implemented. Remaining major work: broader automated test coverage, production deployment, and TestFlight/release readiness.
 
 ---
 
@@ -57,7 +57,7 @@ The project is in active MVP development. The marketplace, the full booking → 
 **Disputes** (renter/owner + admin)
 
 - `POST /disputes` — renter or owner opens a dispute with `reason` + `description` (10–1000 chars); one unresolved dispute per booking. On a `COMPLETED` booking the dispute must be filed within `DISPUTE_WINDOW_HOURS` (24) of completion, and is rejected if the deposit was already resolved by a prior dispute.
-- `GET /disputes` (own) and `GET /disputes/:id` (admin or booking participant).
+- `GET /disputes` (own) and `GET /disputes/:id` (admin or booking participant). Both project through `toDisputeResponse`: participants see the outcome fields the app renders (`status`, `resolutionNotes`, `refundAmountCents`, timestamps) but not `resolvedByAdminId`; only the raiser (or an admin) sees the dispute `description`; the embedded booking is narrowed to id / status / dates / listing title.
 - Admin: `GET /admin/disputes` (optional `status` filter), `GET /admin/disputes/:id`, `PATCH /admin/disputes/:id/resolve` → `RESOLVED_REFUND` / `RESOLVED_NO_ACTION` / `DISMISSED`, with an optional `refundAmountCents`. Also `GET /admin/bookings/:id/events` for the audit trail.
 - `resolveDispute` runs as one transaction holding `SELECT … FOR UPDATE` on the booking. The over-refund guard checks the **remaining refundable balance** (booking total minus prior refunds), not the raw total, so sequential partial refunds are safe. Post-capture a partial refund is allowed; pre-capture only a full refund (cancels the authorization). Refund idempotency is keyed on the dispute id. A pre-completion `RESOLVED_REFUND` also sets `Booking.paymentStatus = REFUNDED` + `refundedAt`.
 - Frontend: `FileDisputeScreen` (from `BookingDetailScreen`'s "Report a Problem", shown while the booking is `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no active dispute), an in-progress banner, and the resolved outcome. `AdminDisputesScreen` + `AdminDisputeDetailScreen` (booking/photo context, refund/no-action/dismiss with required notes, refund amount capped against `depositAmount` for a `COMPLETED` booking) from `MyProfileScreen`'s "Admin" panel.
@@ -80,11 +80,15 @@ The project is in active MVP development. The marketplace, the full booking → 
 - Error tracking: Sentry on the backend (`backend/src/instrument.ts`, sensitive keys scrubbed, skipped in test) and the frontend (`@sentry/react-native` in `App.tsx`). DSN-only; source-map upload not configured yet.
 - Zod v4 request validation on every route with a body/params/query; a centralized error handler maps `ZodError` → 400 `{ error, issues[] }` and `AppError` subclasses → their status.
 - Stripe client secrets are no longer persisted in the `BookingEvent` audit trail.
+- **Stripe webhook fails closed.** `constructEvent` in `stripeWebhookController.ts` verifies the `stripe-signature` header against `STRIPE_WEBHOOK_SECRET` and rejects with HTTP 400 when it can't — a missing header or an unset secret no longer falls through to parsing the raw body as a trusted event. The only unverified path left is `NODE_ENV=test` with no secret configured (the synthetic-event integration fixtures). This means a real deployment **must** set `STRIPE_WEBHOOK_SECRET` for the webhook to function.
+- **Authorization is enforced against the live DB, not the token.** `requireAuth` re-reads `role` and `verificationStatus` from the `User` row on every request (the same lookup that already checks `deletedAt`), so revoking an admin or a user's verification takes effect on their next request instead of when their 30-day JWT expires. The JWT still carries `role`/`verificationStatus`, but only as hints — `requireAdmin` / `requireVerified` act on the DB value.
+- **Dispute reads are shaped per caller.** `GET /disputes/:id` and `GET /disputes` no longer return the raw row: `resolvedByAdminId` is admin-only, the raiser's free-text `description` is withheld from the counterparty the dispute was raised against, and the embedded booking is narrowed to id / status / dates / listing title.
+- **Handoff responses are scrubbed.** The pickup/return/tap endpoints route their booking payload through the shared `toBookingResponse` serializer, so `renter`/`owner` are the `UserSummary` shape — `renter.stripeCustomerId`, `renter.email`, and `owner.stripeAccountId` are no longer sent to the booking counterparty.
 
 **Admin role**
 
-- `User.role` (`USER` / `ADMIN`) is embedded in the JWT and enforced by `requireAdmin`. The frontend decodes `role` into `AuthContext.user` and shows the "Admin" panel only for admins.
-- Granting/revoking the role is **CLI-only** — `npm run admin:grant -- --email=…` / `npm run admin:revoke -- --email=…` (see "Managing the Admin Role"). There is still no in-app UI for it.
+- `User.role` (`USER` / `ADMIN`). The JWT carries a `role` claim, but `requireAuth` re-reads `role` (and `verificationStatus`) from the `User` row on every request and `requireAdmin` enforces that live value — so a demoted admin loses `/admin/*` access on their next call, not 30 days later. The frontend still decodes the JWT `role` into `AuthContext.user` to show the "Admin" panel; backend enforcement is DB-backed.
+- Granting/revoking the role is **CLI-only** — `npm run admin:grant -- --email=…` / `npm run admin:revoke -- --email=…` (see "Managing the Admin Role"). There is still no in-app UI for it, but a revoke now takes effect immediately.
 
 **Design system**
 
@@ -93,15 +97,13 @@ The project is in active MVP development. The marketplace, the full booking → 
 **Tests**
 
 - Unit tests across services, middleware, controllers, and scripts (`npm test`).
-- Integration tests (`npm run test:integration`) against a real `zoink_test` Postgres DB + Stripe test mode: `bookingLifecycle`, `bookingCancellation`, `bookingFullFlow` (the new accept → pay → confirm → handoff flow), `bookingListingSortOrder`, `disputeResolution`, `payoutRelease`, `reportFlow`, `stripeWebhooks`.
+- Integration tests (`npm run test:integration`) against a real `zoink_test` Postgres DB + Stripe test mode: `bookingLifecycle`, `bookingCancellation`, `bookingFullFlow` (the new accept → pay → confirm → handoff flow), `bookingListingSortOrder`, `disputeResolution`, `payoutRelease`, `reportFlow`, `stripeWebhooks`, `handoffRace` (concurrent handoff-confirm).
 - `packages/shared` holds Prisma-generated TypeScript interfaces (`packages/shared/generated/prisma-models.ts`) and hand-written response DTOs (`packages/shared/src/dto.ts`); the frontend's `src/types/index.ts` re-exports from `@zoink/shared` so API shapes can't silently drift.
 
 ### To do next
 
 - Give admins an in-app (or at least internal-tool) way to grant/revoke the `ADMIN` role — still CLI-only.
-- Automatic handling of the owner's remaining payout after a **partial** dispute refund (currently a manual admin action; `Dispute.refundAmountCents` records what went back to the renter).
-- Broader integration coverage: handoff race conditions (true concurrent confirms), review obligations, notification delivery.
-- `backend/src/scripts/week7SmokeFlow.ts` still walks the pre-rework path (`ACCEPTED` straight into pickup) and needs updating for the `CONFIRMED` step.
+- Broader integration coverage: review obligations, notification delivery.
 - Production deployment infra, environment separation, operational monitoring.
 - Confirm a working TestFlight build, then finish release readiness.
 
@@ -232,7 +234,7 @@ cd backend
 npm run smoke:week7
 ```
 
-Runs a backend-only users → listing → booking → handoff flow in forced mock-Stripe mode. **Note:** this script has not been updated for the `ACCEPTED → CONFIRMED` payment step and currently walks the older path — see "To do next".
+Runs a backend-only users → listing → booking → handoff flow in forced mock-Stripe mode, walking the current path (`accept → payment-intent → confirm/CONFIRMED → pickup → active → return → complete`). It's a quick wiring check; the authoritative coverage is `backend/src/integration-tests/*.integration.test.ts`.
 
 ---
 
@@ -280,7 +282,9 @@ Health check: `http://localhost:3000/health`
 stripe listen --forward-to localhost:3000/stripe/webhook
 ```
 
-The path must be `/stripe/webhook`, **not** `/webhook` — the backend mounts nothing at `/webhook`, so events forwarded there `404` with no obvious signal, `Booking.paymentStatus` never advances past `PENDING_AUTH`, and confirming payment fails with `'Payment authorization is not ready yet.'`. Fix the `--forward-to` path and use `stripe events resend <event_id>` to redeliver missed events.
+`stripe listen` prints a `whsec_…` signing secret — put it in `backend/.env` as `STRIPE_WEBHOOK_SECRET` and restart the backend. The webhook now **fails closed**: outside `NODE_ENV=test`, a request with no valid signature (missing `stripe-signature` header, or `STRIPE_WEBHOOK_SECRET` unset) is rejected with `400 { "error": "Invalid Stripe webhook signature." }` and never processed, so an unset secret means `Booking.paymentStatus` never advances and confirming payment fails with `'Payment authorization is not ready yet.'`.
+
+The path must be `/stripe/webhook`, **not** `/webhook` — the backend mounts nothing at `/webhook`, so events forwarded there `404` with no obvious signal, with the same downstream symptom. Fix the `--forward-to` path and use `stripe events resend <event_id>` to redeliver missed events.
 
 ### Frontend
 
@@ -355,6 +359,7 @@ SENTRY_DSN=
 ```
 
 - `STRIPE_SECRET_KEY` empty → mock Stripe mode (no real charges). In `.env.test` it must start with `sk_test_`.
+- `STRIPE_WEBHOOK_SECRET` — **required for the webhook to work outside tests.** If it is unset (or a request arrives without a `stripe-signature` header), `stripeWebhookController` rejects the request with a 400 rather than trusting the body. Get the value from `stripe listen` (local) or the Stripe dashboard webhook endpoint (deployed). Only `NODE_ENV=test` with no secret still accepts unsigned synthetic events, for the integration fixtures.
 - `DEV_STRIPE_ACCOUNT_ID` — dev/beta owner-payout account override. In `.env.test` it must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id; the accept/payout integration tests call the live Connect API against it and fail fast if it's unset.
 - `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` — **required**. Must be `http://localhost…` or `https://…` pointing at the backend's `/stripe-return` / `/stripe-refresh` pages (e.g. `<ngrok-url>/stripe-return`), not the `zoink://` scheme (Stripe rejects it). Missing/invalid → hard error, no fallback.
 - `DEPOSIT_HOLD_HOURS` — delay before an undisputed deposit is auto-released (`releaseDueDeposits`).
@@ -479,7 +484,7 @@ No lint/format scripts are configured.
 | 8 | Reviews and reputation (incl. item review) | Done |
 | 9 | Push notifications and UI polish | Done |
 | 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
-| 11 | Admin/disputes + abuse reports (backend + frontend), integration tests, hardening | Done — rate limiting, helmet, Sentry, Zod validation in place; admin-role grant still CLI-only |
+| 11 | Admin/disputes + abuse reports (backend + frontend), integration tests, hardening | Done — rate limiting, helmet, Sentry, Zod validation in place; a follow-up security pass added fail-closed Stripe webhook verification, DB-backed authorization (no stale-JWT admin), and response scrubbing on the dispute/handoff endpoints; admin-role grant still CLI-only |
 | 12 | Booking-flow rework (`CONFIRMED` + Pay screen), separate deposit PaymentIntent, HST, tiered commission | Done |
 | 13 | App-wide neobrutalist design system | Done |
 | 14 | Deployment, TestFlight, production readiness | In progress — production EAS builds verified on iOS + Android; TestFlight not yet confirmed |
@@ -495,7 +500,7 @@ No lint/format scripts are configured.
 - Dispute resolution holds a `SELECT … FOR UPDATE` row lock on the booking across validation, the Stripe call, and the write, so sequential partial refunds can't collectively exceed the remaining balance.
 - Local dev runs mock Stripe with `STRIPE_SECRET_KEY` empty; real beta/prod needs Connect onboarding with payouts enabled before an owner can accept. Stripe native payment collection needs an EAS build, not Expo Go.
 - Messaging is polling-based. Read state is per participant (`renterLastReadAt` / `ownerLastReadAt`), set via `POST /conversations/:id/read`.
-- Authorization is role-based (`User.role`), read from the JWT and enforced with `requireAdmin`. Granting the role is CLI-only.
+- Authorization is role-based (`User.role`). `requireAuth` resolves `role` and `verificationStatus` from the `User` row on every request (not from the JWT claim), so `requireAdmin` / `requireVerified` act on the live DB value and a downgrade is effective immediately. Granting the role is CLI-only.
 - Disputes are their own `Dispute` records (auditable who/what/how-resolved); abuse reports are a separate `Report` model with a polymorphic, FK-less `targetId` so a report can outlive its target.
 - Frontend API shapes come from `@zoink/shared` (generated from Prisma) rather than a hand-maintained parallel type set.
 

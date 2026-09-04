@@ -1,10 +1,11 @@
 import React from 'react';
-import { Image, ImageStyle } from 'react-native';
+import { View, ViewStyle } from 'react-native';
+import Wordmark from '../../assets/ZoinkWordmark.svg';
 
 type ZoinkFullLogoProps = {
   width?: number;
   height?: number;
-  style?: ImageStyle;
+  style?: ViewStyle;
 };
 
 export default function ZoinkFullLogo({
@@ -13,10 +14,8 @@ export default function ZoinkFullLogo({
   style,
 }: ZoinkFullLogoProps) {
   return (
-    <Image
-      source={require('../../assets/ZoinkTransparent.png')}
-      style={[{ width, height }, style]}
-      resizeMode="contain"
-    />
+    <View style={[{ width, height }, style]}>
+      <Wordmark width="100%" height="100%" />
+    </View>
   );
 }

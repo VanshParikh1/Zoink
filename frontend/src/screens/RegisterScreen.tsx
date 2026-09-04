@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import ZoinkFullLogo from '../components/ZoinkFullLogo'
+import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
@@ -56,95 +56,97 @@ export default function RegisterScreen() {
   return (
     <DismissKeyboardView>
       <ScreenBackground>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={styles.inner}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* Header & Logo */}
-          <ZoinkFullLogo width={280} height={80} style={styles.logo} />
-          <Text style={styles.kicker}>join zoink</Text>
-          <Text style={styles.title}>Create account</Text>
-          <Text style={styles.subtitle}>
-            Use your university email to unlock the student marketplace.
-          </Text>
+          <ScrollView
+            contentContainerStyle={styles.inner}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header & Logo */}
+            <Text style={styles.kicker}>join zoink</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.title}>Create account</Text>
+              <ZoinkLogo size={75} style={{ marginTop: -30, marginRight: 1 }} />
+            </View>
+            <Text style={styles.subtitle}>
+              Use your university email to unlock the student marketplace.
+            </Text>
 
-          {/* Form */}
-          <View style={styles.form}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {/* Form */}
+            <View style={styles.form}>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <View style={styles.row}>
+              <View style={styles.row}>
+                <TextInput
+                  style={[styles.input, styles.halfInput]}
+                  placeholder="First name"
+                  placeholderTextColor={theme.textDisabled}
+                  value={firstName}
+                  onChangeText={setFirstName}
+                  maxLength={50}
+                />
+                <TextInput
+                  style={[styles.input, styles.halfInput]}
+                  placeholder="Last name"
+                  placeholderTextColor={theme.textDisabled}
+                  value={lastName}
+                  onChangeText={setLastName}
+                  maxLength={50}
+                />
+              </View>
+
               <TextInput
-                style={[styles.input, styles.halfInput]}
-                placeholder="First name"
+                style={styles.input}
+                placeholder="University email"
                 placeholderTextColor={theme.textDisabled}
-                value={firstName}
-                onChangeText={setFirstName}
-                maxLength={50}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
               />
               <TextInput
-                style={[styles.input, styles.halfInput]}
-                placeholder="Last name"
+                style={styles.input}
+                placeholder="Phone number"
                 placeholderTextColor={theme.textDisabled}
-                value={lastName}
-                onChangeText={setLastName}
-                maxLength={50}
+                keyboardType="phone-pad"
+                value={phone}
+                onChangeText={setPhone}
               />
+              <TextInput
+                style={styles.input}
+                placeholder="Password (min 8 characters)"
+                placeholderTextColor={theme.textDisabled}
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+
+              {/* Tactile stamped button */}
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleRegister}
+                disabled={loading}
+                activeOpacity={0.75}
+              >
+                {loading
+                  ? <ActivityIndicator color={theme.textOnPrimary} />
+                  : <Text style={styles.buttonText}>Create account</Text>
+                }
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.7}>
+                <Text style={styles.link}>
+                  Already have an account?{' '}
+                  <Text style={styles.linkBold}>Sign in</Text>
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="University email"
-              placeholderTextColor={theme.textDisabled}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Phone number"
-              placeholderTextColor={theme.textDisabled}
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password (min 8 characters)"
-              placeholderTextColor={theme.textDisabled}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            {/* Tactile stamped button */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleRegister}
-              disabled={loading}
-              activeOpacity={0.75}
-            >
-              {loading
-                ? <ActivityIndicator color={theme.textOnPrimary} />
-                : <Text style={styles.buttonText}>Create account</Text>
-              }
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.7}>
-              <Text style={styles.link}>
-                Already have an account?{' '}
-                <Text style={styles.linkBold}>Sign in</Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </ScreenBackground>
     </DismissKeyboardView>
   )

@@ -2,6 +2,7 @@
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { Feather } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -129,6 +131,17 @@ export default function ConversationThreadScreen() {
   // BookingDetailScreen, it never one-tap-accepts.
   const showApproveCta = isOwner && activeBooking?.status === 'PENDING'
   const headerTitle = listing?.title ?? route.params.title ?? 'Conversation'
+  const headerImageUrl = listing?.images?.[0]?.url ?? null
+  // The other participant in this thread — owner sees the renter, renter sees
+  // the owner. Mirrors the "who am I talking to" line in InboxScreen.
+  const otherParty = conversation
+    ? conversation.ownerId === user?.id
+      ? conversation.renter
+      : conversation.owner
+    : null
+  const otherPartyName = otherParty
+    ? [otherParty.firstName, otherParty.lastName].filter(Boolean).join(' ')
+    : null
   // Shown only when there's an in-flight booking that neither the Approve nor
   // the Pay button already speaks to.
   const contextLabel = (() => {
@@ -157,14 +170,34 @@ export default function ConversationThreadScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
       >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => nav.goBack()}>
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
+        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity
+              style={styles.backButton}
+              accessibilityLabel="Go back"
+              activeOpacity={0.8}
+              onPress={() => nav.goBack()}
+            >
+              <Feather name="arrow-left" size={20} color={theme.hard.ink} />
+            </TouchableOpacity>
+
+            <View style={styles.headerText}>
+              <Text style={styles.panelTitle} numberOfLines={2}>{headerTitle}</Text>
+              {otherPartyName ? (
+                <Text style={styles.headerParty} numberOfLines={1}>{otherPartyName}</Text>
+              ) : null}
+            </View>
+
+            {headerImageUrl ? (
+              <Image source={{ uri: headerImageUrl }} style={styles.headerThumb} />
+            ) : (
+              <View style={[styles.headerThumb, styles.headerThumbPlaceholder]}>
+                <Feather name="image" size={16} color={theme.textDisabled} />
+              </View>
+            )}
+          </View>
 
           <View style={styles.panel}>
-            <Text style={styles.panelTitle} numberOfLines={2}>{headerTitle}</Text>
-
             <View style={styles.panelActions}>
               <TouchableOpacity
                 style={styles.panelButton}
@@ -280,18 +313,44 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  header: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 14 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
-  panel: {
-    marginTop: 12,
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
     backgroundColor: theme.primarySurface,
-    borderRadius: theme.radius.md,
-    padding: 16,
+    // Bold neobrutalist outline, flush to the screen top (no radius / margin)
+    // so it reads as part of the screen chrome, not a floating card.
+    borderWidth: theme.hard.border,
+    borderTopWidth: 0,
+    borderColor: theme.hard.ink,
+  },
+  headerTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerText: { flex: 1 },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
     borderWidth: theme.hard.border,
     borderColor: theme.hard.ink,
   },
+  headerThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: theme.radius.sm,
+    borderWidth: theme.hard.border,
+    borderColor: theme.hard.ink,
+  },
+  headerThumbPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.screen,
+  },
+  headerParty: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 2 },
+  panel: { marginTop: 12 },
   panelTitle: { ...theme.type.sectionTitle, fontSize: 18, lineHeight: 22 },
-  panelActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+  panelActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   panelButton: {
     flexGrow: 1,
     flexBasis: '30%',
@@ -305,7 +364,7 @@ const styles = StyleSheet.create({
   },
   panelButtonText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
   contextLabel: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 },
-  listContent: { paddingHorizontal: 20, paddingBottom: 16, gap: 10, flexGrow: 1 },
+  listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, gap: 10, flexGrow: 1 },
   stateWrap: { paddingVertical: 8 },
   bubble: {
     maxWidth: '82%',

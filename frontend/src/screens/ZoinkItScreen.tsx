@@ -22,6 +22,7 @@ import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
+import ZoinkLogo from '../components/ZoinkLogo'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -412,11 +413,7 @@ export default function ZoinkItScreen() {
             disabled={locked}
             activeOpacity={0.86}
           >
-            <Image
-              source={require('../../assets/logo.png')}
-              resizeMode="contain"
-              style={styles.logo}
-            />
+            <ZoinkLogo size={118} style={styles.logo} />
           </TouchableOpacity>
         </Animated.View>
       </View>

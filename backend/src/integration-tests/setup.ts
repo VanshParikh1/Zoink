@@ -58,11 +58,28 @@
 // ── Step 1: Load .env.test into process.env BEFORE any other import ──────────
 // This MUST be the very first executable code in this module so that when
 // src/utils/prisma.ts lazily builds its Pool, DATABASE_URL is already zoink_test.
+// DATABASE_URL / STRIPE_SECRET_KEY etc. come from backend/.env.test — the
+// test:integration npm script no longer hardcodes them. dotenv does not
+// override anything already in process.env, so an explicit override still works.
 import dotenv from 'dotenv'
 import path from 'path'
 dotenv.config({ path: path.resolve(__dirname, '../../.env.test') })
 
 // ── Step 2: Enforce test-mode invariants ─────────────────────────────────────
+// Hard stop if DATABASE_URL is not the dedicated test DB: every beforeEach calls
+// truncateAllTables(), so a misloaded .env.test pointing at the dev DB would wipe
+// real data. This must abort before any test (and any Pool) is created.
+const DB_URL = process.env.DATABASE_URL ?? ''
+if (!DB_URL.includes('zoink_test')) {
+  console.error(
+    '\n🚨  ABORT: DATABASE_URL is not the integration test database (expected it to contain "zoink_test").\n' +
+    `    Got: "${DB_URL || '(unset)'}"\n` +
+    '    Integration tests truncate all tables between cases — refusing to run against a non-test DB.\n' +
+    '    Check that backend/.env.test exists and sets DATABASE_URL=postgresql://.../zoink_test\n'
+  )
+  process.exit(1)
+}
+
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY ?? ''
 if (STRIPE_KEY && !STRIPE_KEY.startsWith('sk_test_')) {
   console.error(
@@ -140,8 +157,13 @@ export async function truncateAllTables(): Promise<void> {
   // TRUNCATE. This prevents any Prisma-managed connection from holding an open
   // transaction or advisory lock that would cause TRUNCATE to block or fail
   // with FK constraint errors in fast back-to-back beforeEach calls.
+  const connectionString = process.env.DATABASE_URL!
+  // Defence in depth — Step 2 already aborts the process if this is ever false.
+  if (!connectionString.includes('zoink_test')) {
+    throw new Error(`Refusing to TRUNCATE: DATABASE_URL "${connectionString}" is not the zoink_test database.`)
+  }
   const { Client } = require('pg')
-  const client = new Client({ connectionString: process.env.DATABASE_URL! })
+  const client = new Client({ connectionString })
   await client.connect()
   try {
     const tableList = TRUNCATE_ORDER.map((t: string) => `"${t}"`).join(', ')

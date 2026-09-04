@@ -1,6 +1,6 @@
 # Zoink Codebase Overview
 
-This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It reflects the code in this repo as of the booking-flow rework, the separately-authorized security deposit, 13% HST, tiered commission, abuse reports, rate limiting / Sentry, the review rework, and the app-wide neobrutalist design system.
+This document explains the current Zoink repository so a new developer can understand what exists, how the pieces connect, and where to make changes. It reflects the code in this repo as of the booking-flow rework, the separately-authorized security deposit, 13% HST, tiered commission, abuse reports, rate limiting / Sentry, the review rework, the app-wide neobrutalist design system, and a security-hardening pass (fail-closed Stripe webhook verification, DB-backed `role`/`verificationStatus` resolution in `requireAuth`, and per-caller response shaping on the dispute and handoff endpoints).
 
 ## 1. Project Overview
 
@@ -43,7 +43,7 @@ The repository has four areas:
 | Validation | Zod v4 schemas in `src/schemas/*.schema.ts` + `src/middleware/validate.ts`; `ZodError` → centralized error handler |
 | Testing | Node built-in test runner with `ts-node/register` (unit); `supertest` + real Postgres test DB + Stripe test mode (`backend/src/integration-tests/`) |
 | Scheduled jobs | `node-cron`, registered in `backend/src/index.ts` (skipped when `NODE_ENV=test`) |
-| Authorization roles | `Role` enum (`USER`/`ADMIN`) on `User`, embedded in the JWT, enforced by `requireAdmin` |
+| Authorization roles | `Role` enum (`USER`/`ADMIN`) on `User`. The JWT carries a `role` claim, but `requireAuth` re-reads `role` + `verificationStatus` from the DB per request; `requireAdmin` / `requireVerified` enforce that live value |
 | Landing page | Static HTML, Tailwind CDN, Lucide CDN, inline CSS/JS |
 
 ## 3. Folder Structure
@@ -111,7 +111,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 
 | File | What It Does |
 |---|---|
-| `backend/package.json` | Backend deps and scripts: `dev`, `build`, `start`, `test`, `test:integration`, `smoke:week7`, `admin:grant`, `admin:revoke`. Runtime deps now include `helmet`, `express-rate-limit`, `@sentry/node`, `node-cron`; dev deps include `supertest`, `prisma-generator-typescript-interfaces`. `test:integration` has a hardcoded `zoink_test` `DATABASE_URL`. Configures the Prisma seed. |
+| `backend/package.json` | Backend deps and scripts: `dev`, `build`, `start`, `test`, `test:integration`, `smoke:week7`, `admin:grant`, `admin:revoke`. Runtime deps now include `helmet`, `express-rate-limit`, `@sentry/node`, `node-cron`; dev deps include `supertest`, `prisma-generator-typescript-interfaces`. `test:integration` sets `NODE_ENV=test` and relies on `backend/.env.test` for `DATABASE_URL` (`setup.ts` aborts if it isn't a `zoink_test` URL). Configures the Prisma seed. |
 | `backend/tsconfig.json` | TS config, strict, CommonJS, outputs to `dist/`. |
 | `backend/nodemon.json` | Watches `src`, runs `ts-node src/index.ts`. |
 | `backend/prisma.config.ts` | Loads `.env`, points Prisma at `backend/prisma/schema.prisma`, configures datasource URL and seed. |
@@ -144,6 +144,10 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 | `20260822201926_booking_flow_rework` | `BookingStatus.CONFIRMED`; drops `bookings.message`; adds `bookings.conversationId` (FK → conversations, `ON DELETE SET NULL`). |
 | `20260825185736_add_deposit_payment_intent_tracking` | `DepositStatus` enum; `bookings.depositStatus` + `stripeDepositPaymentIntentId`. |
 | `20260825212850_add_booking_hst_amount` | `bookings.hstAmount DECIMAL(10,2) NOT NULL DEFAULT 0`. |
+| `20260827000000_add_booking_refunded_amount_cents` | `bookings.refundedAmountCents INTEGER` (cumulative renter refund; drives the proportional payout math). |
+| `20260831212304_add_listing_rating_aggregates` | `listings` item-rating aggregate columns (count + average), shown on listing cards. |
+| `20260831213825_add_notification_prefs_and_types` | `NotificationType` gains `MESSAGE_RECEIVED` + `DEPOSIT_RELEASED`; `users` gains per-category toggle columns `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (all `DEFAULT true`). |
+| `20260831214548_add_user_deleted_at` | `users.deletedAt DateTime?` — soft-delete / anonymize; `requireAuth` and `loginUser` reject a row with `deletedAt` set. |
 
 ### Backend Entry, Instrument, Middleware, Utils, Test Helpers
 
@@ -151,9 +155,9 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 |---|---|
 | `backend/src/index.ts` | Express entrypoint. Loads `.env` (skipped when `NODE_ENV=test`), imports `./instrument` first (Sentry), applies `helmet()` + `cors()` + `trust proxy 1`, mounts the raw `/stripe/webhook` **before** `express.json()` and the `globalLimiter`, serves `/`, `/health`, and the `/stripe-return` / `/stripe-refresh` HTML redirect pages, exposes `GET /stripe/connect/status`, and mounts routers: `auth`, `users`, `listings`, `bookings`, `conversations`, `reviews`, `disputes`, `reports`, `admin`. Registers `node-cron` jobs (stale-handoff cleanup + payout release + deposit release every 15 min; reconciliation hourly) and calls `app.listen()` — both skipped when `NODE_ENV=test`. Exports `app`. |
 | `backend/src/instrument.ts` | Initializes `@sentry/node` when `SENTRY_DSN` is set and `NODE_ENV !== 'test'`. `beforeSend` scrubs any header/body/cookie/extra key matching `/password|token|secret|key|authorization/i`. Exports `Sentry`. |
-| `backend/src/middleware/requireAuth.ts` | Verifies the `Bearer` JWT with `JWT_SECRET`; attaches `userId`, `verificationStatus`, and `role` (defaults `USER`). |
-| `backend/src/middleware/requireAdmin.ts` | 403 unless `req.role === 'ADMIN'`. Runs after `requireAuth`. |
-| `backend/src/middleware/requiredVerified.ts` | Blocks unless the JWT verification status is `VERIFIED`. |
+| `backend/src/middleware/requireAuth.ts` | Verifies the `Bearer` JWT with `JWT_SECRET`, then does one `User` lookup per request selecting `deletedAt`, `role`, `verificationStatus`. Rejects a deleted/missing user (401); attaches `userId` (from the token) plus `role` (DB value, defaults `USER`) and `verificationStatus` (DB value) — **not** the JWT claims, so a role/verification change in the DB is enforced on the next request rather than at token expiry. |
+| `backend/src/middleware/requireAdmin.ts` | 403 unless `req.role === 'ADMIN'` (the DB-sourced value set by `requireAuth`). Runs after `requireAuth`. |
+| `backend/src/middleware/requiredVerified.ts` | Blocks unless `req.verificationStatus === 'VERIFIED'` (DB-sourced by `requireAuth`). |
 | `backend/src/middleware/rateLimiter.ts` | `express-rate-limit` factory. `keyByIpAndUser` combines `req.ip` with the token's `userId` when present. `authLimiter` = 10 / 15 min (mounted on `/auth`); `globalLimiter` = 300 / 15 min (mounted app-wide, after the webhook). In-memory store — noted as needing a shared store if scaled to multiple instances. |
 | `backend/src/middleware/bookingStateMachine.ts` | `allowedTransitions` map + `assertBookingTransition`. Current graph: `PENDING→{ACCEPTED,DECLINED,CANCELLED}`, `ACCEPTED→{CONFIRMED,CANCELLED}`, `CONFIRMED→{PICKUP_PENDING,ACTIVE,CANCELLED}`, `PICKUP_PENDING→{ACTIVE,CANCELLED}`, `ACTIVE→{RETURN_PENDING,COMPLETED}`, `RETURN_PENDING→{COMPLETED}`. |
 | `backend/src/middleware/errorHandler.ts` | 4-arg handler: `ZodError` → `400 { error, issues[] }`; `AppError` subclasses → mapped status + `{ error }`; else `500`. Mounted last. |
@@ -188,30 +192,30 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 | `bookingController.ts` | `createBooking`, `getBooking`, `getMyBookings`, `getIncomingRequests`, `acceptBooking`, `createBookingPaymentIntent`, `confirmBookingPayment`, `declineBooking`, `cancelBooking`, legacy `activateBooking` / `completeBooking`, handoff `initiatePickup`/`confirmPickup`/`initiateReturn`/`confirmReturn`, `uploadHandoffPhotos`, `uploadHandoffPhotoImage`, `zoinkTap`. |
 | `conversationController.ts` | `openConversation`, `getMyConversations`, `getConversationMessages`, `sendMessage`, `markConversationRead`. |
 | `reviewController.ts` | `getPendingReviews`, `submitReview`. |
-| `disputeController.ts` | `createDispute`, `getDispute` (admin or booking participant), `getMyDisputes`. |
+| `disputeController.ts` | `createDispute`; `getDispute` (admin or booking participant) and `getMyDisputes` — both project the row through `toDisputeResponse(row, callerId, role)` instead of returning it raw: `resolvedByAdminId` is admin-only, the raiser's `description` is withheld from the counterparty, and the embedded booking is narrowed to `id`/`status`/`startDate`/`endDate`/`listing.title` (`renterId`/`ownerId` are selected only to run the authz check, then stripped). `toDisputeResponse` is exported for unit testing. |
 | `reportController.ts` | `createReport` (201). |
-| `adminController.ts` | `listDisputes` (raw Prisma rows), `getDisputeDetail`, `resolveDispute` (validates status, delegates to `disputeService`), `getBookingEvents`, `listReports` (+ `attachTargetLabels`), `resolveReport`. |
-| `stripeWebhookController.ts` | `stripeWebhook` — constructs/verifies the event (when `STRIPE_WEBHOOK_SECRET` set), then `updateBookingFromEvent`: `amount_capturable_updated` → `AUTHORIZED`; `succeeded` → `CAPTURED` + `paidAt` + `stripeChargeId`; `payment_failed`/`canceled` → `FAILED`/`REFUNDED` (+ `refundedAt`); `charge.refunded`/`refund.succeeded` → `REFUNDED` + `refundedAt` (does not yet distinguish partial from full — noted in-file). Writes a `WEBHOOK_RECEIVED` event. |
+| `adminController.ts` | `listDisputes` (raw Prisma rows — admin-only, unlike the shaped user-facing `getDispute`), `getDisputeDetail`, `resolveDispute` (validates status, delegates to `disputeService`), `getBookingEvents`, `listReports` (+ `attachTargetLabels`), `resolveReport`. |
+| `stripeWebhookController.ts` | `stripeWebhook` — `constructEvent` **fails closed**: it verifies the `stripe-signature` header against `STRIPE_WEBHOOK_SECRET` and, when it can't (header absent or secret unset), throws `BadRequestError` → `400 { error: 'Invalid Stripe webhook signature.' }` and does not process the body. The unsigned `JSON.parse` fallback survives only when `NODE_ENV === 'test'` **and** no secret is configured (the synthetic-event fixtures). Then `updateBookingFromEvent`: `amount_capturable_updated` → `AUTHORIZED`; `succeeded` → `CAPTURED` + `paidAt` + `stripeChargeId`; `payment_failed`/`canceled` → `FAILED`/`REFUNDED` (+ `refundedAt`); `charge.refunded`/`refund.succeeded` compare `amount_refunded` to the full charge (partial → `refundedAmountCents` + `refundedAt` only; full → `REFUNDED`). Writes a `WEBHOOK_RECEIVED` event. No `event.id` de-dupe yet (replay guard is a known gap — see §14). |
 | `*.test.ts` | Unit tests for every controller, plus `rateLimiter.test.ts`, `bookingStateMachine.test.ts`. `bookingController.test.ts` / `authController.test.ts` run the `validate()` + `errorHandler` pipeline and assert the `{ error, issues }` shape. |
 
 ### Backend Services (`backend/src/services/`)
 
 | File | What It Contains |
 |---|---|
-| `authService.ts` | Email-domain allowlist, OTP generation, JWT signing (payload: `userId`, `verificationStatus`, `email`, `firstName`, `role`), registration, login, OTP verify/resend, SES email. |
+| `authService.ts` | Email-domain allowlist, OTP generation, JWT signing (payload: `userId`, `verificationStatus`, `email`, `firstName`, `role` — but `role`/`verificationStatus` in the token are informational only; `requireAuth` authorizes off the DB), registration, login, OTP verify/resend, SES email. |
 | `userService.ts` | Profile reads/updates, avatar URL, push token, Stripe account id getters/setters, public-profile/reputation formatting. |
 | `listingService.ts` | Listing CRUD, image add/delete, availability, category list, browse/search with raw-SQL distance filtering. Returns an `{ items, meta: { total, offset, limit, hasMore } }` envelope. |
-| `bookingService.ts` | `createBooking` (validates dates ≤ `MAX_RENTAL_DAYS`, upserts the listing/renter `Conversation`, snapshots `totalPrice` / `depositAmount` (from `listing.depositAmount`) / `commissionAmount` / `ownerPayout` / `insuranceFee` / `hstAmount`, posts the optional message into the conversation, notifies the owner); `createPaymentIntentForBooking` (renter-only, `ACCEPTED` only — ensures a Stripe Customer, creates the rental PaymentIntent with `setup_future_usage`); `getBookingById` / `getMyBookings` (`updatedAt desc`) / `getIncomingRequests` (`[status asc, updatedAt desc]` — PENDING pinned); `transitionBookingStatus` (state-machine + per-status authorization; `ACCEPTED` re-checks overlap + owner payouts; `CONFIRMED` re-checks overlap, requires `AUTHORIZED`/`CAPTURED` rental payment, then authorizes the **deposit** as its own off-session PaymentIntent and rolls back to `ACCEPTED` on failure; `ACCEPTED` auto-declines overlapping `PENDING` requests; `COMPLETED` sets `completedAt`, flips `CAPTURED → PAYOUT_PENDING`, creates review obligations); `handleCancellationPayment` (`PENDING`/`ACCEPTED` → no Stripe call; `CONFIRMED` → full release, fee path retained but unreachable); `calculateCancellationFeeCents` → `return 0`. Exports `bookingSelect`, `createBookingEvent`, `createReviewObligationsForCompletedBooking` for `handoffService`. |
+| `bookingService.ts` | `createBooking` (validates dates ≤ `MAX_RENTAL_DAYS`, upserts the listing/renter `Conversation`, snapshots `totalPrice` / `depositAmount` (from `listing.depositAmount`) / `commissionAmount` / `ownerPayout` / `insuranceFee` / `hstAmount`, posts the optional message into the conversation, notifies the owner); `createPaymentIntentForBooking` (renter-only, `ACCEPTED` only — ensures a Stripe Customer, creates the rental PaymentIntent with `setup_future_usage`); `getBookingById` / `getMyBookings` (`updatedAt desc`) / `getIncomingRequests` (`[status asc, updatedAt desc]` — PENDING pinned); `transitionBookingStatus` (state-machine + per-status authorization; `ACCEPTED` re-checks overlap + owner payouts; `CONFIRMED` re-checks overlap, requires `AUTHORIZED`/`CAPTURED` rental payment, then authorizes the **deposit** as its own off-session PaymentIntent and rolls back to `ACCEPTED` on failure; `ACCEPTED` auto-declines overlapping `PENDING` requests; `COMPLETED` sets `completedAt`, flips `CAPTURED → PAYOUT_PENDING`, creates review obligations); `handleCancellationPayment` (`PENDING`/`ACCEPTED` → no Stripe call; `CONFIRMED` → full release, fee path retained but unreachable); `calculateCancellationFeeCents` → `return 0`. `toBookingResponse(booking, userId?)` builds the `BookingResponse` DTO — `renter`/`owner` mapped through `toUserSummary` (id/firstName/lastName/avatarUrl/verificationStatus only). Exports `bookingSelect`, `createBookingEvent`, `createReviewObligationsForCompletedBooking`, `toBookingResponse` for `handoffService`. |
 | `bookingUtils.ts` | `MAX_RENTAL_DAYS = 7`, `roundCurrency`, `getRentalDays` (UTC, inclusive), `ensureValidBookingDates` (NaN / order / max-days). Deposit calculation was removed. |
 | `bookingEventService.ts` | `getBookingEvents(bookingId)` (for the admin endpoint) and a `createBookingEvent` helper (tx-aware). |
-| `handoffService.ts` | `initiateHandoff` (2–3 photos; pickup starts from `CONFIRMED` and is owner-only, return from `ACTIVE` and renter-only; first submission transitions to `PICKUP_PENDING`/`RETURN_PENDING` + `UPLOAD_PHOTOS`/`STATUS_CHANGE` events + notifies the other party; later edits only update photos with `edited: true`); `confirmHandoff` (records the actor's tap; if both taps land within `ZOINK_TAP_WINDOW_MS`, pickup → `ACTIVE` + `startDate = now` + captures the rental PaymentIntent, return → `COMPLETED` + `completedAt` + `PAYOUT_PENDING` + review obligations); `getCompletedHandoffPhotos`; legacy `uploadHandoffPhotos` / `registerTap` aliases. |
+| `handoffService.ts` | `initiateHandoff` (2–3 photos; pickup starts from `CONFIRMED` and is owner-only, return from `ACTIVE` and renter-only; first submission transitions to `PICKUP_PENDING`/`RETURN_PENDING` + `UPLOAD_PHOTOS`/`STATUS_CHANGE` events + notifies the other party; later edits only update photos with `edited: true`); `confirmHandoff` (records the actor's tap; if both taps land within `ZOINK_TAP_WINDOW_MS`, pickup → `ACTIVE` + `startDate = now` + captures the rental PaymentIntent, return → `COMPLETED` + `completedAt` + `PAYOUT_PENDING` + review obligations); `getCompletedHandoffPhotos`; legacy `uploadHandoffPhotos` / `registerTap` aliases. The three response producers return `bookingService.toBookingResponse(updated, actorId)` (the shared scrubbed serializer) — there is no local raw-spread serializer anymore — so `renter`/`owner` are `UserSummary` and `renter.stripeCustomerId` / `renter.email` / `owner.stripeAccountId` never reach the counterparty. `capturePaymentIntent` is still handed the raw Prisma row, not the DTO. |
 | `paymentService.ts` | Mock-vs-real Stripe (`STRIPE_SECRET_KEY` empty → mock). `calculateInsuranceFee`; `calculateHst` (`HST_RATE = 0.13`, hardcoded); `getCommissionRate` / `calculateCommission` / `calculateOwnerPayout` (`COMMISSION_TIERS` keyed on daily rate: ≤20 → 15%, ≤50 → 12.5%, else 10%); `getRentalAuthorizationAmount` (rental + insurance + HST); `getOrCreateStripeCustomer`; `createPaymentIntent` (manual capture, `setup_future_usage: 'off_session'`); `createDepositPaymentIntent` (separate PI, `off_session`, `confirm: true`, reusing the saved payment method); `getPaymentIntentPaymentMethod`; `capturePaymentIntent` / `cancelPaymentIntent` / `refundPaymentIntent` (idempotency salt = dispute id, so sequential different-amount refunds are allowed); `transferPayout` (commission already netted out); `transferDepositCompensation` (full amount, no commission, keyed on dispute id); `createConnectAccountLink` / `getConnectAccountStatus`; `getStripeConnectRedirectUrl` (requires `http://localhost` or `https://`). |
 | `conversationService.ts` | `openConversation` (upsert by `listingId+renterId`, rejects your own listing), `getMyConversations` (computes `unread` per viewer from `lastMessage.createdAt` vs that viewer's `renterLastReadAt`/`ownerLastReadAt`, and `acceptedUnpaidBookingId` from any `ACCEPTED` booking on the conversation), `getConversationMessages`, `sendMessage` (+ push), `markConversationRead` (sets the caller's own last-read). |
 | `reviewService.ts` | `scoreLabelsForRole` (`RENTER` → accuracy/condition/**pickupExperience**; `LENDER` → reliability/care/communication), `getPendingReviews`, `submitReview` (1–5 score guards; `resolveReviewFields` derives item-vs-person fields strictly from the obligation's real `reviewerRole`; recomputes `UserReputation`; returns `pendingRemaining`; notifies the reviewee). |
-| `disputeService.ts` | `DISPUTE_WINDOW_HOURS = 24`. `createDispute` (participant check; on a `COMPLETED` booking rejects if past the window or if `depositStatus` already `CAPTURED`/`RELEASED`; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`). `resolveDispute` — one `$transaction` holding `SELECT … FOR UPDATE` on the booking: **COMPLETED + `RESOLVED_REFUND`** → acts on the deposit PI (must be `AUTHORIZED`); a charge → `capturePaymentIntent` + `transferDepositCompensation` to the owner (full, no commission) + `depositStatus = CAPTURED`; no charge → `cancelPaymentIntent` + `depositStatus = RELEASED`. **Pre-completion `RESOLVED_REFUND`** → over-refund guard against the *remaining* refundable balance (total − prior refunds); if `paidAt` set → partial/full `refundPaymentIntent`; else → full-only `cancelPaymentIntent`; sets `Booking.paymentStatus = REFUNDED` + `refundedAt`. Always updates the dispute (+ `refundAmountCents`), `Booking.disputeStatus`, and writes `DISPUTE_RESOLVED`. |
+| `disputeService.ts` | `DISPUTE_WINDOW_HOURS = 24`. `createDispute` (participant check; on a `COMPLETED` booking rejects if past the window or if `depositStatus` already `CAPTURED`/`RELEASED`; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`). `resolveDispute` — one `$transaction` holding `SELECT … FOR UPDATE` on the booking: **COMPLETED + `RESOLVED_REFUND`** → acts on the deposit PI (must be `AUTHORIZED`); a charge → `capturePaymentIntent` + `transferDepositCompensation` to the owner (full, no commission) + `depositStatus = CAPTURED`; no charge → `cancelPaymentIntent` + `depositStatus = RELEASED`. **Pre-completion `RESOLVED_REFUND`** → over-refund guard against the *remaining* refundable balance (total − prior refunds); if `paidAt` set → partial/full `refundPaymentIntent`; else → full-only `cancelPaymentIntent`; records the cumulative renter refund in `Booking.refundedAmountCents` + `refundedAt`, and only moves `Booking.paymentStatus = REFUNDED` when the refund covers the whole charge (a partial refund leaves it `CAPTURED`/`PAYOUT_PENDING`). Always updates the dispute (+ `refundAmountCents`), `Booking.disputeStatus`, and writes `DISPUTE_RESOLVED`. |
 | `reportService.ts` | `createReport` (rejects self / own listing; polymorphic `targetId`), `resolveReport` (only from `OPEN`), `attachTargetLabels` (batched lookup of user/listing names for the admin list; `[deleted user]` / `[deleted listing]` fallback). |
 | `notificationService.ts` | Creates `Notification` rows and attempts Expo push when a token exists (`EXPO_ACCESS_TOKEN` optional). |
-| `cleanupJob.ts` | `cleanupStaleHandoffs` (clears one-sided taps older than `ZOINK_TAP_WINDOW_MS`); `releaseDuePayouts` (`COMPLETED` + `PAYOUT_PENDING` + past `PAYOUT_HOLD_HOURS` + `disputeStatus ∈ {NONE, RESOLVED_NO_ACTION, DISMISSED}` → Stripe Transfer + `PAID_OUT`; `RESOLVED_REFUND` excluded, even partial); `releaseDueDeposits` (`COMPLETED` + `depositStatus AUTHORIZED` + past `DEPOSIT_HOLD_HOURS` + no `OPEN`/`UNDER_REVIEW` dispute → cancel the deposit PI + `depositStatus = RELEASED`). |
+| `cleanupJob.ts` | `cleanupStaleHandoffs` (clears one-sided taps older than `ZOINK_TAP_WINDOW_MS`); `releaseDuePayouts` (`COMPLETED` + past `PAYOUT_HOLD_HOURS` + `payoutSentAt` null; `PAYOUT_PENDING` with `disputeStatus ∈ {NONE, RESOLVED_NO_ACTION, DISMISSED, RESOLVED_REFUND}`, or `REFUNDED` + `RESOLVED_REFUND`. Pays the owner's proportional remaining share — `(total − refundedAmountCents) × ownerPayout ÷ total` — via Stripe Transfer + `PAID_OUT`; a fully-refunded booking gets `payoutSentAt` stamped with no transfer; `OPEN`/`UNDER_REVIEW` excluded); `releaseDueDeposits` (`COMPLETED` + `depositStatus AUTHORIZED` + past `DEPOSIT_HOLD_HOURS` + no `OPEN`/`UNDER_REVIEW` dispute → cancel the deposit PI + `depositStatus = RELEASED`). |
 | `reconciliationJob.ts` | Reconciles Stripe payment state against local bookings (hourly). |
 | `authService`/`paymentService`/`bookingUtils`/`reportService` `*.test.ts` | Unit tests (commission/HST/payout math, report rules, booking-date utils, etc.). |
 
@@ -219,7 +223,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 
 | File | What It Does |
 |---|---|
-| `scripts/week7SmokeFlow.ts` | Backend-only users → listing → booking → handoff smoke flow in forced mock-Stripe mode. **Stale:** still transitions `ACCEPTED` straight into pickup, so it no longer matches the `CONFIRMED`-gated handoff. |
+| `scripts/week7SmokeFlow.ts` | Backend-only users → listing → booking → handoff smoke flow in forced mock-Stripe mode. Walks the current path (`accept → payment-intent → confirm/CONFIRMED → pickup → active → return → complete`); a quick wiring check, with the integration suite as the authoritative coverage. |
 | `scripts/manageAdminRole.ts` (+ `.test.ts`) | `admin:grant` / `admin:revoke` CLI. Looks up by email (case-insensitive), never creates a user, refuses to revoke the last admin, prints the role transition. `db` is an injectable param, so the core logic is unit-tested against a mocked db. |
 
 ### Backend Integration Tests (`backend/src/integration-tests/`)
@@ -233,9 +237,10 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 | `bookingCancellation.integration.test.ts` | Cancellation at each stage; fee assertions skipped (fees disabled for launch); `$0`-fee behavior asserted. |
 | `bookingListingSortOrder.integration.test.ts` | `getMyBookings` / `getIncomingRequests` / listings ordering (most-recent activity; PENDING pinned). |
 | `disputeResolution.integration.test.ts` | `createDispute` / `resolveDispute` at service + HTTP; all three outcomes; deposit-vs-rental resolution; over-refund guard; `paymentStatus` / `refundedAt`; audit trail. |
-| `payoutRelease.integration.test.ts` | `releaseDuePayouts` against a real Connect test account — released for `NONE`/`RESOLVED_NO_ACTION`/`DISMISSED`, blocked for `RESOLVED_REFUND` and `OPEN`/`UNDER_REVIEW`. |
+| `payoutRelease.integration.test.ts` | `releaseDuePayouts` against a real Connect test account — full payout for `NONE`/`RESOLVED_NO_ACTION`/`DISMISSED` and for `RESOLVED_REFUND` with no rental refund; proportional remainder after a partial rental refund; nothing (but closed out) when fully refunded; blocked for `OPEN`/`UNDER_REVIEW`. |
+| `handoffRace.integration.test.ts` | Two concurrent handoff-confirm calls (`Promise.all`) for the same phase — exactly one transition, one `ZOINK_TAP`, no duplicate `STATUS_CHANGE`, clean 409 for the loser. Return phase (→ `COMPLETED`) and pickup phase (→ `ACTIVE`, Stripe-gated). |
 | `reportFlow.integration.test.ts` | `POST /reports`, self/own-listing rejection, admin list + `attachTargetLabels`, `PATCH /admin/reports/:id`. |
-| `stripeWebhooks.integration.test.ts` | Synthetic signed events to `/stripe/webhook`; signature failure; unknown type; replay idempotency. |
+| `stripeWebhooks.integration.test.ts` | Synthetic events to `/stripe/webhook`: signed events with a secret configured (verified via `constructEvent`); malformed-signature → 400; the fail-open exception path (`NODE_ENV=test`, no secret → unsigned parse still accepted); unknown type; replay idempotency; deposit-vs-rental routing. |
 
 ### Frontend Config & App Shell
 
@@ -368,7 +373,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 5. `validate(schema)` coerces/guards `req.body/params/query`, or `next(ZodError)`.
 6. Controllers call services; services hold business logic + Prisma access via the shared client.
 7. Booking / payment / handoff / dispute flows also write `BookingEvent` audit rows and send notifications.
-8. Stripe webhooks update booking payment status and write `WEBHOOK_RECEIVED`.
+8. Stripe webhooks: `constructEvent` verifies the signature (400 on failure / missing secret, except `NODE_ENV=test` with no secret), then `updateBookingFromEvent` updates booking payment/deposit status and writes `WEBHOOK_RECEIVED`.
 9. Outside test mode, `node-cron` runs stale-handoff cleanup + payout release + deposit release every 15 min, and reconciliation hourly.
 
 Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{ "error": "Validation failed.", "issues": [{ "path": "body.startDate", "message": "…" }] }`.
@@ -392,7 +397,7 @@ Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{
 | `ReportReason` | `SPAM`, `SCAM`, `INAPPROPRIATE`, `HARASSMENT`, `OTHER` |
 | `ReportStatus` | `OPEN`, `REVIEWED`, `DISMISSED` |
 | `BookingEventType` | `STATUS_CHANGE`, `PAYMENT_INTENT_CREATED`, `PAYMENT_CAPTURED`, `PAYMENT_REFUNDED`, `PAYOUT_TRIGGERED`, `ZOINK_TAP`, `UPLOAD_PHOTOS`, `DISPUTE_OPENED`, `DISPUTE_RESOLVED`, `WEBHOOK_RECEIVED`, `RECONCILIATION_MATCH`, `RECONCILIATION_MISMATCH`, `ERROR` |
-| `NotificationType` | `BOOKING_REQUEST`, `BOOKING_ACCEPTED`, `BOOKING_DECLINED`, `BOOKING_CANCELLED`, `PAYMENT_RECEIVED`, `PAYOUT_SENT`, `REVIEW_RECEIVED`, `VERIFICATION_APPROVED`, `VERIFICATION_FAILED` |
+| `NotificationType` | `BOOKING_REQUEST`, `BOOKING_ACCEPTED`, `BOOKING_DECLINED`, `BOOKING_CANCELLED`, `PAYMENT_RECEIVED`, `PAYOUT_SENT`, `REVIEW_RECEIVED`, `VERIFICATION_APPROVED`, `VERIFICATION_FAILED`, `MESSAGE_RECEIVED`, `DEPOSIT_RELEASED` |
 | `ReviewRole` | `RENTER`, `LENDER` |
 | `ReviewObligationStatus` | `PENDING`, `SUBMITTED` |
 
@@ -400,7 +405,7 @@ Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{
 
 | Model | Purpose | Key Relationships |
 |---|---|---|
-| `User` | Account, profile, verification, `role`, push token, Stripe customer/account ids. `phone` is `NOT NULL`. ID fields (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`) exist but have no submission flow. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; `raisedDisputes` / `resolvedDisputes`; `filedReports` / `reviewedReports`. |
+| `User` | Account, profile, verification, `role`, push token, Stripe customer/account ids. `phone` is `NOT NULL`. `deletedAt` (nullable) — soft-delete/anonymize; a set value invalidates the account (`requireAuth` + `loginUser` reject it). Per-category notification toggles `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (default `true`; verification notices ignore them). ID fields (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`) exist but have no submission flow. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; `raisedDisputes` / `resolvedDisputes`; `filedReports` / `reviewedReports`. |
 | `Listing` | Rentable item: title, description, category, `dailyPrice`, `itemValue`, owner-configured `depositAmount`, availability, `latitude`/`longitude`/`city`, optional `address`. | Belongs to owner `User`; has images, bookings, conversations. |
 | `ListingImage` | URL + display order. | Belongs to `Listing` (cascade). |
 | `Booking` | Rental request + lifecycle. Money fields (`totalPrice`, `depositAmount`, `commissionAmount`, `ownerPayout`, `insuranceFee`, `hstAmount`) snapshotted at creation. Rental PI (`stripePaymentIntentId`) + separate deposit PI (`stripeDepositPaymentIntentId`, `depositStatus`). `paidAt`/`refundedAt`/`payoutSentAt`/`completedAt`. Handoff photo arrays + per-party tap timestamps. `disputeStatus`/`disputedAt`/`disputeReason`. `conversationId` (FK, `SET NULL`). No `message` column. | Belongs to renter, owner, listing, optional conversation; has events, reviews, obligations, `Dispute` records. |
@@ -419,7 +424,7 @@ Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{
 
 1. `RegisterScreen` → `AuthContext.register(…, phone)` → `POST /auth/register` (unless demo).
 2. `authController.register` → `authService.registerUser`: allowlist check, bcrypt hash, create `User` (phone normalized to `+1XXXXXXXXXX` by `RegisterSchema`), create OTP `VerificationToken`, send SES email, return a JWT + user.
-3. The JWT payload carries `userId`, `verificationStatus`, `email`, `firstName`, `role`. `requireAuth` defaults `role` to `USER` for older tokens.
+3. The JWT payload carries `userId`, `verificationStatus`, `email`, `firstName`, `role`. On every request `requireAuth` looks the user up and takes `role` (defaulting to `USER`) and `verificationStatus` from the DB row, not the token — the token claims are only a hint for the frontend UI. A deleted/anonymized row (`deletedAt` set) is rejected with 401.
 4. The frontend stores the token as `zoink_jwt` and routes unverified users to the verification stack.
 5. `VerifyEmailScreen` → `POST /auth/verify-email` → `authService.verifyOTP` validates ownership/expiry/used, marks the user verified, returns a fresh `VERIFIED` JWT.
 6. `AuthContext.setVerified` swaps the token, updates the user, sets the axios header.
@@ -452,7 +457,7 @@ Prompted by an inbox badge / thread banner (`acceptedUnpaidBookingId`), the rent
 ### Deposits & payouts
 
 - **Deposit** is held from `CONFIRMED` as its own PI. `cleanupJob.releaseDueDeposits` cancels it (→ `RELEASED`) 24h (`DEPOSIT_HOLD_HOURS`) after completion if no dispute is open.
-- **Payout** sits in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS` (24). `cleanupJob.releaseDuePayouts` transfers `ownerPayout` (commission already netted out) and marks `PAID_OUT` when `disputeStatus ∈ {NONE, RESOLVED_NO_ACTION, DISMISSED}`. `RESOLVED_REFUND` (even partial) is excluded — remaining owner payout is a manual admin action.
+- **Payout** sits in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS` (24). `cleanupJob.releaseDuePayouts` transfers the owner's share (commission already netted out) and marks `PAID_OUT`. `RESOLVED_REFUND` is included: it pays the proportional remainder after any renter refund — `(total − Booking.refundedAmountCents) × ownerPayout ÷ total` — and pays nothing (just stamps `payoutSentAt`) when the rental was fully refunded. `OPEN`/`UNDER_REVIEW` stay excluded.
 
 ### Messaging
 
@@ -464,15 +469,15 @@ After completion both parties get an obligation. `Navigation` gates on pending r
 
 ### Disputes
 
-`FileDisputeScreen` (from `BookingDetailScreen`, shown while `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no open dispute) → `createDispute`: participant check; on a `COMPLETED` booking rejects if past `DISPUTE_WINDOW_HOURS` or if the deposit was already resolved; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`. `BookingDetailScreen` then shows an in-progress banner or the resolved outcome.
+`FileDisputeScreen` (from `BookingDetailScreen`, shown while `ACTIVE`/`PICKUP_PENDING`/`RETURN_PENDING`/`COMPLETED` with no open dispute) → `createDispute`: participant check; on a `COMPLETED` booking rejects if past `DISPUTE_WINDOW_HOURS` or if the deposit was already resolved; one unresolved dispute per booking; `DISPUTE_OPENED` event; `Booking.disputeStatus = OPEN`. `BookingDetailScreen` then shows an in-progress banner or the resolved outcome (from `getMyDisputes`, whose `resolutionNotes` is the outcome text; `resolvedByAdminId` and the counterparty's `description` are not exposed to participants).
 
 ### Admin / moderation
 
-`user.role === 'ADMIN'` (from the JWT, decoded into `AuthContext.user`) reveals `MyProfileScreen`'s Admin panel → `AdminDisputesScreen` / `AdminReportsScreen`.
+`user.role === 'ADMIN'` (the frontend decodes the JWT claim into `AuthContext.user`) reveals `MyProfileScreen`'s Admin panel → `AdminDisputesScreen` / `AdminReportsScreen`. Backend `/admin/*` access is enforced separately by `requireAdmin` against the **DB** `role`, so a revoked admin loses server access immediately even while a stale token still shows the panel.
 
 - **Disputes:** `GET /admin/disputes` (list, `?status`), `GET /admin/disputes/:id` (booking + photo context), `PATCH /admin/disputes/:id/resolve` → `disputeService.resolveDispute` (one transaction with `SELECT … FOR UPDATE` on the booking). For a `COMPLETED` booking it resolves against the **deposit** PI (capture + full transfer to the owner, or cancel); pre-completion it refunds/cancels the rental PI against the *remaining* refundable balance and sets `paymentStatus = REFUNDED`. `GET /admin/bookings/:id/events` exposes the audit trail.
 - **Reports:** `GET /admin/reports` (list with resolved target labels), `PATCH /admin/reports/:id` → `REVIEWED` / `DISMISSED` + `adminNotes`.
-- **Granting the `ADMIN` role** is still CLI-only (`npm run admin:grant/revoke -- --email=…`). No route or screen sets `User.role`.
+- **Granting the `ADMIN` role** is still CLI-only (`npm run admin:grant/revoke -- --email=…`). No route or screen sets `User.role`. A revoke is now effective on the target's next request (previously their unexpired JWT kept admin access for up to 30 days).
 
 ## 10. How Files Interact
 
@@ -547,7 +552,7 @@ Keep real secrets out of git — `.gitignore` covers `backend/.env`, `backend/.e
 | `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_FROM_EMAIL` | `authService.ts` | SES for OTP email. |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | `utils/cloudinary.ts` | Image storage. |
 | `STRIPE_SECRET_KEY` | `paymentService.ts`, `stripeWebhookController.ts`, `reconciliationJob.ts` | Stripe server key; empty → mock mode. In `.env.test` must start with `sk_test_`. |
-| `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. |
+| `STRIPE_WEBHOOK_SECRET` | `stripeWebhookController.ts` | Webhook signature verification. **Required outside tests** — if unset (or a request has no `stripe-signature` header), `constructEvent` throws and the webhook returns 400 without processing. Only `NODE_ENV=test` + no secret still accepts unsigned synthetic events. |
 | `STRIPE_CURRENCY` | `paymentService.ts` | PaymentIntent/transfer currency (default `cad`). |
 | `DEV_STRIPE_ACCOUNT_ID` | `bookingService.ts`, seed, smoke, integration tests | Dev/beta owner-payout account override (never in `production`). In `.env.test` must be a real, fully-onboarded (`payouts_enabled: true`) Express test-mode Connect account. |
 | `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` | `paymentService.ts` | **Required.** `http://localhost…` or `https://…` pointing at `/stripe-return` / `/stripe-refresh`. Missing/invalid → hard error. Move in lockstep with `EXPO_PUBLIC_API_URL` under ngrok. |
@@ -581,7 +586,7 @@ Keep real secrets out of git — `.gitignore` covers `backend/.env`, `backend/.e
 | `npm run build` / `npm start` | Compile to `dist/` / run it. |
 | `npm test` | Unit tests: `src/services/*.test.ts`, `src/middleware/*.test.ts`, `src/middleware/controllers/*.test.ts`, `src/scripts/*.test.ts` (not `integration-tests/`). |
 | `npm run test:integration` | `src/integration-tests/*.integration.test.ts` against `zoink_test` + Stripe test mode, `--test-concurrency=1`. Needs `backend/.env.test` + applied migrations. |
-| `npm run smoke:week7` | Backend-only payment/handoff smoke (currently pre-rework — see §14). |
+| `npm run smoke:week7` | Backend-only payment/handoff smoke, current flow, forced mock-Stripe. |
 | `npm run admin:grant -- --email=…` / `admin:revoke -- --email=…` | Grant/revoke the `ADMIN` role. |
 | `npx prisma migrate dev` / `generate` / `validate` / `db seed` | Prisma. |
 
@@ -606,7 +611,7 @@ No lint/format scripts are configured.
 | Pattern | Implementation |
 |---|---|
 | Backend layering | Thin routes, HTTP-translating controllers, business logic + Prisma in services. |
-| Auth protection | `requireAuth` → `requireVerified` (marketplace) or `requireAdmin` (`/admin/*`). |
+| Auth protection | `requireAuth` (JWT verify + per-request `User` lookup; `role` / `verificationStatus` / `deletedAt` come from that row, not the token) → `requireVerified` (marketplace) or `requireAdmin` (`/admin/*`). |
 | Rate limiting | `express-rate-limit`, keyed by IP + userId; tight on `/auth`, blanket elsewhere; webhook exempt. |
 | Error handling | Centralized `errorHandler.ts` — `ZodError` → 400, `AppError` → mapped, unknown → 500. Controllers use `asyncHandler`. |
 | Validation | Zod v4 schemas + `validate(schema)`; coerces `req.body/params/query`. |
@@ -626,20 +631,17 @@ No lint/format scripts are configured.
 | Area | Observation |
 |---|---|
 | Grant/revoke admin role | Still CLI-only (`manageAdminRole.ts`). No API route or screen sets `User.role`; the admin UI is unreachable without CLI/DB access. |
-| Partial-refund owner payout | After a partial dispute refund, `releaseDuePayouts` excludes the booking entirely and never recomputes `ownerPayout` — the owner's remaining share is a manual admin action (`Dispute.refundAmountCents` records what went to the renter). |
-| `week7SmokeFlow.ts` stale | Transitions `ACCEPTED` straight into pickup, which `handoffService.initiateHandoff` now rejects (pickup requires `CONFIRMED`). Needs updating for the pay step. |
-| Webhook partial-refund handling | `stripeWebhookController.ts` stamps any refund as fully `REFUNDED` + `refundedAt` (noted in-file). Harmless today because `releaseDuePayouts` excludes all `RESOLVED_REFUND` bookings; needs revisiting before any automatic partial-payout logic. |
-| Integration test coverage | No true concurrent/simultaneous handoff-confirm test (overlapping `Promise.all` requests). Review-obligation and notification-delivery paths are only partially covered. `backend/src/integration-tests/README.md`'s file table lags the current 8-file set. No frontend test setup. |
+| Integration test coverage | Review-obligation and notification-delivery paths are only partially covered. `backend/src/integration-tests/README.md`'s file table lags the current file set. No frontend test setup. |
 | ID verification | `User` has ID-photo/selfie/manual-review fields but no submission or review flow. |
 | Listing-location tiles | `mapTiles.ts` falls back to raw `tile.openstreetmap.org` when `EXPO_PUBLIC_MAPTILER_API_KEY` is unset — fine for dev, not for production traffic (OSM tile-usage policy). Set a real key before launch. |
 | Rate-limit store | `express-rate-limit`'s in-memory store only enforces per-process; multi-instance deployment needs a shared store (e.g. `rate-limit-redis`). |
 | `trust proxy 1` | Correct for exactly one proxy hop; revisit when the deployment topology (CDN + LB chains) is chosen. |
 | Sentry source maps | DSN-only crash capture on both sides; source-map upload is not configured. |
 | Native build / release | Production EAS builds verified on iOS + Android; TestFlight submission not yet confirmed. `@stripe/stripe-react-native` pinned at `0.62.0` for the Expo SDK 54 Kotlin ceiling — see README. |
-| `test:integration` DB URL | `backend/package.json`'s `test:integration` script has a hardcoded `zoink_test` `DATABASE_URL` with credentials. |
 | Cancellation fees | `calculateCancellationFeeCents()` short-circuits to `return 0` (launch decision); the tiered logic is retained but unreachable, for a future owner opt-in toggle that has no schema field yet. Integration fee assertions are skipped, not deleted. |
 | HST scope | Applied to every booking — there is no per-listing jurisdiction field. |
-| Cross-side type drift | Mitigated by `@zoink/shared` (generated from Prisma), but the admin endpoints return raw Prisma rows typed by hand in `frontend/src/types/index.ts` (`AdminDisputeListItem` etc.), which can still drift. |
+| Cross-side type drift | Mitigated by `@zoink/shared` (generated from Prisma), but the admin endpoints return raw Prisma rows typed by hand in `frontend/src/types/index.ts` (`AdminDisputeListItem` etc.), which can still drift. Separately, the user-facing dispute reads now return an ad-hoc `toDisputeResponse` shape (conditional `description` / `resolvedByAdminId`, narrowed `booking`) that no longer matches the bare `Dispute` model `disputesApi` types it as; the app only reads `bookingId` + `resolutionNotes`, so it works, but the shape isn't in `@zoink/shared` yet. |
+| Stripe webhook replay | `constructEvent` now fails closed on bad/absent signatures, but `updateBookingFromEvent` still has no `event.id` de-dupe, so a validly-signed event that Stripe re-delivers (or an attacker resubmits) is re-applied. Monetary fields like `refundedAmountCents` are assigned, not `max`'d, so an out-of-order delivery can move them backwards. A uniquely-constrained processed-event table is the fix. |
 
 ### Resolved since earlier revisions
 
@@ -650,6 +652,11 @@ No lint/format scripts are configured.
 - **Owner-configured deposits** — `Listing.depositAmount`; `bookingService.createBooking` reads it directly.
 - **Phone at registration** — required, Canadian/NANP, normalized; `User.phone` `NOT NULL`.
 - **Dispute payout block** — `releaseDuePayouts` accepts `RESOLVED_NO_ACTION`/`DISMISSED`; `RESOLVED_REFUND` sets `paymentStatus = REFUNDED`.
+- **Partial-refund owner payout** — `releaseDuePayouts` now includes `RESOLVED_REFUND` and pays the owner's proportional remaining share from `Booking.refundedAmountCents` (0 for the common case ⇒ full payout), or nothing (with `payoutSentAt` stamped) when fully refunded.
+- **Webhook partial-refund handling** — `stripeWebhookController.ts` compares `amount_refunded` to the full charge; a partial refund records `Booking.refundedAmountCents` + `refundedAt` without stamping `REFUNDED`; deposit-PI events are routed to `depositStatus` and never the rental fields.
+- **`week7SmokeFlow.ts`** — rewritten to the current `accept → payment-intent → confirm/CONFIRMED → pickup → active → return → complete` path.
+- **`test:integration` DB URL** — no longer hardcoded in `backend/package.json`; loaded from `backend/.env.test`, with `setup.ts` aborting if it isn't a `zoink_test` URL and `truncateAllTables()` double-checking before any `TRUNCATE`.
+- **Concurrent handoff-confirm test** — `handoffRace.integration.test.ts` covers simultaneous `Promise.all` confirms (one transition, one `ZOINK_TAP`, no duplicate `STATUS_CHANGE`, clean 409).
 - **Duplicate webhook mount / unmounted payments route / `.env.test` gitignore / migration ordering bug** — all resolved.
 - **Demo-mode env casing** — `EXPO_PUBLIC_DEMO_MODE` comparison is now case-insensitive.
 - **Booking-flow rework** — `CONFIRMED` status + `Pay` screen; accept no longer takes payment; overlapping `PENDING` requests auto-decline on accept; request-time message moved into the `Conversation` (`Booking.message` dropped).
@@ -658,6 +665,11 @@ No lint/format scripts are configured.
 - **Abuse reports** — `Report` model + `/reports` and `/admin/reports*` + `FileReportScreen` / `AdminReportsScreen`.
 - **Review rework** — borrower item rating/notes + lender person notes (`reviews.comment` dropped); lender's third category renamed "Pickup Experience".
 - **Hardening** — `helmet`, `express-rate-limit`, Sentry (both sides), Stripe client secrets no longer persisted in the audit trail.
+- **Security-hardening pass** —
+  - `stripeWebhookController.constructEvent` fails closed: no `stripe-signature` header or no `STRIPE_WEBHOOK_SECRET` → 400, never an unverified `JSON.parse`; the unsigned path is confined to `NODE_ENV=test` with no secret.
+  - `requireAuth` resolves `role` and `verificationStatus` from the `User` row per request instead of trusting the 30-day JWT claim, so a demoted admin / de-verified user is enforced on the next request — closing the stale-token window (`requireAdmin` / `requireVerified` / `disputeController` all consume the DB value).
+  - `disputeController.getDispute` / `getMyDisputes` project through `toDisputeResponse` — `resolvedByAdminId` admin-only, raiser `description` withheld from the counterparty, `booking` narrowed — instead of `res.json`-ing the raw row.
+  - `handoffService` reuses `bookingService.toBookingResponse` (deleting its local raw-spread serializer), so pickup/return/tap responses no longer leak `renter.stripeCustomerId` / `renter.email` / `owner.stripeAccountId` to the counterparty.
 
 ## 15. Developer Onboarding Guide
 
@@ -686,7 +698,7 @@ No lint/format scripts are configured.
 | Reviews / reputation | `ReviewPromptScreen.tsx`, `ProfileCard.tsx`, `reviewsApi.ts` | `routes/reviews.ts`, `reviewController.ts`, `reviewService.ts`, `schemas/review.schema.ts` | `Review` (`itemRating`/`itemNotes`/`personNotes`), `ReviewObligation`, `UserReputation` |
 | Disputes | `FileDisputeScreen.tsx`, `BookingDetailScreen.tsx`, `AdminDisputes*Screen.tsx`, `disputesApi.ts`, `adminApi.ts` | `routes/disputes.ts`, `routes/admin.ts`, `disputeController.ts`, `adminController.ts`, `disputeService.ts`, `schemas/dispute.schema.ts` | `Dispute`, `Booking.disputeStatus` |
 | Abuse reports | `FileReportScreen.tsx`, `AdminReportsScreen.tsx`, `reportsApi.ts`, `adminApi.ts` | `routes/reports.ts`, `routes/admin.ts`, `reportController.ts`, `adminController.ts`, `reportService.ts`, `schemas/report.schema.ts` | `Report` |
-| Admin role | `MyProfileScreen.tsx` (panel gate) | `requireAdmin.ts`, `scripts/manageAdminRole.ts` | `User.role` (CLI only) |
+| Admin role | `MyProfileScreen.tsx` (panel gate) | `requireAuth.ts` (DB-sourced `role`), `requireAdmin.ts`, `scripts/manageAdminRole.ts` | `User.role` (CLI only) |
 | Push notifications | `pushNotifications.ts`, `AuthContext.tsx` | `notificationService.ts`, `userService.ts` | `Notification`, `User.expoPushToken` |
 | UI theme / design system | `theme/colors.ts`, `HardBlock.tsx`, `ScreenBackground.tsx`, shared components | — | — |
 | Landing page | `landing/index.html`, `landing/assets/*` | — | — |

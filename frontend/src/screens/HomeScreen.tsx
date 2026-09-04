@@ -165,10 +165,9 @@ export default function HomeScreen() {
             {/* ── Top row: greeting ── */}
             <View style={styles.headerTopRow}>
               <View>
-                <Text style={styles.greetingText}>Good morning{user?.firstName ? `, ${user.firstName}` : ''} 👋</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.headerTitle}>Don't buy, </Text>
-                  <ZoinkFullLogo width={160} height={75} style={{ marginHorizontal: 5, marginTop: -20, marginBottom: -15 }} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: -5, marginTop: 15 }}>
+                  <Text style={styles.headerTitle}>Don't buy,</Text>
+                  <ZoinkFullLogo width={150} height={150} style={{ marginHorizontal: 5, marginTop: -65, marginBottom: -60 }} />
                   <Text style={styles.headerTitle}>it.</Text>
                 </View>
               </View>

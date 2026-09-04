@@ -90,7 +90,10 @@ function requireStripeAccount() {
   return accountId
 }
 
-async function createDuePayoutBooking(disputeStatus: DisputeStatus) {
+async function createDuePayoutBooking(
+  disputeStatus: DisputeStatus,
+  overrides: { paymentStatus?: PaymentStatus; refundedAmountCents?: number } = {}
+) {
   const db = getTestPrisma()
   const accountId = requireStripeAccount()
   await db.user.update({ where: { id: owner.id }, data: { stripeAccountId: accountId } })
@@ -111,13 +114,30 @@ async function createDuePayoutBooking(disputeStatus: DisputeStatus) {
       ownerPayout: new Prisma.Decimal(76.5),
       insuranceFee: new Prisma.Decimal(0),
       status: BookingStatus.COMPLETED,
-      paymentStatus: PaymentStatus.PAYOUT_PENDING,
+      paymentStatus: overrides.paymentStatus ?? PaymentStatus.PAYOUT_PENDING,
+      refundedAmountCents: overrides.refundedAmountCents ?? 0,
       disputeStatus,
       completedAt,
       stripePaymentIntentId: `pi_mock_payout_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       version: 1,
     },
   })
+}
+
+/** Reads back the amount Stripe actually transferred for a booking's payout,
+ *  from the PAYOUT_TRIGGERED event's recorded transfer id. */
+async function transferAmountForBooking(bookingId: string): Promise<number | null> {
+  const db = getTestPrisma()
+  const evt = await db.bookingEvent.findFirst({
+    where: { bookingId, type: 'PAYOUT_TRIGGERED' },
+    orderBy: { createdAt: 'desc' },
+  })
+  const transferId = (evt?.metadata as any)?.stripeTransferId
+  if (!transferId) return null
+  const Stripe = require('stripe')
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+  const transfer = await stripe.transfers.retrieve(transferId)
+  return transfer.amount
 }
 
 describe('releaseDuePayouts', () => {
@@ -156,16 +176,90 @@ describe('releaseDuePayouts', () => {
     assert.equal(updated.paymentStatus, PaymentStatus.PAID_OUT)
   })
 
-  test('does NOT release a payout with disputeStatus RESOLVED_REFUND (would double-pay)', async () => {
+  // A RESOLVED_REFUND dispute on a COMPLETED booking only ever captured the
+  // *deposit* (see disputeService.resolveDispute's COMPLETED branch) — the
+  // rental payout is untouched and still fully owed. Booking.refundedAmountCents
+  // is 0, so the full ownerPayout is released, not skipped.
+  test('releases the FULL owner payout for a RESOLVED_REFUND booking with no rental refund (deposit-only dispute)', async () => {
     const db = getTestPrisma()
     const booking = await createDuePayoutBooking(DisputeStatus.RESOLVED_REFUND)
+    await fundPlatformAvailableBalance(50000)
 
     const result = await releaseDuePayouts()
 
     const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
-    assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'payout must stay blocked')
-    assert.equal(updated.stripeTransferId, null)
-    assert.equal(result.checked, 0, 'RESOLVED_REFUND booking should not even be selected')
+    assert.equal(updated.paymentStatus, PaymentStatus.PAID_OUT, 'RESOLVED_REFUND with no rental refund must still pay the owner')
+    assert.ok(updated.stripeTransferId, 'stripeTransferId should be set')
+    assert.ok(updated.payoutSentAt, 'payoutSentAt should be set')
+    assert.ok(result.paid >= 1)
+
+    if (stripeAvailable) {
+      assert.equal(await transferAmountForBooking(booking.id), 7650, 'the full $76.50 ownerPayout should have been transferred')
+    }
+  })
+
+  // Renter was partially refunded from the rental (Booking.refundedAmountCents),
+  // so the owner gets their proportional share of what's left, not the full
+  // snapshot and not $0.
+  test('releases the owner\'s proportional remaining payout after a PARTIAL rental refund', async () => {
+    const db = getTestPrisma()
+    // $30 of the $90 rental refunded to the renter. ownerPayout is $76.50 (85% of $90).
+    // Remaining = round((9000 - 3000) * 7650 / 9000) = 5100 cents = $51.00.
+    const booking = await createDuePayoutBooking(DisputeStatus.RESOLVED_REFUND, {
+      paymentStatus: PaymentStatus.PAYOUT_PENDING,
+      refundedAmountCents: 3000,
+    })
+    await fundPlatformAvailableBalance(50000)
+
+    const result = await releaseDuePayouts()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.paymentStatus, PaymentStatus.PAID_OUT)
+    assert.ok(updated.stripeTransferId)
+    assert.ok(result.paid >= 1)
+
+    const evt = await db.bookingEvent.findFirstOrThrow({
+      where: { bookingId: booking.id, type: 'PAYOUT_TRIGGERED' },
+      orderBy: { createdAt: 'desc' },
+    })
+    assert.equal((evt.metadata as any).amountCents, 5100, 'proportional remaining payout')
+    assert.equal((evt.metadata as any).partialRefundToRenterCents, 3000)
+    assert.equal((evt.metadata as any).fullOwnerPayoutCents, 7650)
+
+    if (stripeAvailable) {
+      assert.equal(await transferAmountForBooking(booking.id), 5100, 'Stripe transfer must be the proportional remainder, not the full $76.50')
+    }
+  })
+
+  // Renter was refunded the entire rental charge — booking sits at REFUNDED and
+  // the owner is owed nothing. It must still be closed out (payoutSentAt) so it
+  // isn't reconsidered on every tick, with no Stripe transfer.
+  test('pays nothing (and closes out) a FULLY refunded RESOLVED_REFUND booking', async () => {
+    const db = getTestPrisma()
+    const booking = await createDuePayoutBooking(DisputeStatus.RESOLVED_REFUND, {
+      paymentStatus: PaymentStatus.REFUNDED,
+      refundedAmountCents: 9000, // full $90 rental
+    })
+
+    const result = await releaseDuePayouts()
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.paymentStatus, PaymentStatus.REFUNDED, 'stays REFUNDED — nothing was paid out')
+    assert.equal(updated.stripeTransferId, null, 'no transfer for a fully-refunded booking')
+    assert.ok(updated.payoutSentAt, 'payoutSentAt is stamped so the booking is not reprocessed')
+    assert.equal(result.paid, 0)
+
+    const evt = await db.bookingEvent.findFirstOrThrow({
+      where: { bookingId: booking.id, type: 'PAYOUT_TRIGGERED' },
+    })
+    assert.equal((evt.metadata as any).amountCents, 0)
+    assert.equal((evt.metadata as any).reason, 'fully_refunded')
+
+    // Second pass must be a no-op (payoutSentAt already set).
+    const before = await db.bookingEvent.count({ where: { bookingId: booking.id } })
+    await releaseDuePayouts()
+    const after = await db.bookingEvent.count({ where: { bookingId: booking.id } })
+    assert.equal(after, before, 'a closed-out booking is not reprocessed')
   })
 
   test('does NOT release a payout with an unresolved dispute (OPEN)', async () => {

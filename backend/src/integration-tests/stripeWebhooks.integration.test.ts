@@ -350,6 +350,87 @@ describe('charge.refunded', () => {
     const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(updated.paymentStatus, PaymentStatus.REFUNDED)
     assert.ok(updated.refundedAt, 'refundedAt should be set after charge.refunded')
+    assert.equal(updated.refundedAmountCents, 5000, 'a full refund records the full charge amount')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5b. Partial refund — must NOT be stamped as fully REFUNDED
+// ─────────────────────────────────────────────────────────────────────────────
+describe('partial refund', () => {
+  test('charge.refunded with amount_refunded < the charge total records refundedAmountCents and leaves paymentStatus alone', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    // seed totalPrice = 50 (insuranceFee 0, hstAmount 0) -> full charge is 5000c.
+    const { booking, piId } = await createBookingWithPaymentIntent(PaymentStatus.PAYOUT_PENDING)
+
+    const res = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_test_partial_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 2000, // partial
+        refunded: false,       // Stripe sets this true only on a full refund
+        payment_intent: { id: piId, metadata: { bookingId: booking.id } },
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'a partial refund must NOT overstate the booking as fully REFUNDED')
+    assert.equal(updated.refundedAmountCents, 2000)
+    assert.ok(updated.refundedAt, 'refundedAt is still stamped for a partial refund')
+
+    const webhookEvent = (await db.bookingEvent.findMany({ where: { bookingId: booking.id } }))
+      .find((e: any) => e.type === 'WEBHOOK_RECEIVED')
+    assert.equal((webhookEvent!.metadata as any)?.partialRefund, true)
+    assert.equal((webhookEvent!.metadata as any)?.refundedAmountCents, 2000)
+  })
+
+  test('refund.succeeded for less than the full charge does not flip paymentStatus to REFUNDED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, piId } = await createBookingWithPaymentIntent(PaymentStatus.CAPTURED)
+
+    const res = await postWebhookEvent(
+      app,
+      'refund.succeeded',
+      { id: `re_partial_${Date.now()}`, object: 'refund', amount: 1500, status: 'succeeded', payment_intent: piId },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.paymentStatus, PaymentStatus.CAPTURED, 'still CAPTURED — only $15 of the $50 charge was refunded')
+    assert.equal(updated.refundedAmountCents, 1500)
+  })
+
+  test('charge.refunded that clears the whole charge still lands on REFUNDED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, piId } = await createBookingWithPaymentIntent(PaymentStatus.CAPTURED)
+
+    const res = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_full_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 5000,
+        refunded: true,
+        payment_intent: { id: piId, metadata: { bookingId: booking.id } },
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const updated = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(updated.paymentStatus, PaymentStatus.REFUNDED)
+    assert.equal(updated.refundedAmountCents, 5000)
   })
 })
 
@@ -532,6 +613,142 @@ describe('webhook idempotency', () => {
     const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
     const webhookEvents = events.filter((e: any) => e.type === 'WEBHOOK_RECEIVED')
     assert.ok(webhookEvents.length >= 2, 'Both webhook deliveries should be recorded in audit log')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. Deposit-PaymentIntent events must NOT touch the rental payment
+// ─────────────────────────────────────────────────────────────────────────────
+// A booking has two PaymentIntents: the rental payment (booking.stripePaymentIntentId)
+// and a separate deposit hold (booking.stripeDepositPaymentIntentId, created by
+// paymentService.createDepositPaymentIntent with metadata.purpose === 'deposit').
+// The deposit's own lifecycle events — it gets captured on a RESOLVED_REFUND
+// dispute, or canceled by cleanupJob.releaseDueDeposits — carry the same
+// metadata.bookingId, and previously the webhook handler blindly rewrote the
+// rental's paymentStatus/paidAt/stripeChargeId/refundedAt from them. Concretely:
+// a normally-completed booking (paymentStatus PAYOUT_PENDING) had its deposit
+// auto-released, the resulting payment_intent.canceled flipped it to REFUNDED,
+// and releaseDuePayouts() then skipped it forever — the owner never got paid.
+describe('deposit PaymentIntent events do not touch the rental payment', () => {
+  /** A post-pickup booking: rental captured & awaiting payout, deposit still an
+   *  authorized hold with its own (different) PaymentIntent id. */
+  async function createBookingWithRentalAndDepositPI() {
+    const db = getTestPrisma()
+    const { startDate, endDate } = futureDates(3, 2)
+    const rentalPiId = `pi_test_rental_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const depositPiId = `pi_test_deposit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const paidAt = new Date(Date.now() - 60 * 60 * 1000)
+    const booking = await db.booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(50),
+        depositAmount: new Prisma.Decimal(15),
+        commissionAmount: new Prisma.Decimal(7.5),
+        ownerPayout: new Prisma.Decimal(42.5),
+        insuranceFee: new Prisma.Decimal(0),
+        status: BookingStatus.COMPLETED,
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        paidAt,
+        completedAt: new Date(),
+        stripePaymentIntentId: rentalPiId,
+        stripeChargeId: `ch_test_rental_${Date.now()}`,
+        stripeDepositPaymentIntentId: depositPiId,
+        depositStatus: 'AUTHORIZED',
+        version: 1,
+      },
+    })
+    return { booking, rentalPiId, depositPiId, rentalChargeId: booking.stripeChargeId, paidAt }
+  }
+
+  test('deposit payment_intent.succeeded (dispute capture) leaves the rental paymentStatus untouched, moves depositStatus to CAPTURED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, rentalChargeId, paidAt } = await createBookingWithRentalAndDepositPI()
+
+    const res = await postWebhookEvent(
+      app,
+      'payment_intent.succeeded',
+      {
+        id: booking.stripeDepositPaymentIntentId,
+        object: 'payment_intent',
+        status: 'succeeded',
+        amount: 1500,
+        amount_received: 500,
+        latest_charge: `ch_deposit_capture_${Date.now()}`,
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    // Rental payment fields — every one must be exactly as seeded.
+    assert.equal(after.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'rental paymentStatus must NOT be rewritten to CAPTURED by a deposit event')
+    assert.equal(after.paidAt?.getTime(), paidAt.getTime(), 'rental paidAt must not be re-stamped')
+    assert.equal(after.stripeChargeId, rentalChargeId, 'rental stripeChargeId must not be overwritten with the deposit charge')
+    assert.equal(after.refundedAt, null)
+    // Deposit-specific field is the only thing that moves.
+    assert.equal(after.depositStatus, 'CAPTURED')
+
+    const webhookEvent = (await db.bookingEvent.findMany({ where: { bookingId: booking.id } }))
+      .find((e: any) => e.type === 'WEBHOOK_RECEIVED')
+    assert.equal((webhookEvent!.metadata as any)?.scope, 'deposit')
+  })
+
+  test('deposit payment_intent.canceled (auto-release) leaves the rental paymentStatus untouched, moves depositStatus to RELEASED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, rentalChargeId, paidAt } = await createBookingWithRentalAndDepositPI()
+
+    const res = await postWebhookEvent(
+      app,
+      'payment_intent.canceled',
+      {
+        id: booking.stripeDepositPaymentIntentId,
+        object: 'payment_intent',
+        status: 'canceled',
+        cancellation_reason: 'abandoned',
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'rental paymentStatus must NOT be flipped to REFUNDED by a deposit cancellation')
+    assert.equal(after.refundedAt, null, 'rental refundedAt must not be set by a deposit cancellation')
+    assert.equal(after.paidAt?.getTime(), paidAt.getTime())
+    assert.equal(after.stripeChargeId, rentalChargeId)
+    assert.equal(after.depositStatus, 'RELEASED')
+  })
+
+  test('a genuine rental event on the same booking still updates the rental paymentStatus', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking } = await createBookingWithRentalAndDepositPI()
+
+    // Sanity guard: routing by PaymentIntent id must not have broken the rental path.
+    const res = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_rental_refund_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 5000,
+        refunded: true,
+        payment_intent: { id: booking.stripePaymentIntentId, metadata: { bookingId: booking.id } },
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.REFUNDED)
+    assert.ok(after.refundedAt)
+    assert.equal(after.depositStatus, 'AUTHORIZED', 'deposit hold is untouched by a rental refund')
   })
 })
 

@@ -68,7 +68,7 @@ export default function InboxScreen() {
 
   return (
     <ScreenBackground>
-      <View style={styles.header}>
+      <View style={{ ...styles.header, marginTop: 18, marginBottom: -15 }}>
         {renderHeader()}
       </View>
 
@@ -102,7 +102,7 @@ export default function InboxScreen() {
                 activeOpacity={0.75}
                 style={[styles.card, item.unread && styles.cardUnread]}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
                   nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })
                 }}
               >
