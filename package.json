@@ -12,13 +12,14 @@
     "semver": "7.8.5"
   },
   "scripts": {
-    "dev:backend": "cd backend && npm run dev",
-    "dev:frontend": "cd frontend && npm start",
-    "build:backend": "cd backend && npm run build",
-    "test:backend": "cd backend && npm test",
-    "typecheck:backend": "cd backend && npx tsc --noEmit",
-    "typecheck:frontend": "cd frontend && npx tsc --noEmit",
-    "generate": "cd backend && npx prisma generate && cd .. && npm run generate:legal",
+    "dev:backend": "npm run build:shared && cd backend && npm run dev",
+    "dev:frontend": "npm run build:shared && cd frontend && npm start",
+    "build:shared": "cd packages/shared && npm run build",
+    "build:backend": "npm run build:shared && cd backend && npm run build",
+    "test:backend": "npm run build:shared && cd backend && npm test",
+    "typecheck:backend": "npm run build:shared && cd backend && npx tsc --noEmit",
+    "typecheck:frontend": "npm run build:shared && cd frontend && npx tsc --noEmit",
+    "generate": "cd backend && npx prisma generate && cd .. && npm run generate:legal && npm run build:shared",
     "generate:legal": "npx ts-node --compiler-options '{\"module\":\"commonjs\"}' packages/shared/scripts/syncLegal.ts"
   }
 }
