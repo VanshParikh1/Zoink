@@ -560,8 +560,8 @@
     "semantic_hash": ""
   },
   "frontend/src/screens/ConversationThreadScreen.tsx": {
-    "mtime": 1788807959.2438326,
-    "ast_hash": "5d65c534fa5c45ea4b4b96c165b2d895",
+    "mtime": 1788807417.5733752,
+    "ast_hash": "b0471a867719482c306d252000eaebbf",
     "semantic_hash": ""
   },
   "frontend/src/screens/CreateListingScreen.tsx": {
@@ -585,8 +585,8 @@
     "semantic_hash": ""
   },
   "frontend/src/screens/InboxScreen.tsx": {
-    "mtime": 1788807941.7834456,
-    "ast_hash": "6a927ffa2ca53d7f9fd1232c49fb7cb9",
+    "mtime": 1788807570.9545658,
+    "ast_hash": "760b09a3419a2aa82924afd25920c4bc",
     "semantic_hash": ""
   },
   "frontend/src/screens/ListingDetailScreen.tsx": {
@@ -1232,11 +1232,6 @@
   "frontend/src/components/BackButton.tsx": {
     "mtime": 1788807203.5776818,
     "ast_hash": "f8a949e9e69bd96584ad21ed486283af",
-    "semantic_hash": ""
-  },
-  "frontend/src/components/WaitingOnPaymentBadge.tsx": {
-    "mtime": 1788807929.18885,
-    "ast_hash": "550b6d56f2ceed44bf828bab891749e3",
     "semantic_hash": ""
   }
 }
