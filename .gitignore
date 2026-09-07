@@ -13,7 +13,13 @@ backend/prisma/migrations/migration_lock.toml
 # Build outputs
 dist/
 build/
-packages/shared/generated/
+# NOTE: packages/shared/generated/ is intentionally NOT ignored.
+# It's produced by the `prisma-generator-typescript-interfaces` generator
+# (a devDependency), and Railway's production build does not reliably carry
+# build-time generated files outside dist/ into the runtime image. We commit
+# this generated file so the deployed backend can import it at boot without
+# needing to re-run `prisma generate` in production. Regenerate it locally
+# with `npm run generate` after any schema.prisma change and commit the diff.
 
 # Expo
 .expo/
