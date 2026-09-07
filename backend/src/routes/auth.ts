@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { register, login, verifyEmail, resendOTP } from '../middleware/controllers/authController'
+import { register, login, verifyEmail, resendOTP, getLegalVersion } from '../middleware/controllers/authController'
 import { requireAuth } from '../middleware/requireAuth'
 import { validate } from '../middleware/validate'
 import { authLimiter } from '../middleware/rateLimiter'
@@ -10,6 +10,7 @@ const router = Router()
 // Brute-force/spam target — every route here is rate-limited.
 router.use(authLimiter)
 
+router.get('/legal-version', getLegalVersion)
 router.post('/register', validate(RegisterSchema), register)
 router.post('/login', validate(LoginSchema), login)
 router.post('/verify-email', requireAuth, validate(VerifyEmailSchema), verifyEmail)

@@ -11,6 +11,7 @@ import StateCard from '../components/StateCard'
 import { useAuth } from '../context/AuthContext'
 import ScreenBackground from '../components/ScreenBackground'
 import PaymentNeededBadge from '../components/PaymentNeededBadge'
+import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -92,9 +93,11 @@ export default function InboxScreen() {
           const otherUser = item.ownerId === user?.id ? item.renter : item.owner
           const otherInitials = `${otherUser.firstName?.[0] || ''}${otherUser.lastName?.[0] || ''}`.toUpperCase()
           const imageUrl = item.listing.images?.[0]?.url
-          // Only the renter can pay — the owner sees the same thread with no
-          // badge, since there's nothing for them to tap.
+          // The renter gets a tappable "Payment needed" badge; the owner gets a
+          // matching non-tappable "Waiting on payment" badge for the same
+          // accepted-but-unpaid booking.
           const needsPayment = Boolean(item.acceptedUnpaidBookingId) && item.renterId === user?.id
+          const awaitingPayment = Boolean(item.acceptedUnpaidBookingId) && item.ownerId === user?.id
 
           return (
             <View style={styles.cardWrap}>
@@ -125,13 +128,14 @@ export default function InboxScreen() {
                       onPress={() => nav.navigate('Pay', { bookingId: item.acceptedUnpaidBookingId! })}
                     />
                   ) : null}
+                  {awaitingPayment ? <WaitingOnPaymentBadge /> : null}
                   <Text style={[styles.cardMeta, item.unread && styles.cardMetaUnread]} numberOfLines={2}>
                     {item.lastMessage?.body ?? 'Conversation ready to start'}
                   </Text>
                 </View>
 
                 <View style={styles.cardMetaColumn}>
-                  <Text style={styles.cardTime}>
+                  <Text style={[styles.cardTime, item.unread && styles.cardTimeUnread]}>
                     {new Date(item.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </Text>
                   <View style={styles.miniAvatar}>
@@ -180,7 +184,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.hard.offset.sm,
   },
   cardUnread: {
-    backgroundColor: theme.primarySurface,
+    // Loud logo-green fill (#6DD832, == theme.primary) instead of the pale
+    // primarySurface tint, so an unread thread is unmistakable at a glance.
+    backgroundColor: theme.primary,
   },
   cardLeft: {
     position: 'relative',
@@ -228,7 +234,9 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: theme.primary,
+    // Ink, not primary — the unread card is now itself primary-green, so a
+    // green dot would vanish where it overlaps the card.
+    backgroundColor: theme.hard.ink,
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
@@ -257,6 +265,11 @@ const styles = StyleSheet.create({
     color: theme.textDisabled,
     fontSize: 11,
     fontWeight: '600',
+  },
+  cardTimeUnread: {
+    // textDisabled grey is near-invisible on the green unread fill.
+    color: theme.text,
+    fontWeight: '800',
   },
   cardMeta: {
     color: theme.textMuted,

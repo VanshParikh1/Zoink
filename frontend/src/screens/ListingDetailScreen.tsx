@@ -158,7 +158,7 @@ export default function ListingDetailScreen() {
                 nav.goBack()
               }}
             >
-              <Feather name="chevron-left" size={22} color={theme.text} />
+              <Feather name="arrow-left" size={20} color={theme.hard.ink} />
             </TouchableOpacity>
           </HardBlock>
           <HardBlock radius={theme.radius.pill} offset={theme.hard.offset.sm} style={styles.floatingBtnWrap} contentStyle={styles.floatingBtn}>

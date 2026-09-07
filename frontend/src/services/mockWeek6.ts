@@ -105,9 +105,10 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   const rentalDays = Math.round((endDate.getTime() - startDate.getTime()) / msPerDay) + 1
   const totalPrice = Number((Number(listing.dailyPrice) * rentalDays).toFixed(2))
   const depositAmount = Number(listing.depositAmount ?? 0)
-  const insuranceFee = data.insuranceOptIn && listing.itemValue
-    ? Number(Math.min(50, Math.max(1, Number(listing.itemValue) * 0.03)).toFixed(2))
-    : 0
+  // Zoink offers no insurance product at launch (terms.md §12) — the API no
+  // longer accepts insuranceOptIn, so demo mode mirrors the backend and always
+  // books with no insurance.
+  const insuranceFee = 0
   const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
   const hstAmount = Number((totalPrice * 0.13).toFixed(2))
 
@@ -122,7 +123,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     depositAmount,
     commissionAmount,
     ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
-    insuranceOptIn: Boolean(data.insuranceOptIn),
+    insuranceOptIn: false,
     insuranceFee,
     hstAmount,
     stripePaymentIntentId: `pi_demo_${Date.now()}`,

@@ -7,6 +7,7 @@ import { createReport } from '../services/reportsApi'
 import { ReportReason } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -65,9 +66,7 @@ export default function FileReportScreen() {
       <ScreenBackground>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content}>
-          <TouchableOpacity onPress={() => nav.goBack()}>
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
+          <BackButton style={styles.backLink} />
 
           <Text style={styles.title}>{targetType === 'LISTING' ? 'Report this listing' : 'Report this user'}</Text>
           {targetLabel ? <Text style={styles.subtitle}>{targetLabel}</Text> : null}
@@ -118,7 +117,7 @@ export default function FileReportScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  backLink: { marginBottom: 10 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800' },
   copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },

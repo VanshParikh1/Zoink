@@ -22,6 +22,8 @@ import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
+import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -127,6 +129,9 @@ export default function ConversationThreadScreen() {
   const activeBooking = conversation?.bookings?.[0] ?? null
   const listing = conversation?.listing ?? null
   const needsPayment = isRenter && Boolean(conversation?.acceptedUnpaidBookingId)
+  // Lender-side counterpart to the renter's "Pay now" CTA — a passive status
+  // badge, since the owner just waits for the renter to pay.
+  const awaitingPayment = isOwner && Boolean(conversation?.acceptedUnpaidBookingId)
   // Lender header CTA: review-before-accept stays intact — this only routes to
   // BookingDetailScreen, it never one-tap-accepts.
   const showApproveCta = isOwner && activeBooking?.status === 'PENDING'
@@ -145,10 +150,8 @@ export default function ConversationThreadScreen() {
   // Shown only when there's an in-flight booking that neither the Approve nor
   // the Pay button already speaks to.
   const contextLabel = (() => {
-    if (!activeBooking || showApproveCta || needsPayment) return null
-    if (activeBooking.status === 'ACCEPTED') {
-      return isOwner ? 'Rental accepted · waiting on payment' : 'Rental accepted'
-    }
+    if (!activeBooking || showApproveCta || needsPayment || awaitingPayment) return null
+    if (activeBooking.status === 'ACCEPTED') return 'Rental accepted'
     if (activeBooking.status === 'ACTIVE') return 'Rental in progress'
     return null
   })()
@@ -172,14 +175,7 @@ export default function ConversationThreadScreen() {
       >
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <View style={styles.headerTop}>
-            <TouchableOpacity
-              style={styles.backButton}
-              accessibilityLabel="Go back"
-              activeOpacity={0.8}
-              onPress={() => nav.goBack()}
-            >
-              <Feather name="arrow-left" size={20} color={theme.hard.ink} />
-            </TouchableOpacity>
+            <BackButton onPress={() => nav.goBack()} />
 
             <View style={styles.headerText}>
               <Text style={styles.panelTitle} numberOfLines={2}>{headerTitle}</Text>
@@ -229,6 +225,7 @@ export default function ConversationThreadScreen() {
               ) : null}
             </View>
 
+            {awaitingPayment ? <WaitingOnPaymentBadge style={styles.panelStatusBadge} /> : null}
             {contextLabel ? <Text style={styles.contextLabel}>{contextLabel}</Text> : null}
           </View>
         </View>
@@ -325,16 +322,6 @@ const styles = StyleSheet.create({
   },
   headerTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerText: { flex: 1 },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-  },
   headerThumb: {
     width: 56,
     height: 56,
@@ -364,6 +351,7 @@ const styles = StyleSheet.create({
   },
   panelButtonText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
   contextLabel: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 },
+  panelStatusBadge: { marginTop: 12 },
   listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, gap: 10, flexGrow: 1 },
   stateWrap: { paddingVertical: 8 },
   bubble: {

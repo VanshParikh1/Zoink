@@ -26,6 +26,13 @@ export const updateMe = asyncHandler(async (req: Request, res: Response) => {
   return res.json(user)
 })
 
+// POST /users/me/accept-terms
+export const acceptTerms = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const result = await userService.acceptTerms(userId)
+  return res.status(200).json(result)
+})
+
 // PATCH /users/me/notification-prefs
 export const updateNotificationPrefs = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId

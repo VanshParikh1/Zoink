@@ -12,7 +12,7 @@ import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics'
-import { RouteProp, useRoute } from '@react-navigation/native'
+import { RouteProp, useFocusEffect, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import HomeScreen from './HomeScreen'
@@ -21,6 +21,7 @@ import MyProfileScreen from './MyProfileScreen'
 import SearchScreen from './SearchScreen'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import { getMyConversations } from '../services/conversationsApi'
 
 type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
 
@@ -52,18 +53,23 @@ function NavItem({
   active,
   tab,
   onPress,
+  badge = false,
 }: {
   active: boolean
   tab: MainTab
   onPress: () => void
+  badge?: boolean
 }) {
   return (
     <TouchableOpacity style={styles.navItem} onPress={onPress} activeOpacity={0.7}>
-      <Feather
-        name={TAB_ICONS[tab]}
-        size={20}
-        color={active ? theme.primary : 'rgba(255, 255, 255, 0.55)'}
-      />
+      <View>
+        <Feather
+          name={TAB_ICONS[tab]}
+          size={20}
+          color={active ? theme.primary : 'rgba(255, 255, 255, 0.55)'}
+        />
+        {badge ? <View style={styles.navBadge} /> : null}
+      </View>
       <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>
         {TAB_LABELS[tab]}
       </Text>
@@ -81,6 +87,34 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   const scrollViewRef = useRef<ScrollView>(null)
   // Track the last haptic-fired index to avoid double-fires
   const lastHapticIndex = useRef(TAB_ORDER.indexOf(route.params?.tab ?? 'Home'))
+
+  // Drives the green dot on the Inbox tab icon. MainAppScreen stays mounted
+  // behind pushed screens, so a focus effect (fires when ConversationThread
+  // pops back) plus a slow poll keeps it fresh without InboxScreen having to
+  // lift its list state up here.
+  const [hasUnreadInbox, setHasUnreadInbox] = useState(false)
+  const refreshUnread = useCallback(async () => {
+    try {
+      const conversations = await getMyConversations()
+      setHasUnreadInbox(conversations.some((conversation) => conversation.unread))
+    } catch {
+      // Non-critical — leave the dot in its last known state.
+    }
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnread()
+      const intervalId = setInterval(refreshUnread, 20000)
+      return () => clearInterval(intervalId)
+    }, [refreshUnread])
+  )
+
+  // Re-check when the user moves between tabs (e.g. leaving Inbox after
+  // reading a thread should drop the dot).
+  useEffect(() => {
+    refreshUnread()
+  }, [activeTab, refreshUnread])
 
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
@@ -188,7 +222,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
       <View style={styles.centerSlot} />
 
-      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} />
+      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} badge={hasUnreadInbox} />
       <NavItem active={activeTab === 'MyProfile'} tab="MyProfile" onPress={() => transitionToTab('MyProfile')} />
     </View>
   )
@@ -316,6 +350,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
+  },
+  navBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -5,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: theme.primary,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   navLabel: {
     fontSize: 10,

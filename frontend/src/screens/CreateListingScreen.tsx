@@ -29,6 +29,7 @@ import { createListing, setAvailability, uploadListingImage } from '../services/
 import { theme } from '../theme/colors'
 import ZoinkButton from '../components/ZoinkButton'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Step = 1 | 2 | 3 | 4 | 5
@@ -652,9 +653,7 @@ export default function CreateListingScreen() {
         >
           <View style={{ flex: 1 }}>
             <View style={styles.topBar}>
-              <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-                <Text style={styles.backText}>{'\u2190'}</Text>
-              </TouchableOpacity>
+              <BackButton onPress={handleBack} />
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, progressFillStyle]} />
               </View>
@@ -675,13 +674,13 @@ export default function CreateListingScreen() {
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
               {step < 5 ? (
-                <ZoinkButton 
-                  label={'continue \u2192'} 
-                  onPress={handleContinue} 
+                <ZoinkButton
+                  label={'Continue \u2192'}
+                  onPress={handleContinue}
                 />
               ) : (
-                <ZoinkButton 
-                  label="go live" 
+                <ZoinkButton
+                  label="Go live"
                   onPress={handleGoLive} 
                   isLoading={loading} 
                 />
@@ -706,22 +705,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 18,
     gap: 18,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  backText: {
-    color: theme.text,
-    fontSize: 22,
-    fontWeight: '700',
-    lineHeight: 24,
   },
   progressTrack: {
     height: 3,

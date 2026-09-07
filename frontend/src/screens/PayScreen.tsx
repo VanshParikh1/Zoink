@@ -10,6 +10,7 @@ import { theme } from '../theme/colors'
 import { useStripe } from '@stripe/stripe-react-native'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import { formatLongDate } from '../utils/formatDate'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -106,9 +107,7 @@ export default function PayScreen() {
   return (
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => nav.goBack()}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.backLink} />
 
         <Text style={styles.title}>Pay for this rental</Text>
         <Text style={styles.subtitle}>
@@ -158,7 +157,7 @@ export default function PayScreen() {
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 120, gap: 18 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 4, marginBottom: 12 },
   cardWrap: { marginBottom: 0 },

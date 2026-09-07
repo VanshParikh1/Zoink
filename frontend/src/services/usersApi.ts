@@ -28,6 +28,9 @@ export async function getMyProfile(userId: string): Promise<MyProfile> {
     email: meRes.data.email,
     phone: meRes.data.phone,
     notificationPreferences: meRes.data.notificationPreferences,
+    termsVersion: meRes.data.termsVersion,
+    privacyVersion: meRes.data.privacyVersion,
+    termsAcceptedAt: meRes.data.termsAcceptedAt,
   }
 }
 

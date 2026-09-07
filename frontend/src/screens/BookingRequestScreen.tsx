@@ -20,6 +20,7 @@ import { createBooking } from '../services/bookingsApi'
 import { Listing } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -117,7 +118,9 @@ export default function BookingRequestScreen() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
-  const [insuranceOptIn, setInsuranceOptIn] = useState(false)
+  // Zoink offers no insurance product at launch (terms.md §12) — there was
+  // never a UI control wired to this, and the API no longer accepts the
+  // field at all. Removed rather than left dead. See legal/OPEN-ITEMS.md B1.
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
@@ -196,7 +199,6 @@ export default function BookingRequestScreen() {
         startDate: `${formatApiDate(startDate)}T00:00:00.000Z`,
         endDate: `${formatApiDate(endDate)}T00:00:00.000Z`,
         message,
-        insuranceOptIn,
       })
 
       nav.replace('BookingDetail', { bookingId: booking.id })
@@ -224,9 +226,7 @@ export default function BookingRequestScreen() {
       <ScreenBackground>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
-      <TouchableOpacity onPress={() => nav.goBack()}>
-        <Text style={styles.backText}>Back</Text>
-      </TouchableOpacity>
+      <BackButton style={styles.backLink} />
 
       <Text style={styles.title}>Request this item</Text>
       <Text style={styles.subtitle}>
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 120, gap: 18 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 4, marginBottom: 12 },
   cardWrap: {

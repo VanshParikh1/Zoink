@@ -12,20 +12,21 @@ import {
 } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { TERMS_VERSION } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
 import { deleteMyAccount, getMyProfile, updateNotificationPreferences } from '../services/usersApi'
 import { NotificationPreferences } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import ZoinkButton from '../components/ZoinkButton'
+import { formatLongDate } from '../utils/formatDate'
 import appJson from '../../app.json'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
-const PRIVACY_URL = 'https://zoink.app/privacy'
-const TERMS_URL = 'https://zoink.app/terms'
-const SUPPORT_EMAIL = 'support@zoink.app'
+const SUPPORT_EMAIL = 'zoinksupport@gmail.com'
 
 const APP_VERSION: string = (appJson as any)?.expo?.version ?? '—'
 const APP_BUILD: string | null =
@@ -46,6 +47,7 @@ export default function SettingsScreen() {
   const { user, logout } = useAuth()
 
   const [email, setEmail] = useState<string | null>(null)
+  const [termsAcceptedAt, setTermsAcceptedAt] = useState<string | null>(null)
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -59,6 +61,7 @@ export default function SettingsScreen() {
       const profile = await getMyProfile(user.id)
       setEmail(profile.email)
       setPrefs(profile.notificationPreferences)
+      setTermsAcceptedAt(profile.termsAcceptedAt)
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load your settings.')
     } finally {
@@ -129,9 +132,7 @@ export default function SettingsScreen() {
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => nav.goBack()}>
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
+          <BackButton style={styles.backLink} />
           <Text style={styles.title}>Settings</Text>
         </View>
 
@@ -188,14 +189,18 @@ export default function SettingsScreen() {
             {/* Legal */}
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Legal</Text>
-              <TouchableOpacity style={styles.linkRow} onPress={() => openUrl(PRIVACY_URL)}>
-                <Text style={styles.linkRowText}>Privacy Policy</Text>
+              <TouchableOpacity
+                style={[styles.linkRow, styles.linkRowLast]}
+                onPress={() => nav.navigate('TermsAcceptance', { mode: 'view' })}
+              >
+                <Text style={styles.linkRowText}>Terms of Service &amp; Privacy Policy</Text>
                 <Text style={styles.linkRowChevron}>›</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.linkRow, styles.linkRowLast]} onPress={() => openUrl(TERMS_URL)}>
-                <Text style={styles.linkRowText}>Terms of Service</Text>
-                <Text style={styles.linkRowChevron}>›</Text>
-              </TouchableOpacity>
+              <Text style={styles.footnote}>
+                {termsAcceptedAt
+                  ? `Accepted Terms v${TERMS_VERSION} on ${formatLongDate(termsAcceptedAt)}`
+                  : 'You have not yet accepted the current Terms.'}
+              </Text>
             </View>
 
             {/* Support */}
@@ -229,7 +234,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 18, paddingBottom: 120 },
   header: { paddingTop: theme.header.stackTop, paddingBottom: 8 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   loadingBox: { paddingVertical: 80, alignItems: 'center' },
   errorText: {

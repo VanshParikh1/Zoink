@@ -87,7 +87,6 @@ async function main() {
     startDate,
     endDate,
     message: 'Smoke test booking',
-    insuranceOptIn: true,
   })
   console.log('created', {
     id: created.id,

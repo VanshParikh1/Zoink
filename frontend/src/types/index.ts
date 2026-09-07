@@ -65,7 +65,7 @@ export type PublicProfile = PublicProfileResponse & {
 // composed frontend MyProfile extends the public shape rather than getMe()'s
 // raw response.
 export type MyProfile = PublicProfileResponse &
-  Pick<MyProfileResponse, 'email' | 'phone' | 'notificationPreferences'> & {
+  Pick<MyProfileResponse, 'email' | 'phone' | 'notificationPreferences' | 'termsVersion' | 'privacyVersion' | 'termsAcceptedAt'> & {
     spotlightTags?: string[]
     reviewHighlights?: ProfileReviewHighlight[]
   }

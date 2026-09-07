@@ -1,16 +1,13 @@
 import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import StateCard from '../components/StateCard'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
-import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { RootStackParamList } from '../navigation'
+import { useFocusEffect } from '@react-navigation/native'
 import { listReports, resolveReport } from '../services/adminApi'
 import { AdminReportListItem, ReportStatus } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
-
-type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -41,7 +38,6 @@ function statusTone(status: ReportStatus) {
 }
 
 export default function AdminReportsScreen() {
-  const nav = useNavigation<Nav>()
   const [reports, setReports] = useState<AdminReportListItem[]>([])
   const [filter, setFilter] = useState<ReportStatus | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -123,9 +119,7 @@ export default function AdminReportsScreen() {
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => nav.goBack()}>
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+            <BackButton style={styles.backLink} />
             <Text style={styles.title}>Report queue</Text>
             <Text style={styles.subtitle}>Review reports filed against listings and users for misconduct.</Text>
 
@@ -236,7 +230,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
   header: { marginBottom: 8 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   chipsScroll: { marginTop: 16, flexGrow: 0 },

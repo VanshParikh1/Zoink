@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { Booking, Dispute, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import { formatLongDate } from '../utils/formatDate'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
@@ -177,9 +178,7 @@ export default function BookingDetailScreen() {
   return (
     <ScreenBackground>
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => nav.goBack()}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.backLink} />
 
         <Text style={styles.title}>{booking.listing.title}</Text>
         <Text style={styles.subtitle}>{booking.status}</Text>
@@ -473,7 +472,7 @@ export default function BookingDetailScreen() {
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', marginTop: 8 },
   card: {

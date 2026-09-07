@@ -1,3 +1,5 @@
+import { TERMS_VERSION, PRIVACY_VERSION } from '@zoink/shared'
+
 export const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE?.toLowerCase() === 'true'
 
 export const DEMO_TOKEN = 'zoink-demo-token'
@@ -8,4 +10,6 @@ export const DEMO_USER = {
   firstName: 'Mihir',
   verificationStatus: 'VERIFIED' as const,
   role: 'USER' as const,
+  termsVersion: TERMS_VERSION,
+  privacyVersion: PRIVACY_VERSION,
 }

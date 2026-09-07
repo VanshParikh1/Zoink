@@ -14,6 +14,7 @@ import {
   uploadAvatar,
   onboardStripeConnect,
   getStripeConnectStatus,
+  acceptTerms,
 } from '../middleware/controllers/userController'
 
 const router = Router()
@@ -36,6 +37,7 @@ router.get('/me', requireAuth, getMe)
 router.patch('/me', requireAuth, validate(UpdateMeSchema), updateMe)
 router.delete('/me', requireAuth, deleteMe)
 router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
+router.post('/me/accept-terms', requireAuth, acceptTerms)
 router.patch('/me/push-token', requireAuth, updatePushToken)
 router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar)
 router.post('/me/stripe-connect/onboard', requireAuth, onboardStripeConnect)

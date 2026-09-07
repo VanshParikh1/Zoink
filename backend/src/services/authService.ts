@@ -9,26 +9,27 @@ import {
   NotFoundError,
   TooManyRequestsError,
 } from '../utils/errors'
+import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
+import type { University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function isEmailDomainAllowed(email: string): boolean {
-  const allowedDomains = (process.env.ALLOWED_EMAIL_DOMAINS || '')
-    .split(',')
-    .map(d => d.trim().toLowerCase())
-
-  const domain = email.split('@')[1]?.toLowerCase()
-  return allowedDomains.includes(domain)
-}
 
 function generateOTP(): string {
   // Generates a cryptographically random 6-digit code
   return crypto.randomInt(100000, 999999).toString()
 }
 
-function signJWT(userId: string, verificationStatus: string, email: string, firstName: string, role: string): string {
+export function signJWT(
+  userId: string,
+  verificationStatus: string,
+  email: string,
+  firstName: string,
+  role: string,
+  termsVersion: string | null,
+  privacyVersion: string | null
+): string {
   return jwt.sign(
-    { userId, verificationStatus, email, firstName, role },
+    { userId, verificationStatus, email, firstName, role, termsVersion, privacyVersion },
     process.env.JWT_SECRET!,
     { expiresIn: '30d' }
   )
@@ -41,11 +42,18 @@ export async function registerUser(
   password: string,
   firstName: string,
   lastName: string,
-  phone: string
+  phone: string,
+  university: University,
+  acceptedTermsVersion: string,
+  acceptedPrivacyVersion: string,
+  ageAttested: boolean
 ) {
-  // 1. Check domain
-  if (!isEmailDomainAllowed(email)) {
-    throw new BadRequestError('Email domain not allowed. Please use your university email.')
+  // 1. Reject a stale client — it means the user was never shown the terms
+  // version we actually require, so their acceptance wouldn't cover it.
+  // (The university/email domain match is enforced structurally in
+  // RegisterSchema — see auth.schema.ts — before this ever runs.)
+  if (acceptedTermsVersion !== CURRENT_TERMS_VERSION || acceptedPrivacyVersion !== CURRENT_PRIVACY_VERSION) {
+    throw new BadRequestError('Please update the app to continue — our terms have changed.')
   }
 
   // 2. Check if email already exists
@@ -57,9 +65,23 @@ export async function registerUser(
   // 3. Hash password
   const passwordHash = await bcrypt.hash(password, 12)
 
-  // 4. Create user
+  // 4. Create user, stamping acceptance with a single timestamp so all three
+  // columns agree on exactly when consent was given.
+  const acceptedAt = new Date()
   const user = await prisma.user.create({
-    data: { email, passwordHash, firstName, lastName, phone },
+    data: {
+      email,
+      passwordHash,
+      firstName,
+      lastName,
+      phone,
+      university,
+      termsAcceptedAt: acceptedAt,
+      termsVersion: acceptedTermsVersion,
+      privacyAcceptedAt: acceptedAt,
+      privacyVersion: acceptedPrivacyVersion,
+      ageAttestedAt: ageAttested ? acceptedAt : null,
+    },
   })
 
   // 5. Generate and store OTP
@@ -76,7 +98,7 @@ export async function registerUser(
   await sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
@@ -98,7 +120,7 @@ export async function loginUser(email: string, password: string) {
   }
 
   // 3. Return JWT
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
@@ -137,9 +159,18 @@ export async function verifyOTP(userId: string, code: string) {
 
   // Return a fresh JWT with updated verificationStatus
   // Re-fetch user to get email + firstName + role for the new token
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, firstName: true, role: true } })
-  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, firstName: true, role: true, termsVersion: true, privacyVersion: true },
+  })
+  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role, user!.termsVersion, user!.privacyVersion)
   return { token: token2 }
+}
+
+// ── Legal versions ────────────────────────────────────────────────────────────
+
+export function getLegalVersions() {
+  return { termsVersion: CURRENT_TERMS_VERSION, privacyVersion: CURRENT_PRIVACY_VERSION }
 }
 
 // ── Resend OTP ────────────────────────────────────────────────────────────────

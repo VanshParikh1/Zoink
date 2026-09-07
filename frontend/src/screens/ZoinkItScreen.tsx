@@ -23,6 +23,7 @@ import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } 
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import ZoinkLogo from '../components/ZoinkLogo'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -272,12 +273,12 @@ export default function ZoinkItScreen() {
     return (
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={[styles.pickerContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-          <TouchableOpacity
+          <BackButton
             onPress={() => (editing ? setEditing(false) : nav.goBack())}
             disabled={saving}
-          >
-            <Text style={styles.backText}>{editing ? 'Cancel' : 'Back'}</Text>
-          </TouchableOpacity>
+            accessibilityLabel={editing ? 'Cancel editing' : 'Go back'}
+            style={styles.backLink}
+          />
 
           <Text style={styles.title}>{mode === 'pickup' ? 'Document the Item' : 'Document the Return'}</Text>
 
@@ -433,7 +434,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pickerContent: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 18, width: '100%' },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  backLink: { marginBottom: 10 },
   title: { ...theme.type.screenTitle },
   uploadArea: {
     minHeight: 180,

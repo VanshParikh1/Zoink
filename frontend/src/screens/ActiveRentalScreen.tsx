@@ -9,6 +9,7 @@ import { openConversation } from '../services/conversationsApi'
 import { useAuth } from '../context/AuthContext'
 import { Booking, User } from '../types'
 import { theme } from '../theme/colors'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -121,9 +122,7 @@ export default function ActiveRentalScreen() {
     <View style={styles.screen}>
       {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.heroImage} /> : <View style={styles.heroFallback} />}
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => nav.goBack()}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.backLink} />
 
         {showReadyBanner ? (
           <TouchableOpacity
@@ -196,7 +195,7 @@ const styles = StyleSheet.create({
   heroImage: { width: '100%', height: 200, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, backgroundColor: theme.primarySurface },
   heroFallback: { width: '100%', height: 200, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, backgroundColor: theme.primarySurface },
   content: { padding: 24, paddingBottom: 40, gap: 18 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
+  backLink: { marginBottom: 10 },
   readyBanner: {
     minHeight: 48,
     borderRadius: 8,

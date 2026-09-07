@@ -9,6 +9,7 @@ import { listDisputes } from '../services/adminApi'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -100,9 +101,7 @@ export default function AdminDisputesScreen() {
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => nav.goBack()}>
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+            <BackButton style={styles.backLink} />
             <Text style={styles.title}>Dispute queue</Text>
             <Text style={styles.subtitle}>Review and resolve disputes raised across all bookings.</Text>
 
@@ -153,7 +152,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
   header: { marginBottom: 8 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   chipsScroll: { marginTop: 16, flexGrow: 0 },

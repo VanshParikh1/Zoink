@@ -2,6 +2,8 @@ import { randomBytes } from 'crypto'
 import type { MyProfileResponse, NotificationPreferences, PublicProfileResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError } from '../utils/errors'
+import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
+import { signJWT } from './authService'
 
 const NOTIFICATION_PREF_COLUMNS = [
   'notifyMessages',
@@ -46,6 +48,9 @@ export async function getMe(userId: string): Promise<MyProfileResponse> {
       notifyPaymentsPayouts: true,
       notifyDepositUpdates: true,
       notifyReviews: true,
+      termsVersion: true,
+      privacyVersion: true,
+      termsAcceptedAt: true,
     },
   })
   if (!user) throw new NotFoundError('User not found.')
@@ -53,8 +58,33 @@ export async function getMe(userId: string): Promise<MyProfileResponse> {
     ...user,
     verifiedAt: user.verifiedAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
+    termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
     notificationPreferences: pickNotificationPreferences(user),
   }
+}
+
+// ── Terms / privacy re-acceptance ────────────────────────────────────────────
+
+// Stamps a user as having accepted the current terms/privacy versions —
+// used by the re-acceptance gate when a material change requires active
+// consent before the account can be used further. Returns a fresh JWT since
+// the client's session (AuthContext.user) is decoded from the token, and the
+// old token's embedded versions are now stale.
+export async function acceptTerms(userId: string) {
+  const acceptedAt = new Date()
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      termsAcceptedAt: acceptedAt,
+      termsVersion: CURRENT_TERMS_VERSION,
+      privacyAcceptedAt: acceptedAt,
+      privacyVersion: CURRENT_PRIVACY_VERSION,
+    },
+    select: { id: true, email: true, firstName: true, role: true, verificationStatus: true, termsVersion: true, privacyVersion: true },
+  })
+
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
 // ── Notification preferences ─────────────────────────────────────────────────

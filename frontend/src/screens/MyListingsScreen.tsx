@@ -20,6 +20,7 @@ import ZoinkLogo from '../components/ZoinkLogo'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -120,9 +121,9 @@ export default function MyListingsScreen() {
   return (
     <ScreenBackground>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>{'< Back'}</Text>
-        </TouchableOpacity>
+        <View style={styles.backBtn}>
+          <BackButton />
+        </View>
         <Text style={styles.headerTitle}>My Listings</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => nav.navigate('CreateListing')}>
           <Text style={styles.addBtnText}>+ Add</Text>
@@ -177,7 +178,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: { ...theme.type.screenTitle },
   backBtn: { width: 60 },
-  backText: { color: theme.primary, fontSize: 16, fontWeight: '800' },
   addBtn: { width: 60, alignItems: 'flex-end' },
   addBtnText: { color: theme.primary, fontSize: 16, fontWeight: '900' },
   list: { padding: 20 },

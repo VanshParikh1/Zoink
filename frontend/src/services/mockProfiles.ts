@@ -14,6 +14,9 @@ export const demoProfile: MyProfile = {
   verificationStatus: 'VERIFIED',
   verifiedAt: now,
   createdAt: '2026-02-12T15:30:00.000Z',
+  termsVersion: DEMO_USER.termsVersion,
+  privacyVersion: DEMO_USER.privacyVersion,
+  termsAcceptedAt: now,
   notificationPreferences: {
     notifyMessages: true,
     notifyBookingActivity: true,

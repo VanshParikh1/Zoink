@@ -28,6 +28,7 @@ import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
+import BackButton from '../components/BackButton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -208,9 +209,7 @@ export default function EditListingScreen() {
       <ScreenBackground>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>{'< Back'}</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.backBtn} />
 
         <ZoinkLogo size={40} style={styles.logo} />
         <Text style={styles.header}>Edit Listing</Text>
@@ -339,7 +338,6 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { paddingHorizontal: 24, paddingTop: theme.header.stackTop },
   backBtn: { marginBottom: 16 },
-  backText: { color: theme.primary, fontSize: 16, fontWeight: '800' },
   logo: { marginBottom: 16 },
   header: { ...theme.type.screenTitle, marginBottom: 24 },
   label: { fontSize: 14, fontWeight: '800', color: theme.text, marginBottom: 6, marginTop: 18 },

@@ -18,6 +18,7 @@
     "test:backend": "cd backend && npm test",
     "typecheck:backend": "cd backend && npx tsc --noEmit",
     "typecheck:frontend": "cd frontend && npx tsc --noEmit",
-    "generate": "cd backend && npx prisma generate"
+    "generate": "cd backend && npx prisma generate && cd .. && npm run generate:legal",
+    "generate:legal": "npx ts-node --compiler-options '{\"module\":\"commonjs\"}' packages/shared/scripts/syncLegal.ts"
   }
 }

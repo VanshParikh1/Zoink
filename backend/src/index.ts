@@ -34,7 +34,14 @@ import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
-import { cleanupStaleHandoffs, releaseDuePayouts, releaseDueDeposits } from './services/cleanupJob'
+import {
+  cleanupStaleHandoffs,
+  releaseDuePayouts,
+  releaseDueDeposits,
+  purgeOldMessages,
+  purgeOldDisputesAndReports,
+  purgeOldHandoffPhotos,
+} from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 import { globalLimiter } from './middleware/rateLimiter'
@@ -166,7 +173,22 @@ if (process.env.NODE_ENV !== 'test') {
     }
   })
 
-  console.log('Scheduled cleanup job every 15 minutes and reconciliation job every hour.')
+  // Retention sweeps (privacy.md §7) — not time-critical the way a payout or
+  // deposit release is, so once a day is plenty. See cleanupJob.ts's
+  // "Retention sweeps" section for what each one does and deliberately
+  // doesn't do.
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      const messages = await purgeOldMessages()
+      const disputesAndReports = await purgeOldDisputesAndReports()
+      const handoffPhotos = await purgeOldHandoffPhotos()
+      console.log('Retention sweep completed:', { messages, disputesAndReports, handoffPhotos })
+    } catch (error) {
+      console.error('Retention sweep failed:', error)
+    }
+  })
+
+  console.log('Scheduled cleanup job every 15 minutes, reconciliation job every hour, and retention sweep daily at 3am.')
 }
 
 // Don't start the HTTP server when running under the test suite — supertest

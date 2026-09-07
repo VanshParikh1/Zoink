@@ -7,14 +7,16 @@ import { asyncHandler } from '../../utils/asyncHandler'
 
 export const createBooking = asyncHandler(async (req: Request, res: Response) => {
   const renterId = (req as any).userId as string
-  const { listingId, startDate, endDate, message, insuranceOptIn } = req.body
+  // insuranceOptIn is deliberately not read from req.body here — Zoink offers
+  // no insurance product at launch (terms.md §12) and CreateBookingSchema no
+  // longer accepts the field at all. See legal/OPEN-ITEMS.md B1.
+  const { listingId, startDate, endDate, message } = req.body
 
   const booking = await bookingService.createBooking(renterId, {
     listingId,
     startDate: new Date(startDate),
     endDate: new Date(endDate),
     message,
-    insuranceOptIn: Boolean(insuranceOptIn),
   })
 
   return res.status(201).json(booking)

@@ -2,6 +2,7 @@ import React from 'react'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { ActivityIndicator, View } from 'react-native'
+import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import { getPendingReviews } from '../services/reviewsApi'
@@ -9,6 +10,7 @@ import { getPendingReviews } from '../services/reviewsApi'
 // Screens
 import LoginScreen from '../screens/LoginScreen'
 import RegisterScreen from '../screens/RegisterScreen'
+import TermsAcceptanceScreen from '../screens/TermsAcceptanceScreen'
 import VerifyEmailScreen from '../screens/VerifyEmailScreen'
 import VerificationGateScreen from '../screens/VerificationGateScreen'
 import MainAppScreen from '../screens/MainAppScreen'
@@ -36,9 +38,22 @@ import AdminDisputeDetailScreen from '../screens/AdminDisputeDetailScreen'
 import FileReportScreen from '../screens/FileReportScreen'
 import AdminReportsScreen from '../screens/AdminReportsScreen'
 
+// Held on RegisterScreen while the user goes through TermsAcceptance, so a
+// cancel/error round-trip doesn't lose what they typed. Password is carried
+// in memory only — never persisted to storage.
+export type PendingRegistration = {
+  email: string
+  password: string
+  firstName: string
+  lastName: string
+  phone: string
+  university: University
+}
+
 export type RootStackParamList = {
   Login: undefined
-  Register: undefined
+  Register: { pendingRegistration?: PendingRegistration; errorMessage?: string } | undefined
+  TermsAcceptance: { mode: 'register' | 'update' | 'view'; pendingRegistration?: PendingRegistration }
   VerifyEmail: undefined
   VerificationGate: undefined
   MainApp: { tab?: 'Home' | 'Search' | 'Inbox' | 'MyProfile' } | undefined
@@ -132,6 +147,11 @@ function VerifiedAppStack() {
         options={{ presentation: 'modal' }}
       />
       <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
+      <Stack.Screen
+        name="TermsAcceptance"
+        component={TermsAcceptanceScreen}
+        initialParams={{ mode: 'view' }}
+      />
     </Stack.Navigator>
   )
 }
@@ -154,11 +174,21 @@ export default function Navigation() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="TermsAcceptance" component={TermsAcceptanceScreen} />
         </Stack.Navigator>
       ) : user.verificationStatus !== 'VERIFIED' ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
           <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+        </Stack.Navigator>
+      ) : user.termsVersion !== TERMS_VERSION || user.privacyVersion !== PRIVACY_VERSION ? (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen
+            name="TermsAcceptance"
+            component={TermsAcceptanceScreen}
+            initialParams={{ mode: 'update' }}
+            options={{ gestureEnabled: false }}
+          />
         </Stack.Navigator>
       ) : (
         <VerifiedAppStack />

@@ -113,6 +113,9 @@ export interface MyProfileResponse {
   verifiedAt: string | null
   createdAt: string
   notificationPreferences: NotificationPreferences
+  termsVersion: string | null
+  privacyVersion: string | null
+  termsAcceptedAt: string | null
 }
 
 export interface ReviewObligationScoreLabels {

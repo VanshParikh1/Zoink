@@ -124,7 +124,6 @@ export type CreateBookingInput = {
   startDate: Date
   endDate: Date
   message?: string
-  insuranceOptIn?: boolean
 }
 
 function toUserSummary(user: any): UserSummary {
@@ -338,7 +337,17 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const depositAmount = Number(listing.depositAmount)
   const commissionAmount = calculateCommission(totalPrice, dailyPrice)
   const ownerPayout = calculateOwnerPayout(totalPrice, dailyPrice)
-  const insuranceFee = calculateInsuranceFee(listing.itemValue, Boolean(input.insuranceOptIn))
+  // Zoink offers no insurance product at launch (terms.md §12) — insuranceOptIn
+  // is never read from client input (CreateBookingSchema doesn't even accept
+  // it, see booking.schema.ts). Hardcoded false here rather than trusting a
+  // default keeps this true even if a caller bypasses validation, and the
+  // assertion below is a second, independent guard against the fee ever being
+  // nonzero. See legal/OPEN-ITEMS.md B1.
+  const insuranceOptIn = false
+  const insuranceFee = calculateInsuranceFee(listing.itemValue, insuranceOptIn)
+  if (insuranceFee !== 0) {
+    throw new Error('INSURANCE_FEE_MUST_BE_ZERO: Zoink offers no insurance product at launch.')
+  }
   const hstAmount = calculateHst(totalPrice)
 
   const trimmedMessage = input.message?.trim() || null
@@ -372,7 +381,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
         depositAmount: toDecimal(depositAmount),
         commissionAmount: toDecimal(commissionAmount),
         ownerPayout: toDecimal(ownerPayout),
-        insuranceOptIn: Boolean(input.insuranceOptIn),
+        insuranceOptIn,
         insuranceFee: toDecimal(insuranceFee),
         hstAmount: toDecimal(hstAmount),
       } as any,
@@ -520,6 +529,15 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
 
   if (nextStatus === 'CANCELLED' && !isOwner && !isRenter) {
     throw new ForbiddenError('You do not have access to this booking.')
+  }
+
+  // terms.md §9: "Once the rental start time has passed, the booking is no
+  // longer cancellable." The state machine alone doesn't enforce this — e.g.
+  // CONFIRMED and PICKUP_PENDING both still allow a CANCELLED transition
+  // structurally — so it needs an explicit date check here, independent of
+  // status. See legal/OPEN-ITEMS.md B7.
+  if (nextStatus === 'CANCELLED' && new Date() >= booking.startDate) {
+    throw new ConflictError('Once the rental start time has passed, this booking can no longer be cancelled.')
   }
 
   if (nextStatus === 'CONFIRMED' && !isRenter) {
@@ -676,6 +694,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
 
     if (nextStatus === 'CANCELLED') {
       await handleCancellationPayment(booking, actorId)
+      // Zoink can't charge a cancellation fee (terms.md §9), so a per-user
+      // count is the only signal available for the suspension right in §15
+      // against someone who cancels repeatedly. Attributed to whichever party
+      // actually triggered this transition. See legal/OPEN-ITEMS.md B7.
+      await prisma.user.update({
+        where: { id: actorId },
+        data: { cancellationCount: { increment: 1 } },
+      }).catch((error) => {
+        console.error('[transitionBookingStatus] Failed to increment cancellationCount for user', actorId, error)
+      })
     }
 
     if (nextStatus === 'ACCEPTED') {

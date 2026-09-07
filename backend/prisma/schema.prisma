@@ -33,6 +33,19 @@ model User {
   stripeCustomerId    String?
   stripeAccountId     String?
   role                Role                @default(USER)
+  // Student-email university allowlist (see packages/shared/src/universities.ts
+  // for the enum-key -> domain/label maps). Nullable because pre-existing
+  // users predate this and login performs no domain check.
+  university          University?
+  // Terms/privacy acceptance record — stamped once at registration, and again
+  // by POST /users/me/accept-terms when a material change requires
+  // re-acceptance (see navigation's re-acceptance gate). Nullable because
+  // seeded/pre-existing users predate this.
+  termsAcceptedAt     DateTime?
+  termsVersion        String?
+  privacyAcceptedAt   DateTime?
+  privacyVersion      String?
+  ageAttestedAt       DateTime?
   // Soft-delete / anonymization marker, set by DELETE /users/me. A row with
   // this set has had its PII scrubbed and its sessions invalidated (requireAuth
   // and login both reject it); Booking/Review/Dispute/Report rows are left
@@ -46,6 +59,12 @@ model User {
   notifyPaymentsPayouts  Boolean          @default(true)
   notifyDepositUpdates   Boolean          @default(true)
   notifyReviews          Boolean          @default(true)
+  // Incremented every time this user is the actor on a CANCELLED booking
+  // transition (see bookingService.transitionBookingStatus). Zoink can't
+  // charge a cancellation fee (terms.md §9), so this count is what the
+  // suspension right in terms.md §15 is exercised against for someone who
+  // cancels repeatedly. See legal/OPEN-ITEMS.md B7.
+  cancellationCount   Int                 @default(0)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   bookingsAsOwner     Booking[]           @relation("OwnerBookings")
@@ -377,6 +396,19 @@ model Report {
 enum Role {
   USER
   ADMIN
+}
+
+// Keys here must stay in sync with UNIVERSITY_DOMAINS / UNIVERSITY_LABELS in
+// packages/shared/src/universities.ts — that file is the single source of
+// truth for the domain each key maps to and its display label.
+enum University {
+  UOFT
+  TMU
+  LAURIER
+  YORK
+  ONTARIO_TECH
+  MCMASTER
+  WATERLOO
 }
 
 enum VerificationStatus {

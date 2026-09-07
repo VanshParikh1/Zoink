@@ -3,9 +3,25 @@ import * as authService from '../../services/authService'
 import { asyncHandler } from '../../utils/asyncHandler'
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
-  const { email, password, firstName, lastName, phone } = req.body
-  const result = await authService.registerUser(email, password, firstName, lastName, phone)
+  const { email, password, firstName, lastName, phone, university, acceptedTermsVersion, acceptedPrivacyVersion, ageAttested } = req.body
+  const result = await authService.registerUser(
+    email,
+    password,
+    firstName,
+    lastName,
+    phone,
+    university,
+    acceptedTermsVersion,
+    acceptedPrivacyVersion,
+    ageAttested
+  )
   return res.status(201).json(result)
+})
+
+
+export const getLegalVersion = asyncHandler(async (_req: Request, res: Response) => {
+  const result = authService.getLegalVersions()
+  return res.status(200).json(result)
 })
 
 

@@ -7,6 +7,7 @@ import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePaylo
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -245,9 +246,7 @@ export default function AdminDisputeDetailScreen() {
       <ScreenBackground>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => nav.goBack()}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.backLink} />
 
         <Text style={styles.title}>{REASON_LABELS[dispute.reason] ?? dispute.reason}</Text>
         <Text style={styles.subtitle}>{dispute.status.replace(/_/g, ' ')}</Text>
@@ -470,7 +469,7 @@ export default function AdminDisputeDetailScreen() {
 const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
   content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  backLink: { marginBottom: 10 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', textTransform: 'uppercase' },
   card: {

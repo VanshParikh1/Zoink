@@ -8,6 +8,7 @@ import { Booking } from '../types'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
+import BackButton from '../components/BackButton'
 import { sortBookingsLiveFirst } from '../utils/sortBookings'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -105,9 +106,7 @@ export default function BookingRequestsScreen() {
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => nav.goBack()}>
-              <Text style={styles.backText}>Back</Text>
-            </TouchableOpacity>
+            <BackButton style={styles.backLink} />
             <Text style={styles.title}>Incoming requests</Text>
             <Text style={styles.subtitle}>Approve or decline rental requests on your listings.</Text>
             <Text style={styles.summaryText}>
@@ -196,7 +195,7 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
   content: { padding: 24, paddingTop: 64, paddingBottom: 32 },
   header: { marginBottom: 8 },
-  backText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', marginBottom: 18 },
+  backLink: { marginBottom: 18 },
   title: { ...theme.type.screenTitle },
   subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
   summaryText: { color: theme.textDisabled, fontSize: 13, marginTop: 10, fontWeight: '700' },

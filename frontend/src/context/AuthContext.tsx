@@ -5,6 +5,7 @@ import { Platform } from 'react-native'
 import api from '../services/api'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { clearPushToken, syncPushToken } from '../services/pushNotifications'
+import type { University } from '@zoink/shared'
 
 const TOKEN_KEY = 'zoink_jwt'
 
@@ -35,16 +36,29 @@ type User = {
   firstName: string
   verificationStatus: 'PENDING' | 'SUBMITTED' | 'VERIFIED' | 'FAILED'
   role: 'USER' | 'ADMIN'
+  termsVersion: string | null
+  privacyVersion: string | null
 }
 
 type AuthContextType = {
   user: User | null
   token: string | null
   isLoading: boolean
-  register: (email: string, password: string, firstName: string, lastName: string, phone: string) => Promise<void>
+  register: (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    phone: string,
+    university: University,
+    acceptedTermsVersion: string,
+    acceptedPrivacyVersion: string,
+    ageAttested: boolean
+  ) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   setVerified: (newToken: string) => void
+  acceptTerms: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -84,7 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [token, user])
 
-  async function register(email: string, password: string, firstName: string, lastName: string, phone: string) {
+  async function register(
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string,
+    phone: string,
+    university: University,
+    acceptedTermsVersion: string,
+    acceptedPrivacyVersion: string,
+    ageAttested: boolean
+  ) {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, {
         ...DEMO_USER,
@@ -94,7 +118,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const res = await api.post('/auth/register', { email, password, firstName, lastName, phone })
+    const res = await api.post('/auth/register', {
+      email,
+      password,
+      firstName,
+      lastName,
+      phone,
+      university,
+      acceptedTermsVersion,
+      acceptedPrivacyVersion,
+      ageAttested,
+    })
     await saveSession(res.data.token, res.data.user)
   }
 
@@ -130,15 +164,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
   }
 
+  // Called from the re-acceptance gate (TermsAcceptanceScreen, mode 'update')
+  // — stamps the current terms/privacy versions server-side and swaps in the
+  // fresh token so the gate in Navigation() clears immediately.
+  async function acceptTerms() {
+    if (DEMO_MODE) {
+      await saveSession(DEMO_TOKEN, { ...DEMO_USER, ...user })
+      return
+    }
+
+    const res = await api.post('/users/me/accept-terms')
+    await saveSession(res.data.token, res.data.user)
+  }
+
+  // `newUser` is only used in DEMO_MODE, where there's no real JWT to decode.
+  // For a real session the user is derived from the token itself — the
+  // /auth and /users responses only carry a subset of the claims (they omit
+  // termsVersion/privacyVersion), and trusting that subset left `user`
+  // missing fields the navigation gates check, stranding the client on the
+  // terms screen until an app reload re-decoded the token.
   async function saveSession(newToken: string, newUser: User) {
     await setTokenAsync(TOKEN_KEY, newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
     setToken(newToken)
-    setUser(newUser)
+    setUser(resolvedUser)
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, register, login, logout, setVerified }}>
+    <AuthContext.Provider value={{ user, token, isLoading, register, login, logout, setVerified, acceptTerms }}>
       {children}
     </AuthContext.Provider>
   )
@@ -160,5 +214,7 @@ function parseJWT(token: string): User {
     firstName: json.firstName ?? '',
     verificationStatus: json.verificationStatus,
     role: json.role === 'ADMIN' ? 'ADMIN' : 'USER',
+    termsVersion: json.termsVersion ?? null,
+    privacyVersion: json.privacyVersion ?? null,
   }
 }

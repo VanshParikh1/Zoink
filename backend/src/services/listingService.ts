@@ -1,7 +1,47 @@
 import prisma from '../utils/prisma'
 import { Prisma } from '@prisma/client'
 import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
-import { NotFoundError, ForbiddenError } from '../utils/errors'
+import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
+
+// ── Prohibited items (terms.md §6) ───────────────────────────────────────────
+// A blunt keyword heuristic, not a moderation system — it exists to catch the
+// obvious, egregious case (a firearm or a car listed for rent) before it ever
+// goes live, cheaply. It will have false positives (e.g. "gun" inside another
+// word) and false negatives (evasive spelling); the Report flow and Zoink's
+// takedown rights in §6 remain the real backstop. See legal/OPEN-ITEMS.md B6.
+const PROHIBITED_ITEM_PATTERNS: RegExp[] = [
+  /\bfirearms?\b/i,
+  /\bammo\b|\bammunition\b/i,
+  /\b(hand)?gun[s]?\b/i,
+  /\brifle[s]?\b/i,
+  /\bweapon[s]?\b/i,
+  /\balcohol\b|\bbooze\b/i,
+  /\btobacco\b|\bcigarettes?\b|\bvape[s]?\b|\bvaping\b/i,
+  /\bcannabis\b|\bmarijuana\b|\bweed\b/i,
+  /\bprescription\b/i,
+  /\bmedical device[s]?\b/i,
+  /\bmotor ?cycle[s]?\b|\bmoped[s]?\b/i,
+  /\be-?bike[s]?\b/i,
+  /\b(used )?car[s]?\b|\bvehicle[s]?\b|\bautomobile[s]?\b/i,
+  /\bpuppy|\bpuppies|\bkitten[s]?\b|\bpet[s]?\b|\blive animal[s]?\b/i,
+  /\bcounterfeit\b|\breplica (firearm|gun)/i,
+  /\bstolen\b/i,
+  /\bspy camera\b|\bhidden camera\b|\bsurveillance\b/i,
+  /\bchild car seat[s]?\b|\bcar seat[s]?\b/i,
+]
+
+function assertNoProhibitedContent(fields: { title?: string; description?: string; category?: string }) {
+  const haystack = [fields.title, fields.description, fields.category].filter(Boolean).join(' \n ')
+  if (!haystack) return
+
+  const match = PROHIBITED_ITEM_PATTERNS.find((pattern) => pattern.test(haystack))
+  if (match) {
+    throw new BadRequestError(
+      'This listing appears to include an item Zoink does not allow (see our Terms of Service, section 6 — Prohibited items). ' +
+        'If this is a false match, contact zoinksupport@gmail.com.'
+    )
+  }
+}
 
 // ── Shared select shape ───────────────────────────────────────────────────────
 
@@ -113,6 +153,8 @@ export type CreateListingInput = {
 }
 
 export async function createListing(ownerId: string, data: CreateListingInput): Promise<ListingResponse> {
+  assertNoProhibitedContent(data)
+
   const listing = await prisma.listing.create({
     data: {
       ...data,
@@ -350,6 +392,8 @@ export async function updateListing(
   const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+
+  assertNoProhibitedContent(data)
 
   const cleaned: Record<string, unknown> = Object.fromEntries(
     Object.entries(data).filter(([, v]) => v !== undefined)

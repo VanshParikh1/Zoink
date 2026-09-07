@@ -16,12 +16,14 @@ import {
   mockGetMyBookings,
 } from './mockWeek6'
 
+// insuranceOptIn deliberately omitted — Zoink offers no insurance product at
+// launch (terms.md §12) and the backend no longer accepts the field. See
+// legal/OPEN-ITEMS.md B1.
 export type CreateBookingPayload = {
   listingId: string
   startDate: string
   endDate: string
   message?: string
-  insuranceOptIn?: boolean
 }
 
 export async function createBooking(data: CreateBookingPayload): Promise<Booking> {

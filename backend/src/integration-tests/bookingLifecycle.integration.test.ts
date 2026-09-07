@@ -110,7 +110,6 @@ describe('createBooking', () => {
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       message: 'Can I pick it up in the morning?',
-      insuranceOptIn: false,
     })
 
     assert.equal(result.status, BookingStatus.PENDING)
@@ -189,16 +188,15 @@ describe('createBooking', () => {
     assert.equal(messages.length, 0)
   })
 
-  test('creates booking with insurance when insuranceOptIn=true', async () => {
+  test('never applies an insurance fee (no insurance product at launch)', async () => {
     const { startDate, endDate } = futureDates(2, 1)
     const result = await bookingService.createBooking(renter.id, {
       listingId,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
-      insuranceOptIn: true,
     })
-    assert.ok(result.insuranceFee > 0, 'insurance fee should be positive when opted in')
-    assert.equal(result.insuranceOptIn, true)
+    assert.equal(result.insuranceFee, 0, 'insurance fee must always be zero')
+    assert.equal(result.insuranceOptIn, false)
   })
 
   test('rejects booking own listing', async () => {

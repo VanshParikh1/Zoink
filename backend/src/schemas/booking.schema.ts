@@ -7,7 +7,14 @@ import { z } from 'zod'
  *   - listingId   String
  *   - startDate   DateTime
  *   - endDate     DateTime
- *   - insuranceOptIn Boolean @default(false)
+ *
+ * insuranceOptIn/insuranceFee still exist as columns on Booking (see
+ * schema.prisma), but Zoink offers no insurance product at launch — see
+ * terms.md §12. That field is deliberately NOT accepted here: a client
+ * can't set it even if it sends it, so the column is unreachable from the
+ * API rather than merely defaulted. bookingService.createBooking() hardcodes
+ * insuranceOptIn to false. Do not re-add this field to the schema without
+ * updating terms.md and getting a lawyer's sign-off — see legal/OPEN-ITEMS.md B1.
  */
 
 /**
@@ -24,7 +31,6 @@ export const CreateBookingSchema = z.object({
       startDate: z.string().datetime({ message: 'startDate must be a valid ISO-8601 datetime string.' }),
       endDate: z.string().datetime({ message: 'endDate must be a valid ISO-8601 datetime string.' }),
       message: z.string().max(500, 'message cannot exceed 500 characters.').optional(),
-      insuranceOptIn: z.boolean().optional().default(false),
     })
     .refine((data) => new Date(data.endDate) > new Date(data.startDate), {
       message: 'endDate must be after startDate.',
