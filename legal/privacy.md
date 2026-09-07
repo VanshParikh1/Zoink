@@ -91,7 +91,7 @@ We share personal information with the service providers below, only as needed t
 | **Amazon Web Services (SES)** | Email address and message content | Sending transactional email |
 | **Expo** | Push token, notification title and body | Delivering push notifications |
 | **Sentry** | Error reports, which may include your user ID, IP address, and app state at the moment of a crash. Passwords, tokens, and secrets are stripped before the report is sent. | Crash and error monitoring |
-| **{{HOSTING PROVIDER}}** | Everything stored in the database | Running the servers and the database |
+| **Railway** | Everything stored in the database | Running the servers and the database |
 
 We also share:
 
@@ -104,7 +104,7 @@ We also share:
 
 ## 6. Where your information goes
 
-Zoink uses service providers located **outside Canada, primarily in the United States** (Stripe, Cloudinary, AWS, Expo, and Sentry all process data in the US).
+Zoink uses service providers located **outside Canada, primarily in the United States** (Stripe, Cloudinary, AWS, Expo, Sentry, and Railway all process data in the US).
 
 This means your personal information may be stored or processed in the United States, and **while it is there it may be accessible to US courts, law enforcement, and national security authorities under US law**, regardless of the protections we have in place. We use providers who contractually commit to a comparable level of protection, but we cannot exempt them from the law where they operate.
 
