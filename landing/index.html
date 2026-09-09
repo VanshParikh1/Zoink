@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Zoink is a verified student rental marketplace for borrowing useful things nearby and lending the stuff sitting in your room.">
+  <meta name="description"
+    content="Zoink is a verified student rental marketplace for borrowing useful things nearby and lending the stuff sitting in your room.">
   <title>Zoink | Campus Rentals</title>
   <link rel="icon" href="assets/logo.png">
   <script>
@@ -39,8 +41,14 @@
       background: var(--cream);
     }
 
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       margin: 0;
       min-width: 320px;
@@ -61,17 +69,42 @@
         linear-gradient(90deg, rgba(4, 15, 15, 0.055) 1px, transparent 1px),
         linear-gradient(rgba(4, 15, 15, 0.04) 1px, transparent 1px);
       background-size: 64px 64px;
-      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent 78%);
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent 78%);
       z-index: -1;
     }
 
-    a { color: inherit; text-decoration: none; }
-    button, input, select, textarea { font: inherit; }
-    img { max-width: 100%; display: block; }
-    p, h1, h2, h3 { margin-top: 0; }
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
 
-    .page { overflow: hidden; }
-    .shell { width: min(1160px, calc(100% - 36px)); margin: 0 auto; }
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    p,
+    h1,
+    h2,
+    h3 {
+      margin-top: 0;
+    }
+
+    .page {
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+    }
 
     .nav {
       position: sticky;
@@ -90,7 +123,12 @@
       gap: 18px;
     }
 
-    .brand { display: inline-flex; align-items: center; gap: 12px; }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .brand-plate {
       display: inline-flex;
       align-items: center;
@@ -101,9 +139,23 @@
       background: var(--ink);
       box-shadow: 4px 4px 0 var(--acid);
     }
-    .brand img { width: 150px; height: auto; }
-    .nav-links { display: flex; align-items: center; gap: 18px; font-weight: 900; }
-    .nav-links a:not(.button) { position: relative; }
+
+    .brand img {
+      width: 150px;
+      height: auto;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-weight: 900;
+    }
+
+    .nav-links a:not(.button) {
+      position: relative;
+    }
+
     .nav-links a:not(.button)::after {
       content: "";
       position: absolute;
@@ -116,7 +168,11 @@
       background: var(--acid);
       transition: transform 160ms ease;
     }
-    .nav-links a:hover::after, .nav-links a:focus-visible::after { transform: scaleX(1); }
+
+    .nav-links a:hover::after,
+    .nav-links a:focus-visible::after {
+      transform: scaleX(1);
+    }
 
     .button {
       display: inline-flex;
@@ -137,15 +193,30 @@
       white-space: nowrap;
     }
 
-    .button:hover, .button:focus-visible {
+    .button:hover,
+    .button:focus-visible {
       transform: translate(3px, 3px);
       box-shadow: 2px 2px 0 var(--ink);
       outline: none;
     }
 
-    .button.secondary { background: var(--paper); box-shadow: none; }
-    .button.dark { background: var(--ink); color: var(--acid); box-shadow: 5px 5px 0 var(--acid); }
-    .button svg, .pill svg, .trust-item svg, .footer-links svg { flex: 0 0 auto; }
+    .button.secondary {
+      background: var(--paper);
+      box-shadow: none;
+    }
+
+    .button.dark {
+      background: var(--ink);
+      color: var(--acid);
+      box-shadow: 5px 5px 0 var(--acid);
+    }
+
+    .button svg,
+    .pill svg,
+    .trust-item svg,
+    .footer-links svg {
+      flex: 0 0 auto;
+    }
 
     .hero {
       min-height: calc(100vh - 78px);
@@ -229,7 +300,13 @@
       font-weight: 700;
     }
 
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 20px; }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
 
     .proof-row {
       display: flex;
@@ -290,7 +367,12 @@
       border-radius: 999px;
       background: var(--ink);
     }
-    .ticket-header img { width: 132px; height: auto; }
+
+    .ticket-header img {
+      width: 132px;
+      height: auto;
+    }
+
     .status-dot {
       display: inline-flex;
       align-items: center;
@@ -303,8 +385,20 @@
       font-weight: 950;
     }
 
-    .status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--forest); }
-    .ticket-body { padding: 20px; display: grid; gap: 14px; }
+    .status-dot::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--forest);
+    }
+
+    .ticket-body {
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+
     .search-chip {
       padding: 14px 16px;
       border: 2px solid var(--ink);
@@ -338,11 +432,39 @@
       font-weight: 950;
     }
 
-    .item-card h3 { margin-bottom: 2px; font-size: 17px; letter-spacing: -0.03em; }
-    .item-card p { margin-bottom: 8px; color: var(--muted); font-size: 13px; font-weight: 800; }
-    .price-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .price { font-weight: 950; color: var(--forest); }
-    .rating { padding: 3px 8px; border: 2px solid var(--ink); border-radius: 999px; background: var(--acid-soft); font-size: 12px; font-weight: 950; }
+    .item-card h3 {
+      margin-bottom: 2px;
+      font-size: 17px;
+      letter-spacing: -0.03em;
+    }
+
+    .item-card p {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .price-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .price {
+      font-weight: 950;
+      color: var(--forest);
+    }
+
+    .rating {
+      padding: 3px 8px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--acid-soft);
+      font-size: 12px;
+      font-weight: 950;
+    }
 
     .mini-note {
       left: 0;
@@ -355,8 +477,20 @@
       box-shadow: 9px 9px 0 var(--acid);
     }
 
-    .mini-note strong { display: block; color: var(--acid); font-size: 28px; line-height: 1; letter-spacing: -0.06em; }
-    .mini-note span { display: block; margin-top: 8px; color: rgba(255, 249, 239, 0.82); font-weight: 800; }
+    .mini-note strong {
+      display: block;
+      color: var(--acid);
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.06em;
+    }
+
+    .mini-note span {
+      display: block;
+      margin-top: 8px;
+      color: rgba(255, 249, 239, 0.82);
+      font-weight: 800;
+    }
 
     .ribbon {
       right: 0;
@@ -368,9 +502,26 @@
       font-weight: 950;
     }
 
-    section { padding: 72px 0; }
-    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin-bottom: 28px; }
-    h2 { margin-bottom: 0; font-size: clamp(34px, 5vw, 64px); line-height: 0.92; letter-spacing: -0.07em; font-weight: 950; }
+    section {
+      padding: 72px 0;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+      margin-bottom: 28px;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(34px, 5vw, 64px);
+      line-height: 0.92;
+      letter-spacing: -0.07em;
+      font-weight: 950;
+    }
+
     .section-title {
       display: block !important;
       margin: 0 !important;
@@ -380,9 +531,21 @@
       letter-spacing: -0.07em !important;
       font-weight: 950 !important;
     }
-    .section-copy { max-width: 470px; margin-bottom: 0; color: var(--slate); font-size: 17px; font-weight: 700; }
 
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .section-copy {
+      max-width: 470px;
+      margin-bottom: 0;
+      color: var(--slate);
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
     .card {
       border: 3px solid var(--ink);
       border-radius: var(--radius-lg);
@@ -390,13 +553,51 @@
       box-shadow: 8px 8px 0 var(--ink);
     }
 
-    .step-card { padding: 24px; min-height: 260px; display: flex; flex-direction: column; }
-    .number { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 22px; border: 3px solid var(--ink); border-radius: 50%; background: var(--acid); font-weight: 950; }
-    .step-card h3 { margin-bottom: 10px; font-size: 24px; line-height: 1; letter-spacing: -0.04em; }
-    .step-card p { margin-bottom: 0; color: var(--muted); font-weight: 800; }
-    .step-card:nth-child(2) { background: var(--ink); color: var(--paper); }
-    .step-card:nth-child(2) p { color: rgba(255, 249, 239, 0.76); }
-    .step-card:nth-child(2) .number { background: var(--paper); color: var(--ink); }
+    .step-card {
+      padding: 24px;
+      min-height: 260px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .number {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 22px;
+      border: 3px solid var(--ink);
+      border-radius: 50%;
+      background: var(--acid);
+      font-weight: 950;
+    }
+
+    .step-card h3 {
+      margin-bottom: 10px;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .step-card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .step-card:nth-child(2) {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .step-card:nth-child(2) p {
+      color: rgba(255, 249, 239, 0.76);
+    }
+
+    .step-card:nth-child(2) .number {
+      background: var(--paper);
+      color: var(--ink);
+    }
 
     .category-wall {
       display: grid;
@@ -405,7 +606,15 @@
       align-items: stretch;
     }
 
-    .category-big { padding: 30px; background: var(--ink); color: var(--paper); min-height: 430px; position: relative; overflow: hidden; }
+    .category-big {
+      padding: 30px;
+      background: var(--ink);
+      color: var(--paper);
+      min-height: 430px;
+      position: relative;
+      overflow: hidden;
+    }
+
     .category-big::after {
       content: "Borrow less. Do more.";
       position: absolute;
@@ -419,20 +628,86 @@
       max-width: 520px;
     }
 
-    .category-big h2 { position: relative; z-index: 1; color: var(--paper); }
-    .category-big .section-title { position: relative; z-index: 1; color: var(--paper) !important; }
-    .category-big p { position: relative; z-index: 1; max-width: 460px; color: rgba(255, 249, 239, 0.78); font-size: 18px; font-weight: 800; }
-    .category-tags { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
-    .category-tags span { padding: 10px 13px; border: 2px solid var(--acid); border-radius: 999px; color: var(--acid); font-weight: 950; }
+    .category-big h2 {
+      position: relative;
+      z-index: 1;
+      color: var(--paper);
+    }
 
-    .stacked { display: grid; gap: 20px; }
-    .stat-card { padding: 24px; }
-    .stat-card strong { display: block; margin-bottom: 8px; font-size: 54px; line-height: 0.9; letter-spacing: -0.08em; }
-    .stat-card p { margin-bottom: 0; color: var(--muted); font-weight: 850; }
+    .category-big .section-title {
+      position: relative;
+      z-index: 1;
+      color: var(--paper) !important;
+    }
 
-    .trust-band { padding: 32px; background: var(--paper); }
-    .trust-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
-    .trust-item { padding: 22px; border: 2px solid var(--ink); border-radius: var(--radius-md); background: #fff; }
+    .category-big p {
+      position: relative;
+      z-index: 1;
+      max-width: 460px;
+      color: rgba(255, 249, 239, 0.78);
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .category-tags {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .category-tags span {
+      padding: 10px 13px;
+      border: 2px solid var(--acid);
+      border-radius: 999px;
+      color: var(--acid);
+      font-weight: 950;
+    }
+
+    .stacked {
+      display: grid;
+      gap: 20px;
+    }
+
+    .stat-card {
+      padding: 24px;
+    }
+
+    .stat-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 54px;
+      line-height: 0.9;
+      letter-spacing: -0.08em;
+    }
+
+    .stat-card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-weight: 850;
+    }
+
+    .trust-band {
+      padding: 32px;
+      background: var(--paper);
+    }
+
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 26px;
+    }
+
+    .trust-item {
+      padding: 22px;
+      border: 2px solid var(--ink);
+      border-radius: var(--radius-md);
+      background: #fff;
+    }
+
     .trust-symbol {
       width: 48px;
       height: 48px;
@@ -444,8 +719,19 @@
       background: var(--acid);
       box-shadow: 4px 4px 0 var(--ink);
     }
-    .trust-item h3 { margin-bottom: 8px; font-size: 19px; letter-spacing: -0.04em; }
-    .trust-item p { margin-bottom: 0; color: var(--muted); font-weight: 800; font-size: 14px; }
+
+    .trust-item h3 {
+      margin-bottom: 8px;
+      font-size: 19px;
+      letter-spacing: -0.04em;
+    }
+
+    .trust-item p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 14px;
+    }
 
     .campus-strip {
       padding: 26px;
@@ -464,7 +750,13 @@
       transform: rotate(1deg);
     }
 
-    .campus-track span { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); font-weight: 950; }
+    .campus-track span {
+      padding: 10px 14px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      font-weight: 950;
+    }
 
     .waitlist {
       display: grid;
@@ -474,14 +766,45 @@
       padding-bottom: 96px;
     }
 
-    .waitlist-copy { position: sticky; top: 112px; }
-    .waitlist-copy h2 { margin-bottom: 18px; }
-    .waitlist-card { padding: 18px; background: var(--ink); box-shadow: 12px 12px 0 var(--acid); }
-    .form-card-inner { padding: 18px; border-radius: 20px; background: var(--paper); }
-    .form-grid { display: grid; gap: 13px; }
-    .field { display: grid; gap: 7px; }
-    label { font-size: 13px; font-weight: 950; }
-    input, select, textarea {
+    .waitlist-copy {
+      position: sticky;
+      top: 112px;
+    }
+
+    .waitlist-copy h2 {
+      margin-bottom: 18px;
+    }
+
+    .waitlist-card {
+      padding: 18px;
+      background: var(--ink);
+      box-shadow: 12px 12px 0 var(--acid);
+    }
+
+    .form-card-inner {
+      padding: 18px;
+      border-radius: 20px;
+      background: var(--paper);
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 13px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    input,
+    select,
+    textarea {
       width: 100%;
       min-height: 50px;
       padding: 13px 14px;
@@ -492,16 +815,65 @@
       outline: none;
       font-weight: 800;
     }
-    textarea { min-height: 110px; resize: vertical; }
-    input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 5px rgba(0, 239, 32, 0.22); }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .tally-frame { width: 100%; min-height: 620px; border: 0; border-radius: 20px; background: #fff; }
-    .hidden { display: none; }
 
-    .footer { padding: 30px 0 42px; border-top: 3px solid var(--ink); background: var(--paper); }
-    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 18px; color: var(--slate); font-weight: 850; }
-    .footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-weight: 950; }
-    .footer a:hover, .footer a:focus-visible { color: var(--forest); outline: none; }
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      box-shadow: 0 0 0 5px rgba(0, 239, 32, 0.22);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .tally-frame {
+      width: 100%;
+      min-height: 620px;
+      border: 0;
+      border-radius: 20px;
+      background: #fff;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .footer {
+      padding: 30px 0 42px;
+      border-top: 3px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--slate);
+      font-weight: 850;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px;
+      font-weight: 950;
+    }
+
+    .footer a:hover,
+    .footer a:focus-visible {
+      color: var(--forest);
+      outline: none;
+    }
+
     .social-icon {
       display: inline-grid;
       place-items: center;
@@ -514,6 +886,7 @@
       box-shadow: 4px 4px 0 var(--acid);
       transition: transform 150ms ease, box-shadow 150ms ease;
     }
+
     .social-icon svg {
       color: var(--acid) !important;
       stroke: currentColor !important;
@@ -522,56 +895,176 @@
       stroke-linecap: round;
       stroke-linejoin: round;
     }
-    .social-icon:hover, .social-icon:focus-visible {
+
+    .social-icon:hover,
+    .social-icon:focus-visible {
       transform: translate(2px, 2px);
       box-shadow: 2px 2px 0 var(--acid);
     }
 
     @keyframes riseIn {
-      from { opacity: 0; transform: translateY(18px); }
-      to { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
-    .hero > *, .step-card, .category-wall, .trust-band, .waitlist { animation: riseIn 520ms ease both; }
-    .hero-board { animation-delay: 100ms; }
+    .hero>*,
+    .step-card,
+    .category-wall,
+    .trust-band,
+    .waitlist {
+      animation: riseIn 520ms ease both;
+    }
+
+    .hero-board {
+      animation-delay: 100ms;
+    }
 
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation: none !important;
+        transition: none !important;
+      }
     }
 
     @media (max-width: 960px) {
-      .hero, .waitlist, .category-wall { grid-template-columns: 1fr; }
-      .hero { min-height: auto; padding-top: 52px; }
-      .hero-board { min-height: 610px; }
-      .waitlist-copy { position: static; }
-      .steps, .trust-grid { grid-template-columns: 1fr 1fr; }
-      .section-head { display: block; }
-      .section-copy { margin-top: 12px; }
+
+      .hero,
+      .waitlist,
+      .category-wall {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        min-height: auto;
+        padding-top: 52px;
+      }
+
+      .hero-board {
+        min-height: 610px;
+      }
+
+      .waitlist-copy {
+        position: static;
+      }
+
+      .steps,
+      .trust-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-copy {
+        margin-top: 12px;
+      }
     }
 
-        @media (max-width: 680px) {
-      .shell { width: min(100% - 24px, 1160px); }
-      .nav-inner { min-height: 68px; }
-      .brand img { width: 116px; }
-      .brand-plate { padding: 7px 10px; }
-      .nav-links a:not(.button) { display: none; }
-      .nav .button { min-height: 42px; padding: 10px 14px; font-size: 14px; box-shadow: 3px 3px 0 var(--ink); }
-      h1, .hero-title { font-size: clamp(54px, 18vw, 82px) !important; }
-      h2, .section-title { font-size: clamp(38px, 13vw, 62px) !important; }
-      .hero-copy { font-size: 18px; }
-      .hero-board { min-height: auto; display: grid; gap: 14px; }
-      .ticket { position: relative; inset: auto; width: 100%; transform: none; box-shadow: 7px 7px 0 var(--ink); }
-      .ticket-main { min-height: auto; }
-      .mini-note, .ribbon { width: 100%; }
-      .steps, .trust-grid { grid-template-columns: 1fr; }
-      .category-big { min-height: 360px; }
-      .category-big::after { font-size: 58px; }
-      .split { grid-template-columns: 1fr; }
-      .footer-inner { display: block; }
-      .footer-links { margin-top: 12px; }
+    @media (max-width: 680px) {
+      .shell {
+        width: min(100% - 24px, 1160px);
+      }
+
+      .nav-inner {
+        min-height: 68px;
+      }
+
+      .brand img {
+        width: 116px;
+      }
+
+      .brand-plate {
+        padding: 7px 10px;
+      }
+
+      .nav-links a:not(.button) {
+        display: none;
+      }
+
+      .nav .button {
+        min-height: 42px;
+        padding: 10px 14px;
+        font-size: 14px;
+        box-shadow: 3px 3px 0 var(--ink);
+      }
+
+      h1,
+      .hero-title {
+        font-size: clamp(54px, 18vw, 82px) !important;
+      }
+
+      h2,
+      .section-title {
+        font-size: clamp(38px, 13vw, 62px) !important;
+      }
+
+      .hero-copy {
+        font-size: 18px;
+      }
+
+      .hero-board {
+        min-height: auto;
+        display: grid;
+        gap: 14px;
+      }
+
+      .ticket {
+        position: relative;
+        inset: auto;
+        width: 100%;
+        transform: none;
+        box-shadow: 7px 7px 0 var(--ink);
+      }
+
+      .ticket-main {
+        min-height: auto;
+      }
+
+      .mini-note,
+      .ribbon {
+        width: 100%;
+      }
+
+      .steps,
+      .trust-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .category-big {
+        min-height: 360px;
+      }
+
+      .category-big::after {
+        font-size: 58px;
+      }
+
+      .split {
+        grid-template-columns: 1fr;
+      }
+
+      .footer-inner {
+        display: block;
+      }
+
+      .footer-links {
+        margin-top: 12px;
+      }
     }
   </style>
 </head>
+
 <body>
   <div class="page">
     <nav class="nav" aria-label="Main navigation">
@@ -597,7 +1090,8 @@
             Verified student rentals
           </div>
           <h1 class="hero-title">Need it once? <span class="marker">Zoink it.</span></h1>
-          <p class="hero-copy">Rent cameras, speakers, tools, tents, textbooks, and random lifesavers from students nearby. Lend the stuff sitting in your room and get paid.</p>
+          <p class="hero-copy">Rent cameras, speakers, tools, tents, textbooks, and random lifesavers from students
+            nearby. Lend the stuff sitting in your room and get paid.</p>
           <div class="hero-actions">
             <a class="button dark" href="#waitlist">
               Get early access
@@ -609,10 +1103,14 @@
             </a>
           </div>
           <div class="proof-row" aria-label="Launch proof points">
-            <span class="pill gap-2"><i data-lucide="map-pin" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>UofT first wave</span>
-            <span class="pill gap-2"><i data-lucide="badge-check" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Verified students only</span>
-            <span class="pill gap-2"><i data-lucide="camera" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Photo handoffs</span>
-            <span class="pill gap-2"><i data-lucide="footprints" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Built for walkable campus rentals</span>
+            <span class="pill gap-2"><i data-lucide="map-pin" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>UofT
+              first wave</span>
+            <span class="pill gap-2"><i data-lucide="badge-check" class="h-4 w-4 stroke-[3]"
+                aria-hidden="true"></i>Verified students only</span>
+            <span class="pill gap-2"><i data-lucide="camera" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Photo
+              handoffs</span>
+            <span class="pill gap-2"><i data-lucide="footprints" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Built
+              for walkable campus rentals</span>
           </div>
         </div>
 
@@ -622,7 +1120,8 @@
               <span class="ticket-logo-plate">
                 <img src="assets/ZoinkTransparent.png" alt="">
               </span>
-              <span class="status-dot gap-2"><i data-lucide="radar" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>live nearby</span>
+              <span class="status-dot gap-2"><i data-lucide="radar" class="h-4 w-4 stroke-[3]"
+                  aria-hidden="true"></i>live nearby</span>
             </div>
             <div class="ticket-body">
               <div class="search-chip flex items-center gap-2">
@@ -666,18 +1165,21 @@
       <section class="shell" id="how" aria-labelledby="how-title">
         <div class="section-head">
           <h2 class="section-title" id="how-title">The rental flow, minus the chaos.</h2>
-          <p class="section-copy">Zoink turns the usual group-chat scramble into a simple campus marketplace: find it, book it, hand it off, bring it back.</p>
+          <p class="section-copy">Zoink turns the usual group-chat scramble into a simple campus marketplace: find it,
+            book it, hand it off, bring it back.</p>
         </div>
         <div class="steps">
           <article class="card step-card">
             <div class="number">01</div>
             <h3>Find what is close.</h3>
-            <p>Browse items by category, campus, price, and availability so last-minute needs do not become last-minute purchases.</p>
+            <p>Browse items by category, campus, price, and availability so last-minute needs do not become last-minute
+              purchases.</p>
           </article>
           <article class="card step-card">
             <div class="number">02</div>
             <h3>Request and pay safely.</h3>
-            <p>Send dates, chat with the owner, and use secure checkout instead of awkward cash or mystery e-transfers.</p>
+            <p>Send dates, chat with the owner, and use secure checkout instead of awkward cash or mystery e-transfers.
+            </p>
           </article>
           <article class="card step-card">
             <div class="number">03</div>
@@ -691,7 +1193,8 @@
         <div class="category-wall">
           <article class="card category-big">
             <h2 class="section-title" id="stuff-title">Stuff students actually need.</h2>
-            <p>Not a generic marketplace. Zoink is tuned for the weird, practical, one-weekend-at-a-time inventory of campus life.</p>
+            <p>Not a generic marketplace. Zoink is tuned for the weird, practical, one-weekend-at-a-time inventory of
+              campus life.</p>
             <div class="category-tags" aria-label="Common rental categories">
               <span>Cameras</span>
               <span>Speakers</span>
@@ -720,7 +1223,8 @@
         <div class="card trust-band">
           <div class="section-head">
             <h2 class="section-title" id="trust-title">Trust is built into the handoff.</h2>
-            <p class="section-copy">Peer-to-peer only works when both sides feel protected. Zoink keeps the important moments recorded and reviewable.</p>
+            <p class="section-copy">Peer-to-peer only works when both sides feel protected. Zoink keeps the important
+              moments recorded and reviewable.</p>
           </div>
           <div class="trust-grid">
             <article class="trust-item">
@@ -735,14 +1239,16 @@
                 <i data-lucide="shield-check" class="h-6 w-6 stroke-[3]" aria-hidden="true"></i>
               </div>
               <h3>Deposit and payment flow</h3>
-              <p>Owners can accept requests only when payment authorization is ready, with deposits and payouts tracked by the platform.</p>
+              <p>Owners can accept requests only when payment authorization is ready, with deposits and payouts tracked
+                by the platform.</p>
             </article>
             <article class="trust-item">
               <div class="trust-symbol">
                 <i data-lucide="handshake" class="h-6 w-6 stroke-[3]" aria-hidden="true"></i>
               </div>
               <h3>Photo-backed handoffs</h3>
-              <p>Pickup and return photos plus Zoink It taps give both sides a shared record if something goes sideways.</p>
+              <p>Pickup and return photos plus Zoink It taps give both sides a shared record if something goes sideways.
+              </p>
             </article>
           </div>
         </div>
@@ -768,7 +1274,8 @@
             Early access
           </div>
           <h2 class="section-title" id="waitlist-title">Get in before your campus does.</h2>
-          <p class="section-copy">Tell us where you study, whether you want to rent or lend first, and what you would actually Zoink. We will use that to better shape the first launch waves.</p>
+          <p class="section-copy">Tell us where you study, whether you want to rent or lend first, and what you would
+            actually Zoink. We will use that to better shape the first launch waves.</p>
         </div>
 
         <div class="card waitlist-card" id="inlineFormWrap">
@@ -776,7 +1283,8 @@
             <form class="form-grid" id="waitlistForm">
               <div class="field">
                 <label for="email">University email</label>
-                <input id="email" name="email" type="email" autocomplete="email" placeholder="you@university.ca" required>
+                <input id="email" name="email" type="email" autocomplete="email" placeholder="you@university.ca"
+                  required>
               </div>
               <div class="split">
                 <div class="field">
@@ -824,26 +1332,15 @@
         <div class="footer-links">
           <a href="terms.html">Terms</a>
           <a href="privacy.html">Privacy</a>
-          <a
-            class="social-icon"
-            href="https://www.instagram.com/zoink.it"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Zoink on Instagram"
-          >
-            <svg
-              class="instagram-mark"
-              viewBox="0 0 24 24"
-              width="22"
-              height="22"
-              aria-hidden="true"
-            >
+          <a class="social-icon" href="https://www.instagram.com/zoink.it" target="_blank" rel="noreferrer"
+            aria-label="Zoink on Instagram">
+            <svg class="instagram-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="5"></rect>
               <circle cx="12" cy="12" r="4"></circle>
               <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"></circle>
             </svg>
           </a>
-          <a href="mailto:hello@zoink.ca">hello@zoink.ca</a>
+          <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>
         </div>
       </div>
     </footer>
@@ -852,7 +1349,7 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script>
     const TALLY_FORM_URL = "https://tally.so/r/obvBkV";
-    const CONTACT_EMAIL = "hello@zoink.ca";
+    const CONTACT_EMAIL = "zoinksupport@gmail.com";
 
     const waitlistForm = document.querySelector("#waitlistForm");
     const tallyWrap = document.querySelector("#tallyWrap");
@@ -882,4 +1379,5 @@
     }
   </script>
 </body>
+
 </html>
