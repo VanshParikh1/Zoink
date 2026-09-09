@@ -185,6 +185,10 @@ model Booking {
   reviewObligations            ReviewObligation[]
   reviews                      Review[]
 
+  // Backs the availability/conflict check in bookingService.ensureNoOverlap,
+  // which fetches a listing's CONFIRMED/ACTIVE bookings by (listingId, status).
+  // Without this the query is a sequential scan of the whole bookings table.
+  @@index([listingId, status])
   @@map("bookings")
 }
 

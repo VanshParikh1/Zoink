@@ -8,6 +8,7 @@ import {
   getRentalDays,
   roundCurrency,
 } from './bookingUtils'
+import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
 import {
   calculateCommission,
@@ -280,18 +281,29 @@ async function ensureNoOverlap(listingId: string, bookingId: string) {
     throw new NotFoundError('Booking not found.')
   }
 
-  const overlapping = await prisma.booking.findFirst({
+  // Fetch this listing's date-holding bookings (CONFIRMED/ACTIVE only —
+  // ACCEPTED-but-unpaid requests deliberately don't reserve dates) and test the
+  // candidate against them as sorted, inclusive integer-day intervals. The DB no
+  // longer evaluates the date-range predicate; it just returns the listing's
+  // small active set — served straight from @@index([listingId, status]) rather
+  // than a sequential scan — and interval scheduling does the O(log n) conflict
+  // check in memory. The ConflictError type and message are unchanged so every
+  // caller (and the tests pinning the 409 body) keeps working.
+  const activeBookings = await prisma.booking.findMany({
     where: {
       listingId,
       id: { not: bookingId },
       status: { in: ['CONFIRMED', 'ACTIVE'] },
-      startDate: { lte: booking.endDate },
-      endDate: { gte: booking.startDate },
     },
-    select: { id: true },
+    select: { id: true, startDate: true, endDate: true },
   })
 
-  if (overlapping) {
+  const sortedIntervals = sortByStart(
+    activeBookings.map((b) => toDayInterval(b.startDate, b.endDate, b.id))
+  )
+  const candidate = toDayInterval(booking.startDate, booking.endDate, booking.id)
+
+  if (hasConflict(sortedIntervals, candidate)) {
     throw new ConflictError('Those dates overlap with another accepted booking.')
   }
 }
