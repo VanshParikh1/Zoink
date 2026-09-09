@@ -8,7 +8,6 @@ import {
   mockDeleteListing,
   mockDeleteListingImage,
   mockGetListing,
-  mockGetListingCategories,
   mockGetMyListings,
   mockGetNearbyListings,
   mockSetAvailability,
@@ -84,13 +83,6 @@ export async function browseListings({
     total: res.data.meta?.total ?? res.data.items?.length ?? 0,
     hasMore: res.data.meta?.hasMore ?? false,
   }
-}
-
-export async function getListingCategories(): Promise<string[]> {
-  if (DEMO_MODE) return mockGetListingCategories()
-
-  const res = await api.get('/listings/categories')
-  return res.data.categories ?? []
 }
 
 export type CreateListingPayload = {

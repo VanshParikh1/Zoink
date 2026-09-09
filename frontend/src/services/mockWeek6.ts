@@ -578,47 +578,6 @@ export async function mockCancelBooking(id: string) {
   return updateBookingStatus(id, 'CANCELLED')
 }
 
-export async function mockActivateBooking(id: string) {
-  return updateBookingStatus(id, 'ACTIVE')
-}
-
-export async function mockCompleteBooking(id: string) {
-  const booking = updateBookingStatus(id, 'COMPLETED')
-  booking.completedAt = new Date().toISOString()
-
-  pendingReviews = [
-    {
-      id: `demo-review-${booking.id}`,
-      bookingId: booking.id,
-      reviewerRole: 'LENDER',
-      status: 'PENDING',
-      scoreLabels: {
-        scoreAKey: 'reliability',
-        scoreBKey: 'care',
-        scoreCKey: 'communication',
-      },
-      createdAt: new Date().toISOString(),
-      reviewee: booking.renter,
-      booking: {
-        id: booking.id,
-        startDate: booking.startDate,
-        endDate: booking.endDate,
-        completedAt: booking.completedAt,
-        listing: {
-          id: booking.listing.id,
-          title: booking.listing.title,
-          category: booking.listing.category,
-          images: booking.listing.images,
-        },
-      },
-    },
-    ...pendingReviews.filter((item) => item.bookingId !== booking.id),
-  ]
-
-  booking.pendingReview = pendingReviews[0]
-  return booking
-}
-
 export async function mockGetPendingReviews() {
   return pendingReviews
 }
@@ -708,12 +667,6 @@ export async function mockGetMyDisputes(): Promise<Dispute[]> {
   return disputes
     .filter((item) => item.raisedByUserId === demoUser.id)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-}
-
-export async function mockGetDispute(id: string): Promise<Dispute> {
-  const dispute = disputes.find((item) => item.id === id)
-  if (!dispute) throw new Error('Dispute not found.')
-  return dispute
 }
 
 export async function mockOpenConversation(listingId: string) {

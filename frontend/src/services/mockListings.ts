@@ -479,10 +479,6 @@ export async function mockBrowseListings({
   }
 }
 
-export async function mockGetListingCategories() {
-  return [...new Set(listings.map((listing) => listing.category))].sort((a, b) => a.localeCompare(b))
-}
-
 export async function mockCreateListing(data: CreateListingPayload) {
   const listing: ListingBrowseItem = {
     id: `demo-listing-${Date.now()}`,

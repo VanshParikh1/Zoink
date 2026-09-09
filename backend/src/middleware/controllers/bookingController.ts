@@ -76,15 +76,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response) =>
   return transitionBooking(req, res, 'CANCELLED')
 })
 
-export const activateBooking = asyncHandler(async (req: Request, res: Response) => {
-  return transitionBooking(req, res, 'ACTIVE')
-})
-
-export const completeBooking = asyncHandler(async (req: Request, res: Response) => {
-  return transitionBooking(req, res, 'COMPLETED')
-})
-
-
 export const uploadHandoffPhotos = asyncHandler(async (req: Request, res: Response) => {
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string

@@ -4,9 +4,7 @@ import { DEMO_MODE } from '../config/demoMode'
 import { getImageUploadPart } from './uploadFormData'
 import {
   mockAcceptBooking,
-  mockActivateBooking,
   mockCancelBooking,
-  mockCompleteBooking,
   mockConfirmBookingPayment,
   mockCreateBooking,
   mockCreateBookingPaymentIntent,
@@ -84,21 +82,6 @@ export function cancelBooking(id: string) {
   return patchBooking(`/bookings/${id}/cancel`, () => mockCancelBooking(id))
 }
 
-export function activateBooking(id: string) {
-  return patchBooking(`/bookings/${id}/activate`, () => mockActivateBooking(id))
-}
-
-export function completeBooking(id: string) {
-  return patchBooking(`/bookings/${id}/complete`, () => mockCompleteBooking(id))
-}
-
-export async function uploadHandoffPhotos(id: string, phase: 'pickup' | 'return', photoUrls: string[]): Promise<Booking> {
-  if (DEMO_MODE) return mockGetBooking(id)
-
-  const res = await api.post(`/bookings/${id}/photos`, { phase, photoUrls })
-  return res.data
-}
-
 export async function initiateHandoff(id: string, phase: 'pickup' | 'return', photos: string[]): Promise<Booking> {
   if (DEMO_MODE) return mockGetBooking(id)
 
@@ -116,13 +99,6 @@ export async function uploadHandoffPhotoImage(id: string, uri: string): Promise<
   const res = await api.post(`/bookings/${id}/photos/upload`, formData)
 
   return res.data.url
-}
-
-export async function zoinkTap(id: string, phase: 'pickup' | 'return'): Promise<Booking> {
-  if (DEMO_MODE) return mockGetBooking(id)
-
-  const res = await api.post(`/bookings/${id}/zoink-tap`, { phase })
-  return res.data
 }
 
 export type HandoffConfirmResult = {
