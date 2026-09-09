@@ -222,26 +222,41 @@ export default function ZoinkItScreen() {
     }
   }
 
-  async function choosePhotos() {
+  // Handoff photos MUST be captured live at the handoff — never pulled from the
+  // camera roll — or the "Zoink It" evidence is trivially fakeable with an old
+  // photo. launchCameraAsync captures one frame per call, so each press appends
+  // to pickerUris until the uploader has the 2-3 shots the flow requires.
+  async function capturePhoto() {
+    if (pickerUris.length >= 3) {
+      Alert.alert('Maximum reached', 'You can take up to 3 photos. Clear one to retake.')
+      return
+    }
+
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      const permission = await ImagePicker.requestCameraPermissionsAsync()
       if (!permission.granted) {
-        Alert.alert('Permission needed', 'Please allow access to your photo library.')
+        Alert.alert(
+          'Camera access needed',
+          "Zoink needs your camera to take pickup and return photos so both sides of a handoff can be verified. These photos can't come from your library. Enable camera access for Zoink in Settings, then try again."
+        )
         return
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        selectionLimit: 3,
+        cameraType: ImagePicker.CameraType.back,
         quality: 0.82,
       })
 
       if (result.canceled) return
-      setPickerUris(result.assets.map((asset) => asset.uri).slice(0, 3))
+      setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, 3))
     } catch {
-      Alert.alert('Photo picker error', 'Could not open your photo library right now.')
+      Alert.alert('Camera error', 'Could not open the camera right now.')
     }
+  }
+
+  function clearPhotos() {
+    setPickerUris([])
   }
 
   async function submitPhotos() {
@@ -282,17 +297,24 @@ export default function ZoinkItScreen() {
 
           <Text style={styles.title}>{mode === 'pickup' ? 'Document the Item' : 'Document the Return'}</Text>
 
-          <TouchableOpacity style={styles.uploadArea} onPress={choosePhotos} disabled={saving}>
-            <Text style={styles.uploadText}>{pickerUris.length ? 'Change photos' : 'Select photos'}</Text>
-            <Text style={styles.uploadSubtext}>{pickerUris.length}/3 selected</Text>
+          <TouchableOpacity style={styles.uploadArea} onPress={capturePhoto} disabled={saving || pickerUris.length >= 3}>
+            <Text style={styles.uploadText}>
+              {pickerUris.length >= 3 ? 'Maximum reached' : pickerUris.length ? 'Take another photo' : 'Take photo'}
+            </Text>
+            <Text style={styles.uploadSubtext}>{pickerUris.length}/3 taken · need 2-3</Text>
           </TouchableOpacity>
 
           {pickerUris.length > 0 ? (
-            <View style={styles.thumbnailRow}>
-              {pickerUris.map((uri) => (
-                <Image key={uri} source={{ uri }} style={styles.thumbnail} />
-              ))}
-            </View>
+            <>
+              <View style={styles.thumbnailRow}>
+                {pickerUris.map((uri) => (
+                  <Image key={uri} source={{ uri }} style={styles.thumbnail} />
+                ))}
+              </View>
+              <TouchableOpacity onPress={clearPhotos} disabled={saving}>
+                <Text style={styles.editPhotosText}>Clear photos</Text>
+              </TouchableOpacity>
+            </>
           ) : null}
 
           <TouchableOpacity
