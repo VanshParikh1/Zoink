@@ -191,7 +191,7 @@ One consequence of keeping 24 hours worth designing around: an owner who doesn't
 
 ✅ **Mostly done (2026-09-07).** `cleanupJob.ts` now has `purgeOldMessages()` (24mo), `purgeOldDisputesAndReports()` (3yr, resolved/reviewed rows only), and `purgeOldHandoffPhotos()` (clears photo URLs at 12mo, or resolution+90d if disputed — the `Booking` row itself is kept for the 7-year tax record). Wired into a new daily 3am cron in `index.ts`, separate from the 15-minute payment cron. Two gaps remain, deliberately not touched by a DB sweep:
 - **Error/diagnostic logs (90d)** is a Sentry project retention setting, not application code — set it in the Sentry dashboard.
-- **Listings/photos after removal (90d)** — `listingService.deleteListing()` still hard-deletes immediately on request, which satisfies "gone within 90 days" trivially (zero is less than 90), but doesn't implement the soft-delete-then-purge shape this row's wording implies. Revisit only if you actually want the 90-day evidence-preservation window for disputes filed right after a listing comes down — it needs a `deletedAt` column on `Listing` and its own purge sweep, which wasn't built this pass.
+- **Listings/photos after removal** — RESOLVED 2026-09-09 by rewording, not by building the grace period. `listingService.deleteListing()` hard-deletes the listing and its images immediately, and `privacy.md` §7 now says exactly that ("When you delete a listing, it and its photos are deleted immediately") instead of promising a 90-day retention window. Handoff/condition photos (§7, 12-month retention) remain the evidence trail for damage disputes. If you later decide you do want a post-removal evidence-preservation window, it needs a `deletedAt` column on `Listing`, a purge sweep in `cleanupJob.ts`, exclusion of soft-deleted rows from every browse/search/detail query, and the §7 wording changed back.
 
 ## D. Structural risks
 
@@ -220,6 +220,28 @@ Passed December 2023, **not yet in force**; regulations still in consultation. T
 
 `terms.md` §19 is already written that way, and your registration scroller gives you the mechanism. Re-check once the regulations land.
 
+### D4a. terms.md §17 liability cap — TOP PRIORITY for the lawyer review (flagged 2026-09-09)
+
+**This is the single clause to put in front of the Ontario lawyer first** when the review tracked
+in E11 happens.
+
+`terms.md` §17 caps Zoink's total aggregate liability at the greater of (a) the fees Zoink earned
+from your transactions in the prior 12 months, or (b) **CAD $100**. For a typical renter that cap is
+a few dollars. Under Ontario's **Consumer Protection Act, 2002** (and the not-yet-in-force **CPA,
+2023** — see D3), a term that limits a supplier's liability to a consumer can be void or
+unenforceable, and §17's own carve-out ("nothing here excludes … rights you have under Ontario's
+consumer protection legislation") may not be enough to save the numeric cap itself. The risk is that
+a court severs the cap entirely and Zoink — a sole proprietorship with unlimited personal liability
+(D1) — is left fully exposed.
+
+Questions for counsel, specifically:
+- Is a $100 / trailing-12-month-fees cap enforceable against a consumer in Ontario at all, or does
+  the CPA void it?
+- Does it need a higher floor, a carve-out for direct damages, or different structure to survive?
+- Does the answer change under the CPA, 2023 once its regulations are in force?
+
+Do not reword §17 in-house — leave the wording exactly as-is until the lawyer has weighed in.
+
 ### D4. No arbitration clause — deliberate
 
 Most US marketplace terms carry mandatory arbitration and a class-action waiver. Both are left out on purpose: under Ontario's Consumer Protection Act they're void against consumers. Including one would be unenforceable and would advertise that the terms came from a US template.
@@ -240,5 +262,5 @@ Both stores need a publicly reachable privacy policy URL before review. Apple's 
 8. ✅ Retention sweeps built in `cleanupJob.ts` (C) — logs and listing hard-delete are the two known gaps, see that section
 9. ✅ Window env vars moved to constants (C)
 10. Fill in your address, and decide whether incorporating first is the better path (D1) — address is filled in; incorporation decision is still yours
-11. **Have an Ontario lawyer review both documents.** UTM and U of T both run free or subsidised legal clinics for student ventures — worth asking before you pay retail. Downtown Legal Services at U of T is the usual starting point.
+11. **Have an Ontario lawyer review both documents.** UTM and U of T both run free or subsidised legal clinics for student ventures — worth asking before you pay retail. Downtown Legal Services at U of T is the usual starting point. **Lead with `terms.md` §17 (the liability cap) — see D4a for why it's the top-priority clause.**
 12. **New:** run `npx prisma migrate dev` (adds `User.cancellationCount`) and a full `npm run typecheck` / `npm test` pass in `backend/` — this session edited the code but had no shell access to your machine to run either.

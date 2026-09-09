@@ -122,7 +122,7 @@ If you would rather your information not be processed outside Canada, do not use
 | --- | --- |
 | Account and profile | While your account is open. On deletion, we soft-delete and then purge within **30 days**, except where a longer period is required below. |
 | Student verification codes | Expired or deleted within **24 hours**. We keep only the verified email address and the date it was verified. |
-| Listings and photos | While listed, then **90 days** after removal |
+| Listings and photos | While the listing exists. When you delete a listing, it and its photos are deleted immediately. |
 | Bookings, payments, commission, payouts, tax records | **7 years** from the end of the tax year, as required by Canadian tax and accounting rules |
 | Handoff and condition photos | **12 months** after the booking completes, or 90 days after any dispute about it is finally resolved, whichever is later |
 | Messages | **24 months** after the related conversation's last booking completes |
@@ -179,7 +179,7 @@ Zoink is for adults. You must be at least 18 to use it. We do not knowingly coll
 
 The Zoink mobile app does not use cookies. It stores a session token in your device's secure storage so you stay signed in.
 
-{{IF THE LANDING SITE USES ANALYTICS OR COOKIES, DESCRIBE THEM HERE — OTHERWISE STATE THAT IT USES ONLY STRICTLY NECESSARY COOKIES}}
+Our landing website (outside the app itself) uses only strictly necessary cookies — the kind needed for the site to function, such as remembering basic technical settings. It does not run analytics, advertising, or tracking cookies, and does not use any tool that builds a profile of your visit. If that changes, we will update this section and, where the law requires it, ask for your consent first.
 
 ## 14. Changes to this policy
 
