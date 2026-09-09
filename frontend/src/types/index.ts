@@ -1,5 +1,4 @@
 export type {
-  VerificationStatus,
   BookingStatus,
   PaymentStatus,
   DisputeStatus,
@@ -7,7 +6,6 @@ export type {
   Dispute,
   ReviewRole,
   BookingEvent,
-  BookingEventType,
   ReportTargetType,
   ReportReason,
   ReportStatus,
@@ -15,7 +13,6 @@ export type {
 } from '@zoink/shared'
 
 export type {
-  UserSummary,
   UserSummary as User,
   ListingImageSummary as ListingImage,
   ListingResponse as Listing,
@@ -28,8 +25,6 @@ export type {
   SubmitReviewResult as SubmittedReviewResult,
   ConversationResponse as Conversation,
   ConversationDetailResponse as ConversationDetail,
-  ConversationInFlightBooking,
-  ConversationMessagePreview,
   MessageResponse as Message,
   NotificationPreferences,
 } from '@zoink/shared'
