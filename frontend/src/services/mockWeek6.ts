@@ -578,47 +578,6 @@ export async function mockCancelBooking(id: string) {
   return updateBookingStatus(id, 'CANCELLED')
 }
 
-export async function mockActivateBooking(id: string) {
-  return updateBookingStatus(id, 'ACTIVE')
-}
-
-export async function mockCompleteBooking(id: string) {
-  const booking = updateBookingStatus(id, 'COMPLETED')
-  booking.completedAt = new Date().toISOString()
-
-  pendingReviews = [
-    {
-      id: `demo-review-${booking.id}`,
-      bookingId: booking.id,
-      reviewerRole: 'LENDER',
-      status: 'PENDING',
-      scoreLabels: {
-        scoreAKey: 'reliability',
-        scoreBKey: 'care',
-        scoreCKey: 'communication',
-      },
-      createdAt: new Date().toISOString(),
-      reviewee: booking.renter,
-      booking: {
-        id: booking.id,
-        startDate: booking.startDate,
-        endDate: booking.endDate,
-        completedAt: booking.completedAt,
-        listing: {
-          id: booking.listing.id,
-          title: booking.listing.title,
-          category: booking.listing.category,
-          images: booking.listing.images,
-        },
-      },
-    },
-    ...pendingReviews.filter((item) => item.bookingId !== booking.id),
-  ]
-
-  booking.pendingReview = pendingReviews[0]
-  return booking
-}
-
 export async function mockGetPendingReviews() {
   return pendingReviews
 }
