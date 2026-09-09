@@ -20,6 +20,7 @@
     "typecheck:backend": "npm run build:shared && cd backend && npx tsc --noEmit",
     "typecheck:frontend": "npm run build:shared && cd frontend && npx tsc --noEmit",
     "generate": "cd backend && npx prisma generate && cd .. && npm run generate:legal && npm run build:shared",
-    "generate:legal": "npx ts-node --compiler-options '{\"module\":\"commonjs\"}' packages/shared/scripts/syncLegal.ts"
+    "generate:legal": "npx ts-node --compiler-options '{\"module\":\"commonjs\"}' packages/shared/scripts/syncLegal.ts",
+    "eas-build-post-install": "npm run build:shared"
   }
 }
