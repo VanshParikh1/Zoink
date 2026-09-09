@@ -710,12 +710,6 @@ export async function mockGetMyDisputes(): Promise<Dispute[]> {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 }
 
-export async function mockGetDispute(id: string): Promise<Dispute> {
-  const dispute = disputes.find((item) => item.id === id)
-  if (!dispute) throw new Error('Dispute not found.')
-  return dispute
-}
-
 export async function mockOpenConversation(listingId: string) {
   const existing = conversations.find((conversation) => conversation.listingId === listingId && conversation.renterId === demoUser.id)
   if (existing) return existing
