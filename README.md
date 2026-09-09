@@ -183,8 +183,6 @@ POST   /bookings/:id/payment-intent      # renter: create rental PaymentIntent
 PATCH  /bookings/:id/confirm             # renter: confirm payment → CONFIRMED (+ deposit auth)
 PATCH  /bookings/:id/decline
 PATCH  /bookings/:id/cancel
-PATCH  /bookings/:id/activate            # legacy-compatible
-PATCH  /bookings/:id/complete            # legacy-compatible
 POST   /bookings/:id/pickup/initiate
 POST   /bookings/:id/pickup/confirm
 POST   /bookings/:id/return/initiate

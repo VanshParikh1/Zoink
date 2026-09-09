@@ -12,9 +12,7 @@ import {
 } from '../schemas/handoff.schema'
 import {
   acceptBooking,
-  activateBooking,
   cancelBooking,
-  completeBooking,
   confirmBookingPayment,
   createBooking,
   createBookingPaymentIntent,
@@ -70,7 +68,5 @@ router.post('/:id/payment-intent', validate(BookingIdParamsSchema), createBookin
 router.patch('/:id/confirm', validate(BookingIdParamsSchema), confirmBookingPayment)
 router.patch('/:id/decline', validate(BookingIdParamsSchema), declineBooking)
 router.patch('/:id/cancel', validate(BookingIdParamsSchema), cancelBooking)
-router.patch('/:id/activate', validate(BookingIdParamsSchema), activateBooking)
-router.patch('/:id/complete', validate(BookingIdParamsSchema), completeBooking)
 
 export default router
