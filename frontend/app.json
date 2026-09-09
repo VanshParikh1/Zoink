@@ -1,4 +1,5 @@
 {
+  "//": "android.googleServicesFile points at ./google-services.json, which is NOT committed to the repo. Android builds (expo prebuild / eas build -p android) will fail until that file is added. iOS TestFlight builds are unaffected. Keys prefixed with // are ignored by Expo config loading.",
   "expo": {
     "name": "Zoink",
     "slug": "zoink",
@@ -38,7 +39,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Zoink needs access to your photos so you can add listing images."
+          "photosPermission": "Zoink needs access to your photos so you can add listing images.",
+          "microphonePermission": false
         }
       ],
       [
