@@ -46,7 +46,7 @@ The project is in active MVP development. The marketplace, the full booking → 
 
 - **13% Ontario HST** on the rental price only — not the deposit (a hold, not a sale) and not insurance. Charged on top of what the renter pays; never subtracted before commission/payout, so it has no effect on owner earnings. Snapshotted as `Booking.hstAmount` at request time. There is no per-listing jurisdiction field yet, so it applies to every booking. (`HST_RATE` is a hardcoded constant in `paymentService.ts`, not an env var.)
 - **Tiered platform commission** keyed on the listing's **daily** rate: ≤ $20/day → 15%, ≤ $50/day → 12.5%, otherwise 10%. Looked up once at request time and applied to the full rental total; never recomputed per day. `ownerPayout = totalPrice − commission`. (`COMMISSION_TIERS` is hardcoded in `paymentService.ts`; `PLATFORM_COMMISSION_RATE` is no longer used.)
-- Optional per-listing checkout insurance fee, derived from `itemValue` and clamped by `INSURANCE_RATE` / `MIN_INSURANCE_FEE` / `MAX_INSURANCE_FEE`.
+- **No insurance, damage-protection, or protection fee is offered**, per terms.md §12. The renter is never charged anything beyond rental price, HST, and the (held, not charged) deposit. Dormant `insuranceFee` / `insuranceOptIn` plumbing remains in the schema but is fully disabled: `insuranceOptIn` is forced `false`, `calculateInsuranceFee()` short-circuits to `0`, and `booking.schema.ts` rejects any attempt to set it. The `INSURANCE_RATE` / `MIN_INSURANCE_FEE` / `MAX_INSURANCE_FEE` env vars are unused.
 
 **Security deposit lifecycle** (`Booking.depositStatus`: `AUTHORIZED` / `CAPTURED` / `RELEASED`)
 

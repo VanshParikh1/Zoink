@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Terms of Service for Zoink, the verified student rental marketplace.">
+  <title>Terms of Service | Zoink</title>
+  <link rel="icon" href="assets/logo.png">
+  <style>
+    :root {
+      --acid: #00ef20;
+      --acid-soft: #c8ff59;
+      --forest: #248232;
+      --ink: #040f0f;
+      --slate: #2d3a3a;
+      --cream: #f4ede1;
+      --paper: #fff9ef;
+      --sand: #e5dccb;
+      --muted: #6d756d;
+      --line: rgba(4, 15, 15, 0.14);
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      color-scheme: light;
+      font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
+      color: var(--ink);
+      background: var(--cream);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      line-height: 1.6;
+      background:
+        radial-gradient(circle at 14% 4%, rgba(0, 239, 32, 0.20), transparent 24rem),
+        radial-gradient(circle at 86% 2%, rgba(200, 255, 89, 0.22), transparent 20rem),
+        var(--cream);
+    }
+    a { color: var(--forest); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover, a:focus-visible { color: var(--ink); }
+    img { max-width: 100%; display: block; }
+    p, h1, h2, h3, h4, ul, ol, table { margin-top: 0; }
+
+    .shell { width: min(880px, calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(244, 237, 225, 0.82);
+      border-bottom: 2px solid var(--ink);
+      backdrop-filter: blur(18px);
+    }
+    .nav-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand { display: inline-flex; align-items: center; }
+    .brand-plate {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--ink);
+      box-shadow: 4px 4px 0 var(--acid);
+    }
+    .brand img { width: 128px; height: auto; }
+    .nav a.back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 900;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .nav a.back:hover, .nav a.back:focus-visible {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 var(--ink);
+      outline: none;
+    }
+
+    main { padding: 52px 0 72px; }
+    .doc-head { margin-bottom: 34px; padding-bottom: 22px; border-bottom: 3px solid var(--ink); }
+    .kicker {
+      display: inline-block;
+      margin-bottom: 16px;
+      padding: 7px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      box-shadow: 4px 4px 0 var(--ink);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      font-size: clamp(36px, 6vw, 60px);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      font-weight: 950;
+      margin-bottom: 10px;
+    }
+    .updated { color: var(--muted); font-weight: 850; font-size: 14px; }
+
+    .toc {
+      margin-bottom: 40px;
+      padding: 20px 22px;
+      border: 3px solid var(--ink);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: 8px 8px 0 var(--ink);
+    }
+    .toc strong {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 28px; }
+    .toc li { margin-bottom: 6px; break-inside: avoid; }
+    .toc a { color: var(--slate); text-decoration: none; font-weight: 800; }
+    .toc a:hover { color: var(--forest); text-decoration: underline; }
+
+    .doc h2 {
+      margin-top: 44px;
+      margin-bottom: 12px;
+      padding-top: 8px;
+      font-size: clamp(24px, 3.4vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 950;
+      scroll-margin-top: 90px;
+    }
+    .doc h3 {
+      margin-top: 30px;
+      margin-bottom: 10px;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+      font-weight: 900;
+      scroll-margin-top: 90px;
+    }
+    .doc p { margin-bottom: 16px; }
+    .doc ul, .doc ol { margin-bottom: 18px; padding-left: 24px; }
+    .doc li { margin-bottom: 8px; }
+    .doc hr { border: none; border-top: 2px dashed var(--line); margin: 8px 0 24px; }
+    .doc strong { font-weight: 900; }
+
+    .table-wrap { overflow-x: auto; margin-bottom: 22px; }
+    .doc table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid var(--ink);
+      font-size: 15px;
+    }
+    .doc th, .doc td {
+      padding: 10px 12px;
+      border: 1px solid var(--ink);
+      text-align: left;
+      vertical-align: top;
+    }
+    .doc th { background: var(--acid-soft); font-weight: 950; }
+    .doc tbody tr:nth-child(even) td { background: rgba(255, 249, 239, 0.6); }
+
+    .footer { padding: 26px 0 40px; border-top: 3px solid var(--ink); background: var(--paper); }
+    .footer-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--slate);
+      font-weight: 850;
+    }
+    .footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-weight: 950; }
+    .footer-links a { color: var(--slate); text-decoration: none; }
+    .footer-links a:hover, .footer-links a:focus-visible { color: var(--forest); outline: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+    @media (max-width: 680px) {
+      .brand img { width: 108px; }
+      .toc ol { columns: 1; }
+      main { padding-top: 36px; }
+      .footer-inner { display: block; }
+      .footer-links { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Zoink home">
+        <span class="brand-plate"><img src="assets/ZoinkTransparent.png" alt="Zoink"></span>
+      </a>
+      <a class="back" href="index.html">&larr; Back to Zoink</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <div class="doc-head">
+      <span class="kicker">Legal</span>
+      <h1>Terms of Service</h1>
+      <p class="updated">Effective September 8, 2026  ·  Last updated September 8, 2026</p>
+    </div>
+
+    <nav class="toc" aria-label="Table of contents">
+      <strong>On this page</strong>
+      <ol>
+<li><a href="#1">1. Who we are and what these terms cover</a></li>
+<li><a href="#2">2. What Zoink is — and what it is not</a></li>
+<li><a href="#3">3. Eligibility</a></li>
+<li><a href="#4">4. Your account and verification</a></li>
+<li><a href="#5">5. Listing an item (Owners)</a></li>
+<li><a href="#6">6. Prohibited items</a></li>
+<li><a href="#7">7. Booking an item (Renters)</a></li>
+<li><a href="#8">8. Handoff, condition photos, and returns</a></li>
+<li><a href="#9">9. Cancellations</a></li>
+<li><a href="#10">10. Money: prices, fees, taxes, and payouts</a></li>
+<li><a href="#11">11. Security deposits and damage claims</a></li>
+<li><a href="#12">12. There is no insurance on Zoink</a></li>
+<li><a href="#13">13. Reviews and ratings</a></li>
+<li><a href="#14">14. Things you must not do</a></li>
+<li><a href="#15">15. Suspension and termination</a></li>
+<li><a href="#16">16. Disclaimers</a></li>
+<li><a href="#17">17. Limitation of liability</a></li>
+<li><a href="#18">18. Indemnity</a></li>
+<li><a href="#19">19. Changes to these Terms</a></li>
+<li><a href="#20">20. Governing law and disputes</a></li>
+<li><a href="#21">21. Odds and ends</a></li>
+      </ol>
+    </nav>
+
+    <article class="doc">
+<h2 id="1">1. Who we are and what these terms cover</h2>
+<p>Zoink ("Zoink", "we", "us", "our") is a peer-to-peer rental marketplace operated as a sole proprietorship by <strong>Vansh Parikh</strong>, located at <strong>2 Goderich Drive, Brampton, Ontario L7A5A7</strong>. You can reach us at <strong>zoinksupport@gmail.com</strong>.</p>
+<p>Zoink is not incorporated. The operator is personally the contracting party under these Terms.</p>
+<p>These Terms of Service ("Terms") are a binding agreement between you and Zoink. They govern your use of the Zoink mobile application, the Zoink website, and any related services (together, the "Platform").</p>
+<p>By creating an account, listing an item, booking an item, or otherwise using the Platform, you agree to these Terms and to our <a href="privacy.html">Privacy Policy</a>. If you do not agree, do not use the Platform.</p>
+<h2 id="2">2. What Zoink is — and what it is not</h2>
+<p>Zoink provides a venue. We let people who own items ("Owners") offer those items for short-term rental, and let other people ("Renters") find and book them.</p>
+<p><strong>Zoink is not a party to the rental.</strong> When a booking is confirmed, the rental contract is formed directly between the Owner and the Renter. Zoink is not the owner, seller, lessor, bailee, insurer, or guarantor of any item listed on the Platform.</p>
+<p>We do not:</p>
+<ul>
+<li>inspect, test, certify, or take possession of any item;</li>
+<li>guarantee that any listing is accurate, that any item is safe, legal, functional, or fit for any purpose;</li>
+<li>guarantee that any Owner or Renter will show up, pay, return an item, or behave as promised;</li>
+<li>provide insurance of any kind.</li>
+</ul>
+<p>What we do do: host listings, process payments, hold security deposits, provide messaging, publish ratings, and — where we choose to — mediate disputes about a security deposit under section 11.</p>
+<h2 id="3">3. Eligibility</h2>
+<p>To use Zoink you must:</p>
+<ul>
+<li>be at least <strong>18 years old</strong>;</li>
+<li>be a resident of <strong>Ontario, Canada</strong>;</li>
+<li>be currently enrolled at a post-secondary institution in Ontario, and register with the institutional email address we ask for;</li>
+<li>have the legal capacity to enter into a binding contract;</li>
+<li>not have been previously suspended or removed from the Platform.</li>
+</ul>
+<p>The Platform is offered only in Ontario. We do not currently offer it anywhere else, and we do not intend it for use by anyone outside Ontario.</p>
+<p>You must verify a student email address before you can list or book. See section 4.</p>
+<h2 id="4">4. Your account and verification</h2>
+<p>You must provide accurate, current information when you register, and keep it up to date. You are responsible for everything that happens under your account, and for keeping your password secure. Tell us immediately at zoinksupport@gmail.com if you think someone else has accessed your account.</p>
+<p>One person, one account. You may not create an account on behalf of anyone else, transfer your account, or use another person's account.</p>
+<p><strong>Student verification.</strong> Before you can list or book, you must verify your account by confirming a valid post-secondary student email address. We send a code to that address; entering it verifies your account.</p>
+<p>That is the only verification we currently do. <strong>We do not check government ID, we do not run background checks, and we do not run criminal record checks.</strong> A "Verified" badge means one thing: someone controlled a student email address at an Ontario institution. It is not an endorsement, a guarantee of honesty, or a statement that we know who that person really is.</p>
+<p>We may introduce government ID verification later. If we do, we will update these Terms and the <a href="privacy.html">Privacy Policy</a> and give you notice under section 19 before it applies to you.</p>
+<h2 id="5">5. Listing an item (Owners)</h2>
+<p>When you list an item, you represent and warrant that:</p>
+<ul>
+<li>you own the item, or have the legal right to rent it out;</li>
+<li>your description, photos, condition notes, and stated item value are accurate and not misleading;</li>
+<li>the item is safe, functional, and legal to rent in Ontario;</li>
+<li>renting the item does not breach any lease, warranty, licence, employer policy, or residence agreement you are bound by;</li>
+<li>the item is not on the prohibited list in section 6.</li>
+</ul>
+<p>You set your daily price, your security deposit amount, and your stated item value. You are responsible for the tax consequences of your rental income; Zoink does not provide tax advice and does not withhold income tax on your behalf.</p>
+<p>You may remove a listing at any time, but you must honour bookings that have already been confirmed, unless you cancel under section 9.</p>
+<h3 id="photos-you-upload">Photos you upload</h3>
+<p>You keep ownership of the photos and text you upload. You grant Zoink a non-exclusive, worldwide, royalty-free licence to host, store, resize, and display that content on the Platform and in Zoink's marketing, for as long as your content is on the Platform and for a reasonable period afterwards for backups and records. You can revoke the marketing part of this licence by emailing zoinksupport@gmail.com.</p>
+<h2 id="6">6. Prohibited items</h2>
+<p>You may not list, and may not rent, any of the following:</p>
+<ul>
+<li>firearms, ammunition, replica firearms, or weapons of any kind;</li>
+<li>alcohol, tobacco, vaping products, cannabis, or any controlled substance, and any paraphernalia primarily used with them;</li>
+<li>prescription medication, medical devices, or anything requiring a licence to operate or possess;</li>
+<li>motor vehicles required to be insured and plated under Ontario law, including cars, motorcycles, and e-bikes above the legal power limit;</li>
+<li>animals or living things;</li>
+<li>counterfeit goods, stolen goods, or anything you do not have the right to rent;</li>
+<li>items whose primary use is unlawful surveillance;</li>
+<li>child car seats, climbing and life-safety equipment, and any other item where a hidden defect could cause serious injury;</li>
+<li>anything else prohibited by Ontario or Canadian law, or that we tell you is not permitted.</li>
+</ul>
+<p>We may remove any listing, at any time, without notice, if we believe it breaks this section.</p>
+<h2 id="7">7. Booking an item (Renters)</h2>
+<p>When you request a booking, you are making an offer to rent on the terms shown at checkout: the dates, the daily price, the total price, the applicable taxes, and the security deposit amount.</p>
+<p>A rental contract forms when the Owner accepts your request and payment is successfully authorized. At that point you agree to:</p>
+<ul>
+<li>collect and return the item at the agreed times and place;</li>
+<li>use the item only for its ordinary purpose, and follow any instructions the Owner gives;</li>
+<li>not lend, sublet, sell, pawn, modify, or take the item outside Ontario;</li>
+<li>return the item in the same condition you received it, ordinary wear and tear excepted;</li>
+<li>pay for loss, theft, or damage caused during your rental period, up to the item's stated value.</li>
+</ul>
+<p>You must not use the Platform to arrange a rental and then complete it off-platform to avoid fees.</p>
+<h2 id="8">8. Handoff, condition photos, and returns</h2>
+<p>Zoink asks both parties to take photos at pickup and at return, and to confirm each handoff in the app.</p>
+<p>Those photos and timestamps are the primary evidence we use in a dispute. <strong>If you do not take them, you may not be able to prove your side.</strong> A party who fails to document condition at handoff bears the practical risk of that gap.</p>
+<p>Failing to return an item by the agreed return time may result in additional charges, capture of the security deposit, suspension of your account, and — if the item is not returned at all — referral to police as a possible theft.</p>
+<h2 id="9">9. Cancellations</h2>
+<p><strong>Either party may cancel a confirmed booking at any time before the rental start time, in the app, at no cost.</strong> The Renter is refunded in full — the rental price, the HST, and the security deposit hold are all released. No fee is charged to either side.</p>
+<p>Once the rental start time has passed, the booking is no longer cancellable. If the Renter does not collect the item, the rental is treated as having gone ahead and the normal rules apply.</p>
+<p>Cancelling is free, but it is not consequence-free. Repeatedly cancelling confirmed bookings — particularly as an Owner, at short notice — damages the other party and may result in your account being suspended under section 15.</p>
+<p>Nothing in this section limits any right you have to cancel under Ontario's consumer protection legislation.</p>
+<h2 id="10">10. Money: prices, fees, taxes, and payouts</h2>
+<h3 id="10.1">10.1 Payments are processed by Stripe</h3>
+<p>All payments, deposit authorizations, and payouts are handled by <strong>Stripe</strong>. Zoink does not store your full card number. To receive payouts as an Owner, you must open and maintain a Stripe Connect account and accept the <strong>Stripe Connected Account Agreement</strong> directly with Stripe. Stripe's terms apply to you in addition to these Terms, and Stripe may refuse or close an account under its own rules.</p>
+<h3 id="10.2">10.2 What a Renter pays</h3>
+<p>A Renter pays the rental price for the booked dates, plus <strong>13% HST</strong>. That is all. <strong>There is no separate service fee charged to Renters, and there is no protection or insurance fee.</strong></p>
+<p>HST is charged on the rental price only. It is not charged on the security deposit, which is a hold rather than a sale.</p>
+<p>Separately, a <strong>security deposit</strong> in the amount set by the Owner is authorized (held) against the Renter's payment method. A deposit hold is not a charge, but it does reduce your available credit until it is released.</p>
+<h3 id="10.3">10.3 What an Owner receives — the commission</h3>
+<p>Zoink charges a commission to the Owner only. It is deducted from the Owner's payout, and it is calculated on the rental price, based on the listing's <strong>daily rate</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Listing daily rate</th><th>Zoink commission</th></tr></thead>
+<tbody>
+<tr><td>$20.00 or less per day</td><td>15%</td></tr>
+<tr><td>$20.01 to $50.00 per day</td><td>12.5%</td></tr>
+<tr><td>More than $50.00 per day</td><td>10%</td></tr>
+</tbody>
+</table></div>
+<p>The applicable rate is locked in at the time the booking is requested and shown to the Owner before they accept. The Owner's net payout is displayed in the app before acceptance.</p>
+<p>Commission is charged on the rental price only. It is <strong>never</strong> charged on a security deposit or on damage compensation.</p>
+<h3 id="10.4">10.4 Payouts</h3>
+<p>After a rental is completed, the Owner's net payout is released to their Stripe Connect account following a <strong>24-hour</strong> holding period. How long it then takes to reach the Owner's bank account is up to Stripe and the Owner's bank.</p>
+<p>We may delay or withhold a payout while a dispute, a suspected fraud review, or a chargeback on the booking is unresolved.</p>
+<h3 id="10.5">10.5 Taxes</h3>
+<p>Rental prices are shown before tax, with 13% HST added at checkout. As an Owner, you are responsible for determining and meeting your own tax obligations on rental income, including whether you are required to register for and collect HST.</p>
+<h3 id="10.6">10.6 Changing fees</h3>
+<p>We may change the commission structure in the future. Any change applies only to bookings requested after the change takes effect, and we will give you notice as required by section 18.</p>
+<h2 id="11">11. Security deposits and damage claims</h2>
+<p>A security deposit is authorized at booking and can end up in one of three states:</p>
+<ul>
+<li><strong>Held</strong> — the authorization is in place and unresolved.</li>
+<li><strong>Returned to the Renter</strong> — released automatically once the rental completes and the <strong>24-hour</strong> hold window passes with no claim, or released because a claim was resolved in the Renter's favour.</li>
+<li><strong>Released to the Owner</strong> — captured and paid to the Owner as compensation for an approved damage or non-return claim.</li>
+</ul>
+<p>To make a claim, an Owner must open a dispute in the app within <strong>24 hours of the booking completing</strong>. After that the window closes and the deposit is released. A claim must include evidence — the handoff photos, the return photos, repair estimates, and anything else relevant. The Renter is given an opportunity to respond.</p>
+<p><strong>How Zoink decides.</strong> Zoink reviews the evidence and decides how the deposit is allocated. Our decision is final <strong>as to the deposit only</strong>. It is an administrative allocation of funds we are holding — it is not arbitration, not a legal judgment, and it does not decide who is legally liable. Either party remains free to pursue the other in the Ontario Small Claims Court or any other forum for anything beyond the deposit. We are not obliged to mediate every dispute, and we are not liable for the outcome of one we do mediate.</p>
+<p>Damage compensation paid to an Owner is not commissioned and is transferred separately from the rental payout.</p>
+<h2 id="12">12. There is no insurance on Zoink</h2>
+<p>Read this section carefully, because it is the one most likely to surprise you.</p>
+<p><strong>Zoink does not provide insurance, damage protection, or any guarantee of any kind.</strong> We are not an insurer, we do not offer a protection plan, and we do not cover loss, theft, or damage.</p>
+<p>The <strong>security deposit is the only financial protection in the system</strong>, and only if the Owner set one. If an item is worth $2,000 and the deposit is $100, the most that can be recovered through Zoink is $100. Anything beyond that is a matter between the Owner and the Renter, and is for the courts, not for us.</p>
+<p>What this means in practice:</p>
+<ul>
+<li><strong>Owners:</strong> set a deposit that reflects what you would actually lose. Do not list anything you cannot afford to have damaged or not returned. Check whether your own home, tenant, or contents insurance covers items you lend out — many policies do not.</li>
+<li><strong>Renters:</strong> you are personally responsible for loss, theft, or damage up to the item's stated value, not just up to the deposit. Check whether your own insurance covers property in your care.</li>
+</ul>
+<p>We may offer some form of protection product in the future. If we do, it will be offered under separate terms you actively accept, and it will not apply to bookings made before then.</p>
+<h2 id="13">13. Reviews and ratings</h2>
+<p>After a completed rental, both parties may review each other. Reviews must be honest, based on your own experience of that rental, and free of personal attacks, discriminatory content, private information about anyone, or anything unlawful.</p>
+<p>You may not offer or accept anything of value in exchange for a review, or condition the return of a deposit on a favourable review.</p>
+<p>We may remove a review that breaks these rules. We are not obliged to review, moderate, or remove any particular review, and we are not responsible for what other users say about you.</p>
+<h2 id="14">14. Things you must not do</h2>
+<p>You may not:</p>
+<ul>
+<li>use the Platform for anything unlawful, or to facilitate anything unlawful;</li>
+<li>misrepresent yourself, your item, or your identity;</li>
+<li>harass, threaten, discriminate against, defraud, or stalk any other user;</li>
+<li>take a rental off-platform to avoid fees, or ask another user to;</li>
+<li>scrape, crawl, reverse-engineer, or attempt to break the security of the Platform;</li>
+<li>interfere with the Platform's operation, or use it to send spam or malware;</li>
+<li>collect other users' personal information for any purpose other than completing a rental you are party to.</li>
+</ul>
+<h2 id="15">15. Suspension and termination</h2>
+<p>You may close your account at any time in the app or by emailing zoinksupport@gmail.com. Closing your account does not cancel bookings that are already confirmed, does not release you from money you owe, and does not remove reviews you have already received.</p>
+<p>We may suspend or terminate your account, remove your listings, or refuse service, with or without notice, if we reasonably believe you have broken these Terms, that your continued use presents a risk to other users, or that we are required to by law. Where it is safe and lawful to do so, we will tell you why and give you a way to respond.</p>
+<p>Sections 2, 10, 11, 16, 17, 19, and 20 survive termination.</p>
+<h2 id="16">16. Disclaimers</h2>
+<p><strong>The Platform is provided "as is" and "as available."</strong> To the fullest extent permitted by law, and except for warranties that cannot be excluded under Ontario law, Zoink makes no warranties of any kind, express or implied, about the Platform, any listing, any item, or any user — including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.</p>
+<p>We do not warrant that the Platform will be uninterrupted, error-free, or secure, or that any defect will be corrected.</p>
+<p>We do not screen, endorse, or vouch for users or items. <strong>You deal with other users at your own risk.</strong> Meet in a safe, public place. Inspect the item before you take it.</p>
+<h2 id="17">17. Limitation of liability</h2>
+<p>To the fullest extent permitted by law:</p>
+<ul>
+<li>Zoink is not liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, lost data, or loss of goodwill, arising out of or relating to the Platform or any rental, whether in contract, tort, or otherwise, even if we were told such damages were possible.</li>
+<li>Zoink's total aggregate liability to you for all claims arising out of or relating to the Platform, or to any rental, is limited to the greater of <strong>(a)</strong> the total fees Zoink actually earned from your transactions in the twelve months before the event giving rise to the claim, and <strong>(b)</strong> <strong>CAD $100</strong>.</li>
+<li>Zoink is not liable for the acts or omissions of any user, for any item, or for anything that happens during a handoff or a rental.</li>
+</ul>
+<p>Nothing in these Terms excludes or limits liability for fraud, fraudulent misrepresentation, death or personal injury caused by our negligence, or anything else that cannot lawfully be excluded — including rights you have under Ontario's consumer protection legislation, which you cannot waive and which override any conflicting term here.</p>
+<h2 id="18">18. Indemnity</h2>
+<p>You agree to indemnify and hold harmless Zoink and its operator from any claim, demand, loss, liability, or expense (including reasonable legal fees) arising out of: your use of the Platform; any item you list or rent; your breach of these Terms; your violation of any law; or your infringement of anyone else's rights.</p>
+<p>This does not apply to the extent the claim arises from Zoink's own negligence or wilful misconduct.</p>
+<h2 id="19">19. Changes to these Terms</h2>
+<p>We may change these Terms. If a change materially affects your rights or obligations, we will give you at least <strong>30 days' notice</strong> by email and in the app, and we will ask you to actively accept the new Terms before you can continue to list or book. Bookings already confirmed stay under the Terms that applied when you booked.</p>
+<p>Minor changes that do not reduce your rights — fixing a typo, clarifying wording, complying with a legal requirement — take effect when we post them, and we will update the "Last updated" date.</p>
+<h2 id="20">20. Governing law and disputes</h2>
+<p>These Terms are governed by the laws of the <strong>Province of Ontario</strong> and the federal laws of Canada that apply there. The courts of Ontario have jurisdiction, and you and Zoink each submit to them.</p>
+<p>There is no mandatory arbitration clause and no class-action waiver in these Terms. Ontario consumer protection law does not permit us to take those rights away from you, and we are not trying to.</p>
+<p>Before starting a formal proceeding, please email zoinksupport@gmail.com so we have a chance to fix the problem.</p>
+<h2 id="21">21. Odds and ends</h2>
+<ul>
+<li><strong>Entire agreement.</strong> These Terms, the Privacy Policy, and any rules displayed in the app at the time you transact are the whole agreement between you and Zoink about the Platform.</li>
+<li><strong>Severability.</strong> If a court finds any part of these Terms unenforceable, the rest stays in force.</li>
+<li><strong>No waiver.</strong> If we do not enforce a term, that is not a waiver of our right to enforce it later.</li>
+<li><strong>Assignment.</strong> You may not assign these Terms. We may assign them to a successor, including on incorporation of the business or a sale of its assets.</li>
+<li><strong>Language.</strong> These Terms are drafted in English.</li>
+<li><strong>Contact.</strong> zoinksupport@gmail.com · 2 Goderich Drive, Brampton, Ontario L7A5A7</li>
+</ul>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Copyright 2026 Zoink campus rentals</span>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
