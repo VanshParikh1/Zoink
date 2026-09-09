@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for Zoink, the verified student rental marketplace.">
+  <title>Privacy Policy | Zoink</title>
+  <link rel="icon" href="assets/logo.png">
+  <style>
+    :root {
+      --acid: #00ef20;
+      --acid-soft: #c8ff59;
+      --forest: #248232;
+      --ink: #040f0f;
+      --slate: #2d3a3a;
+      --cream: #f4ede1;
+      --paper: #fff9ef;
+      --sand: #e5dccb;
+      --muted: #6d756d;
+      --line: rgba(4, 15, 15, 0.14);
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      color-scheme: light;
+      font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
+      color: var(--ink);
+      background: var(--cream);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      line-height: 1.6;
+      background:
+        radial-gradient(circle at 14% 4%, rgba(0, 239, 32, 0.20), transparent 24rem),
+        radial-gradient(circle at 86% 2%, rgba(200, 255, 89, 0.22), transparent 20rem),
+        var(--cream);
+    }
+    a { color: var(--forest); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover, a:focus-visible { color: var(--ink); }
+    img { max-width: 100%; display: block; }
+    p, h1, h2, h3, h4, ul, ol, table { margin-top: 0; }
+
+    .shell { width: min(880px, calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(244, 237, 225, 0.82);
+      border-bottom: 2px solid var(--ink);
+      backdrop-filter: blur(18px);
+    }
+    .nav-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand { display: inline-flex; align-items: center; }
+    .brand-plate {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--ink);
+      box-shadow: 4px 4px 0 var(--acid);
+    }
+    .brand img { width: 128px; height: auto; }
+    .nav a.back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 900;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .nav a.back:hover, .nav a.back:focus-visible {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 var(--ink);
+      outline: none;
+    }
+
+    main { padding: 52px 0 72px; }
+    .doc-head { margin-bottom: 34px; padding-bottom: 22px; border-bottom: 3px solid var(--ink); }
+    .kicker {
+      display: inline-block;
+      margin-bottom: 16px;
+      padding: 7px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      box-shadow: 4px 4px 0 var(--ink);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      font-size: clamp(36px, 6vw, 60px);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      font-weight: 950;
+      margin-bottom: 10px;
+    }
+    .updated { color: var(--muted); font-weight: 850; font-size: 14px; }
+
+    .toc {
+      margin-bottom: 40px;
+      padding: 20px 22px;
+      border: 3px solid var(--ink);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: 8px 8px 0 var(--ink);
+    }
+    .toc strong {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 28px; }
+    .toc li { margin-bottom: 6px; break-inside: avoid; }
+    .toc a { color: var(--slate); text-decoration: none; font-weight: 800; }
+    .toc a:hover { color: var(--forest); text-decoration: underline; }
+
+    .doc h2 {
+      margin-top: 44px;
+      margin-bottom: 12px;
+      padding-top: 8px;
+      font-size: clamp(24px, 3.4vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 950;
+      scroll-margin-top: 90px;
+    }
+    .doc h3 {
+      margin-top: 30px;
+      margin-bottom: 10px;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+      font-weight: 900;
+      scroll-margin-top: 90px;
+    }
+    .doc p { margin-bottom: 16px; }
+    .doc ul, .doc ol { margin-bottom: 18px; padding-left: 24px; }
+    .doc li { margin-bottom: 8px; }
+    .doc hr { border: none; border-top: 2px dashed var(--line); margin: 8px 0 24px; }
+    .doc strong { font-weight: 900; }
+
+    .table-wrap { overflow-x: auto; margin-bottom: 22px; }
+    .doc table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid var(--ink);
+      font-size: 15px;
+    }
+    .doc th, .doc td {
+      padding: 10px 12px;
+      border: 1px solid var(--ink);
+      text-align: left;
+      vertical-align: top;
+    }
+    .doc th { background: var(--acid-soft); font-weight: 950; }
+    .doc tbody tr:nth-child(even) td { background: rgba(255, 249, 239, 0.6); }
+
+    .footer { padding: 26px 0 40px; border-top: 3px solid var(--ink); background: var(--paper); }
+    .footer-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--slate);
+      font-weight: 850;
+    }
+    .footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-weight: 950; }
+    .footer-links a { color: var(--slate); text-decoration: none; }
+    .footer-links a:hover, .footer-links a:focus-visible { color: var(--forest); outline: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+    @media (max-width: 680px) {
+      .brand img { width: 108px; }
+      .toc ol { columns: 1; }
+      main { padding-top: 36px; }
+      .footer-inner { display: block; }
+      .footer-links { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Zoink home">
+        <span class="brand-plate"><img src="assets/ZoinkTransparent.png" alt="Zoink"></span>
+      </a>
+      <a class="back" href="index.html">&larr; Back to Zoink</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <div class="doc-head">
+      <span class="kicker">Legal</span>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Effective September 8, 2026  ·  Last updated September 8, 2026</p>
+    </div>
+
+    <nav class="toc" aria-label="Table of contents">
+      <strong>On this page</strong>
+      <ol>
+<li><a href="#1">1. Introduction</a></li>
+<li><a href="#2">2. What we collect</a></li>
+<li><a href="#3">3. Why we use it</a></li>
+<li><a href="#4">4. Your consent</a></li>
+<li><a href="#5">5. Who we share it with</a></li>
+<li><a href="#6">6. Where your information goes</a></li>
+<li><a href="#7">7. How long we keep it</a></li>
+<li><a href="#8">8. Deleting your account</a></li>
+<li><a href="#9">9. How we protect it</a></li>
+<li><a href="#10">10. Your rights</a></li>
+<li><a href="#11">11. Automated decisions</a></li>
+<li><a href="#12">12. Children</a></li>
+<li><a href="#13">13. Cookies and similar technology</a></li>
+<li><a href="#14">14. Changes to this policy</a></li>
+<li><a href="#15">15. Contact</a></li>
+      </ol>
+    </nav>
+
+    <article class="doc">
+<h2 id="1">1. Introduction</h2>
+<p>Zoink is a peer-to-peer rental marketplace operated as a sole proprietorship by <strong>Vansh Parikh</strong> in Ontario, Canada.</p>
+<p>This policy explains what personal information we collect, why we collect it, who we share it with, how long we keep it, and what you can do about it. It applies to the Zoink mobile app, the Zoink website, and everything connected to them.</p>
+<p>We follow Canada's <strong>Personal Information Protection and Electronic Documents Act (PIPEDA)</strong>. Zoink currently operates only in Ontario and only for users aged 18 and over.</p>
+<p><strong>Privacy contact:</strong> zoinksupport@gmail.com. That address reaches the person accountable for privacy at Zoink: Vansh Parikh, 2 Goderich Drive, Brampton, Ontario L7A5A7.</p>
+<h2 id="2">2. What we collect</h2>
+<h3 id="2.1">2.1 Information you give us</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>What</th><th>Examples</th><th>Why we need it</th></tr></thead>
+<tbody>
+<tr><td>Account details</td><td>First and last name, student email address, phone number, password (stored only as a salted hash)</td><td>To create and secure your account, and to let the other party to a rental know who they are dealing with</td></tr>
+<tr><td>Profile</td><td>Profile photo, short bio</td><td>So other users can recognise you</td></tr>
+<tr><td>Student verification</td><td>Your post-secondary student email address, and the one-time code we send to it</td><td>To confirm you are a real student at an Ontario institution before you can list or book</td></tr>
+<tr><td>Listings</td><td>Item title, description, category, photos, daily price, item value, deposit amount, pickup city and address</td><td>To publish your listing and let Renters find it</td></tr>
+<tr><td>Bookings</td><td>Dates, prices, deposit amount, commission, payout amount, tax</td><td>To run the rental and pay you</td></tr>
+<tr><td>Handoff evidence</td><td>Photos taken at pickup and at return</td><td>To establish the item's condition, and to resolve disputes</td></tr>
+<tr><td>Messages</td><td>The content of messages you send other users through the app</td><td>To let you arrange rentals, and to investigate reports and disputes</td></tr>
+<tr><td>Reviews and ratings</td><td>Scores and written notes about the other party and the item</td><td>To build the reputation system</td></tr>
+<tr><td>Disputes and reports</td><td>Your description of the problem, evidence you upload, the outcome</td><td>To investigate and resolve it</td></tr>
+<tr><td>Support correspondence</td><td>Whatever you send us</td><td>To help you</td></tr>
+</tbody>
+</table></div>
+<h3 id="2.2">2.2 Information we collect automatically</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>What</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Approximate and precise location</td><td>Only with your permission, and only while the app is in use. We use it to show you listings near you and to set a pickup point on a listing you create. <strong>We do not track your location in the background.</strong> You can withdraw the permission at any time in your device settings; the app still works, you just have to enter a location manually.</td></tr>
+<tr><td>Device and push token</td><td>An Expo push notification token, so we can send you notifications you have turned on</td></tr>
+<tr><td>Technical and error data</td><td>IP address, device type, OS version, app version, and diagnostic data when the app or server hits an error</td></tr>
+<tr><td>Usage</td><td>Which listings you view and book, timestamps of key actions in a booking</td></tr>
+</tbody>
+</table></div>
+<h3 id="2.3">2.3 Information from others</h3>
+<ul>
+<li><strong>Stripe</strong> tells us the status of your payments, deposits, and payouts, and whether your Stripe Connect account is in good standing. Stripe does not give us your full card number.</li>
+<li>Other users may name you in a report or a dispute.</li>
+</ul>
+<h3 id="2.4">2.4 What we do not collect</h3>
+<ul>
+<li><strong>We do not collect government ID or selfies.</strong> Verification is by student email only. If we introduce ID verification later, we will update this policy and give you notice before it applies to you.</li>
+<li>We do not collect your full payment card number — Stripe handles that.</li>
+<li>We do not track your location in the background.</li>
+<li>We do not sell your personal information to anyone, and we do not use it for advertising or ad targeting.</li>
+</ul>
+<h2 id="3">3. Why we use it</h2>
+<p>We use personal information to:</p>
+<ol>
+<li>create, verify, and secure your account;</li>
+<li>publish listings and let people find and book them;</li>
+<li>process payments, hold and release security deposits, calculate commission, and send payouts;</li>
+<li>enable messaging between the two parties to a rental;</li>
+<li>send you transactional notifications you have not switched off — booking activity, payments and payouts, deposit updates, messages, and reviews;</li>
+<li>investigate reports, resolve disputes, and allocate security deposits;</li>
+<li>detect and prevent fraud, abuse, and unlawful use;</li>
+<li>fix bugs, monitor errors, and improve the product;</li>
+<li>meet our legal, tax, and accounting obligations.</li>
+</ol>
+<p>We do not use your personal information for any new purpose without telling you and, where the law requires it, getting your consent.</p>
+<h2 id="4">4. Your consent</h2>
+<p>By creating an account you consent to our collecting and using your personal information as described here.</p>
+<p>Some collection is required to provide the service at all — you cannot rent on Zoink without an account, a verified student email, and a payment method. Other collection is optional, and you control it:</p>
+<ul>
+<li><strong>Location</strong> — grant or revoke in your device settings.</li>
+<li><strong>Camera and photo library</strong> — grant or revoke in your device settings.</li>
+<li><strong>Push notifications by category</strong> — toggle in the app's notification settings. Account-critical notices (for example, the outcome of your student email verification) are always sent.</li>
+</ul>
+<p>You may withdraw consent to non-essential processing at any time by writing to zoinksupport@gmail.com. Withdrawing consent to essential processing means closing your account.</p>
+<h2 id="5">5. Who we share it with</h2>
+<p>We share personal information with the service providers below, only as needed to run the Platform, and only under contracts that require them to protect it.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Provider</th><th>What they get</th><th>What for</th></tr></thead>
+<tbody>
+<tr><td><strong>Stripe</strong></td><td>Name, email, payment details, booking amounts; for Owners, the identity and banking details Stripe requires for a Connect account</td><td>Payment processing, deposit holds, payouts</td></tr>
+<tr><td><strong>Cloudinary</strong></td><td>Profile photos, listing photos, handoff photos</td><td>Image hosting and delivery</td></tr>
+<tr><td><strong>Amazon Web Services (SES)</strong></td><td>Email address and message content</td><td>Sending transactional email</td></tr>
+<tr><td><strong>Expo</strong></td><td>Push token, notification title and body</td><td>Delivering push notifications</td></tr>
+<tr><td><strong>Sentry</strong></td><td>Error reports, which may include your user ID, IP address, and app state at the moment of a crash. Passwords, tokens, and secrets are stripped before the report is sent.</td><td>Crash and error monitoring</td></tr>
+<tr><td><strong>Railway</strong></td><td>Everything stored in the database</td><td>Running the servers and the database</td></tr>
+</tbody>
+</table></div>
+<p>We also share:</p>
+<ul>
+<li><strong>With the other party to your rental</strong> — the information you would expect: your name, profile photo, rating, and the messages you send them. Owners see the Renter's name and booking details; Renters see the Owner's name, listing, and pickup location.</li>
+<li><strong>Publicly on the Platform</strong> — your first name, profile photo, bio, ratings, and reviews you have received. Your listings, including the photos and the pickup city, are visible to other users.</li>
+<li><strong>When the law requires it</strong> — in response to a valid court order, subpoena, or legal obligation, or where we believe in good faith it is necessary to prevent serious harm, investigate fraud, or protect someone's safety. This includes reporting an unreturned item to police.</li>
+<li><strong>In a business transfer</strong> — if Zoink is incorporated, merged, or its assets are sold, your information may transfer to the successor, which will remain bound by this policy or give you notice of a new one.</li>
+</ul>
+<p><strong>We do not sell your personal information.</strong></p>
+<h2 id="6">6. Where your information goes</h2>
+<p>Zoink uses service providers located <strong>outside Canada, primarily in the United States</strong> (Stripe, Cloudinary, AWS, Expo, Sentry, and Railway all process data in the US).</p>
+<p>This means your personal information may be stored or processed in the United States, and <strong>while it is there it may be accessible to US courts, law enforcement, and national security authorities under US law</strong>, regardless of the protections we have in place. We use providers who contractually commit to a comparable level of protection, but we cannot exempt them from the law where they operate.</p>
+<p>If you would rather your information not be processed outside Canada, do not use Zoink.</p>
+<h2 id="7">7. How long we keep it</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Data</th><th>Retention</th></tr></thead>
+<tbody>
+<tr><td>Account and profile</td><td>While your account is open. On deletion, we soft-delete and then purge within <strong>30 days</strong>, except where a longer period is required below.</td></tr>
+<tr><td>Student verification codes</td><td>Expired or deleted within <strong>24 hours</strong>. We keep only the verified email address and the date it was verified.</td></tr>
+<tr><td>Listings and photos</td><td>While the listing exists. When you delete a listing, it and its photos are deleted immediately.</td></tr>
+<tr><td>Bookings, payments, commission, payouts, tax records</td><td><strong>7 years</strong> from the end of the tax year, as required by Canadian tax and accounting rules</td></tr>
+<tr><td>Handoff and condition photos</td><td><strong>12 months</strong> after the booking completes, or 90 days after any dispute about it is finally resolved, whichever is later</td></tr>
+<tr><td>Messages</td><td><strong>24 months</strong> after the related conversation's last booking completes</td></tr>
+<tr><td>Reviews and ratings</td><td>Indefinitely, since they are part of the public reputation record. Reviews you wrote remain visible after your account closes, shown as from a deleted user.</td></tr>
+<tr><td>Disputes and reports</td><td><strong>3 years</strong> after resolution, for pattern detection and legal defence</td></tr>
+<tr><td>Error and diagnostic logs</td><td><strong>90 days</strong></td></tr>
+</tbody>
+</table></div>
+<p>When a retention period ends we delete the information or irreversibly anonymise it.</p>
+<h2 id="8">8. Deleting your account</h2>
+<p>You can delete your account in the app or by emailing zoinksupport@gmail.com.</p>
+<p>Some things survive deletion, and you should know which:</p>
+<ul>
+<li><strong>Transaction records</strong> stay for 7 years for tax and accounting.</li>
+<li><strong>Reviews you wrote about other people</strong> stay visible, attributed to a deleted user.</li>
+<li><strong>Messages you sent</strong> stay in the other party's conversation view.</li>
+<li><strong>An open dispute or booking</strong> must be resolved before we can delete your account.</li>
+</ul>
+<h2 id="9">9. How we protect it</h2>
+<p>We use, among other measures: encryption in transit (HTTPS) and at rest; bcrypt password hashing; short-lived JWT session tokens stored in the device's secure keystore; rate limiting on sensitive endpoints; role-based access so that only administrators can view dispute evidence; and automatic scrubbing of passwords, tokens, and secrets from error reports before they leave our servers.</p>
+<p>Access to dispute evidence and handoff photos is restricted to the people who need it to resolve a dispute.</p>
+<p>No system is perfectly secure. If we discover a breach that creates a real risk of significant harm to you, we will notify you and the Office of the Privacy Commissioner of Canada as PIPEDA requires, and we will keep a record of the breach.</p>
+<h2 id="10">10. Your rights</h2>
+<p>Under PIPEDA you can:</p>
+<ul>
+<li><strong>Access</strong> — ask what personal information we hold about you, how we have used it, and who we have disclosed it to. We will respond within <strong>30 days</strong>. It is free unless the request is unusually costly, in which case we will tell you the cost first.</li>
+<li><strong>Correct</strong> — ask us to fix information that is inaccurate or incomplete. Most of it you can edit yourself in the app.</li>
+<li><strong>Withdraw consent</strong> — see section 4.</li>
+<li><strong>Delete</strong> — see section 8.</li>
+<li><strong>Complain</strong> — write to zoinksupport@gmail.com first. If we do not resolve it to your satisfaction, you can complain to the <strong>Office of the Privacy Commissioner of Canada</strong> at <a href="https://www.priv.gc.ca" target="_blank" rel="noopener noreferrer">priv.gc.ca</a>, 1-800-282-1376.</li>
+</ul>
+<p>To make a request, email zoinksupport@gmail.com. We may ask you to verify your identity before we act on it.</p>
+<p>We may refuse a request in the narrow circumstances PIPEDA allows — for example, where granting access would reveal personal information about another user, or would compromise an active fraud investigation. If we refuse, we will tell you why and tell you how to complain.</p>
+<h2 id="11">11. Automated decisions</h2>
+<p>Zoink does not make decisions about you by automated means alone that would significantly affect you. Deposit allocations and dispute outcomes are decided by a person who reviews the evidence.</p>
+<p>Ratings shown on your profile are calculated automatically from the reviews other users leave.</p>
+<h2 id="12">12. Children</h2>
+<p>Zoink is for adults. You must be at least 18 to use it. We do not knowingly collect personal information from anyone under 18. If we learn we have, we will delete it and close the account. If you believe a minor has an account, tell us at zoinksupport@gmail.com.</p>
+<h2 id="13">13. Cookies and similar technology</h2>
+<p>The Zoink mobile app does not use cookies. It stores a session token in your device's secure storage so you stay signed in.</p>
+<p>Our landing website (outside the app itself) uses only strictly necessary cookies — the kind needed for the site to function, such as remembering basic technical settings. It does not run analytics, advertising, or tracking cookies, and does not use any tool that builds a profile of your visit. If that changes, we will update this section and, where the law requires it, ask for your consent first.</p>
+<h2 id="14">14. Changes to this policy</h2>
+<p>We may update this policy. If a change materially affects how we handle your personal information, we will give you notice by email and in the app at least <strong>30 days</strong> before it takes effect, and where the law requires it we will ask for your consent. Other changes take effect when posted, and we will update the "Last updated" date.</p>
+<h2 id="15">15. Contact</h2>
+<p>Questions, requests, or complaints about privacy:</p>
+<p><strong>Vansh Parikh</strong> — Privacy contact for Zoink<br>
+2 Goderich Drive, Brampton, Ontario L7A5A7<br>
+zoinksupport@gmail.com</p>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Copyright 2026 Zoink campus rentals</span>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="terms.html">Terms</a>
+        <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
