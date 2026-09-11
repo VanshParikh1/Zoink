@@ -17,6 +17,9 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+# Firebase/FCM config for Android push. Not committed (contains project keys).
+# `eas build -p android` fails at prebuild until this file exists at frontend/google-services.json.
+# See claude/playstore-prep-status.md.
 google-services.json
 
 # Metro
