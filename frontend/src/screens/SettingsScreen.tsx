@@ -22,16 +22,16 @@ import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import ZoinkButton from '../components/ZoinkButton'
 import { formatLongDate } from '../utils/formatDate'
-import appJson from '../../app.json'
+import Constants from 'expo-constants'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const SUPPORT_EMAIL = 'zoinksupport@gmail.com'
 
-const APP_VERSION: string = (appJson as any)?.expo?.version ?? '—'
+const APP_VERSION: string = Constants.expoConfig?.version ?? '—'
 const APP_BUILD: string | null =
-  (appJson as any)?.expo?.ios?.buildNumber?.toString() ??
-  (appJson as any)?.expo?.android?.versionCode?.toString() ??
+  Constants.expoConfig?.ios?.buildNumber?.toString() ??
+  Constants.expoConfig?.android?.versionCode?.toString() ??
   null
 
 const NOTIFICATION_ROWS: { key: keyof NotificationPreferences; label: string; hint: string }[] = [

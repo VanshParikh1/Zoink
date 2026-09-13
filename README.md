@@ -429,7 +429,7 @@ Zoink/
       testUtils/
       utils/
   frontend/
-    App.tsx  app.json  eas.json  metro.config.js
+    App.tsx  app.config.js  eas.json  metro.config.js
     src/
       components/  config/  context/  navigation/
       screens/  services/  theme/  types/  utils/

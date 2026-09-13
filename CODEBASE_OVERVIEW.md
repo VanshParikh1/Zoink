@@ -72,7 +72,7 @@ Zoink/
       testUtils/
       utils/            # asyncHandler, cloudinary, errors, prisma
   frontend/
-    App.tsx  app.json  eas.json  metro.config.js  index.ts
+    App.tsx  app.config.js  eas.json  metro.config.js  index.ts
     src/
       components/  config/  context/  navigation/
       screens/  services/  theme/  types/  utils/
@@ -248,7 +248,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 |---|---|
 | `frontend/package.json` | Expo scripts: `start` (`expo start`), `android`/`ios` (native dev-client `expo run:*`), `web`. `@stripe/stripe-react-native` pinned `0.62.0`; `@sentry/react-native`, `expo-camera`, `expo-haptics`, `expo-dev-client`, `expo-build-properties` present. |
 | `frontend/tsconfig.json` | Extends Expo's base, strict. |
-| `frontend/app.json` | Expo config: scheme `zoink`, bundle ids `com.zoink.app`, light UI, plugins for secure store, notifications, image picker, **`expo-location`** (with usage-description strings), Stripe (`merchantIdentifier`, Google Pay), and `expo-font`. Android `RECORD_AUDIO` permission (camera). EAS `projectId`, owner `zoinkit`. Requires a native rebuild to take effect. |
+| `frontend/app.config.js` | Dynamic Expo config (converted from `app.json` so `android.googleServicesFile` can read the `GOOGLE_SERVICES_JSON` EAS file-env-var — see `claude/playstore-prep-status.md`): scheme `zoink`, bundle ids `com.zoink.app`, light UI, plugins for secure store, notifications, image picker, **`expo-location`** (with usage-description strings), Stripe (`merchantIdentifier`, Google Pay), and `expo-font`. Android `RECORD_AUDIO` permission (camera). EAS `projectId`, owner `zoinkit`. Requires a native rebuild to take effect. |
 | `frontend/eas.json` | Build profiles `development` / `preview` / `production`; `submit.production.ios.ascAppId`. |
 | `frontend/metro.config.js` | `resolver.disableHierarchicalLookup = true` + flat `nodeModulesPaths` (monorepo hygiene — see README's native-deps note). |
 | `frontend/index.ts` | Registers `App` as the Expo root. |
@@ -527,7 +527,7 @@ routes/*.ts
 
 | Config | Affects |
 |---|---|
-| `frontend/app.json` | Scheme, assets, native plugins (incl. `expo-location`), permissions. |
+| `frontend/app.config.js` | Scheme, assets, native plugins (incl. `expo-location`), permissions. |
 | `frontend/src/theme/colors.ts` | Every screen's typography, radius, shadow, and background. |
 | `frontend/src/services/api.ts` | Every API call + auth header. |
 | `frontend/src/config/demoMode.ts` | Real backend vs mock services. |
