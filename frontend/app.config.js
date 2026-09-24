@@ -13,7 +13,7 @@ module.exports = {
       backgroundColor: "#F4EDE1",
     },
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: "com.zoink.app",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
