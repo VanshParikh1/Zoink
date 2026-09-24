@@ -3,6 +3,25 @@ import prisma from '../utils/prisma'
 import { cancelPaymentIntent, toCents, transferPayout } from './paymentService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
+import { Sentry } from '../instrument'
+
+// The payment jobs below walk many bookings and call Stripe for each. One
+// booking failing (a restricted connected account, a PaymentIntent Stripe
+// already canceled, a network blip) must not abort the run and strand every
+// booking after it: record it, report it, and move on. The booking is left
+// exactly as it was, so the next run retries it.
+export async function recordJobFailure(bookingId: string, action: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(`[${action}] booking ${bookingId} failed:`, error)
+  Sentry.captureException(error, { tags: { job: action, bookingId } })
+  try {
+    await prisma.bookingEvent.create({
+      data: { bookingId, type: BookingEventType.ERROR, metadata: { action, message } },
+    })
+  } catch (auditError) {
+    console.error(`[${action}] could not record the failure for booking ${bookingId}:`, auditError)
+  }
+}
 
 export async function cleanupStaleHandoffs() {
   const staleBefore = new Date(Date.now() - ZOINK_TAP_WINDOW_MS)
@@ -73,76 +92,82 @@ export async function releaseDuePayouts() {
   })
 
   let paid = 0
+  let failed = 0
   for (const booking of bookings) {
-    const totalCents = toCents(booking.totalPrice)
-    const fullOwnerPayoutCents = toCents(booking.ownerPayout)
-    const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
+    try {
+      const totalCents = toCents(booking.totalPrice)
+      const fullOwnerPayoutCents = toCents(booking.ownerPayout)
+      const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
 
-    // The owner's cut of what the renter actually kept paying, proportional to
-    // their share of the original total (so the platform eats its commission on
-    // the refunded slice too). With refundedToRenterCents === 0 — the common
-    // case — this is exactly fullOwnerPayoutCents.
-    const remainingPayoutCents =
-      totalCents > 0
-        ? Math.max(
-            0,
-            Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
-          )
-        : 0
+      // The owner's cut of what the renter actually kept paying, proportional to
+      // their share of the original total (so the platform eats its commission on
+      // the refunded slice too). With refundedToRenterCents === 0 — the common
+      // case — this is exactly fullOwnerPayoutCents.
+      const remainingPayoutCents =
+        totalCents > 0
+          ? Math.max(
+              0,
+              Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
+            )
+          : 0
 
-    // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
-    // isn't reconsidered every tick.
-    if (remainingPayoutCents <= 0) {
+      // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
+      // isn't reconsidered every tick.
+      if (remainingPayoutCents <= 0) {
+        await prisma.$transaction(async (tx) => {
+          await tx.booking.update({
+            where: { id: booking.id },
+            data: { payoutSentAt: new Date(), version: { increment: 1 } },
+          })
+          await tx.bookingEvent.create({
+            data: {
+              bookingId: booking.id,
+              type: BookingEventType.PAYOUT_TRIGGERED,
+              metadata: { amountCents: 0, reason: 'fully_refunded', holdHours },
+            },
+          })
+        })
+        continue
+      }
+
+      if (!booking.owner.stripeAccountId) continue
+
+      const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
+      const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
       await prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
-          data: { payoutSentAt: new Date(), version: { increment: 1 } },
+          data: {
+            paymentStatus: PaymentStatus.PAID_OUT,
+            stripeTransferId: transfer.id,
+            payoutSentAt: new Date(),
+            version: { increment: 1 },
+          },
         })
+
         await tx.bookingEvent.create({
           data: {
             bookingId: booking.id,
             type: BookingEventType.PAYOUT_TRIGGERED,
-            metadata: { amountCents: 0, reason: 'fully_refunded', holdHours },
+            metadata: {
+              stripeTransferId: transfer.id,
+              holdHours,
+              amountCents: remainingPayoutCents,
+              ...(isPartial
+                ? { partialRefundToRenterCents: refundedToRenterCents, fullOwnerPayoutCents }
+                : {}),
+            },
           },
         })
       })
-      continue
+      paid += 1
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(booking.id, 'release_payout', error)
     }
-
-    if (!booking.owner.stripeAccountId) continue
-
-    const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
-    const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
-    await prisma.$transaction(async (tx) => {
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: {
-          paymentStatus: PaymentStatus.PAID_OUT,
-          stripeTransferId: transfer.id,
-          payoutSentAt: new Date(),
-          version: { increment: 1 },
-        },
-      })
-
-      await tx.bookingEvent.create({
-        data: {
-          bookingId: booking.id,
-          type: BookingEventType.PAYOUT_TRIGGERED,
-          metadata: {
-            stripeTransferId: transfer.id,
-            holdHours,
-            amountCents: remainingPayoutCents,
-            ...(isPartial
-              ? { partialRefundToRenterCents: refundedToRenterCents, fullOwnerPayoutCents }
-              : {}),
-          },
-        },
-      })
-    })
-    paid += 1
   }
 
-  return { checked: bookings.length, paid }
+  return { checked: bookings.length, paid, failed }
 }
 
 /** Auto-releases a booking's deposit once it's been held past the dispute
@@ -176,44 +201,51 @@ export async function releaseDueDeposits() {
   })
 
   let released = 0
+  let failed = 0
   for (const booking of bookings) {
     if (!booking.stripeDepositPaymentIntentId) continue
 
-    await cancelPaymentIntent({
-      id: booking.id,
-      version: booking.version,
-      stripePaymentIntentId: booking.stripeDepositPaymentIntentId,
-    })
+    try {
 
-    await prisma.$transaction(async (tx) => {
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: {
-          depositStatus: DepositStatus.RELEASED,
-          version: { increment: 1 },
-        },
+      await cancelPaymentIntent({
+        id: booking.id,
+        version: booking.version,
+        stripePaymentIntentId: booking.stripeDepositPaymentIntentId,
       })
 
-      await tx.bookingEvent.create({
-        data: {
-          bookingId: booking.id,
-          type: BookingEventType.PAYMENT_REFUNDED,
-          metadata: { action: 'deposit_released', holdHours },
-        },
-      })
-    })
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            depositStatus: DepositStatus.RELEASED,
+            version: { increment: 1 },
+          },
+        })
 
-    void notifyUser({
-      userId: booking.renterId,
-      type: 'DEPOSIT_RELEASED',
-      title: 'Deposit released',
-      body: `Your security deposit for ${booking.listing.title} has been released back to you.`,
-      data: { bookingId: booking.id },
-    })
-    released += 1
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: booking.id,
+            type: BookingEventType.PAYMENT_REFUNDED,
+            metadata: { action: 'deposit_released', holdHours },
+          },
+        })
+      })
+
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'DEPOSIT_RELEASED',
+        title: 'Deposit released',
+        body: `Your security deposit for ${booking.listing.title} has been released back to you.`,
+        data: { bookingId: booking.id },
+      })
+      released += 1
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(booking.id, 'release_deposit', error)
+    }
   }
 
-  return { checked: bookings.length, released }
+  return { checked: bookings.length, released, failed }
 }
 
 // ── Retention sweeps (privacy.md §7) ─────────────────────────────────────────
