@@ -56,6 +56,7 @@ export const browseListings = asyncHandler(async (req: Request, res: Response) =
     limit,
     offset,
     includeUnavailable,
+    viewerId: (req as any).userId,
   })
   return res.json(result)
 })
@@ -72,7 +73,7 @@ export const getListingCategories = asyncHandler(async (_req: Request, res: Resp
 
 export const getListing = asyncHandler(async (req: Request, res: Response) => {
   const id = req.params.id as string
-  const listing = await listingService.getListingById(id)
+  const listing = await listingService.getListingById(id, (req as any).userId)
   return res.json(listing)
 })
 

@@ -10,6 +10,7 @@ import {
 } from './bookingUtils'
 import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
+import { assertNotBlocked } from './blockService'
 import {
   calculateCommission,
   calculateHst,
@@ -333,6 +334,8 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   if (listing.ownerId === renterId) {
     throw new BadRequestError('You cannot book your own listing.')
   }
+
+  await assertNotBlocked(renterId, listing.ownerId)
 
   if (!listing.isAvailable) {
     throw new BadRequestError('This listing is currently unavailable.')

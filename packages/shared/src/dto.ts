@@ -89,6 +89,15 @@ export interface PublicProfileResponse {
   reputation: UserReputationResponse | null
 }
 
+// GET /users/me/blocks — one row per user the caller has blocked.
+export interface BlockedUserResponse {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+  blockedAt: string
+}
+
 // Per-category push/notification toggles. Default true; VERIFICATION_*
 // notifications are account-critical and not covered by any toggle.
 export interface NotificationPreferences {

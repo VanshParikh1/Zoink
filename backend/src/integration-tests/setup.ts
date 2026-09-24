@@ -142,6 +142,7 @@ const TRUNCATE_ORDER = [
   'notifications',
   'disputes',
   'reports',
+  'user_blocks',
   'bookings',
   'listing_images',
   'conversations',

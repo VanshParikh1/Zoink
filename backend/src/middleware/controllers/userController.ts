@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import * as userService from '../../services/userService'
 import * as paymentService from '../../services/paymentService'
+import * as blockService from '../../services/blockService'
 import { uploadImage } from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
 
@@ -14,8 +15,30 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
 // GET /users/:id
 export const getPublicProfile = asyncHandler(async (req: Request, res: Response) => {
   const id = req.params.id as string
-  const user = await userService.getPublicProfile(id)
+  const viewerId = (req as any).userId
+  const user = await userService.getPublicProfile(id, viewerId)
   return res.json(user)
+})
+
+// POST /users/:id/block
+export const blockUser = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  await blockService.blockUser(userId, req.params.id as string)
+  return res.status(204).send()
+})
+
+// DELETE /users/:id/block
+export const unblockUser = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  await blockService.unblockUser(userId, req.params.id as string)
+  return res.status(204).send()
+})
+
+// GET /users/me/blocks
+export const getMyBlocks = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const blocks = await blockService.listMyBlocks(userId)
+  return res.json(blocks)
 })
 
 // PATCH /users/me

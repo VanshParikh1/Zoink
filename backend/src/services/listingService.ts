@@ -2,6 +2,7 @@ import prisma from '../utils/prisma'
 import { Prisma } from '@prisma/client'
 import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
+import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
 
 // ── Prohibited items (terms.md §6) ───────────────────────────────────────────
 // A blunt keyword heuristic, not a moderation system — it exists to catch the
@@ -126,6 +127,9 @@ export type BrowseListingsInput = {
   includeUnavailable?: boolean
   limit?: number
   offset?: number
+  // When set, listings owned by anyone on the other side of a block with
+  // this user are excluded (search, browse and the home feed all go here).
+  viewerId?: string
 }
 
 type BrowseListingRow = {
@@ -170,12 +174,16 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
 
 // ── Get single listing ────────────────────────────────────────────────────────
 
-export async function getListingById(id: string): Promise<ListingResponse> {
+export async function getListingById(id: string, viewerId?: string): Promise<ListingResponse> {
   const listing = await prisma.listing.findUnique({
     where: { id },
     select: listingSelect,
   })
   if (!listing) throw new NotFoundError('Listing not found.')
+  // Same 404 as a missing listing, so a block isn't revealed to the blocked side.
+  if (viewerId && (await isBlockedBetween(viewerId, listing.ownerId))) {
+    throw new NotFoundError('Listing not found.')
+  }
   return toListingResponse(listing)
 }
 
@@ -228,6 +236,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     radiusKm,
     city,
     includeUnavailable = false,
+    viewerId,
   } = input
 
   const limit = clamp(input.limit ?? 20, 1, 50)
@@ -238,6 +247,10 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
 
   if (!includeUnavailable) {
     whereClauses.push(Prisma.sql`l."isAvailable" = true`)
+  }
+
+  if (viewerId) {
+    whereClauses.push(listingOwnerNotBlockedSql(viewerId))
   }
 
   if (category) {

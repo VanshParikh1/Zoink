@@ -3,6 +3,7 @@ import type { ConversationDetailResponse, ConversationResponse, MessageResponse 
 import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
+import { assertNotBlocked, getBlockedUserIds } from './blockService'
 
 const conversationSelect = {
   id: true,
@@ -139,6 +140,8 @@ export async function openConversation(currentUserId: string, listingId: string)
     throw new BadRequestError('You cannot open a conversation with your own listing.')
   }
 
+  await assertNotBlocked(currentUserId, listing.ownerId)
+
   const conversation = await prisma.conversation.upsert({
     where: {
       listingId_renterId: {
@@ -159,9 +162,16 @@ export async function openConversation(currentUserId: string, listingId: string)
 }
 
 export async function getMyConversations(currentUserId: string): Promise<ConversationResponse[]> {
+  // Threads with anyone on the other side of a block (either direction) drop
+  // out of the inbox. The rows are kept so an unblock brings them back.
+  const blockedIds = await getBlockedUserIds(currentUserId)
+
   const conversations = await prisma.conversation.findMany({
     where: {
       OR: [{ renterId: currentUserId }, { ownerId: currentUserId }],
+      ...(blockedIds.length
+        ? { NOT: [{ renterId: { in: blockedIds } }, { ownerId: { in: blockedIds } }] }
+        : {}),
     },
     select: conversationSelect as any,
     orderBy: { createdAt: 'desc' },
@@ -253,6 +263,9 @@ export async function sendMessage(currentUserId: string, conversationId: string,
     throw new BadRequestError('Message body cannot be empty.')
   }
 
+  const recipientId = conversation.renterId === currentUserId ? conversation.ownerId : conversation.renterId
+  await assertNotBlocked(currentUserId, recipientId)
+
   const message = await prisma.$transaction(async (tx) => {
     const created = await tx.message.create({
       data: {
@@ -266,7 +279,6 @@ export async function sendMessage(currentUserId: string, conversationId: string,
     return created
   })
 
-  const recipientId = conversation.renterId === currentUserId ? conversation.ownerId : conversation.renterId
   // Push + DB row, in line with every other event type (was push-only before).
   void notifyUser({
     userId: recipientId,

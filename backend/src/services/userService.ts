@@ -4,6 +4,7 @@ import prisma from '../utils/prisma'
 import { NotFoundError } from '../utils/errors'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { signJWT } from './authService'
+import { isBlockedBetween } from './blockService'
 
 const NOTIFICATION_PREF_COLUMNS = [
   'notifyMessages',
@@ -153,7 +154,13 @@ export async function deleteMe(userId: string): Promise<void> {
 
 // ── Public profile (safe fields only — no email, no phone) ───────────────────
 
-export async function getPublicProfile(userId: string): Promise<PublicProfileResponse> {
+export async function getPublicProfile(userId: string, viewerId?: string): Promise<PublicProfileResponse> {
+  // A block in either direction makes the profile look nonexistent rather
+  // than forbidden, so the blocked user can't tell they were blocked.
+  if (viewerId && (await isBlockedBetween(viewerId, userId))) {
+    throw new NotFoundError('User not found.')
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {

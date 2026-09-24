@@ -181,4 +181,82 @@ describe('reportService', () => {
     assert.strictEqual(userFindManyCalled, false)
     assert.strictEqual(listingFindManyCalled, false)
   })
+
+  describe('MESSAGE reports', () => {
+    const messageRow = {
+      senderId: 'sender-1',
+      conversation: { renterId: 'sender-1', ownerId: 'reporter-1' },
+    }
+
+    test('createReport throws NotFoundError when the message does not exist', async () => {
+      const mockDb: any = { message: { findUnique: async () => null } }
+
+      await assert.rejects(
+        () => reportService.createReport('reporter-1', 'MESSAGE', 'missing', 'HARASSMENT', undefined, mockDb),
+        (err: any) => {
+          assert.strictEqual(err.statusCode, 404)
+          assert.match(err.message, /message/i)
+          return true
+        }
+      )
+    })
+
+    test('createReport throws ForbiddenError when the reporter is not in the conversation', async () => {
+      const mockDb: any = { message: { findUnique: async () => messageRow } }
+
+      await assert.rejects(
+        () => reportService.createReport('outsider', 'MESSAGE', 'm-1', 'HARASSMENT', undefined, mockDb),
+        (err: any) => {
+          assert.strictEqual(err.statusCode, 403)
+          return true
+        }
+      )
+    })
+
+    test('createReport throws BadRequestError when reporting your own message', async () => {
+      const mockDb: any = { message: { findUnique: async () => messageRow } }
+
+      await assert.rejects(
+        () => reportService.createReport('sender-1', 'MESSAGE', 'm-1', 'SPAM', undefined, mockDb),
+        (err: any) => {
+          assert.strictEqual(err.statusCode, 400)
+          assert.match(err.message, /own message/i)
+          return true
+        }
+      )
+    })
+
+    test('createReport creates an OPEN report when a participant reports the other side', async () => {
+      const mockDb: any = {
+        message: { findUnique: async () => messageRow },
+        report: { create: async (args: any) => ({ id: 'r-1', ...args.data }) },
+      }
+
+      const report = await reportService.createReport('reporter-1', 'MESSAGE', 'm-1', 'HARASSMENT', undefined, mockDb)
+
+      assert.strictEqual(report.targetType, 'MESSAGE')
+      assert.strictEqual(report.status, 'OPEN')
+    })
+
+    test('attachTargetLabels labels a message with its sender and truncated body', async () => {
+      const longBody = 'x'.repeat(200)
+      const mockDb: any = {
+        message: {
+          findMany: async () => [{ id: 'm-1', body: longBody, sender: { firstName: 'Sam', lastName: 'Lee' } }],
+        },
+      }
+
+      const [labelled, missing] = await reportService.attachTargetLabels(
+        [
+          { targetType: 'MESSAGE', targetId: 'm-1' },
+          { targetType: 'MESSAGE', targetId: 'gone' },
+        ] as any,
+        mockDb
+      )
+
+      assert.match(labelled.targetLabel, /^Sam Lee: "x+\.\.\."$/)
+      assert.ok(labelled.targetLabel.length < 160)
+      assert.strictEqual(missing.targetLabel, '[deleted message]')
+    })
+  })
 })

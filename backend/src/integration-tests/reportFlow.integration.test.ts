@@ -452,3 +452,31 @@ describe('PATCH /admin/reports/:id — HTTP layer', () => {
     assert.equal(res.status, 401)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message reports — HTTP layer
+// ─────────────────────────────────────────────────────────────────────────────
+describe('POST /reports — MESSAGE target', () => {
+  test('a conversation participant can report the other side\'s message; outsiders cannot', async () => {
+    const { openConversation, sendMessage } = await import('../services/conversationService')
+    const convo = await openConversation(reporter.id, listingId)
+    const message = await sendMessage(target.id, convo.id, 'Pay me off-platform or else.')
+    const app = getApp()
+
+    const ok = await supertest(app)
+      .post('/reports')
+      .set('Authorization', `Bearer ${reporter.token}`)
+      .send({ targetType: 'MESSAGE', targetId: message.id, reason: 'HARASSMENT' })
+    assert.equal(ok.status, 201)
+    assert.equal(ok.body.targetType, 'MESSAGE')
+
+    const outsider = await supertest(app)
+      .post('/reports')
+      .set('Authorization', `Bearer ${otherReporter.token}`)
+      .send({ targetType: 'MESSAGE', targetId: message.id, reason: 'HARASSMENT' })
+    assert.equal(outsider.status, 403)
+
+    const [labelled] = await reportService.attachTargetLabels([ok.body])
+    assert.match(labelled.targetLabel, /Pay me off-platform/)
+  })
+})

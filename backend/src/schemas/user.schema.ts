@@ -34,3 +34,11 @@ export const UpdateNotificationPrefsSchema = z.object({
       message: 'At least one preference must be provided.',
     }),
 })
+
+// ── POST/DELETE /users/:id/block ─────────────────────────────────────────────
+
+export const UserIdParamsSchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+  }),
+})

@@ -16,7 +16,7 @@ export type DisputeStatus = "NONE" | "OPEN" | "UNDER_REVIEW" | "RESOLVED_REFUND"
 
 export type DisputeReason = "ITEM_DAMAGED" | "ITEM_NOT_RETURNED" | "ITEM_NOT_AS_DESCRIBED" | "PAYMENT_ISSUE" | "OTHER";
 
-export type ReportTargetType = "USER" | "LISTING";
+export type ReportTargetType = "USER" | "LISTING" | "MESSAGE";
 
 export type ReportReason = "SPAM" | "SCAM" | "INAPPROPRIATE" | "HARASSMENT" | "OTHER";
 
@@ -80,6 +80,8 @@ export interface User {
   resolvedDisputes?: Dispute[];
   filedReports?: Report[];
   reviewedReports?: Report[];
+  blocksMade?: UserBlock[];
+  blocksReceived?: UserBlock[];
 }
 
 export interface Listing {
@@ -314,6 +316,15 @@ export interface Report {
   reviewedByAdminId: string | null;
   reporter?: User;
   reviewedByAdmin?: User | null;
+}
+
+export interface UserBlock {
+  id: string;
+  blockerId: string;
+  blockedId: string;
+  createdAt: string;
+  blocker?: User;
+  blocked?: User;
 }
 
 type JsonValue = string | number | boolean | { [key in string]?: JsonValue } | Array<JsonValue> | null;
