@@ -10,7 +10,8 @@
  * with cheap invalid requests (400s still count) and then expect a 429.
  */
 
-import test, { beforeEach, after, describe } from 'node:test'
+import test, { before, beforeEach, after, describe } from 'node:test'
+import type { Server } from 'http'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
 import {
@@ -37,7 +38,15 @@ beforeEach(async () => {
   ).id
 })
 
+// One listening server for the whole file: supertest(app) binds a fresh
+// ephemeral port per request, and these tests send hundreds of requests.
+let server: Server
+before(() => {
+  server = getApp().listen(0, '127.0.0.1')
+})
+
 after(async () => {
+  server.close()
   await disconnectTestPrisma()
 })
 
@@ -53,7 +62,7 @@ async function exhaust(call: Call, token: string, limit: number) {
   assert.equal(blocked.body.error, 'Too many requests. Please try again later.')
 }
 
-const app = () => supertest(getApp())
+const app = () => supertest(server)
 
 describe('per-user write limits', () => {
   test('messages: 60 per minute', async () => {

@@ -104,14 +104,21 @@ test('global limiter treats a forged token as anonymous', async () => {
 })
 
 test('production global limiter lets a signed-in user keep polling past the old 300-request cap', async () => {
-  const app = buildGlobalTestApp(globalLimiter)
+  // One listening server for all 316 requests: request(app) binds a fresh
+  // ephemeral port per call, and at this volume a recycled port can collide
+  // with another local process.
+  const server = buildGlobalTestApp(globalLimiter).listen(0, '127.0.0.1')
   const token = tokenFor('user-chatting')
 
-  // 3 requests every 4s for 7 minutes = 315 — build 5's open-chat poll.
-  for (let i = 0; i < 315; i++) {
-    const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`)
-    assert.equal(res.status, 200, `request ${i + 1} should not be rate limited`)
+  try {
+    // 3 requests every 4s for 7 minutes = 315 — build 5's open-chat poll.
+    for (let i = 0; i < 315; i++) {
+      const res = await request(server).get('/ping').set('Authorization', `Bearer ${token}`)
+      assert.equal(res.status, 200, `request ${i + 1} should not be rate limited`)
+    }
+    const res = await request(server).get('/ping').set('Authorization', `Bearer ${token}`)
+    assert.equal(res.headers['ratelimit-limit'], '1200')
+  } finally {
+    server.close()
   }
-  const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`)
-  assert.equal(res.headers['ratelimit-limit'], '1200')
 })
