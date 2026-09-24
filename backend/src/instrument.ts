@@ -22,7 +22,9 @@ function scrubObject(obj: Record<string, unknown> | null | undefined) {
 if (process.env.SENTRY_DSN && process.env.NODE_ENV !== 'test') {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV,
+    // Without an explicit value the SDK defaults to "production", so local dev
+    // was showing up alongside prod. Railway sets SENTRY_ENVIRONMENT=production.
+    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
     beforeSend(event) {
       scrubObject(event.request?.headers)
       scrubObject(event.request?.data as Record<string, unknown>)

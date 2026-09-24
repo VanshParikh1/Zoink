@@ -11,6 +11,9 @@ if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
     environment: __DEV__ ? 'development' : 'production',
+    // Dev/simulator builds stall constantly (Metro reloads, debugger pauses)
+    // and flood Sentry with false app-hang events.
+    enableAppHangTracking: !__DEV__,
   })
 }
 
