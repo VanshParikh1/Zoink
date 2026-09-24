@@ -88,35 +88,36 @@ async function oracleLastMessages(userId: string) {
   return new Map(rows.map((r) => [r.id, { lastMessage: r.messages[0] ?? null, accepted: r.bookings[0]?.id ?? null }]))
 }
 
-/** Records how many rows each statement touching the messages table returned.
+/** Runs fn and records every SQL statement it issued with its row count.
  *  pg-pool calls client.query callback-style, so the callback is wrapped too. */
-async function captureMessageRowCounts<T>(fn: () => Promise<T>): Promise<{ result: T; messageRows: number }> {
+async function captureStatements<T>(fn: () => Promise<T>): Promise<{ result: T; statements: { text: string; rowCount: number }[] }> {
   const pg = require('pg')
   const original = pg.Client.prototype.query
-  let messageRows = 0
-  const count = (res: any) => { messageRows += res?.rowCount ?? 0 }
+  const statements: { text: string; rowCount: number }[] = []
   pg.Client.prototype.query = function (config: any, values: any, cb: any) {
     const text: string = typeof config === 'string' ? config : config?.text ?? ''
-    if (!/"messages"/.test(text)) return original.call(this, config, values, cb)
+    const record = (res: any) => { statements.push({ text, rowCount: res?.rowCount ?? 0 }) }
     if (typeof values === 'function') {
       const done = values
-      return original.call(this, config, (err: any, res: any) => { if (!err) count(res); done(err, res) })
+      return original.call(this, config, (err: any, res: any) => { if (!err) record(res); done(err, res) })
     }
     if (typeof cb === 'function') {
       const done = cb
-      return original.call(this, config, values, (err: any, res: any) => { if (!err) count(res); done(err, res) })
+      return original.call(this, config, values, (err: any, res: any) => { if (!err) record(res); done(err, res) })
     }
     const promise = original.call(this, config, values)
-    promise?.then?.(count, () => {})
+    promise?.then?.(record, () => {})
     return promise
   }
   try {
     const result = await fn()
-    return { result, messageRows }
+    return { result, statements }
   } finally {
     pg.Client.prototype.query = original
   }
 }
+
+const touches = (table: string) => (s: { text: string }) => new RegExp(`(FROM|UPDATE|INTO) "(public"\\.")?${table}"`).test(s.text)
 
 describe('getMyConversations', () => {
   test('returns the same last message, unread flag and accepted booking as the nested select did', async () => {
@@ -139,7 +140,8 @@ describe('getMyConversations', () => {
   })
 
   test('reads one message row per conversation, not the whole message history', async () => {
-    const { result, messageRows } = await captureMessageRowCounts(() => conversationService.getMyConversations(renter.id))
+    const { result, statements } = await captureStatements(() => conversationService.getMyConversations(renter.id))
+    const messageRows = statements.filter(touches('messages')).reduce((sum, s) => sum + s.rowCount, 0)
     assert.equal(result.length, owners.length)
     assert.ok(
       messageRows <= owners.length,
@@ -153,5 +155,44 @@ describe('getMyConversations', () => {
     const empty = inbox.find((c) => c.id === conversationIds[2])!
     assert.equal(empty.lastMessage, null)
     assert.equal(empty.unread, false)
+  })
+})
+
+describe('chat thread poll', () => {
+  test('getConversationById reads the conversation once and still enforces participation', async () => {
+    const { result, statements } = await captureStatements(() => conversationService.getConversationById(renter.id, conversationIds[0]))
+    assert.equal(result.id, conversationIds[0])
+    assert.equal(result.lastMessage?.body, `c0 message ${MESSAGES_PER_CONVERSATION - 1}`)
+    assert.equal(result.acceptedUnpaidBookingId, acceptedBookingId)
+    assert.equal(statements.filter(touches('conversations')).length, 1, 'one conversation read per poll')
+
+    const outsider = await createTestUser({ firstName: 'Outsider' })
+    await assert.rejects(conversationService.getConversationById(outsider.id, conversationIds[0]), { statusCode: 403 })
+    await assert.rejects(conversationService.getConversationById(renter.id, '00000000-0000-0000-0000-000000000000'), { statusCode: 404 })
+  })
+
+  test('markConversationRead writes only when a message is newer than the last read', async () => {
+    const db = getTestPrisma()
+    const conversationId = conversationIds[0]
+
+    const first = await captureStatements(() => conversationService.markConversationRead(renter.id, conversationId))
+    assert.equal(first.statements.filter((s) => /^UPDATE/.test(s.text.trim())).length, 1, 'unread messages -> marks read')
+    const inboxAfterRead = await conversationService.getMyConversations(renter.id)
+    assert.equal(inboxAfterRead.find((c) => c.id === conversationId)!.unread, false)
+
+    const repeat = await captureStatements(() => conversationService.markConversationRead(renter.id, conversationId))
+    assert.equal(repeat.statements.filter((s) => /^UPDATE/.test(s.text.trim())).length, 0, 'nothing new -> no write')
+
+    await db.message.create({ data: { conversationId, senderId: owners[0].id, body: 'new one', createdAt: new Date(Date.now() + 1000) } })
+    const inboxWithNew = await conversationService.getMyConversations(renter.id)
+    assert.equal(inboxWithNew.find((c) => c.id === conversationId)!.unread, true)
+
+    const afterNew = await captureStatements(() => conversationService.markConversationRead(renter.id, conversationId))
+    assert.equal(afterNew.statements.filter((s) => /^UPDATE/.test(s.text.trim())).length, 1)
+  })
+
+  test('markConversationRead still rejects non-participants', async () => {
+    const outsider = await createTestUser({ firstName: 'Outsider' })
+    await assert.rejects(conversationService.markConversationRead(outsider.id, conversationIds[0]), { statusCode: 403 })
   })
 })

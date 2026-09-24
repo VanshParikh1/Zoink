@@ -242,15 +242,19 @@ const IN_FLIGHT_BOOKING_STATUSES: BookingStatus[] = [
 ]
 
 export async function getConversationById(currentUserId: string, conversationId: string): Promise<ConversationDetailResponse> {
-  await getConversationForParticipant(conversationId, currentUserId)
-
+  // One read serves both the participant check and the response — this is
+  // polled every few seconds by an open chat.
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    select: conversationSelect as any,
+    select: conversationSelect,
   })
 
   if (!conversation) {
     throw new NotFoundError('Conversation not found.')
+  }
+
+  if (conversation.renterId !== currentUserId && conversation.ownerId !== currentUserId) {
+    throw new ForbiddenError('You do not have access to this conversation.')
   }
 
   const inFlightBookings = await prisma.booking.findMany({
@@ -298,6 +302,16 @@ export async function getConversationMessages(currentUserId: string, conversatio
 export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {
   const conversation = await getConversationForParticipant(conversationId, currentUserId)
   const isRenter = conversation.renterId === currentUserId
+  const lastReadAt = isRenter ? conversation.renterLastReadAt : conversation.ownerLastReadAt
+
+  // An open chat calls this every few seconds. lastReadAt is only ever
+  // compared against message timestamps (see toConversationSummary), so with
+  // no message newer than it there is nothing to mark and the write is skipped.
+  const unseen = await prisma.message.findFirst({
+    where: { conversationId, ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}) },
+    select: { id: true },
+  })
+  if (!unseen) return
 
   await prisma.conversation.update({
     where: { id: conversationId },
