@@ -105,7 +105,6 @@ const bookingSelect = {
       lastName: true,
       avatarUrl: true,
       verificationStatus: true,
-      stripeAccountId: true,
     },
   },
   reviewObligations: {
@@ -126,6 +125,22 @@ const bookingSelect = {
 // A previous Pay attempt's PaymentIntent in one of these states has not been
 // authorized yet, so handing its client secret back is equivalent to a fresh one.
 const REUSABLE_PAYMENT_INTENT_STATUSES = ['requires_payment_method', 'requires_confirmation']
+
+// List endpoints never touch the renter's email / Stripe customer id (those
+// are only read on the payment paths, which load bookingSelect), and
+// toBookingResponse strips them from the response anyway.
+const bookingListSelect = {
+  ...bookingSelect,
+  renter: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      avatarUrl: true,
+      verificationStatus: true,
+    },
+  },
+} satisfies Prisma.BookingSelect
 
 export type CreateBookingInput = {
   listingId: string
@@ -550,7 +565,7 @@ export async function getBookingById(bookingId: string, userId: string): Promise
 export async function getMyBookings(renterId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
-    select: bookingSelect as any,
+    select: bookingListSelect,
     // Most-recent-activity ordering: updatedAt bumps on every status
     // transition (PENDING -> ACCEPTED -> ... -> COMPLETED/CANCELLED/DECLINED),
     // so a booking that was recently completed or cancelled surfaces near the
@@ -564,7 +579,7 @@ export async function getMyBookings(renterId: string): Promise<BookingResponse[]
 export async function getIncomingRequests(ownerId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
-    select: bookingSelect as any,
+    select: bookingListSelect,
     // status:'asc' keeps PENDING requests (needing the owner's action) pinned
     // above everything else — that's a deliberate actionable-items-first
     // priority, independent of the "most recent activity" fix below, and
@@ -749,13 +764,14 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
             data: { status: 'DECLINED', version: { increment: 1 } },
           })
 
-          for (const rejected of autoRejected) {
-            await createBookingEvent(tx, rejected.id, actorId, BookingEventType.STATUS_CHANGE, {
-              from: 'PENDING',
-              to: 'DECLINED',
-              reason: 'overlap_auto_reject',
-            })
-          }
+          await tx.bookingEvent.createMany({
+            data: autoRejected.map((rejected) => ({
+              bookingId: rejected.id,
+              actorId,
+              type: BookingEventType.STATUS_CHANGE,
+              metadata: { from: 'PENDING', to: 'DECLINED', reason: 'overlap_auto_reject' },
+            })),
+          })
         }
       }
 
@@ -855,12 +871,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       to: nextStatus,
     })
 
-    const completedBooking: any = await tx.booking.findUniqueOrThrow({
-      where: { id: booking.id },
-      select: bookingSelect as any,
-    })
-
-    await createReviewObligationsForCompletedBooking(tx, completedBooking)
+    await createReviewObligationsForCompletedBooking(tx, booking)
 
     return tx.booking.findUniqueOrThrow({
       where: { id: booking.id },
