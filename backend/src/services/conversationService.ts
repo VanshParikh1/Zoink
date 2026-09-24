@@ -279,24 +279,35 @@ export async function getConversationById(currentUserId: string, conversationId:
 export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {
   await getConversationForParticipant(conversationId, currentUserId)
 
+  // The cursor only counts if it belongs to this conversation.
   const afterMessage = afterId
-    ? await prisma.message.findUnique({
-        where: { id: afterId },
+    ? await prisma.message.findFirst({
+        where: { id: afterId, conversationId },
         select: { createdAt: true },
       })
     : null
 
-  const messages = await prisma.message.findMany({
-    where: {
-      conversationId,
-      ...(afterMessage ? { createdAt: { gt: afterMessage.createdAt } } : {}),
-    },
-    include: messageInclude as any,
-    orderBy: { createdAt: 'asc' },
+  if (afterMessage) {
+    // Forward polling: the next (up to) 100 messages after the cursor.
+    const newer = await prisma.message.findMany({
+      where: { conversationId, createdAt: { gt: afterMessage.createdAt } },
+      include: messageInclude,
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    })
+    return newer.map((message) => toMessage(message))
+  }
+
+  // Opening a thread: the newest 100, returned oldest-first, so the client's
+  // poll cursor (the last element) is the latest message rather than the 100th
+  // oldest — which opened long threads on stale history.
+  const latest = await prisma.message.findMany({
+    where: { conversationId },
+    include: messageInclude,
+    orderBy: { createdAt: 'desc' },
     take: 100,
   })
-
-  return messages.map((message: any) => toMessage(message))
+  return latest.reverse().map((message) => toMessage(message))
 }
 
 export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {

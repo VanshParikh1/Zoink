@@ -196,3 +196,50 @@ describe('chat thread poll', () => {
     await assert.rejects(conversationService.markConversationRead(outsider.id, conversationIds[0]), { statusCode: 403 })
   })
 })
+
+// Build 5 opens a thread with no cursor, then polls forward with ?after=<last id>.
+// Returning the OLDEST 100 on open made a >100-message thread open on stale
+// history, and a send before catch-up moved the cursor past the unseen middle.
+describe('GET /conversations/:id/messages paging', () => {
+  async function seedLongThread(count: number) {
+    const conversationId = conversationIds[1]
+    const db = getTestPrisma()
+    await db.message.deleteMany({ where: { conversationId } })
+    const base = Date.now() - 24 * 60 * 60 * 1000
+    await db.message.createMany({
+      data: Array.from({ length: count }, (_, k) => ({
+        conversationId,
+        senderId: k % 2 ? renter.id : owners[1].id,
+        body: `long ${k}`,
+        createdAt: new Date(base + k * 1000),
+      })),
+    })
+    return conversationId
+  }
+
+  test('without a cursor it returns the newest 100, oldest-first', async () => {
+    const conversationId = await seedLongThread(130)
+    const page = await conversationService.getConversationMessages(renter.id, conversationId)
+    assert.equal(page.length, 100)
+    assert.equal(page[0].body, 'long 30')
+    assert.equal(page[99].body, 'long 129', 'the newest message is last, so it becomes the poll cursor')
+    for (let i = 1; i < page.length; i++) {
+      assert.ok(new Date(page[i].createdAt) >= new Date(page[i - 1].createdAt), 'ascending order')
+    }
+  })
+
+  test('with a cursor it returns only newer messages, oldest-first', async () => {
+    const conversationId = await seedLongThread(130)
+    const cursor = (await getTestPrisma().message.findFirstOrThrow({ where: { conversationId, body: 'long 120' } })).id
+    const page = await conversationService.getConversationMessages(renter.id, conversationId, cursor)
+    assert.deepEqual(page.map((m) => m.body), Array.from({ length: 9 }, (_, k) => `long ${121 + k}`))
+  })
+
+  test("a cursor from another conversation is ignored rather than used as this thread's position", async () => {
+    const conversationId = await seedLongThread(130)
+    const foreignCursor = (await getTestPrisma().message.findFirstOrThrow({ where: { conversationId: conversationIds[0] } })).id
+    const page = await conversationService.getConversationMessages(renter.id, conversationId, foreignCursor)
+    assert.equal(page.length, 100)
+    assert.equal(page[99].body, 'long 129')
+  })
+})
