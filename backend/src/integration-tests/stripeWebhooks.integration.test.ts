@@ -862,3 +862,90 @@ describe('out-of-order refund deliveries', () => {
     assert.equal(updated.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'still not overstated as fully REFUNDED')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. Superseded rental PaymentIntent — events for an old PI never touch the booking
+// ─────────────────────────────────────────────────────────────────────────────
+// Every "Pay" tap mints a fresh rental PaymentIntent and overwrites
+// booking.stripePaymentIntentId. Events for the PREVIOUS PaymentIntent still
+// arrive later — most dangerously Stripe's automatic payment_intent.canceled
+// ~7 days after an uncaptured authorization expires. Before this guard that
+// stale cancel stamped the booking REFUNDED even though the renter had paid via
+// the current PaymentIntent, and releaseDuePayouts then never paid the owner.
+describe('superseded rental PaymentIntent events', () => {
+  async function createBookingOnCurrentPi(paymentStatus: PaymentStatus) {
+    const { booking, piId: currentPiId } = await createBookingWithPaymentIntent(paymentStatus)
+    const stalePiId = `pi_test_stale_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    return { booking, currentPiId, stalePiId }
+  }
+
+  test('a stale payment_intent.canceled does not flip a paid booking to REFUNDED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, currentPiId, stalePiId } = await createBookingOnCurrentPi(PaymentStatus.CAPTURED)
+
+    const res = await postWebhookEvent(
+      app,
+      'payment_intent.canceled',
+      { id: stalePiId, object: 'payment_intent', status: 'canceled', amount: 5000 },
+      booking.id
+    )
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.CAPTURED, 'stale cancel must not rewrite the rental paymentStatus')
+    assert.equal(after.refundedAt, null, 'stale cancel must not stamp refundedAt')
+    assert.equal(after.stripePaymentIntentId, currentPiId)
+    assert.equal(after.version, booking.version, 'no booking mutation, so version is unchanged')
+
+    const audit = (await db.bookingEvent.findMany({ where: { bookingId: booking.id } }))
+      .find((e: any) => e.type === 'WEBHOOK_RECEIVED')
+    assert.ok(audit, 'the stale event is still recorded for audit')
+    assert.equal((audit!.metadata as any)?.superseded, true)
+    assert.equal((audit!.metadata as any)?.eventPaymentIntentId, stalePiId)
+    assert.equal((audit!.metadata as any)?.currentPaymentIntentId, currentPiId)
+  })
+
+  test('a stale amount_capturable_updated does not mark the current (unconfirmed) PaymentIntent AUTHORIZED', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, stalePiId } = await createBookingOnCurrentPi(PaymentStatus.PENDING_AUTH)
+
+    const res = await postWebhookEvent(
+      app,
+      'payment_intent.amount_capturable_updated',
+      { id: stalePiId, object: 'payment_intent', status: 'requires_capture', amount: 5000 },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.PENDING_AUTH)
+  })
+
+  test('a stale charge.refunded does not record a refund against the booking', async () => {
+    const app = getApp()
+    const db = getTestPrisma()
+    const { booking, stalePiId } = await createBookingOnCurrentPi(PaymentStatus.PAYOUT_PENDING)
+
+    const res = await postWebhookEvent(
+      app,
+      'charge.refunded',
+      {
+        id: `ch_stale_${Date.now()}`,
+        object: 'charge',
+        amount: 5000,
+        amount_refunded: 5000,
+        refunded: true,
+        payment_intent: stalePiId,
+      },
+      booking.id
+    )
+    assert.equal(res.status, 200)
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.PAYOUT_PENDING)
+    assert.equal(after.refundedAmountCents, 0)
+    assert.equal(after.refundedAt, null)
+  })
+})
