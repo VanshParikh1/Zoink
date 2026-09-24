@@ -8,17 +8,31 @@ import jwt from 'jsonwebtoken'
 // instance enforces its own independent counter and the real limit becomes
 // (configured limit) x (instance count).
 
-function bearerUserId(req: Request): string | undefined {
-  const authHeader = req.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) return undefined
+// The same request can hit several limiters (global + a route limiter), so the
+// bearer token is verified once per request and the result memoized.
+const bearerUserIdCache = new WeakMap<Request, string | null>()
 
-  try {
-    const token = authHeader.slice('Bearer '.length)
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId?: string }
-    return payload.userId
-  } catch {
-    return undefined
+function bearerUserId(req: Request): string | undefined {
+  if (bearerUserIdCache.has(req)) return bearerUserIdCache.get(req) ?? undefined
+
+  let userId: string | null = null
+  const authHeader = req.headers.authorization
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.slice('Bearer '.length)
+      const payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId?: string }
+      userId = payload.userId ?? null
+    } catch {
+      userId = null
+    }
   }
+
+  bearerUserIdCache.set(req, userId)
+  return userId ?? undefined
+}
+
+function ipKey(req: Request): string {
+  return ipKeyGenerator(req.ip ?? '')
 }
 
 // Keys by IP, combined with userId when the request carries a valid token, so
@@ -26,7 +40,7 @@ function bearerUserId(req: Request): string | undefined {
 // everyone else behind the same IP — relevant on campus WiFi (UofT, TMU, etc.)
 // where many students share one address.
 function keyByIpAndUser(req: Request): string {
-  const ip = ipKeyGenerator(req.ip ?? '')
+  const ip = ipKey(req)
   const userId = bearerUserId(req)
   return userId ? `${ip}:${userId}` : ip
 }
@@ -49,5 +63,27 @@ export function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit
 // request/verify.
 export const authLimiter = buildLimiter({ windowMs: 15 * 60 * 1000, limit: 10 })
 
-// Generous blanket default applied to everything else.
-export const globalLimiter = buildLimiter({ windowMs: 15 * 60 * 1000, limit: 300 })
+// Blanket default applied to everything. A signed-in user gets one budget of
+// their own, whichever network they're on; anonymous callers are counted per
+// IP. The signed-in budget has to cover the app's polling — an open chat alone
+// makes ~3 requests every 4s — which a 300/15min per-IP+user cap cut off
+// after under 7 minutes.
+export function buildGlobalLimiter(options: { windowMs: number; authenticatedLimit: number; anonymousLimit: number }) {
+  return rateLimit({
+    windowMs: options.windowMs,
+    standardHeaders: true,
+    legacyHeaders: false,
+    limit: (req: Request) => (bearerUserId(req) ? options.authenticatedLimit : options.anonymousLimit),
+    keyGenerator: (req: Request) => {
+      const userId = bearerUserId(req)
+      return userId ? `user:${userId}` : `ip:${ipKey(req)}`
+    },
+    handler: rateLimitHandler,
+  })
+}
+
+export const globalLimiter = buildGlobalLimiter({
+  windowMs: 15 * 60 * 1000,
+  authenticatedLimit: 1200,
+  anonymousLimit: 300,
+})

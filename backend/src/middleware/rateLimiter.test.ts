@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
 import jwt from 'jsonwebtoken'
-import { buildLimiter } from './rateLimiter'
+import { buildGlobalLimiter, buildLimiter, globalLimiter } from './rateLimiter'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret-for-rate-limiter-tests'
 
@@ -56,4 +56,62 @@ test('rate limiter keys authenticated requests by IP + userId, so one user canno
   // User B, same test connection/IP, still has their own budget.
   const userBResponse = await request(app).get('/ping').set('Authorization', `Bearer ${userB}`)
   assert.equal(userBResponse.status, 200)
+})
+
+// ── Global limiter ────────────────────────────────────────────────────────────
+
+
+function buildGlobalTestApp(limiter: ReturnType<typeof buildGlobalLimiter>) {
+  const app = express()
+  // Lets tests vary the client IP via X-Forwarded-For.
+  app.set('trust proxy', true)
+  app.use(limiter)
+  app.get('/ping', (_req, res) => res.status(200).json({ ok: true }))
+  return app
+}
+
+test('global limiter gives a signed-in user one budget across networks', async () => {
+  const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 3, anonymousLimit: 1 }))
+  const token = tokenFor('user-roaming')
+
+  const ips = ['203.0.113.1', '203.0.113.2', '198.51.100.3']
+  for (const ip of ips) {
+    const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', ip)
+    assert.equal(res.status, 200)
+  }
+  const blocked = await request(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', '192.0.2.9')
+  assert.equal(blocked.status, 429, 'switching networks does not reset a signed-in budget')
+})
+
+test('global limiter counts anonymous callers per IP with the lower limit', async () => {
+  const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
+
+  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 200)
+  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 429)
+  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.2')).status, 200, 'another IP has its own budget')
+
+  // A signed-in user on the exhausted IP is unaffected.
+  const signedIn = await request(app).get('/ping').set('Authorization', `Bearer ${tokenFor('user-on-busy-ip')}`).set('X-Forwarded-For', '203.0.113.1')
+  assert.equal(signedIn.status, 200)
+})
+
+test('global limiter treats a forged token as anonymous', async () => {
+  const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
+  const forged = jwt.sign({ userId: 'user-forged' }, 'not-the-server-secret')
+
+  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 200)
+  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 429)
+})
+
+test('production global limiter lets a signed-in user keep polling past the old 300-request cap', async () => {
+  const app = buildGlobalTestApp(globalLimiter)
+  const token = tokenFor('user-chatting')
+
+  // 3 requests every 4s for 7 minutes = 315 — build 5's open-chat poll.
+  for (let i = 0; i < 315; i++) {
+    const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`)
+    assert.equal(res.status, 200, `request ${i + 1} should not be rate limited`)
+  }
+  const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`)
+  assert.equal(res.headers['ratelimit-limit'], '1200')
 })
