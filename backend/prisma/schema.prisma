@@ -239,6 +239,9 @@ model Conversation {
   bookings         Booking[]
 
   @@unique([listingId, renterId])
+  // Inbox: getMyConversations filters renterId OR ownerId.
+  @@index([renterId])
+  @@index([ownerId])
   @@map("conversations")
 }
 
@@ -251,6 +254,9 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id])
 
+  // Thread reads and the inbox's last-message lookup, both by conversation in
+  // createdAt order. Without it every chat poll is a sequential scan.
+  @@index([conversationId, createdAt])
   @@map("messages")
 }
 
