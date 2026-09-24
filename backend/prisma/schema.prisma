@@ -191,6 +191,12 @@ model Booking {
   // which fetches a listing's CONFIRMED/ACTIVE bookings by (listingId, status).
   // Without this the query is a sequential scan of the whole bookings table.
   @@index([listingId, status])
+  // GET /bookings/me — a renter's bookings, most recently updated first.
+  @@index([renterId, updatedAt])
+  // GET /bookings/requests — an owner's bookings ordered status ASC, updatedAt DESC.
+  @@index([ownerId, status, updatedAt(sort: Desc)])
+  // Chat header / inbox: in-flight and accepted-unpaid bookings per conversation.
+  @@index([conversationId])
   @@map("bookings")
 }
 
