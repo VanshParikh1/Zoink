@@ -4,7 +4,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createReport } from '../services/reportsApi'
-import { ReportReason } from '../types'
+import { ReportReason, ReportTargetType } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
@@ -22,6 +22,12 @@ const REASON_OPTIONS: { value: ReportReason; label: string }[] = [
   { value: 'HARASSMENT', label: 'Harassment' },
   { value: 'OTHER', label: 'Other' },
 ]
+
+const REPORT_TITLES: Record<ReportTargetType, string> = {
+  USER: 'Report this user',
+  LISTING: 'Report this listing',
+  MESSAGE: 'Report this message',
+}
 
 export default function FileReportScreen() {
   const nav = useNavigation<Nav>()
@@ -68,7 +74,7 @@ export default function FileReportScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <BackButton style={styles.backLink} />
 
-          <Text style={styles.title}>{targetType === 'LISTING' ? 'Report this listing' : 'Report this user'}</Text>
+          <Text style={styles.title}>{REPORT_TITLES[targetType]}</Text>
           {targetLabel ? <Text style={styles.subtitle}>{targetLabel}</Text> : null}
           <Text style={styles.copy}>
             Let us know what's wrong. Our team will review your report — this is separate from booking disputes.

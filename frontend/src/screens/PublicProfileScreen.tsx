@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
+import { confirmBlockUser } from '../utils/confirmBlockUser'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'PublicProfile'>
@@ -67,18 +68,34 @@ export default function PublicProfileScreen() {
         <ProfileCard profile={profile} />
 
         {!isSelf && (
-          <TouchableOpacity
-            style={styles.reportLink}
-            onPress={() =>
-              nav.navigate('FileReport', {
-                targetType: 'USER',
-                targetId: profile.id,
-                targetLabel: `${profile.firstName} ${profile.lastName}`,
-              })
-            }
-          >
-            <Text style={styles.reportLinkText}>Report this user</Text>
-          </TouchableOpacity>
+          <View style={styles.safetyRow}>
+            <TouchableOpacity
+              style={styles.reportLink}
+              onPress={() =>
+                nav.navigate('FileReport', {
+                  targetType: 'USER',
+                  targetId: profile.id,
+                  targetLabel: `${profile.firstName} ${profile.lastName}`,
+                })
+              }
+            >
+              <Text style={styles.reportLinkText}>Report this user</Text>
+            </TouchableOpacity>
+            <Text style={styles.safetyDivider}>·</Text>
+            <TouchableOpacity
+              style={styles.reportLink}
+              onPress={() =>
+                // Pop to the root: whatever led here (their listing, a thread
+                // with them) is hidden once they're blocked.
+                confirmBlockUser(
+                  { id: profile.id, name: `${profile.firstName} ${profile.lastName}` },
+                  () => nav.popToTop(),
+                )
+              }
+            >
+              <Text style={styles.reportLinkText}>Block this user</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </ScrollView>
     </ScreenBackground>
@@ -145,9 +162,18 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginBottom: 10,
   },
-  reportLink: {
-    alignSelf: 'center',
+  safetyRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
     marginTop: 20,
+  },
+  safetyDivider: {
+    color: theme.textMuted,
+    fontSize: 13,
+  },
+  reportLink: {
     paddingVertical: 8,
   },
   reportLinkText: {

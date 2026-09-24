@@ -4,6 +4,7 @@ import { CreateDisputePayload } from './disputesApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 import { SubmitReviewPayload } from './reviewsApi'
 import { DEMO_LISTINGS, mockGetListing } from './mockListings'
+import { isDemoBlocked } from './mockBlocks'
 
 const demoUser: User = toDemoUser(demoProfile)
 
@@ -762,8 +763,14 @@ export async function mockOpenConversation(listingId: string) {
   return conversation
 }
 
+function otherParticipantId(conversation: Conversation) {
+  return conversation.renterId === demoUser.id ? conversation.ownerId : conversation.renterId
+}
+
 export async function mockGetMyConversations() {
-  return [...conversations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  return conversations
+    .filter((conversation) => !isDemoBlocked(otherParticipantId(conversation)))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
 }
 
 export async function mockGetConversation(conversationId: string) {
@@ -790,6 +797,10 @@ export async function mockGetConversationMessages(conversationId: string, after?
 export async function mockSendMessage(conversationId: string, body: string) {
   const trimmed = body.trim()
   if (!trimmed) throw new Error('Message body cannot be empty.')
+  const conversation = conversations.find((item) => item.id === conversationId)
+  if (conversation && isDemoBlocked(otherParticipantId(conversation))) {
+    throw new Error('You can no longer interact with this user.')
+  }
 
   const message: Message = {
     id: `demo-message-${Date.now()}`,

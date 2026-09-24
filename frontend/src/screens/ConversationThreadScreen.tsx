@@ -1,6 +1,8 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -25,6 +27,7 @@ import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import DismissKeyboardView from '../components/DismissKeyboardView'
+import { confirmBlockUser } from '../utils/confirmBlockUser'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -156,6 +159,55 @@ export default function ConversationThreadScreen() {
     return null
   })()
 
+  function openSafetyMenu() {
+    if (!otherParty) return
+    const name = otherPartyName ?? 'this user'
+    const report = () =>
+      nav.navigate('FileReport', { targetType: 'USER', targetId: otherParty.id, targetLabel: name })
+    // Pop to the root: this thread and their listing are hidden once blocked.
+    const block = () => confirmBlockUser({ id: otherParty.id, name }, () => nav.popToTop())
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', `Report ${name}`, `Block ${name}`],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 2,
+        },
+        (index) => {
+          if (index === 1) report()
+          if (index === 2) block()
+        },
+      )
+    } else {
+      Alert.alert(name, undefined, [
+        { text: 'Report user', onPress: report },
+        { text: 'Block user', style: 'destructive', onPress: block },
+        { text: 'Cancel', style: 'cancel' },
+      ])
+    }
+  }
+
+  function openMessageMenu(message: Message) {
+    const snippet = message.body.length > 60 ? `${message.body.slice(0, 57)}...` : message.body
+    const report = () =>
+      nav.navigate('FileReport', { targetType: 'MESSAGE', targetId: message.id, targetLabel: `"${snippet}"` })
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Cancel', 'Report message'], cancelButtonIndex: 0, destructiveButtonIndex: 1 },
+        (index) => {
+          if (index === 1) report()
+        },
+      )
+    } else {
+      Alert.alert('Message', undefined, [
+        { text: 'Report message', style: 'destructive', onPress: report },
+        { text: 'Cancel', style: 'cancel' },
+      ])
+    }
+  }
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -191,6 +243,18 @@ export default function ConversationThreadScreen() {
                 <Feather name="image" size={16} color={theme.textDisabled} />
               </View>
             )}
+
+            {otherParty ? (
+              <TouchableOpacity
+                style={styles.menuButton}
+                onPress={openSafetyMenu}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="More options: report or block this user"
+              >
+                <Feather name="more-vertical" size={22} color={theme.text} />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.panel}>
@@ -275,12 +339,20 @@ export default function ConversationThreadScreen() {
             renderItem={({ item }) => {
               const isMine = item.senderId === user?.id
               return (
-                <View style={[styles.bubble, isMine ? styles.myBubble : styles.theirBubble]}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  // Long-press to report — only the other person's messages.
+                  disabled={isMine}
+                  onLongPress={() => openMessageMenu(item)}
+                  delayLongPress={350}
+                  accessibilityHint={isMine ? undefined : 'Long press to report this message'}
+                  style={[styles.bubble, isMine ? styles.myBubble : styles.theirBubble]}
+                >
                   <Text style={[styles.bubbleText, isMine && styles.myBubbleText]}>{item.body}</Text>
                   <Text style={[styles.timeText, isMine && styles.myBubbleText]}>
                     {new Date(item.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </Text>
-                </View>
+                </TouchableOpacity>
               )
             }}
           />
@@ -334,6 +406,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: theme.screen,
   },
+  menuButton: { paddingHorizontal: 2, paddingVertical: 6 },
   headerParty: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 2 },
   panel: { marginTop: 12 },
   panelTitle: { ...theme.type.sectionTitle, fontSize: 18, lineHeight: 22 },

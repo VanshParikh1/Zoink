@@ -27,6 +27,7 @@ export type {
   ConversationDetailResponse as ConversationDetail,
   MessageResponse as Message,
   NotificationPreferences,
+  BlockedUserResponse as BlockedUser,
 } from '@zoink/shared'
 
 import type {
@@ -129,8 +130,8 @@ export interface AdminReportListItem {
   targetType: ReportTargetType
   targetId: string
   // Human-readable target name resolved server-side (listing title / user's
-  // full name). Falls back to "[deleted listing]" / "[deleted user]" when
-  // the target no longer exists.
+  // full name / message sender + body). Falls back to "[deleted listing]" /
+  // "[deleted user]" / "[deleted message]" when the target no longer exists.
   targetLabel: string
   reason: ReportReason
   description: string | null

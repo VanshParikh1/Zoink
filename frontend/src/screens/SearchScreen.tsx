@@ -22,6 +22,7 @@ import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
+import { isBlockedThisSession } from '../services/blockedUsers'
 import ScreenBackground from '../components/ScreenBackground'
 import RatingPill from '../components/RatingPill'
 
@@ -144,7 +145,12 @@ export default function SearchScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Drop anything from a user blocked since these were cached.
+      const visible = (item: ListingBrowseItem) => !isBlockedThisSession(item.ownerId)
+      sessionRecentlyViewed = sessionRecentlyViewed.filter(visible)
       setRecent([...sessionRecentlyViewed])
+      setTrending((current) => current.filter(visible))
+      setResults((current) => current.filter(visible))
     }, [])
   )
 

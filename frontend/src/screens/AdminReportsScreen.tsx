@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platfo
 import StateCard from '../components/StateCard'
 import { useFocusEffect } from '@react-navigation/native'
 import { listReports, resolveReport } from '../services/adminApi'
-import { AdminReportListItem, ReportStatus } from '../types'
+import { AdminReportListItem, ReportStatus, ReportTargetType } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
@@ -35,6 +35,12 @@ function statusTone(status: ReportStatus) {
     default:
       return styles.statusGrey
   }
+}
+
+const TARGET_TYPE_LABELS: Record<ReportTargetType, string> = {
+  USER: 'User',
+  LISTING: 'Listing',
+  MESSAGE: 'Message',
 }
 
 export default function AdminReportsScreen() {
@@ -151,11 +157,11 @@ export default function AdminReportsScreen() {
             <TouchableOpacity style={styles.card} onPress={() => openResolve(item)} disabled={item.status !== 'OPEN'}>
               <View style={styles.cardRow}>
                 <Text style={styles.cardTitle}>
-                  {item.targetType === 'LISTING' ? 'Listing' : 'User'} · {REASON_LABELS[item.reason] ?? item.reason}
+                  {TARGET_TYPE_LABELS[item.targetType]} · {REASON_LABELS[item.reason] ?? item.reason}
                 </Text>
                 <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
               </View>
-              <Text style={styles.cardTarget} numberOfLines={1}>{item.targetLabel}</Text>
+              <Text style={styles.cardTarget} numberOfLines={item.targetType === 'MESSAGE' ? 3 : 1}>{item.targetLabel}</Text>
               {item.description ? (
                 <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
               ) : null}
@@ -176,7 +182,7 @@ export default function AdminReportsScreen() {
             <Text style={styles.modalTitle}>Resolve report</Text>
             {activeReport ? (
               <Text style={styles.modalSubtitle}>
-                {activeReport.targetType === 'LISTING' ? 'Listing' : 'User'} · {REASON_LABELS[activeReport.reason] ?? activeReport.reason}
+                {TARGET_TYPE_LABELS[activeReport.targetType]} · {REASON_LABELS[activeReport.reason] ?? activeReport.reason}
               </Text>
             ) : null}
             {activeReport ? (

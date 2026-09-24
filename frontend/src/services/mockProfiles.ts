@@ -1,4 +1,7 @@
 import { DEMO_USER } from '../config/demoMode'
+// Circular with mockBlocks (it reads profile names) — safe, both sides only
+// touch each other inside function bodies.
+import { isDemoBlocked } from './mockBlocks'
 import { MyProfile, NotificationPreferences, PublicProfile, User } from '../types'
 
 const now = new Date().toISOString()
@@ -371,6 +374,7 @@ export async function mockGetMyProfile(): Promise<MyProfile> {
 }
 
 export async function mockGetPublicProfile(userId: string): Promise<PublicProfile> {
+  if (isDemoBlocked(userId)) throw new Error('User not found.')
   return publicProfiles[userId] ?? demoProfile
 }
 

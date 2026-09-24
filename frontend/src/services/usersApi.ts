@@ -1,6 +1,6 @@
 import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
-import { MyProfile, NotificationPreferences, PublicProfile } from '../types'
+import { BlockedUser, MyProfile, NotificationPreferences, PublicProfile } from '../types'
 import { getImageUploadPart } from './uploadFormData'
 import {
   mockDeleteMyAccount,
@@ -10,6 +10,8 @@ import {
   mockUpdateNotificationPreferences,
   mockUploadMyAvatar,
 } from './mockProfiles'
+import { mockBlockUser, mockGetMyBlocks, mockUnblockUser } from './mockBlocks'
+import { markBlocked, markUnblocked } from './blockedUsers'
 
 export type UpdateMyProfilePayload = {
   firstName?: string
@@ -53,6 +55,25 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
   if (DEMO_MODE) return mockGetPublicProfile(userId)
 
   const res = await api.get(`/users/${userId}`)
+  return res.data
+}
+
+export async function blockUser(userId: string): Promise<void> {
+  if (DEMO_MODE) await mockBlockUser(userId)
+  else await api.post(`/users/${userId}/block`)
+  markBlocked(userId)
+}
+
+export async function unblockUser(userId: string): Promise<void> {
+  if (DEMO_MODE) await mockUnblockUser(userId)
+  else await api.delete(`/users/${userId}/block`)
+  markUnblocked(userId)
+}
+
+export async function getMyBlocks(): Promise<BlockedUser[]> {
+  if (DEMO_MODE) return mockGetMyBlocks()
+
+  const res = await api.get('/users/me/blocks')
   return res.data
 }
 

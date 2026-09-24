@@ -1,6 +1,7 @@
 import { BrowseListingsResult, ListingBrowseItem, ListingImage, User } from '../types'
 import type { BrowseListingsParams, CreateListingPayload, UpdateListingPayload } from './listingsApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
+import { isDemoBlocked } from './mockBlocks'
 
 const demoOwner: User = toDemoUser(demoProfile)
 
@@ -435,7 +436,7 @@ let listings: ListingBrowseItem[] = [...DEMO_LISTINGS]
 
 export async function mockGetNearbyListings() {
   return listings
-    .filter((listing) => listing.isAvailable)
+    .filter((listing) => listing.isAvailable && !isDemoBlocked(listing.ownerId))
     .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
 }
 
@@ -449,7 +450,7 @@ export async function mockBrowseListings({
   const normalizedCategory = category?.trim().toLowerCase()
 
   const items = listings
-    .filter((listing) => listing.isAvailable)
+    .filter((listing) => listing.isAvailable && !isDemoBlocked(listing.ownerId))
     .filter((listing) => {
       if (normalizedQuery) {
         const haystack = `${listing.title} ${listing.description} ${listing.category} ${listing.city}`.toLowerCase()
@@ -504,7 +505,9 @@ export async function mockCreateListing(data: CreateListingPayload) {
 
 export async function mockGetListing(id: string) {
   const listing = listings.find((item) => item.id === id)
-  if (!listing) throw new Error('Listing not found.')
+  // Blocked owners' listings 404 like the backend — this also stops demo-mode
+  // bookings and new conversations against them, which go through here.
+  if (!listing || isDemoBlocked(listing.ownerId)) throw new Error('Listing not found.')
   return listing
 }
 

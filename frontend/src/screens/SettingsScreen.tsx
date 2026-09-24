@@ -15,8 +15,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { TERMS_VERSION } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
-import { deleteMyAccount, getMyProfile, updateNotificationPreferences } from '../services/usersApi'
-import { NotificationPreferences } from '../types'
+import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotificationPreferences } from '../services/usersApi'
+import { BlockedUser, NotificationPreferences } from '../types'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
@@ -53,6 +53,8 @@ export default function SettingsScreen() {
   const [error, setError] = useState('')
   const [savingKey, setSavingKey] = useState<keyof NotificationPreferences | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [blocks, setBlocks] = useState<BlockedUser[]>([])
+  const [unblockingId, setUnblockingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user?.id) return
@@ -62,6 +64,8 @@ export default function SettingsScreen() {
       setEmail(profile.email)
       setPrefs(profile.notificationPreferences)
       setTermsAcceptedAt(profile.termsAcceptedAt)
+      // Separate from the profile fetch — a failure here shouldn't blank the page.
+      getMyBlocks().then(setBlocks).catch(() => {})
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load your settings.')
     } finally {
@@ -89,6 +93,27 @@ export default function SettingsScreen() {
     } finally {
       setSavingKey(null)
     }
+  }
+
+  function confirmUnblock(blocked: BlockedUser) {
+    const name = `${blocked.firstName} ${blocked.lastName}`
+    Alert.alert(`Unblock ${name}?`, "You'll see each other's listings and profiles again, and can message and book each other.", [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unblock',
+        onPress: async () => {
+          setUnblockingId(blocked.id)
+          try {
+            await unblockUser(blocked.id)
+            setBlocks((current) => current.filter((b) => b.id !== blocked.id))
+          } catch (err: any) {
+            Alert.alert('Could not unblock', err?.response?.data?.error ?? 'Please try again.')
+          } finally {
+            setUnblockingId(null)
+          }
+        },
+      },
+    ])
   }
 
   function confirmDelete() {
@@ -184,6 +209,37 @@ export default function SettingsScreen() {
               <Text style={styles.footnote}>
                 Verification and account-security alerts are always sent.
               </Text>
+            </View>
+
+            {/* Blocked users */}
+            <View style={styles.panel}>
+              <Text style={styles.panelTitle}>Blocked users</Text>
+              {blocks.length === 0 ? (
+                <Text style={styles.toggleHint}>
+                  You haven't blocked anyone. You can block someone from their profile or from a conversation.
+                </Text>
+              ) : (
+                blocks.map((blocked, index) => (
+                  <View key={blocked.id} style={[styles.toggleRow, index === blocks.length - 1 && styles.toggleRowLast]}>
+                    <View style={styles.toggleTextWrap}>
+                      <Text style={styles.toggleLabel}>{blocked.firstName} {blocked.lastName}</Text>
+                      <Text style={styles.toggleHint}>Blocked {formatLongDate(blocked.blockedAt)}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => confirmUnblock(blocked)}
+                      disabled={unblockingId === blocked.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Unblock ${blocked.firstName} ${blocked.lastName}`}
+                    >
+                      {unblockingId === blocked.id ? (
+                        <ActivityIndicator color={theme.primary} />
+                      ) : (
+                        <Text style={styles.unblockText}>Unblock</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
             </View>
 
             {/* Legal */}
@@ -285,6 +341,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(78, 168, 34, 0.28)',
   },
   linkRowLast: { borderBottomWidth: 0 },
+  unblockText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800', textDecorationLine: 'underline' },
   linkRowText: { color: theme.text, fontSize: 15, fontWeight: '700' },
   linkRowChevron: { color: theme.textMuted, fontSize: 20, fontWeight: '700' },
 })
