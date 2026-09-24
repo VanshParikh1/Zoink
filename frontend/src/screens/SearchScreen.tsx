@@ -55,31 +55,31 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
   const imageUrl = item.images?.[0]?.url
   return (
     <View style={styles.glassCardVerticalWrap}>
-    <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
-      <View style={styles.glassThumbnailLarge}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
-        ) : (
-          <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
-        )}
-        <View style={[styles.availabilityBadge, item.isAvailable ? styles.badgeAvailable : styles.badgeUnavailable]}>
-          <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextUnavailable]}>
-            {item.isAvailable ? 'Available' : 'Paused'}
-          </Text>
+      <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
+        <View style={styles.glassThumbnailLarge}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+          ) : (
+            <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
+          )}
+          <View style={[styles.availabilityBadge, item.isAvailable ? styles.badgeAvailable : styles.badgeUnavailable]}>
+            <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextUnavailable]}>
+              {item.isAvailable ? 'Available' : 'Paused'}
+            </Text>
+          </View>
         </View>
-      </View>
-      
-      <View style={styles.glassCardBody}>
-        <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
-        <MiniProfile owner={item.owner} />
-        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
 
-        <View style={styles.glassCardFooter}>
-          <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
-          <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
+        <View style={styles.glassCardBody}>
+          <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
+          <MiniProfile owner={item.owner} />
+          <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
+
+          <View style={styles.glassCardFooter}>
+            <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
+            <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
     </View>
   )
 }
@@ -88,26 +88,26 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
   const imageUrl = item.images?.[0]?.url
   return (
     <View style={styles.glassCardHorizontalWrap}>
-    <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
-      <View style={styles.glassThumbnailSmall}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
-        ) : (
-          <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
-        )}
-      </View>
-      
-      <View style={styles.glassRowMiddle}>
-        <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
-        <MiniProfile owner={item.owner} />
-        <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
-      </View>
-      
-      <View style={styles.glassRowRight}>
-        <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)}</Text>
-        <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
-      </View>
-    </TouchableOpacity>
+      <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
+        <View style={styles.glassThumbnailSmall}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+          ) : (
+            <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
+          )}
+        </View>
+
+        <View style={styles.glassRowMiddle}>
+          <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
+          <MiniProfile owner={item.owner} />
+          <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
+        </View>
+
+        <View style={styles.glassRowRight}>
+          <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)}</Text>
+          <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
+        </View>
+      </TouchableOpacity>
     </View>
   )
 }
@@ -150,7 +150,7 @@ export default function SearchScreen() {
 
   useEffect(() => {
     const hasText = query.trim().length > 0 || selectedCategory !== 'All'
-    
+
     if (hasText !== isResultsState) {
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -177,19 +177,19 @@ export default function SearchScreen() {
     if (hasText) {
       const timer = setTimeout(() => {
         Location.getLastKnownPositionAsync().then(loc => {
-           browseListings({
-             query: query.trim() || undefined,
-             category: selectedCategory === 'All' ? undefined : selectedCategory,
-             lat: loc?.coords?.latitude,
-             lng: loc?.coords?.longitude,
-             // See trending-fetch comment above — don't let distance silently filter out results.
-             radius: 5000,
-           }).then(res => setResults(res.items)).catch(console.error)
+          browseListings({
+            query: query.trim() || undefined,
+            category: selectedCategory === 'All' ? undefined : selectedCategory,
+            lat: loc?.coords?.latitude,
+            lng: loc?.coords?.longitude,
+            // See trending-fetch comment above — don't let distance silently filter out results.
+            radius: 5000,
+          }).then(res => setResults(res.items)).catch(console.error)
         }).catch(() => {
-           browseListings({
-             query: query.trim() || undefined,
-             category: selectedCategory === 'All' ? undefined : selectedCategory,
-           }).then(res => setResults(res.items)).catch(console.error)
+          browseListings({
+            query: query.trim() || undefined,
+            category: selectedCategory === 'All' ? undefined : selectedCategory,
+          }).then(res => setResults(res.items)).catch(console.error)
         })
       }, 300)
       return () => clearTimeout(timer)
@@ -199,16 +199,16 @@ export default function SearchScreen() {
   }, [query, selectedCategory, isResultsState, fadeAnim, translateAnim])
 
   const handleListingPress = (item: ListingBrowseItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
     Keyboard.dismiss()
 
     // Add to top of recently viewed cache
     sessionRecentlyViewed = sessionRecentlyViewed.filter(i => i.id !== item.id)
     sessionRecentlyViewed.unshift(item)
     if (sessionRecentlyViewed.length > 10) sessionRecentlyViewed.pop()
-    
+
     setRecent([...sessionRecentlyViewed])
-    
+
     nav.navigate('ListingDetail', { listingId: item.id })
   }
 
@@ -228,7 +228,7 @@ export default function SearchScreen() {
             activeOpacity={0.75}
             style={[styles.glassChip, isSelected ? styles.glassChipSelected : styles.glassChipUnselected]}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
               setSelectedCategory(cat)
             }}
           >
@@ -304,7 +304,9 @@ export default function SearchScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
+          <View style={styles.resultRow}>
+            <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
+          </View>
         )}
         contentContainerStyle={styles.idleContent}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -361,7 +363,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 24,
     marginVertical: 4,
   },
-  
+
   /* --- Listing cards (neobrutalist, matches Home) --- */
   glassCardVerticalWrap: {
     width: (SCREEN_WIDTH - 48) * 0.75,
@@ -463,6 +465,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 12,
   },
+  resultRow: {
+    paddingHorizontal: 24,
+  },
   glassCardHorizontalWrap: {
     borderRadius: theme.radius.sm,
     backgroundColor: theme.hard.ink,
@@ -470,7 +475,8 @@ const styles = StyleSheet.create({
   glassCardHorizontal: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     backgroundColor: theme.cardBackground,
     borderRadius: theme.radius.sm,
     borderWidth: theme.hard.border,
