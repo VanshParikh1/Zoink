@@ -158,6 +158,14 @@ export async function createPaymentIntent(
   )
 }
 
+/** Reads a PaymentIntent back from Stripe. Returns null in mock mode (no
+ *  STRIPE_SECRET_KEY), where there is no real PaymentIntent to inspect. */
+export async function retrievePaymentIntent(paymentIntentId: string) {
+  const stripe = getStripe()
+  if (!stripe) return null
+  return stripe.paymentIntents.retrieve(paymentIntentId)
+}
+
 /** Creates and immediately confirms a manual-capture PaymentIntent for the
  *  deposit, off-session, against the payment method the borrower already
  *  attached while confirming the rental PaymentIntent. Called once the

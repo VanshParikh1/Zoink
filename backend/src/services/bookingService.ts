@@ -24,6 +24,8 @@ import {
   getMockAuthorizedPaymentStatus,
   getOrCreateStripeCustomer,
   getPaymentIntentPaymentMethod,
+  getRentalAuthorizationAmount,
+  retrievePaymentIntent,
   toCents,
   toDecimal,
 } from './paymentService'
@@ -120,6 +122,10 @@ const bookingSelect = {
     orderBy: { createdAt: 'asc' as const },
   },
 } satisfies Prisma.BookingSelect
+
+// A previous Pay attempt's PaymentIntent in one of these states has not been
+// authorized yet, so handing its client secret back is equivalent to a fresh one.
+const REUSABLE_PAYMENT_INTENT_STATUSES = ['requires_payment_method', 'requires_confirmation']
 
 export type CreateBookingInput = {
   listingId: string
@@ -442,6 +448,57 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
     throw new ConflictError('This booking is not ready for payment.')
   }
 
+  // Every Pay tap used to mint a fresh PaymentIntent, leaving the previous
+  // attempt's authorization (if the renter got that far) held on their card
+  // for ~7 days. Reuse the previous PaymentIntent when it hasn't been paid yet
+  // and still matches this booking's amount; otherwise retire it before a new
+  // one is created. Its payment_intent.canceled webhook is harmless: once the
+  // new PaymentIntent is installed below it is ignored as superseded, and if
+  // it lands first, the update below resets paymentStatus/refundedAt anyway.
+  if (booking.stripePaymentIntentId) {
+    const previous = await retrievePaymentIntent(booking.stripePaymentIntentId)
+
+    if (previous) {
+      const reusable =
+        REUSABLE_PAYMENT_INTENT_STATUSES.includes(previous.status) &&
+        previous.amount === getRentalAuthorizationAmount(booking) &&
+        previous.currency === (process.env.STRIPE_CURRENCY ?? 'cad') &&
+        previous.metadata?.bookingId === booking.id
+
+      if (reusable) {
+        await prisma.bookingEvent.create({
+          data: {
+            bookingId: booking.id,
+            actorId: renterId,
+            type: BookingEventType.PAYMENT_INTENT_CREATED,
+            metadata: { paymentIntentId: previous.id, status: previous.status, reused: true },
+          },
+        })
+
+        return {
+          ...toBookingResponse(booking, renterId),
+          paymentClientSecret: previous.client_secret ?? null,
+        }
+      }
+
+      if (previous.status === 'succeeded') {
+        // A captured rental payment on an ACCEPTED booking should be
+        // impossible (capture only happens at pickup); never charge twice.
+        throw new ConflictError('This booking has already been paid.')
+      }
+
+      if (previous.status !== 'canceled') {
+        try {
+          await cancelPaymentIntent(booking)
+        } catch {
+          // e.g. still `processing` — Stripe refuses to cancel it. Don't mint a
+          // second PaymentIntent next to one that may yet go through.
+          throw new ConflictError('Your previous payment attempt is still being processed. Please try again in a moment.')
+        }
+      }
+    }
+  }
+
   // A real Stripe Customer is required so the payment method attached here
   // can be saved (setup_future_usage) and reused off-session for the
   // deposit PaymentIntent once this one is confirmed (see
@@ -460,6 +517,9 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
       data: {
         stripePaymentIntentId: paymentIntent.id,
         paymentStatus,
+        // Nothing has been paid before the first confirmed PaymentIntent, so a
+        // refundedAt here can only be a stale stamp from a retired attempt.
+        refundedAt: null,
         version: { increment: 1 },
       },
     })
