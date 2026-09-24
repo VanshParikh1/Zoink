@@ -29,7 +29,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       select: { deletedAt: true, role: true, verificationStatus: true },
     })
   } catch {
-    return res.status(401).json({ error: 'Could not verify this session.' })
+    // A database problem is not a bad session: 401 makes the app delete its
+    // stored token, which would log users out over a transient outage.
+    return res.status(503).json({ error: 'Service temporarily unavailable. Please try again.' })
   }
 
   if (!user || user.deletedAt) {

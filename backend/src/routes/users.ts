@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
+import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
@@ -31,7 +32,7 @@ const upload = multer({
     if (file.mimetype.startsWith('image/')) {
       cb(null, true)
     } else {
-      cb(new Error('Only image files are allowed.'))
+      cb(new BadRequestError('Only image files are allowed.'))
     }
   },
 })
