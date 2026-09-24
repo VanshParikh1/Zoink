@@ -126,11 +126,19 @@ const bookingSelect = {
 // authorized yet, so handing its client secret back is equivalent to a fresh one.
 const REUSABLE_PAYMENT_INTENT_STATUSES = ['requires_payment_method', 'requires_confirmation']
 
-// List endpoints never touch the renter's email / Stripe customer id (those
-// are only read on the payment paths, which load bookingSelect), and
-// toBookingResponse strips them from the response anyway.
+// List endpoints (GET /bookings/me, /bookings/requests). They never touch the
+// renter's email / Stripe customer id (only the payment paths read those, and
+// they load bookingSelect), and toBookingResponse strips them anyway.
 const bookingListSelect = {
   ...bookingSelect,
+  // Every list screen renders only the thumbnail (images[0]); detail screens
+  // re-fetch the booking and get the full gallery.
+  listing: {
+    select: {
+      ...bookingSelect.listing.select,
+      images: { ...bookingSelect.listing.select.images, take: 1 },
+    },
+  },
   renter: {
     select: {
       id: true,

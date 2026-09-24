@@ -79,6 +79,13 @@ const listingSelect = {
   },
 }
 
+// Browse/search and GET /listings/me render only the thumbnail (images[0]);
+// the detail screen re-fetches GET /listings/:id for the full gallery.
+const listingListSelect = {
+  ...listingSelect,
+  images: { ...listingSelect.images, take: 1 },
+}
+
 function toListingResponse(listing: Prisma.ListingGetPayload<{ select: typeof listingSelect }>): ListingResponse {
   return {
     ...listing,
@@ -192,7 +199,7 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
 export async function getMyListings(ownerId: string): Promise<ListingResponse[]> {
   const listings = await prisma.listing.findMany({
     where: { ownerId },
-    select: listingSelect,
+    select: listingListSelect,
   })
 
   if (listings.length === 0) return []
@@ -341,7 +348,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
 
   const listings = await prisma.listing.findMany({
     where: { id: { in: listingIds } },
-    select: listingSelect,
+    select: listingListSelect,
   })
 
   const listingById = new Map(listings.map((listing) => [listing.id, listing]))

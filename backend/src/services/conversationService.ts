@@ -65,7 +65,18 @@ const conversationSelect = {
 // (see withLastMessageAndAcceptedBooking): for more than one parent row,
 // Prisma runs a nested `take: 1` as `WHERE "conversationId" IN (...)` with no
 // LIMIT, reading every message of every conversation to keep one each.
-const { messages: _messages, bookings: _bookings, ...conversationListSelect } = conversationSelect
+const { messages: _messages, bookings: _bookings, ...conversationBaseSelect } = conversationSelect
+// The inbox renders only the listing thumbnail (images[0]); the thread screen
+// re-fetches GET /conversations/:id, which keeps every image.
+const conversationListSelect = {
+  ...conversationBaseSelect,
+  listing: {
+    select: {
+      ...conversationBaseSelect.listing.select,
+      images: { ...conversationBaseSelect.listing.select.images, take: 1 },
+    },
+  },
+}
 
 type LastMessageRow = { id: string; body: string; senderId: string; createdAt: Date; conversationId: string }
 
