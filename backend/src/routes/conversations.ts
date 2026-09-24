@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
+import { messageLimiter } from '../middleware/rateLimiter'
 import { SendMessageSchema } from '../schemas/conversation.schema'
 import {
   getConversationById,
@@ -20,7 +21,7 @@ router.post('/', openConversation)
 router.get('/me', getMyConversations)
 router.get('/:id', getConversationById)
 router.get('/:id/messages', getConversationMessages)
-router.post('/:id/messages', validate(SendMessageSchema), sendMessage)
+router.post('/:id/messages', messageLimiter, validate(SendMessageSchema), sendMessage)
 router.post('/:id/read', markConversationRead)
 
 export default router

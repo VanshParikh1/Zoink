@@ -87,3 +87,33 @@ export const globalLimiter = buildGlobalLimiter({
   authenticatedLimit: 1200,
   anonymousLimit: 300,
 })
+
+// Per-user caps on write actions that notify or cost something per call. Mount
+// AFTER requireAuth: keyed by the authenticated user id it sets. One instance
+// per bucket, so routes sharing an instance share the count.
+export function buildUserLimiter(name: string, options: { windowMs: number; limit: number }) {
+  return rateLimit({
+    windowMs: options.windowMs,
+    limit: options.limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+      const userId = (req as any).userId as string | undefined
+      return userId ? `${name}:${userId}` : `${name}:ip:${ipKey(req)}`
+    },
+    handler: rateLimitHandler,
+  })
+}
+
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+export const messageLimiter = buildUserLimiter('messages', { windowMs: MINUTE, limit: 60 })
+export const bookingRequestLimiter = buildUserLimiter('booking-requests', { windowMs: HOUR, limit: 20 })
+export const reportLimiter = buildUserLimiter('reports', { windowMs: DAY, limit: 10 })
+export const disputeLimiter = buildUserLimiter('disputes', { windowMs: DAY, limit: 10 })
+// Avatar, listing photo and handoff photo uploads share one budget.
+export const uploadLimiter = buildUserLimiter('uploads', { windowMs: HOUR, limit: 30 })
+// Blocking and unblocking share one budget.
+export const blockLimiter = buildUserLimiter('blocks', { windowMs: HOUR, limit: 30 })

@@ -3,6 +3,7 @@ import multer from 'multer'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
+import { uploadLimiter } from '../middleware/rateLimiter'
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -47,7 +48,7 @@ router.post('/', requireAuth, requireVerified, validate(CreateListingSchema), cr
 router.patch('/:id', requireAuth, requireVerified, validate(UpdateListingSchema), updateListing)
 router.patch('/:id/availability', requireAuth, requireVerified, validate(ToggleAvailabilitySchema), toggleAvailability)
 router.delete('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), deleteListing)
-router.post('/:id/images', requireAuth, requireVerified, validate(ListingIdParamsSchema), upload.single('image'), uploadListingImage)
+router.post('/:id/images', requireAuth, requireVerified, uploadLimiter, validate(ListingIdParamsSchema), upload.single('image'), uploadListingImage)
 router.delete('/:id/images/:imageId', requireAuth, requireVerified, validate(ListingImageParamsSchema), deleteListingImage)
 
 export default router
