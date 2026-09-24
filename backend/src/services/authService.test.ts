@@ -115,3 +115,31 @@ test('registerUser rejects a stale acceptedPrivacyVersion with 400 and never cre
 
   assert.equal(createCalled, false, 'prisma.user.create must not run when the privacy version is stale')
 })
+
+test('registerUser responds without waiting for the verification email to send', async () => {
+  stubHappyPathCollaborators(() => {})
+  let sendCalled = false
+  // An SES call that never settles — sign-up must not block on it.
+  ;(SESClient.prototype as any).send = () => {
+    sendCalled = true
+    return new Promise(() => {})
+  }
+
+  const outcome = await Promise.race([
+    registerUser(
+      'student@mail.utoronto.ca',
+      'password123',
+      'Ada',
+      'Lovelace',
+      '+14165550192',
+      'UOFT',
+      CURRENT_TERMS_VERSION,
+      CURRENT_PRIVACY_VERSION,
+      true
+    ).then(() => 'registered'),
+    new Promise((resolve) => setTimeout(() => resolve('timed out'), 1000)),
+  ])
+
+  assert.equal(outcome, 'registered')
+  assert.equal(sendCalled, true, 'the verification email is still sent')
+})

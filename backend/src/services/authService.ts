@@ -94,8 +94,10 @@ export async function registerUser(
     data: { userId: user.id, code, expiresAt },
   })
 
-  // 6. Send OTP email (stubbed until SES is configured)
-  await sendVerificationEmail(user.email, user.firstName, code)
+  // 6. Send the OTP email in the background. sendVerificationEmail never
+  // rejects (it logs SES failures itself), and the user can always resend
+  // from the verification screen, so sign-up doesn't wait on SES latency.
+  void sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
   const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
