@@ -14,6 +14,9 @@ if (process.env.NODE_ENV !== 'test') {
   dotenv.config()
 }
 
+import { assertSafeProductionConfig } from './config/productionGuards'
+assertSafeProductionConfig()
+
 // Must be imported (and thus initialized) before anything else below so
 // Sentry is capturing from the earliest possible point in the app.
 import './instrument'
