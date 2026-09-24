@@ -61,6 +61,55 @@ const conversationSelect = {
   ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
 
+// The inbox list loads the last message and accepted-unpaid booking separately
+// (see withLastMessageAndAcceptedBooking): for more than one parent row,
+// Prisma runs a nested `take: 1` as `WHERE "conversationId" IN (...)` with no
+// LIMIT, reading every message of every conversation to keep one each.
+const { messages: _messages, bookings: _bookings, ...conversationListSelect } = conversationSelect
+
+type LastMessageRow = { id: string; body: string; senderId: string; createdAt: Date; conversationId: string }
+
+async function withLastMessageAndAcceptedBooking<T extends { id: string }>(conversations: T[]) {
+  if (conversations.length === 0) return []
+  const ids = conversations.map((conversation) => conversation.id)
+
+  const [lastMessages, acceptedBookings] = await Promise.all([
+    // One row per conversation, served by messages(conversationId, createdAt).
+    prisma.$queryRaw<LastMessageRow[]>`
+      SELECT DISTINCT ON ("conversationId") "id", "body", "senderId", "createdAt", "conversationId"
+      FROM "messages"
+      WHERE "conversationId" IN (${Prisma.join(ids)})
+      ORDER BY "conversationId", "createdAt" DESC, "id" DESC
+    `,
+    // Same ordering the nested `bookings: { take: 1 }` select used (id ASC).
+    prisma.booking.findMany({
+      where: { conversationId: { in: ids }, status: 'ACCEPTED' },
+      select: { id: true, conversationId: true },
+      orderBy: { id: 'asc' },
+    }),
+  ])
+
+  const lastMessageByConversation = new Map(
+    lastMessages.map(({ conversationId, ...message }) => [conversationId, message])
+  )
+  const acceptedBookingByConversation = new Map<string, { id: string }>()
+  for (const booking of acceptedBookings) {
+    if (booking.conversationId && !acceptedBookingByConversation.has(booking.conversationId)) {
+      acceptedBookingByConversation.set(booking.conversationId, { id: booking.id })
+    }
+  }
+
+  return conversations.map((conversation) => {
+    const lastMessage = lastMessageByConversation.get(conversation.id)
+    const acceptedBooking = acceptedBookingByConversation.get(conversation.id)
+    return {
+      ...conversation,
+      messages: lastMessage ? [lastMessage] : [],
+      bookings: acceptedBooking ? [acceptedBooking] : [],
+    }
+  })
+}
+
 const messageInclude = {
   sender: {
     select: {
@@ -173,11 +222,12 @@ export async function getMyConversations(currentUserId: string): Promise<Convers
         ? { NOT: [{ renterId: { in: blockedIds } }, { ownerId: { in: blockedIds } }] }
         : {}),
     },
-    select: conversationSelect as any,
+    select: conversationListSelect,
     orderBy: { createdAt: 'desc' },
   })
 
-  return conversations.map((conversation: any) => toConversationSummary(conversation, currentUserId))
+  const withLatest = await withLastMessageAndAcceptedBooking(conversations)
+  return withLatest.map((conversation) => toConversationSummary(conversation, currentUserId))
 }
 
 // "In flight" for the chat header: any booking that still needs either party
