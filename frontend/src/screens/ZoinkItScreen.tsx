@@ -264,7 +264,7 @@ export default function ZoinkItScreen() {
 
     setSaving(true)
     try {
-      const uploaded = await Promise.all(pickerUris.map((uri) => uploadHandoffPhotoImage(bookingId, uri)))
+      const uploaded = await Promise.all(pickerUris.map((uri) => uploadHandoffPhotoImage(bookingId, uri, mode)))
       const updated = await initiateHandoff(bookingId, mode, uploaded)
       setBooking(updated)
       setPickerUris([])

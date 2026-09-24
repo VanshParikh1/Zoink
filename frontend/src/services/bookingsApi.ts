@@ -6,12 +6,15 @@ import {
   mockAcceptBooking,
   mockCancelBooking,
   mockConfirmBookingPayment,
+  mockConfirmHandoff,
   mockCreateBooking,
   mockCreateBookingPaymentIntent,
   mockDeclineBooking,
   mockGetBooking,
   mockGetIncomingRequests,
   mockGetMyBookings,
+  mockInitiateHandoff,
+  mockUploadHandoffPhoto,
 } from './mockWeek6'
 
 // insuranceOptIn deliberately omitted — Zoink offers no insurance product at
@@ -83,14 +86,14 @@ export function cancelBooking(id: string) {
 }
 
 export async function initiateHandoff(id: string, phase: 'pickup' | 'return', photos: string[]): Promise<Booking> {
-  if (DEMO_MODE) return mockGetBooking(id)
+  if (DEMO_MODE) return mockInitiateHandoff(id, phase, photos)
 
   const res = await api.post(`/bookings/${id}/${phase}/initiate`, { photos })
   return res.data
 }
 
-export async function uploadHandoffPhotoImage(id: string, uri: string): Promise<string> {
-  if (DEMO_MODE) return 'https://demo-image-url.com/photo.jpg'
+export async function uploadHandoffPhotoImage(id: string, uri: string, phase: 'pickup' | 'return'): Promise<string> {
+  if (DEMO_MODE) return mockUploadHandoffPhoto(phase)
 
   const formData = new FormData()
 
@@ -108,7 +111,7 @@ export type HandoffConfirmResult = {
 
 export async function confirmHandoff(id: string, phase: 'pickup' | 'return'): Promise<HandoffConfirmResult> {
   if (DEMO_MODE) {
-    return { bothConfirmed: true, booking: await mockGetBooking(id) }
+    return mockConfirmHandoff(id, phase)
   }
 
   const res = await api.post(`/bookings/${id}/${phase}/confirm`)

@@ -48,9 +48,28 @@ function rentalDays(startIso: string, endIso: string) {
 const HANDOFF_PHOTOS = {
   pickupA: 'https://images.unsplash.com/photo-1519183071298-a2962feb14f4?auto=format&fit=crop&w=1200&q=80',
   pickupB: 'https://images.unsplash.com/photo-1607083206869-4c7672e72a8a?auto=format&fit=crop&w=1200&q=80',
+  pickupC: 'https://images.unsplash.com/photo-1495707902641-75cac588d2e9?auto=format&fit=crop&w=1200&q=80',
   returnA: 'https://images.unsplash.com/photo-1483058712412-4245e9b90334?auto=format&fit=crop&w=1200&q=80',
   returnB: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80',
+  returnC: 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=1200&q=80',
 } as const
+
+// Real captured photos never make it out of DEMO_MODE (uploadHandoffPhotoImage
+// has no backend to persist to), so ZoinkItScreen's "submit photos" step needs
+// stand-ins that actually resolve, cycling per phase so a 2-3 photo submission
+// doesn't render the same image (and duplicate React key) twice.
+const UPLOAD_POOL: Record<'pickup' | 'return', string[]> = {
+  pickup: [HANDOFF_PHOTOS.pickupA, HANDOFF_PHOTOS.pickupB, HANDOFF_PHOTOS.pickupC],
+  return: [HANDOFF_PHOTOS.returnA, HANDOFF_PHOTOS.returnB, HANDOFF_PHOTOS.returnC],
+}
+let uploadCounter = 0
+
+export function mockUploadHandoffPhoto(phase: 'pickup' | 'return'): string {
+  const pool = UPLOAD_POOL[phase]
+  const url = pool[uploadCounter % pool.length]
+  uploadCounter += 1
+  return url
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Demo bookings — five BookingStatus values represented on BOTH sides of the
@@ -185,6 +204,18 @@ const BOOKING_SEEDS: BookingSeed[] = [
     paymentStatus: 'AUTHORIZED',
     depositStatus: 'AUTHORIZED',
     paidAt: daysFromNow(-1),
+  },
+  {
+    id: 'demo-booking-o6',
+    listingId: 'demo-listing-12', // Shure mics — demo-user-1
+    renterId: 'demo-user-8',
+    status: 'CONFIRMED',
+    startDate: daysFromNow(0),
+    endDate: daysFromNow(1),
+    createdAt: hoursFromNow(-5),
+    paymentStatus: 'AUTHORIZED',
+    depositStatus: 'AUTHORIZED',
+    paidAt: hoursFromNow(-5),
   },
   {
     id: 'demo-booking-o4',
@@ -576,6 +607,42 @@ export async function mockDeclineBooking(id: string) {
 
 export async function mockCancelBooking(id: string) {
   return updateBookingStatus(id, 'CANCELLED')
+}
+
+export async function mockInitiateHandoff(id: string, phase: 'pickup' | 'return', photos: string[]) {
+  const booking = bookings.find((item) => item.id === id)
+  if (!booking) throw new Error('Booking not found.')
+
+  const startStatus: BookingStatus = phase === 'pickup' ? 'CONFIRMED' : 'ACTIVE'
+  const pendingPhase: BookingStatus = phase === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
+  const isFirstSubmission = booking.status === startStatus
+
+  if (phase === 'pickup') {
+    booking.pickupPhotos = photos
+  } else {
+    booking.returnPhotos = photos
+  }
+
+  if (isFirstSubmission) {
+    booking.status = pendingPhase
+    if (phase === 'pickup') {
+      booking.handoffInitiatedAt = new Date().toISOString()
+    } else {
+      booking.returnInitiatedAt = new Date().toISOString()
+    }
+  }
+
+  booking.version += 1
+  return booking
+}
+
+export async function mockConfirmHandoff(id: string, phase: 'pickup' | 'return') {
+  const nextStatus: BookingStatus = phase === 'pickup' ? 'ACTIVE' : 'COMPLETED'
+  const booking = updateBookingStatus(id, nextStatus)
+  if (phase === 'return') {
+    booking.completedAt = new Date().toISOString()
+  }
+  return { bothConfirmed: true, booking }
 }
 
 export async function mockGetPendingReviews() {
