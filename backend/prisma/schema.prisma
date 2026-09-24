@@ -116,6 +116,8 @@ model Listing {
   images        ListingImage[]
   owner         User           @relation(fields: [ownerId], references: [id])
 
+  // GET /listings/me.
+  @@index([ownerId])
   @@map("listings")
 }
 
@@ -127,6 +129,8 @@ model ListingImage {
   createdAt DateTime @default(now())
   listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
+  // Every listing card/detail loads its images ordered by position.
+  @@index([listingId, order])
   @@map("listing_images")
 }
 
@@ -209,6 +213,8 @@ model BookingEvent {
   createdAt DateTime         @default(now())
   booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
+  // Admin booking timeline; grows with every webhook and status change.
+  @@index([bookingId, createdAt])
   @@map("booking_events")
 }
 
@@ -313,6 +319,8 @@ model ReviewObligation {
   user              User                   @relation("ReviewObligations", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([bookingId, userId])
+  // GET /reviews/pending (checked on every app start).
+  @@index([userId, status])
   @@map("review_obligations")
 }
 
@@ -358,6 +366,8 @@ model VerificationToken {
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // verifyOTP / resendOTP: latest token per user.
+  @@index([userId, createdAt])
   @@map("verification_tokens")
 }
 
