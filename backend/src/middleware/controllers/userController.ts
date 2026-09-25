@@ -98,7 +98,7 @@ export const updatePushToken = asyncHandler(async (req: Request, res: Response) 
 export const onboardStripeConnect = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId
   const existingAccountId = await userService.getStripeAccountId(userId)
-  const { accountId, url } = await paymentService.createConnectAccountLink(existingAccountId)
+  const { accountId, url } = await paymentService.createConnectAccountLink(existingAccountId, userId)
   
   if (accountId && accountId !== existingAccountId) {
     await userService.updateStripeAccountId(userId, accountId)
