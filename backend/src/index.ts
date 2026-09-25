@@ -63,7 +63,9 @@ const PORT = process.env.PORT || 3000
 app.set('trust proxy', 1)
 
 app.use(helmet())
-app.use(cors())
+// The API only serves the native app, which isn't subject to CORS, so no
+// browser origin is granted access (this used to answer every origin with *).
+app.use(cors({ origin: false }))
 // Stripe webhook is authenticated via signature, not by rate limit — keep it
 // exempt so a burst of legitimate webhook deliveries/retries never gets
 // dropped by the blanket limiter below.
