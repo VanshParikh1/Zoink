@@ -129,3 +129,11 @@ test('production global limiter lets a signed-in user keep polling past the old 
     server.close()
   }
 })
+
+test('global limiter treats a token signed with another HMAC algorithm as anonymous', async () => {
+  const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
+  const hs512 = jwt.sign({ userId: 'user-hs512' }, process.env.JWT_SECRET!, { algorithm: 'HS512' })
+
+  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 200)
+  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 429)
+})

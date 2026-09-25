@@ -20,7 +20,7 @@ function bearerUserId(req: Request): string | undefined {
   if (authHeader?.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice('Bearer '.length)
-      const payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId?: string }
+      const payload = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as { userId?: string }
       userId = payload.userId ?? null
     } catch {
       userId = null

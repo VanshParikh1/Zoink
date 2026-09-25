@@ -46,7 +46,8 @@ export function signJWT(
   return jwt.sign(
     { userId, verificationStatus, email, firstName, role, termsVersion, privacyVersion },
     process.env.JWT_SECRET!,
-    { expiresIn: '30d' }
+    // Verification (requireAuth, rateLimiter) accepts HS256 only.
+    { algorithm: 'HS256', expiresIn: '30d' }
   )
 }
 

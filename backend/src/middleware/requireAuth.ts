@@ -12,11 +12,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   let payload: { userId: string; verificationStatus: string; role: string }
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string; verificationStatus: string; role: string }
+    payload = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as { userId: string; verificationStatus: string; role: string }
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token.' })
   }
 
+  // TODO(auth): tokens can't be revoked before their 30-day expiry (logout,
+  // password change, compromise). Token versioning — a users.tokenVersion
+  // claim checked here and bumped on those events — was deferred; see the
+  // perf/security audit.
+  //
   // Stateless JWTs can't be revoked, so this one narrow lookup per authed
   // request is also where role and verificationStatus are resolved: they come
   // from the live DB row, not the 30-day token, so a revoked admin (or a
