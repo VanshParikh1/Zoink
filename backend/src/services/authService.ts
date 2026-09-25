@@ -17,6 +17,12 @@ import type { University } from '@zoink/shared'
 // Wrong guesses allowed per code before it's spent (see verifyOTP).
 const MAX_OTP_ATTEMPTS = 5
 
+// A bcrypt hash of a throwaway string, at the same cost (12) as real password
+// hashes. Login compares against it when the email has no live account, so a
+// miss takes as long as a wrong password and response time doesn't reveal
+// which emails are registered.
+const TIMING_EQUALIZER_HASH = '$2b$12$arzA7SjXbBjFXvShAaRZdeuGCkXBXgoJDsqg8e522bgTMtNQ3sehK'
+
 function codesMatch(expected: string, received: string): boolean {
   const a = Buffer.from(expected)
   const b = Buffer.from(received)
@@ -121,6 +127,7 @@ export async function loginUser(email: string, password: string) {
   if (!user || user.deletedAt) {
     // A soft-deleted account's email is rewritten to a tombstone so this
     // lookup normally misses anyway; the deletedAt check is belt-and-braces.
+    await bcrypt.compare(password, TIMING_EQUALIZER_HASH)
     throw new UnauthorizedError('Invalid email or password.')
   }
 

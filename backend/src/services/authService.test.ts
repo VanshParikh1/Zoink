@@ -6,7 +6,7 @@ import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret'
 
-import { registerUser } from './authService'
+import { loginUser, registerUser } from './authService'
 
 const originalFindUnique = prisma.user.findUnique
 const originalCreate = prisma.user.create
@@ -175,4 +175,26 @@ test('a failed verification email never logs the code in production', { timeout:
 
   assert.ok(warnings.some((w) => w.includes('SES verification email failed')), 'the failure is still logged')
   assert.ok(warnings.every((w) => !/\b\d{6}\b/.test(w) && !w.includes('student@')), `no code or email logged: ${warnings.join(' | ')}`)
+})
+
+test('loginUser spends a bcrypt comparison even when the email has no account', async () => {
+  const bcrypt = require('bcryptjs')
+  const originalCompare = bcrypt.compare
+  const compared: string[] = []
+  bcrypt.compare = async (_password: string, hash: string) => {
+    compared.push(hash)
+    return false
+  }
+  try {
+    ;(prisma.user as any).findUnique = async () => null
+    await assert.rejects(loginUser('nobody@mail.utoronto.ca', 'password123'), { statusCode: 401, message: 'Invalid email or password.' })
+
+    ;(prisma.user as any).findUnique = async () => ({ id: 'u', passwordHash: '$2b$12$realhash', deletedAt: new Date() })
+    await assert.rejects(loginUser('gone@mail.utoronto.ca', 'password123'), { statusCode: 401, message: 'Invalid email or password.' })
+  } finally {
+    bcrypt.compare = originalCompare
+  }
+
+  assert.equal(compared.length, 2, 'unknown and deleted accounts still pay for one bcrypt comparison')
+  for (const hash of compared) assert.match(hash, /^\$2[aby]\$12\$/, 'at the same cost as real password hashes')
 })
