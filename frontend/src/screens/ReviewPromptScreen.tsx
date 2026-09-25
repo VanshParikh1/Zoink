@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'

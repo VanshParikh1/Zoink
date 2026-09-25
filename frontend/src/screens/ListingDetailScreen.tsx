@@ -13,7 +13,7 @@ import {
   FlatList,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'

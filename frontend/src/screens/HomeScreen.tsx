@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
