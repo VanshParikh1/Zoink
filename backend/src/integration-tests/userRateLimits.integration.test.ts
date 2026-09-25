@@ -12,7 +12,8 @@
 
 import test, { beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import supertest from 'supertest'
+import { once } from 'events'
+import type { AddressInfo } from 'net'
 import {
   truncateAllTables,
   createTestUser,
@@ -41,7 +42,30 @@ after(async () => {
   await disconnectTestPrisma()
 })
 
-type Call = (token: string) => supertest.Test
+type Reply = { status: number; body: any }
+type Call = (token: string) => Promise<Reply>
+
+// Plain fetch keeps one pooled keep-alive connection; supertest opens a new
+// TCP connection per request, and these tests send ~200 of them.
+async function send(method: string, path: string, token: string, body?: unknown): Promise<Reply> {
+  const server = getApp()
+  if (!server.listening) await once(server, 'listening')
+  const { port } = server.address() as AddressInfo
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  const text = await res.text()
+  let parsed: any = text
+  try {
+    parsed = JSON.parse(text)
+  } catch {}
+  return { status: res.status, body: parsed }
+}
 
 async function exhaust(call: Call, token: string, limit: number) {
   for (let i = 0; i < limit; i++) {
@@ -53,29 +77,23 @@ async function exhaust(call: Call, token: string, limit: number) {
   assert.equal(blocked.body.error, 'Too many requests. Please try again later.')
 }
 
-const app = () => supertest(getApp())
-
 describe('per-user write limits', () => {
   test('messages: 60 per minute', async () => {
-    const send: Call = (token) =>
-      app().post(`/conversations/${conversationId}/messages`).set('Authorization', `Bearer ${token}`).send({ body: 42 })
-    await exhaust(send, user.token, 60)
+    const message: Call = (token) => send('POST', `/conversations/${conversationId}/messages`, token, { body: 42 })
+    await exhaust(message, user.token, 60)
 
-    const otherUser = await app()
-      .post(`/conversations/${conversationId}/messages`)
-      .set('Authorization', `Bearer ${other.token}`)
-      .send({ body: 'still fine' })
+    const otherUser = await send('POST', `/conversations/${conversationId}/messages`, other.token, { body: 'still fine' })
     assert.equal(otherUser.status, 201, 'another user has their own budget')
   })
 
   test('booking requests: 20 per hour', async () => {
-    const request: Call = (token) => app().post('/bookings').set('Authorization', `Bearer ${token}`).send({})
+    const request: Call = (token) => send('POST', '/bookings', token, {})
     await exhaust(request, other.token, 20)
   })
 
   test('reports and disputes: 10 per day each, counted separately', async () => {
-    const report: Call = (token) => app().post('/reports').set('Authorization', `Bearer ${token}`).send({})
-    const dispute: Call = (token) => app().post('/disputes').set('Authorization', `Bearer ${token}`).send({})
+    const report: Call = (token) => send('POST', '/reports', token, {})
+    const dispute: Call = (token) => send('POST', '/disputes', token, {})
 
     await exhaust(report, user.token, 10)
     const firstDispute = await dispute(user.token)
@@ -84,10 +102,10 @@ describe('per-user write limits', () => {
   })
 
   test('uploads: 30 per hour, shared across avatar, listing and handoff photos', async () => {
-    const avatar: Call = (token) => app().post('/users/me/avatar').set('Authorization', `Bearer ${token}`)
+    const avatar: Call = (token) => send('POST', '/users/me/avatar', token)
     await exhaust(avatar, user.token, 30)
 
-    const listingPhoto = await app().post(`/listings/${listingId}/images`).set('Authorization', `Bearer ${user.token}`)
+    const listingPhoto = await send('POST', `/listings/${listingId}/images`, user.token)
     assert.equal(listingPhoto.status, 429, 'listing photo uploads draw from the same budget')
   })
 
@@ -95,8 +113,7 @@ describe('per-user write limits', () => {
     let flip = false
     const toggle: Call = (token) => {
       flip = !flip
-      const req = flip ? app().post(`/users/${other.id}/block`) : app().delete(`/users/${other.id}/block`)
-      return req.set('Authorization', `Bearer ${token}`)
+      return send(flip ? 'POST' : 'DELETE', `/users/${other.id}/block`, token)
     }
     await exhaust(toggle, user.token, 30)
   })

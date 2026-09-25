@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
 import jwt from 'jsonwebtoken'
+import { once } from 'events'
+import type { AddressInfo } from 'net'
 import { buildGlobalLimiter, buildLimiter, globalLimiter } from './rateLimiter'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret-for-rate-limiter-tests'
@@ -104,21 +106,26 @@ test('global limiter treats a forged token as anonymous', async () => {
 })
 
 test('production global limiter lets a signed-in user keep polling past the old 300-request cap', async () => {
-  // One listening server for all 316 requests: request(app) binds a fresh
-  // ephemeral port per call, and at this volume a recycled port can collide
-  // with another local process.
+  // Plain fetch over one pooled keep-alive connection: supertest opens a new
+  // TCP connection per request, and at 316 of them an occasional loopback
+  // connection on this machine is picked up by an unrelated local process.
   const server = buildGlobalTestApp(globalLimiter).listen(0, '127.0.0.1')
-  const token = tokenFor('user-chatting')
+  await once(server, 'listening')
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/ping`
+  const headers = { Authorization: `Bearer ${tokenFor('user-chatting')}` }
 
   try {
     // 3 requests every 4s for 7 minutes = 315 — build 5's open-chat poll.
     for (let i = 0; i < 315; i++) {
-      const res = await request(server).get('/ping').set('Authorization', `Bearer ${token}`)
+      const res = await fetch(url, { headers })
+      await res.arrayBuffer()
       assert.equal(res.status, 200, `request ${i + 1} should not be rate limited`)
     }
-    const res = await request(server).get('/ping').set('Authorization', `Bearer ${token}`)
-    assert.equal(res.headers['ratelimit-limit'], '1200')
+    const res = await fetch(url, { headers })
+    await res.arrayBuffer()
+    assert.equal(res.headers.get('ratelimit-limit'), '1200')
   } finally {
+    server.closeAllConnections()
     server.close()
   }
 })
