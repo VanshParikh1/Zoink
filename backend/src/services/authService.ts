@@ -277,9 +277,12 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
   try {
     await sesClient.send(command)
   } catch (err: any) {
-    // SES failed (sandbox restrictions, missing config, etc.)
-    // Log the OTP so local dev is never blocked
-    console.warn(`[DEV] SES send failed: ${err?.message ?? err}`)
-    console.warn(`[DEV] OTP for ${email}: ${code}`)
+    // SES failed (sandbox restrictions, missing config, etc.). Outside
+    // production the code is logged so local dev is never blocked; in
+    // production it must never reach logs (or Sentry breadcrumbs).
+    console.warn(`SES verification email failed: ${err?.message ?? err}`)
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[DEV] OTP for ${email}: ${code}`)
+    }
   }
 }

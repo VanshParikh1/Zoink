@@ -143,3 +143,36 @@ test('registerUser responds without waiting for the verification email to send',
   assert.ok(result.token)
   assert.equal(sendCalled, true, 'the verification email is still sent')
 })
+
+test('a failed verification email never logs the code in production', { timeout: 20_000 }, async () => {
+  stubHappyPathCollaborators(() => {})
+  ;(SESClient.prototype as any).send = async () => {
+    throw new Error('Email address is not verified.')
+  }
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  const originalEnv = process.env.NODE_ENV
+  console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')) }
+  process.env.NODE_ENV = 'production'
+  try {
+    await registerUser(
+      'student@mail.utoronto.ca',
+      'password123',
+      'Ada',
+      'Lovelace',
+      '+14165550192',
+      'UOFT',
+      CURRENT_TERMS_VERSION,
+      CURRENT_PRIVACY_VERSION,
+      true
+    )
+    // The send runs in the background; let it settle.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  } finally {
+    console.warn = originalWarn
+    process.env.NODE_ENV = originalEnv
+  }
+
+  assert.ok(warnings.some((w) => w.includes('SES verification email failed')), 'the failure is still logged')
+  assert.ok(warnings.every((w) => !/\b\d{6}\b/.test(w) && !w.includes('student@')), `no code or email logged: ${warnings.join(' | ')}`)
+})
