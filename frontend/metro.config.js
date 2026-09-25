@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config')
+const { withSentryFeedbackResolver, withSentryResolver } = require('@sentry/react-native/metro')
 const path = require('path')
 
 const projectRoot = __dirname
@@ -25,4 +26,8 @@ config.resolver = {
   sourceExts: [...config.resolver.sourceExts, 'svg'],
 }
 
-module.exports = config
+// @sentry/react-native pulls in the browser SDK's Session Replay and
+// user-feedback packages, which Zoink doesn't enable (see Sentry.init in
+// App.tsx). These are the SDK's own includeWebReplay / includeWebFeedback
+// switches: those packages resolve to empty modules instead of shipping.
+module.exports = withSentryFeedbackResolver(withSentryResolver(config, false), false)
