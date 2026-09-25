@@ -11,6 +11,7 @@ import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import { formatLongDate } from '../utils/formatDate'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -163,7 +164,7 @@ export default function ReviewPromptScreen() {
         <View style={styles.card}>
           <View style={styles.itemPreviewRow}>
             {listingImageUrl ? (
-              <Image source={{ uri: listingImageUrl }} style={styles.itemThumbnail} />
+              <Image source={{ uri: fillImageUrl(listingImageUrl, { width: 56, height: 56 }) }} style={styles.itemThumbnail} />
             ) : (
               <View style={styles.itemThumbnailPlaceholder}>
                 <Text style={styles.itemThumbnailEmoji}>{review.booking.listing.category || '📦'}</Text>

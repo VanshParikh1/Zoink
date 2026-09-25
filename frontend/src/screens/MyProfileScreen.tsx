@@ -30,6 +30,7 @@ import ZoinkButton from '../components/ZoinkButton'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import ZoinkLogo from '../components/ZoinkLogo'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -301,7 +302,7 @@ export default function MyProfileScreen() {
                   }}
                 >
                   {profile.avatarUrl ? (
-                    <Image source={{ uri: profile.avatarUrl }} style={styles.avatarLarge} />
+                    <Image source={{ uri: fillImageUrl(profile.avatarUrl, { width: 88, height: 88 }) }} style={styles.avatarLarge} />
                   ) : (
                     <View style={styles.avatarLargeFallback}>
                       <Text style={styles.avatarLargeFallbackText}>{initials}</Text>

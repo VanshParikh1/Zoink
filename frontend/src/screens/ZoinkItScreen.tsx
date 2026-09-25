@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import ZoinkLogo from '../components/ZoinkLogo'
 import BackButton from '../components/BackButton'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -385,7 +386,7 @@ export default function ZoinkItScreen() {
               activeOpacity={0.85}
               onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
             >
-              <Image source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+              <Image source={{ uri: fillImageUrl(url, { width: 84, height: 84 }) }} style={styles.existingPhoto} resizeMode="cover" />
             </TouchableOpacity>
           ))}
         </View>

@@ -28,6 +28,7 @@ import BackButton from '../components/BackButton'
 import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -237,7 +238,7 @@ export default function ConversationThreadScreen() {
             </View>
 
             {headerImageUrl ? (
-              <Image source={{ uri: headerImageUrl }} style={styles.headerThumb} />
+              <Image source={{ uri: fillImageUrl(headerImageUrl, { width: 56, height: 56 }) }} style={styles.headerThumb} />
             ) : (
               <View style={[styles.headerThumb, styles.headerThumbPlaceholder]}>
                 <Feather name="image" size={16} color={theme.textDisabled} />

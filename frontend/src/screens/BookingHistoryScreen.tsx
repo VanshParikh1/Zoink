@@ -10,6 +10,7 @@ import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import { isLiveBooking } from '../utils/sortBookings'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -112,7 +113,7 @@ export default function BookingHistoryScreen() {
                     style={styles.activeCard}
                     onPress={() => nav.navigate('ActiveRental', { bookingId: item.id })}
                   >
-                    {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.activeImage} /> : <View style={styles.activeImageFallback} />}
+                    {imageUrl ? <Image source={{ uri: fillImageUrl(imageUrl, { width: 76, height: 76 }) }} style={styles.activeImage} /> : <View style={styles.activeImageFallback} />}
                     <View style={styles.activeContent}>
                       <Text style={styles.activeTitle} numberOfLines={1}>{item.listing.title}</Text>
                       <Text style={styles.activeMeta}>{formatDateRange(item.startDate, item.endDate)}</Text>
@@ -159,7 +160,7 @@ export default function BookingHistoryScreen() {
                 onPress={() => nav.navigate('BookingDetail', { bookingId: item.id })}
               >
                 {imageUrl ? (
-                  <Image source={{ uri: imageUrl }} style={styles.thumbnail} />
+                  <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={styles.thumbnail} />
                 ) : (
                   <View style={[styles.thumbnail, styles.thumbnailFallback]}>
                     <Text style={styles.thumbnailEmoji}>{item.listing.category || '📦'}</Text>

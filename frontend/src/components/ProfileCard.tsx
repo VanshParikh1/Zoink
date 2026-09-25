@@ -3,6 +3,7 @@ import { Image, StyleSheet, Text, View } from 'react-native'
 import { MyProfile, PublicProfile, UserReputation } from '../types'
 import { theme } from '../theme/colors'
 import HardBlock from './HardBlock'
+import { SCREEN_WIDTH, limitImageUrl } from '../utils/cloudinaryImage'
 
 type ProfileCardProps = {
   profile: PublicProfile | MyProfile
@@ -124,7 +125,7 @@ export default function ProfileCard({ profile }: ProfileCardProps) {
 
       <View style={styles.hero}>
         {profile.avatarUrl ? (
-          <Image source={{ uri: profile.avatarUrl }} style={styles.heroImage} />
+          <Image source={{ uri: limitImageUrl(profile.avatarUrl, { width: SCREEN_WIDTH }) }} style={styles.heroImage} />
         ) : (
           <View style={styles.heroFallback}>
             <Text style={styles.heroFallbackText}>{initials}</Text>

@@ -22,6 +22,7 @@ import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import HardBlock from '../components/HardBlock'
 import ScreenBackground from '../components/ScreenBackground'
+import { limitImageUrl, SCREEN_WIDTH } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -114,7 +115,7 @@ export default function HomeScreen() {
         >
           <View style={styles.thumbnailContainer}>
             {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+              <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH / 2 }) }} style={styles.cardImage} />
             ) : (
               <View style={[styles.cardImage, styles.imageFallback]}>
                 <Text style={styles.imageFallbackText}>{item.category}</Text>

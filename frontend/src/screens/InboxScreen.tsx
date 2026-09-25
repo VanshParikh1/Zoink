@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext'
 import ScreenBackground from '../components/ScreenBackground'
 import PaymentNeededBadge from '../components/PaymentNeededBadge'
 import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -111,7 +112,7 @@ export default function InboxScreen() {
               >
                 <View style={styles.cardLeft}>
                   {imageUrl ? (
-                    <Image source={{ uri: imageUrl }} style={styles.thumbnailImage} />
+                    <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={styles.thumbnailImage} />
                   ) : (
                     <View style={styles.thumbnailPlaceholder}>
                       <Text style={styles.thumbnailEmoji}>{item.listing.category || '🗨'}</Text>

@@ -25,6 +25,7 @@ import { browseListings, getNearbyListings } from '../services/listingsApi'
 import { isBlockedThisSession } from '../services/blockedUsers'
 import ScreenBackground from '../components/ScreenBackground'
 import RatingPill from '../components/RatingPill'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -59,7 +60,7 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
       <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
         <View style={styles.glassThumbnailLarge}>
           {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+            <Image source={{ uri: fillImageUrl(imageUrl, { width: (SCREEN_WIDTH - 48) * 0.75, height: (SCREEN_WIDTH - 48) * 0.75 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
           ) : (
             <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
           )}
@@ -92,7 +93,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
       <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
         <View style={styles.glassThumbnailSmall}>
           {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+            <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
           ) : (
             <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
           )}
