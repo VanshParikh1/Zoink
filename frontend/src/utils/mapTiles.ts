@@ -56,13 +56,16 @@ export type MapTile = { key: string; uri: string; left: number; top: number }
 
 // Builds the set of OSM tiles needed to fill a width x height viewport centered
 // on (centerLat, centerLon), plus each tile's pixel offset within that viewport.
+// `visibleOnly` drops tiles in the (2*radius+1)^2 grid that don't overlap the
+// viewport at all — right for a static view; a pannable one wants the margin.
 export function buildTileGrid(
   centerLat: number,
   centerLon: number,
   zoom: number,
   width: number,
   height: number,
-  radius = 1
+  radius = 1,
+  visibleOnly = false
 ): MapTile[] {
   if (!width || !height) return []
 
@@ -80,12 +83,18 @@ export function buildTileGrid(
       if (tileY < 0 || tileY >= tileCount) continue
       const rawTileX = centerTileX + dx
       const tileX = ((rawTileX % tileCount) + tileCount) % tileCount
+      const left = rawTileX * TILE_SIZE - worldPxX + width / 2
+      const top = tileY * TILE_SIZE - worldPxY + height / 2
+
+      if (visibleOnly && (left >= width || left + TILE_SIZE <= 0 || top >= height || top + TILE_SIZE <= 0)) {
+        continue
+      }
 
       tiles.push({
         key: `${dx}-${dy}`,
         uri: tileUrl(zoom, tileX, tileY),
-        left: rawTileX * TILE_SIZE - worldPxX + width / 2,
-        top: tileY * TILE_SIZE - worldPxY + height / 2,
+        left,
+        top,
       })
     }
   }
