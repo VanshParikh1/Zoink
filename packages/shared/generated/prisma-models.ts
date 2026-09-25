@@ -280,6 +280,7 @@ export interface VerificationToken {
   code: string;
   expiresAt: string;
   usedAt: string | null;
+  failedAttempts: number;
   createdAt: string;
   user?: User;
 }

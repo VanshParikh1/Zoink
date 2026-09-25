@@ -14,6 +14,15 @@ import type { University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Wrong guesses allowed per code before it's spent (see verifyOTP).
+const MAX_OTP_ATTEMPTS = 5
+
+function codesMatch(expected: string, received: string): boolean {
+  const a = Buffer.from(expected)
+  const b = Buffer.from(received)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
 function generateOTP(): string {
   // Generates a cryptographically random 6-digit code
   return crypto.randomInt(100000, 999999).toString()
@@ -139,7 +148,20 @@ export async function verifyOTP(userId: string, code: string) {
     throw new BadRequestError('No verification code found. Please request a new one.')
   }
 
-  if (token.code !== code) {
+  if (!codesMatch(token.code, code)) {
+    // Counted atomically, so parallel guesses can't all read a stale count.
+    const { failedAttempts } = await prisma.verificationToken.update({
+      where: { id: token.id },
+      data: { failedAttempts: { increment: 1 } },
+      select: { failedAttempts: true },
+    })
+    if (failedAttempts >= MAX_OTP_ATTEMPTS) {
+      await prisma.verificationToken.updateMany({
+        where: { id: token.id, usedAt: null },
+        data: { usedAt: new Date() },
+      })
+      throw new BadRequestError('Too many incorrect attempts. Please request a new code.')
+    }
     throw new BadRequestError('Incorrect verification code.')
   }
 
@@ -147,17 +169,22 @@ export async function verifyOTP(userId: string, code: string) {
     throw new BadRequestError('Verification code has expired. Please request a new one.')
   }
 
-  // Mark token as used and update user status in a transaction
-  await prisma.$transaction([
-    prisma.verificationToken.update({
-      where: { id: token.id },
+  // Mark the token used and verify the user together. The token is claimed
+  // only while it's unused and under the attempt cap, so a right answer
+  // racing the guess that hits the cap can't get through.
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.verificationToken.updateMany({
+      where: { id: token.id, usedAt: null, failedAttempts: { lt: MAX_OTP_ATTEMPTS } },
       data: { usedAt: new Date() },
-    }),
-    prisma.user.update({
+    })
+    if (claimed.count !== 1) {
+      throw new BadRequestError('Too many incorrect attempts. Please request a new code.')
+    }
+    await tx.user.update({
       where: { id: userId },
       data: { verificationStatus: 'VERIFIED', verifiedAt: new Date() },
-    }),
-  ])
+    })
+  })
 
   // Return a fresh JWT with updated verificationStatus
   // Re-fetch user to get email + firstName + role for the new token

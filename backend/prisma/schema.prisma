@@ -363,6 +363,10 @@ model VerificationToken {
   code      String
   expiresAt DateTime
   usedAt    DateTime?
+  // Wrong guesses against this code. authService.verifyOTP spends the code
+  // (sets usedAt) once this reaches the cap, so a 6-digit code can't be
+  // brute-forced; the user requests a new one.
+  failedAttempts Int     @default(0)
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
