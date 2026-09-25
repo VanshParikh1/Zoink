@@ -1,0 +1,10 @@
+// How often screens re-fetch while they're on screen and the app is in the
+// foreground. Push notifications cover real-time delivery; these keep open
+// screens reasonably fresh without spending the per-user rate limit.
+
+// Inbox list and the unread dot on the Inbox tab (one shared fetch).
+export const INBOX_POLL_MS = 15_000
+
+// An open chat: new messages, and the header / payment banner state.
+export const THREAD_MESSAGES_POLL_MS = 5_000
+export const THREAD_DETAILS_POLL_MS = 30_000

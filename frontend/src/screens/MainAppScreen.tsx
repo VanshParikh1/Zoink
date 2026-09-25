@@ -12,7 +12,7 @@ import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Feather from '@expo/vector-icons/Feather';
 import * as Haptics from 'expo-haptics'
-import { RouteProp, useFocusEffect, useRoute } from '@react-navigation/native'
+import { RouteProp, useIsFocused, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import HomeScreen from './HomeScreen'
@@ -21,7 +21,7 @@ import MyProfileScreen from './MyProfileScreen'
 import SearchScreen from './SearchScreen'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
-import { getMyConversations } from '../services/conversationsApi'
+import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
 
 type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
 
@@ -88,33 +88,12 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   // Track the last haptic-fired index to avoid double-fires
   const lastHapticIndex = useRef(TAB_ORDER.indexOf(route.params?.tab ?? 'Home'))
 
-  // Drives the green dot on the Inbox tab icon. MainAppScreen stays mounted
-  // behind pushed screens, so a focus effect (fires when ConversationThread
-  // pops back) plus a slow poll keeps it fresh without InboxScreen having to
-  // lift its list state up here.
-  const [hasUnreadInbox, setHasUnreadInbox] = useState(false)
-  const refreshUnread = useCallback(async () => {
-    try {
-      const conversations = await getMyConversations()
-      setHasUnreadInbox(conversations.some((conversation) => conversation.unread))
-    } catch {
-      // Non-critical — leave the dot in its last known state.
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshUnread()
-      const intervalId = setInterval(refreshUnread, 20000)
-      return () => clearInterval(intervalId)
-    }, [refreshUnread])
-  )
-
-  // Re-check when the user moves between tabs (e.g. leaving Inbox after
-  // reading a thread should drop the dot).
-  useEffect(() => {
-    refreshUnread()
-  }, [activeTab, refreshUnread])
+  // One conversations feed for the Inbox tab's list and the green dot on its
+  // icon. MainAppScreen stays mounted behind pushed screens, so it refetches
+  // when focus returns (e.g. ConversationThread pops back) and polls only while
+  // this screen is focused and the app is in the foreground.
+  const inboxFeed = useConversationsFeed(useIsFocused())
+  const hasUnreadInbox = inboxFeed.conversations.some((conversation) => conversation.unread)
 
   const tabWidth = bottomBarWidth
     ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
@@ -266,7 +245,9 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
               <SearchScreen />
             </View>
             <View style={[styles.tabPanel, { width: contentWidth }]}>
-              <InboxScreen />
+              <InboxFeedProvider value={inboxFeed}>
+                <InboxScreen />
+              </InboxFeedProvider>
             </View>
             <View style={[styles.tabPanel, { width: contentWidth }]}>
               <MyProfileScreen />

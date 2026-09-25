@@ -1,11 +1,10 @@
-import React, { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View, Image, Platform } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getMyConversations } from '../services/conversationsApi'
-import { Conversation } from '../types'
+import { useConversationsFeed, useSharedInboxFeed } from '../context/InboxContext'
 import { theme } from '../theme/colors'
 import StateCard from '../components/StateCard'
 import { useAuth } from '../context/AuthContext'
@@ -19,35 +18,13 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 export default function InboxScreen() {
   const nav = useNavigation<Nav>()
   const { user } = useAuth()
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [loading, setLoading] = useState(true)
+  // Inside MainAppScreen the list shares the feed behind the tab's unread dot;
+  // on the standalone Inbox route it runs its own.
+  const sharedFeed = useSharedInboxFeed()
+  const isFocused = useIsFocused()
+  const ownFeed = useConversationsFeed(sharedFeed === null && isFocused)
+  const { conversations, loading, refresh } = sharedFeed ?? ownFeed
   const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
-
-  const loadConversations = useCallback(async () => {
-    try {
-      setError('')
-      const nextConversations = await getMyConversations()
-      setConversations(nextConversations)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your inbox.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadConversations()
-
-      const intervalId = setInterval(() => {
-        loadConversations()
-      }, 4000)
-
-      return () => clearInterval(intervalId)
-    }, [loadConversations])
-  )
 
   const renderHeader = () => (
     <View style={styles.headerInner}>
@@ -79,7 +56,7 @@ export default function InboxScreen() {
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
           setRefreshing(true)
-          loadConversations()
+          refresh().finally(() => setRefreshing(false))
         }} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}
         ListEmptyComponent={
