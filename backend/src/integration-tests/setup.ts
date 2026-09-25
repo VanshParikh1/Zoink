@@ -306,10 +306,21 @@ export function buildSignedWebhookPayload(
 }
 
 // ── Express app helper ────────────────────────────────────────────────────────
-// Returns the Express app for use with supertest. Import is lazy so the app
-// module loads AFTER this file has set process.env from .env.test.
-export function getApp() {
-  return require('../index').default
+// Returns the app, already listening, for use with supertest. Import is lazy so
+// the app module loads AFTER this file has set process.env from .env.test.
+//
+// One server per test file, bound to 127.0.0.1: supertest(app) would bind a
+// fresh wildcard ephemeral port for every request, and on a busy machine a
+// loopback connection to that port number can land on another process that
+// holds it (seen as random 404s, ECONNRESETs and non-HTTP replies). unref() so
+// the open server never keeps a finished test file's process alive.
+let testServer: import('http').Server | null = null
+export function getApp(): import('http').Server {
+  if (!testServer) {
+    testServer = require('../index').default.listen(0, '127.0.0.1') as import('http').Server
+    testServer.unref()
+  }
+  return testServer
 }
 
 export function stripeSkipReason(): string | null {
