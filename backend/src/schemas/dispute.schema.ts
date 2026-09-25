@@ -36,3 +36,9 @@ export const AdminListDisputesQuerySchema = z.object({
     status: z.enum(['OPEN', 'UNDER_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED']).optional(),
   }),
 })
+
+export const MyDisputesQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['OPEN', 'UNDER_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED']).optional(),
+  }),
+})

@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
 import { blockLimiter, uploadLimiter } from '../middleware/rateLimiter'
-import { UpdateMeSchema, UpdateNotificationPrefsSchema, UserIdParamsSchema } from '../schemas/user.schema'
+import { UpdateMeSchema, UpdateNotificationPrefsSchema, UpdatePushTokenSchema, UserIdParamsSchema } from '../schemas/user.schema'
 import {
   getMe,
   getPublicProfile,
@@ -43,9 +43,10 @@ router.patch('/me', requireAuth, validate(UpdateMeSchema), updateMe)
 router.delete('/me', requireAuth, deleteMe)
 router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
 router.post('/me/accept-terms', requireAuth, acceptTerms)
-router.patch('/me/push-token', requireAuth, updatePushToken)
+router.patch('/me/push-token', requireAuth, validate(UpdatePushTokenSchema), updatePushToken)
 router.post('/me/avatar', requireAuth, uploadLimiter, upload.single('avatar'), uploadAvatar)
-router.post('/me/stripe-connect/onboard', requireAuth, onboardStripeConnect)
+// Payout onboarding creates a real Stripe Connect account — verified students only.
+router.post('/me/stripe-connect/onboard', requireAuth, requireVerified, onboardStripeConnect)
 router.get('/me/stripe-connect/status', requireAuth, getStripeConnectStatus)
 router.get('/me/blocks', requireAuth, getMyBlocks)
 
@@ -55,6 +56,6 @@ router.post('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema
 router.delete('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema), unblockUser)
 
 // Public profile — must be verified to view others
-router.get('/:id', requireAuth, requireVerified, getPublicProfile)
+router.get('/:id', requireAuth, requireVerified, validate(UserIdParamsSchema), getPublicProfile)
 
 export default router

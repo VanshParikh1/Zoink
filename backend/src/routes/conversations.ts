@@ -3,7 +3,7 @@ import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
 import { messageLimiter } from '../middleware/rateLimiter'
-import { SendMessageSchema } from '../schemas/conversation.schema'
+import { ConversationIdParamsSchema, GetMessagesSchema, OpenConversationSchema, SendMessageSchema } from '../schemas/conversation.schema'
 import {
   getConversationById,
   getConversationMessages,
@@ -17,11 +17,11 @@ const router = Router()
 
 router.use(requireAuth, requireVerified)
 
-router.post('/', openConversation)
+router.post('/', validate(OpenConversationSchema), openConversation)
 router.get('/me', getMyConversations)
-router.get('/:id', getConversationById)
-router.get('/:id/messages', getConversationMessages)
+router.get('/:id', validate(ConversationIdParamsSchema), getConversationById)
+router.get('/:id/messages', validate(GetMessagesSchema), getConversationMessages)
 router.post('/:id/messages', messageLimiter, validate(SendMessageSchema), sendMessage)
-router.post('/:id/read', markConversationRead)
+router.post('/:id/read', validate(ConversationIdParamsSchema), markConversationRead)
 
 export default router

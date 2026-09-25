@@ -42,3 +42,12 @@ export const UserIdParamsSchema = z.object({
     id: z.string().uuid(),
   }),
 })
+
+// ── PATCH /users/me/push-token ────────────────────────────────────────────────
+
+export const UpdatePushTokenSchema = z.object({
+  body: z.object({
+    // An Expo push token (e.g. "ExponentPushToken[...]"), or null to clear it.
+    expoPushToken: z.string().max(200, 'expoPushToken is too long.').nullable().optional(),
+  }),
+})
