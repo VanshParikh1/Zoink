@@ -59,6 +59,8 @@ const listingSelect = {
   reviewCount: true,
   latitude: true,
   longitude: true,
+  publicLatitude: true,
+  publicLongitude: true,
   city: true,
   address: true,
   createdAt: true,
@@ -86,9 +88,22 @@ const listingListSelect = {
   images: { ...listingSelect.images, take: 1 },
 }
 
-function toListingResponse(listing: Prisma.ListingGetPayload<{ select: typeof listingSelect }>): ListingResponse {
+// Location privacy: the exact point and street address go to the listing's
+// owner only. Everyone else gets the stored public point (200-500 m away, see
+// the listings_public_location trigger) and no address. If the public point is
+// somehow missing, fall back to ~1 km precision rather than the exact point.
+function toListingResponse(
+  listing: Prisma.ListingGetPayload<{ select: typeof listingSelect }>,
+  viewerId?: string
+): ListingResponse {
+  const { publicLatitude, publicLongitude, ...rest } = listing
+  const isOwner = viewerId !== undefined && viewerId === listing.ownerId
+  const coarse = (value: number) => Math.round(value * 100) / 100
   return {
-    ...listing,
+    ...rest,
+    latitude: isOwner ? listing.latitude : publicLatitude ?? coarse(listing.latitude),
+    longitude: isOwner ? listing.longitude : publicLongitude ?? coarse(listing.longitude),
+    address: isOwner ? listing.address : null,
     dailyPrice: listing.dailyPrice.toString(),
     itemValue: listing.itemValue.toString(),
     depositAmount: listing.depositAmount.toString(),
@@ -107,6 +122,8 @@ function normalizeCategory(category: string) {
   return category.trim().toLowerCase()
 }
 
+// Measured to the listing's PUBLIC point, never the exact one: an exact
+// distance (or radius filter) from a few chosen origins would trilaterate it.
 function buildDistanceSql(latitude: number, longitude: number) {
   return Prisma.sql`
     ${EARTH_RADIUS_KM} * ACOS(
@@ -114,12 +131,17 @@ function buildDistanceSql(latitude: number, longitude: number) {
         1,
         GREATEST(
           -1,
-          COS(RADIANS(${latitude})) * COS(RADIANS(l."latitude")) * COS(RADIANS(l."longitude") - RADIANS(${longitude}))
-          + SIN(RADIANS(${latitude})) * SIN(RADIANS(l."latitude"))
+          COS(RADIANS(${latitude})) * COS(RADIANS(l."publicLatitude")) * COS(RADIANS(l."publicLongitude") - RADIANS(${longitude}))
+          + SIN(RADIANS(${latitude})) * SIN(RADIANS(l."publicLatitude"))
         )
       )
     )
   `
+}
+
+// Displayed distances are rounded to the nearest 0.5 km.
+function roundToHalfKm(distanceKm: number | null | undefined) {
+  return distanceKm == null ? null : Math.round(distanceKm * 2) / 2
 }
 
 export type BrowseListingsInput = {
@@ -176,7 +198,7 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
     },
     select: listingSelect,
   })
-  return toListingResponse(listing)
+  return toListingResponse(listing, ownerId)
 }
 
 // ── Get single listing ────────────────────────────────────────────────────────
@@ -191,7 +213,7 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
   if (viewerId && (await isBlockedBetween(viewerId, listing.ownerId))) {
     throw new NotFoundError('Listing not found.')
   }
-  return toListingResponse(listing)
+  return toListingResponse(listing, viewerId)
 }
 
 // ── Get my listings ───────────────────────────────────────────────────────────
@@ -227,7 +249,7 @@ export async function getMyListings(ownerId: string): Promise<ListingResponse[]>
     return bTime - aTime
   })
 
-  return sorted.map(toListingResponse)
+  return sorted.map((listing) => toListingResponse(listing, ownerId))
 }
 
 // ── Browse/search listings ────────────────────────────────────────────────────
@@ -361,8 +383,8 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
         if (!listing) return null
 
         return {
-          ...toListingResponse(listing),
-          distanceKm: distanceById.get(id) ?? null,
+          ...toListingResponse(listing, viewerId),
+          distanceKm: roundToHalfKm(distanceById.get(id)),
         }
       })
       .filter((listing): listing is NonNullable<typeof listing> => listing !== null),
@@ -433,7 +455,7 @@ export async function updateListing(
     data: cleaned,
     select: listingSelect,
   })
-  return toListingResponse(listing)
+  return toListingResponse(listing, ownerId)
 }
 
 // ── Toggle availability ───────────────────────────────────────────────────────

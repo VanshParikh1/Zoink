@@ -97,6 +97,8 @@ export interface Listing {
   reviewCount: number;
   latitude: number;
   longitude: number;
+  publicLatitude: number | null;
+  publicLongitude: number | null;
   city: string;
   address: string | null;
   ownerId: string;

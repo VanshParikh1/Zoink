@@ -197,7 +197,26 @@ function mapPendingReviewForUser(booking: any, userId?: string): PendingReviewRe
   }
 }
 
-function toBookingResponse(booking: any, userId?: string): BookingResponse {
+// A renter gets the listing's street address once their booking is paid
+// (CONFIRMED) and through the rest of the rental; the owner always does.
+const ADDRESS_VISIBLE_TO_RENTER: BookingStatus[] = [
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+  BookingStatus.COMPLETED,
+]
+
+function listingForViewer(booking: any, userId?: string) {
+  if (!booking.listing) return booking.listing
+  const canSeeAddress =
+    userId !== undefined &&
+    (userId === booking.ownerId || (userId === booking.renterId && ADDRESS_VISIBLE_TO_RENTER.includes(booking.status)))
+  return canSeeAddress ? booking.listing : { ...booking.listing, address: null }
+}
+
+function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
+  const booking = { ...rawBooking, listing: listingForViewer(rawBooking, userId) }
   const totalPrice = Number(booking.totalPrice)
   return {
     id: booking.id,

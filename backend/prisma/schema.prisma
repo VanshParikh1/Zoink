@@ -104,9 +104,20 @@ model Listing {
   // null until the listing has at least one rated review.
   avgRating     Float?
   reviewCount   Int            @default(0)
+  // Exact pickup point, set by the owner. Only ever returned to the owner.
   latitude      Float
   longitude     Float
+  // What everyone else sees, and what distance / radius search uses: the exact
+  // point moved 200-500 m in a random direction. Filled by the
+  // listings_public_location database trigger on insert and whenever
+  // latitude/longitude change, so it is stable (never re-rolled per request)
+  // and every write path gets it. See migration
+  // 20260925120000_listing_public_location.
+  publicLatitude  Float?
+  publicLongitude Float?
   city          String
+  // Street address — the owner, and a renter once their booking is CONFIRMED
+  // (paid), are the only people it is returned to.
   address       String?
   ownerId       String
   createdAt     DateTime       @default(now())
