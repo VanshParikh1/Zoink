@@ -1,7 +1,15 @@
 import api from './api'
 import { Dispute, DisputeReason } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
-import { mockCreateDispute, mockGetMyDisputes } from './mockWeek6'
+// Demo-mode mocks load only when the build sets EXPO_PUBLIC_DEMO_MODE to
+// 'true'. That value is inlined at build time, so in every other build this
+// condition folds to false and Metro drops the require — the mock modules and
+// their data never reach the bundle. (Calls below sit behind DEMO_MODE, which
+// uses the same check; see config/demoMode.ts.)
+const {
+  mockCreateDispute,
+  mockGetMyDisputes,
+} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockWeek6') : {}) as typeof import('./mockWeek6')
 
 export type CreateDisputePayload = {
   bookingId: string
