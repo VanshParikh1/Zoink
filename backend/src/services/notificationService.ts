@@ -1,5 +1,6 @@
 import { NotificationType, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
+import { Sentry } from '../instrument'
 
 type NotifyInput = {
   userId: string
@@ -90,7 +91,19 @@ export async function createNotification(input: NotifyInput) {
   })
 }
 
+// Callers fire this after their own work has committed (`void notifyUser(...)`),
+// so it must never reject: an unhandled rejection can take the process down.
+// A failed notification is logged and reported, and the caller carries on.
 export async function notifyUser(input: NotifyInput) {
+  try {
+    await deliverNotification(input)
+  } catch (error) {
+    console.error(`[notifyUser] ${input.type} for user ${input.userId} failed:`, error)
+    Sentry.captureException(error, { tags: { notificationType: input.type } })
+  }
+}
+
+async function deliverNotification(input: NotifyInput) {
   const user = await prisma.user.findUnique({
     where: { id: input.userId },
     select: {
@@ -103,15 +116,18 @@ export async function notifyUser(input: NotifyInput) {
     },
   })
 
+  // The recipient can be gone by the time this runs (e.g. account deleted).
+  if (!user) return
+
   // A category the user has switched off suppresses both the DB row and the
   // push — not just the push.
-  if (user && !userWantsNotification(user, input.type)) {
+  if (!userWantsNotification(user, input.type)) {
     return
   }
 
   await createNotification(input)
 
-  if (isExpoPushToken(user?.expoPushToken)) {
+  if (isExpoPushToken(user.expoPushToken)) {
     await sendExpoPush(user.expoPushToken, input.title, input.body, input.data)
   }
 }
