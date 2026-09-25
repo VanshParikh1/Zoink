@@ -2,7 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
-import api from '../services/api'
+import api, { setApiToken } from '../services/api'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { clearPushToken, syncPushToken } from '../services/pushNotifications'
 import type { University } from '@zoink/shared'
@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function loadToken() {
       try {
         const stored = await getTokenAsync(TOKEN_KEY)
+        setApiToken(stored ?? null)
         if (stored) {
           const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : parseJWT(stored)
           setToken(stored)
@@ -106,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // terms screen until an app reload re-decoded the token.
   const saveSession = useCallback(async (newToken: string, newUser: User) => {
     await setTokenAsync(TOKEN_KEY, newToken)
+    setApiToken(newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
     const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
     setToken(newToken)
@@ -164,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await clearPushToken()
     }
     await deleteTokenAsync(TOKEN_KEY)
+    setApiToken(null)
     delete api.defaults.headers.common['Authorization']
     setToken(null)
     setUser(null)
@@ -175,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(newToken)
     setUser(payload)
     setTokenAsync(TOKEN_KEY, newToken)
+    setApiToken(newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
   }, [])
 

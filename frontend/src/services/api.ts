@@ -15,14 +15,33 @@ const api = axios.create({
   },
 })
 
+// The session token is read from secure storage once, then kept in memory.
+// Reading the Keychain/Keystore on every request (an open chat alone makes a
+// request every few seconds) was needless I/O. AuthContext keeps this in sync
+// on login/verify/terms acceptance/logout via setApiToken.
+let cachedToken: string | null | undefined // undefined = not loaded yet
+
+export function setApiToken(token: string | null) {
+  cachedToken = token
+}
+
+async function currentToken(): Promise<string | null> {
+  if (cachedToken === undefined) {
+    cachedToken =
+      Platform.OS === 'web'
+        ? localStorage.getItem(TOKEN_KEY)
+        : await SecureStore.getItemAsync(TOKEN_KEY)
+  }
+  return cachedToken
+}
+
 api.interceptors.request.use(async (config) => {
-  const token =
-    Platform.OS === 'web'
-      ? localStorage.getItem(TOKEN_KEY)
-      : await SecureStore.getItemAsync(TOKEN_KEY)
+  const token = await currentToken()
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  } else {
+    delete config.headers.Authorization
   }
 
   return config
@@ -32,6 +51,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
+      cachedToken = null
       if (Platform.OS === 'web') {
         localStorage.removeItem(TOKEN_KEY)
       } else {
