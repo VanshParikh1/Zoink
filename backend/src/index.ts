@@ -44,6 +44,7 @@ import {
   purgeOldMessages,
   purgeOldDisputesAndReports,
   purgeOldHandoffPhotos,
+  purgeOldVerificationTokens,
 } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
@@ -163,7 +164,8 @@ if (process.env.NODE_ENV !== 'test') {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
       const deposits = await releaseDueDeposits()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits })
+      const verificationCodes = await purgeOldVerificationTokens()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

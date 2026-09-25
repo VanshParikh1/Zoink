@@ -266,6 +266,10 @@ export async function releaseDueDeposits() {
 // See legal/OPEN-ITEMS.md, section C ("Retention periods").
 
 const RETENTION_MESSAGES_MONTHS = 24
+// privacy.md §7: verification codes are "expired or deleted within 24 hours".
+// Run with the 15-minute cleanup job (not the daily sweep) so no code outlives
+// that by more than a quarter hour.
+const RETENTION_VERIFICATION_TOKENS_HOURS = 24
 const RETENTION_DISPUTES_REPORTS_YEARS = 3
 // Handoff/condition photos are evidence for a damage claim, not the
 // transaction record itself — the Booking row they live on stays for the full
@@ -285,6 +289,17 @@ function yearsAgo(years: number): Date {
   const date = new Date()
   date.setFullYear(date.getFullYear() - years)
   return date
+}
+
+/** Deletes email verification codes older than 24 hours, used or not —
+ *  verifyOTP only ever reads the latest unused one, and they expire after
+ *  OTP_EXPIRY_MINUTES anyway. */
+export async function purgeOldVerificationTokens() {
+  const before = new Date(Date.now() - RETENTION_VERIFICATION_TOKENS_HOURS * 60 * 60 * 1000)
+  const result = await prisma.verificationToken.deleteMany({
+    where: { createdAt: { lt: before } },
+  })
+  return { deleted: result.count }
 }
 
 /** Deletes messages older than the retention window. Conversations and
