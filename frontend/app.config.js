@@ -4,6 +4,16 @@ module.exports = {
     slug: "zoink",
     scheme: "zoink",
     version: "1.0.0",
+    // Over-the-air JS updates (EAS Update). An update only reaches binaries
+    // with the same runtime version; the fingerprint policy derives it from
+    // the native layer (native dependencies, config plugins, native config),
+    // so JS-only fixes can ship OTA while anything native needs a new build.
+    runtimeVersion: {
+      policy: "fingerprint",
+    },
+    updates: {
+      url: "https://u.expo.dev/bf36f2d1-5e4c-498a-8ca5-38bc66817524",
+    },
     orientation: "portrait",
     icon: "./assets/logo.png",
     userInterfaceStyle: "light",
