@@ -462,6 +462,24 @@ export async function deleteListing(id: string, ownerId: string) {
 
 // ── Add image to listing ──────────────────────────────────────────────────────
 
+// Matches the create-listing screen's limit.
+export const MAX_LISTING_IMAGES = 8
+
+// Runs BEFORE the file is sent to Cloudinary, so nobody can push files into
+// Zoink's Cloudinary account through a listing they don't own, and a listing
+// can't collect an unbounded number of photos.
+export async function assertCanAddListingImage(listingId: string, ownerId: string) {
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    select: { ownerId: true, _count: { select: { images: true } } },
+  })
+  if (!listing) throw new NotFoundError('Listing not found.')
+  if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+  if (listing._count.images >= MAX_LISTING_IMAGES) {
+    throw new BadRequestError(`A listing can have at most ${MAX_LISTING_IMAGES} photos.`)
+  }
+}
+
 export async function addListingImage(
   listingId: string,
   ownerId: string,
