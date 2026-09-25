@@ -29,6 +29,7 @@ import {
   checkStripeConnectivity,
   confirmTestPaymentIntent,
   getApp,
+  handoffPhotoUrl,
 } from './setup'
 import * as bookingService from '../services/bookingService'
 import * as handoffService from '../services/handoffService'
@@ -519,8 +520,8 @@ describe('pickup handoff', () => {
   test('owner initiates pickup — booking moves to PICKUP_PENDING', async () => {
     const booking = await makeAcceptedBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
 
     const updated = await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
@@ -536,8 +537,8 @@ describe('pickup handoff', () => {
   test('renter cannot initiate pickup (owner-only)', async () => {
     const booking = await makeAcceptedBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await assert.rejects(
       () => handoffService.initiateHandoff(booking.id, renter.id, 'pickup', photos),
@@ -553,7 +554,7 @@ describe('pickup handoff', () => {
     const booking = await makeAcceptedBooking()
     await assert.rejects(
       () => handoffService.initiateHandoff(booking.id, owner.id, 'pickup', [
-        'https://res.cloudinary.com/test/image/upload/photo1.jpg',
+        handoffPhotoUrl(booking.id, 'photo1'),
       ]),
       (err: any) => {
         assert.equal(err.statusCode, 400)
@@ -584,8 +585,8 @@ describe('pickup handoff', () => {
     })
     await assert.rejects(
       () => handoffService.initiateHandoff(pendingBooking.id, owner.id, 'pickup', [
-        'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-        'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+        handoffPhotoUrl(pendingBooking.id, 'photo1'),
+        handoffPhotoUrl(pendingBooking.id, 'photo2'),
       ]),
       (err: any) => {
         assert.equal(err.statusCode, 400)
@@ -598,8 +599,8 @@ describe('pickup handoff', () => {
   test('owner can resubmit pickup photos while PICKUP_PENDING without re-notifying the renter', async () => {
     const booking = await makeAcceptedBooking()
     const firstPhotos = [
-      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
     const db = getTestPrisma()
     // makeAcceptedBooking() also fires an (also fire-and-forget) "Booking accepted"
@@ -621,9 +622,9 @@ describe('pickup handoff', () => {
     assert.ok(gotFirstNotification, 'first submission should notify the renter exactly once')
 
     const revisedPhotos = [
-      'https://res.cloudinary.com/test/image/upload/photo1-retake.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo3-new.jpg',
+      handoffPhotoUrl(booking.id, 'photo1-retake'),
+      handoffPhotoUrl(booking.id, 'photo2'),
+      handoffPhotoUrl(booking.id, 'photo3-new'),
     ]
     const edited = await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', revisedPhotos)
 
@@ -654,8 +655,8 @@ describe('pickup handoff', () => {
   test('resubmitting photos after one party has already tapped does not clear that tap', async () => {
     const booking = await makeAcceptedBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
 
@@ -667,8 +668,8 @@ describe('pickup handoff', () => {
     assert.ok(afterTap.ownerPickupTappedAt, 'owner tap should be recorded before the edit')
 
     const revisedPhotos = [
-      'https://res.cloudinary.com/test/image/upload/photo1-retake.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1-retake'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', revisedPhotos)
 
@@ -688,8 +689,8 @@ describe('pickup handoff', () => {
   test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async () => {
     const booking = await makeAcceptedBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/photo1.jpg',
-      'https://res.cloudinary.com/test/image/upload/photo2.jpg',
+      handoffPhotoUrl(booking.id, 'photo1'),
+      handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
 
@@ -757,8 +758,8 @@ describe('return handoff and completion', () => {
   test('renter initiates return — booking moves to RETURN_PENDING', async () => {
     const booking = await makeActiveBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/return1.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
 
     const updated = await handoffService.initiateHandoff(booking.id, renter.id, 'return', photos)
@@ -770,8 +771,8 @@ describe('return handoff and completion', () => {
   test('owner cannot initiate return (renter-only)', async () => {
     const booking = await makeActiveBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/return1.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
     await assert.rejects(
       () => handoffService.initiateHandoff(booking.id, owner.id, 'return', photos),
@@ -786,8 +787,8 @@ describe('return handoff and completion', () => {
   test('renter can resubmit return photos while RETURN_PENDING without re-notifying the owner', async () => {
     const booking = await makeActiveBooking()
     const firstPhotos = [
-      'https://res.cloudinary.com/test/image/upload/return1.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
     const db = getTestPrisma()
     const countZoinkItNotifications = async () => {
@@ -800,8 +801,8 @@ describe('return handoff and completion', () => {
     assert.ok(gotFirstNotification, 'first submission should notify the owner exactly once')
 
     const revisedPhotos = [
-      'https://res.cloudinary.com/test/image/upload/return1-retake.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1-retake'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
     const edited = await handoffService.initiateHandoff(booking.id, renter.id, 'return', revisedPhotos)
 
@@ -815,8 +816,8 @@ describe('return handoff and completion', () => {
   test('both tap Zoink It for return → COMPLETED, review obligations created, paymentStatus PAYOUT_PENDING', async () => {
     const booking = await makeActiveBooking()
     const returnPhotos = [
-      'https://res.cloudinary.com/test/image/upload/return1.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
     await handoffService.initiateHandoff(booking.id, renter.id, 'return', returnPhotos)
 
@@ -854,8 +855,8 @@ describe('return handoff and completion', () => {
     const db = getTestPrisma()
     const booking = await makeActiveBooking()
     const photos = [
-      'https://res.cloudinary.com/test/image/upload/return1.jpg',
-      'https://res.cloudinary.com/test/image/upload/return2.jpg',
+      handoffPhotoUrl(booking.id, 'return1'),
+      handoffPhotoUrl(booking.id, 'return2'),
     ]
     await handoffService.initiateHandoff(booking.id, renter.id, 'return', photos)
 

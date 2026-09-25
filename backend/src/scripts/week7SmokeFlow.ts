@@ -123,10 +123,15 @@ async function main() {
     throw new Error(`Expected depositStatus AUTHORIZED after CONFIRMED, got ${confirmed.depositStatus}`)
   }
 
+  // initiateHandoff only accepts URLs shaped like this booking's own uploads
+  // (see handoffService.isOwnHandoffUpload); no file is actually uploaded here.
+  const smokePhotoUrl = (bookingId: string, name: string) =>
+    `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/v1/bookings/booking_${bookingId}_${name}.jpg`
+
   // Pickup handoff: owner uploads photos, then both parties tap Zoink It.
   await handoffService.uploadHandoffPhotos(created.id, owner.id, 'pickup', [
-    'https://example.com/pickup-owner-1.jpg',
-    'https://example.com/pickup-owner-2.jpg',
+    smokePhotoUrl(created.id, 'pickup-owner-1'),
+    smokePhotoUrl(created.id, 'pickup-owner-2'),
   ])
   const pickupOwnerTap: any = await handoffService.registerTap(created.id, owner.id, 'pickup')
   console.log('pickup owner tap', {
@@ -147,8 +152,8 @@ async function main() {
 
   // Return handoff: renter uploads photos, then both parties tap Zoink It.
   await handoffService.uploadHandoffPhotos(created.id, renter.id, 'return', [
-    'https://example.com/return-renter-1.jpg',
-    'https://example.com/return-renter-2.jpg',
+    smokePhotoUrl(created.id, 'return-renter-1'),
+    smokePhotoUrl(created.id, 'return-renter-2'),
   ])
   const returnRenterTap: any = await handoffService.registerTap(created.id, renter.id, 'return')
   console.log('return renter tap', {

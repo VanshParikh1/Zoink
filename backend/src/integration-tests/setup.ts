@@ -305,6 +305,13 @@ export function buildSignedWebhookPayload(
   return { body, signature }
 }
 
+// ── Handoff photo helper ──────────────────────────────────────────────────────
+// A URL of the shape POST /bookings/:id/photos/upload returns for this booking
+// — the only handoff photo URLs initiateHandoff accepts.
+export function handoffPhotoUrl(bookingId: string, name: string): string {
+  return `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/v1/bookings/booking_${bookingId}_${name}.jpg`
+}
+
 // ── Express app helper ────────────────────────────────────────────────────────
 // Returns the app, already listening, for use with supertest. Import is lazy so
 // the app module loads AFTER this file has set process.env from .env.test.

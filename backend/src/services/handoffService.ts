@@ -43,7 +43,36 @@ function completedStatus(phase: HandoffPhase) {
   return phase === 'pickup' ? BookingStatus.ACTIVE : BookingStatus.COMPLETED
 }
 
-function sanitizePhotoUrls(photoUrls: unknown) {
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Handoff evidence must be what POST /bookings/:id/photos/upload stored for
+// THIS booking: https://res.cloudinary.com/<our cloud>/image/upload/[...]/
+// bookings/booking_<bookingId>_<suffix>. Anything else — another host, another
+// booking's upload, another Cloudinary account — would let one party point the
+// other's app at an arbitrary image or tracking URL.
+function isOwnHandoffUpload(url: string, bookingId: string) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+  if (!cloudName) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'res.cloudinary.com' || parsed.search || parsed.hash) {
+    return false
+  }
+
+  const path = new RegExp(
+    `^/${escapeRegExp(cloudName)}/image/upload/(?:[^/]+/)*bookings/booking_${escapeRegExp(bookingId)}_[^/]+$`
+  )
+  return path.test(parsed.pathname)
+}
+
+function sanitizePhotoUrls(photoUrls: unknown, bookingId: string) {
   if (!Array.isArray(photoUrls)) {
     throw new BadRequestError('photos must contain 2 to 3 Cloudinary URLs.')
   }
@@ -51,6 +80,10 @@ function sanitizePhotoUrls(photoUrls: unknown) {
   const sanitized = photoUrls.map((url) => String(url).trim()).filter(Boolean)
   if (sanitized.length < 2 || sanitized.length > 3) {
     throw new BadRequestError('photos must contain 2 to 3 Cloudinary URLs.')
+  }
+
+  if (!sanitized.every((url) => isOwnHandoffUpload(url, bookingId))) {
+    throw new BadRequestError('Handoff photos must be taken and uploaded in the Zoink app.')
   }
 
   return sanitized
@@ -73,7 +106,7 @@ function assertParticipant(booking: any, actorId: string) {
 }
 
 export async function initiateHandoff(bookingId: string, actorId: string, phase: HandoffPhase, photoUrls: unknown) {
-  const photos = sanitizePhotoUrls(photoUrls)
+  const photos = sanitizePhotoUrls(photoUrls, bookingId)
   const booking = await getBooking(bookingId)
   assertParticipant(booking, actorId)
 

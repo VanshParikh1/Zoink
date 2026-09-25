@@ -32,6 +32,7 @@ import {
   disconnectTestPrisma,
   checkStripeConnectivity,
   confirmTestPaymentIntent,
+  handoffPhotoUrl,
 } from './setup'
 import * as bookingService from '../services/bookingService'
 import * as paymentService from '../services/paymentService'
@@ -632,10 +633,7 @@ describe('separate deposit PaymentIntent — pickup capture excludes it', () => 
     assert.ok(confirmed.stripeDepositPaymentIntentId, 'the deposit should be authorized as its own PaymentIntent by CONFIRMED')
     assert.equal(confirmed.depositStatus, 'AUTHORIZED')
 
-    const photos = [
-      'https://res.cloudinary.com/test/image/upload/pickup1.jpg',
-      'https://res.cloudinary.com/test/image/upload/pickup2.jpg',
-    ]
+    const photos = [handoffPhotoUrl(confirmed.id, 'pickup1'), handoffPhotoUrl(confirmed.id, 'pickup2')]
     await handoffService.initiateHandoff(confirmed.id, owner.id, 'pickup', photos)
     await handoffService.confirmHandoff(confirmed.id, owner.id, 'pickup')
     const renterTap = await handoffService.confirmHandoff(confirmed.id, renter.id, 'pickup')
