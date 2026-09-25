@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -18,10 +18,12 @@ import {
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
 import * as Haptics from 'expo-haptics'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
+import { useIsTabActive, useTabLoad } from '../context/MainTabContext'
+import { PAYOUT_STATUS_MAX_AGE_MS } from '../config/polling'
 import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect, StripeConnectStatus } from '../services/usersApi'
 import { MyProfile } from '../types'
@@ -78,12 +80,18 @@ export default function MyProfileScreen() {
     })
   }, [])
 
-  const refreshStripeStatus = useCallback(async () => {
+  // The status endpoint makes a live Stripe API call, so routine reloads reuse
+  // a recent answer; explicit refreshes (pull-to-refresh, the button, coming
+  // back from Stripe's onboarding in the browser) always ask again.
+  const stripeStatusFetchedAt = useRef(0)
+  const refreshStripeStatus = useCallback(async (force = false) => {
+    if (!force && Date.now() - stripeStatusFetchedAt.current < PAYOUT_STATUS_MAX_AGE_MS) return
     const status = await getStripeConnectStatus()
+    stripeStatusFetchedAt.current = Date.now()
     setStripeStatus(status)
   }, [])
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (forceStripeStatus = false) => {
     if (!user?.id) return
 
     try {
@@ -99,17 +107,13 @@ export default function MyProfileScreen() {
     }
 
     try {
-      await refreshStripeStatus()
+      await refreshStripeStatus(forceStripeStatus)
     } catch (err) {
       // Ignore stripe fetch errors quietly
     }
   }, [refreshStripeStatus, syncForm, user?.id])
 
-  useFocusEffect(
-    useCallback(() => {
-      loadProfile()
-    }, [loadProfile])
-  )
+  useTabLoad('MyProfile', loadProfile)
 
   useEffect(() => {
     if (!user?.id) return
@@ -124,17 +128,20 @@ export default function MyProfileScreen() {
       })
   }, [user?.id])
 
+  // Returning to the app from Stripe's onboarding page. Only while the
+  // Profile tab is the one showing; other tabs don't display payout status.
+  const isProfileActive = useIsTabActive('MyProfile')
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id || !isProfileActive) return
 
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        refreshStripeStatus().catch(() => { })
+        refreshStripeStatus(true).catch(() => { })
       }
     })
 
     return () => subscription.remove()
-  }, [refreshStripeStatus, user?.id])
+  }, [isProfileActive, refreshStripeStatus, user?.id])
 
   async function dismissProfilePrompt() {
     if (user?.id) {
@@ -242,7 +249,7 @@ export default function MyProfileScreen() {
             contentContainerStyle={styles.content}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
               setRefreshing(true)
-              loadProfile()
+              loadProfile(true)
             }} tintColor={theme.primary} colors={[theme.primary]} />}
             showsVerticalScrollIndicator={false}
           >
@@ -507,7 +514,7 @@ export default function MyProfileScreen() {
                   <ZoinkButton
                     label={stripeStatus.detailsSubmitted ? 'Refresh payout status' : 'Finish payout setup'}
                     variant="stamped"
-                    onPress={stripeStatus.detailsSubmitted ? refreshStripeStatus : handleSetupPayouts}
+                    onPress={stripeStatus.detailsSubmitted ? () => refreshStripeStatus(true) : handleSetupPayouts}
                     isLoading={saving}
                   />
                 </>

@@ -8,3 +8,7 @@ export const INBOX_POLL_MS = 15_000
 // An open chat: new messages, and the header / payment banner state.
 export const THREAD_MESSAGES_POLL_MS = 5_000
 export const THREAD_DETAILS_POLL_MS = 30_000
+
+// Profile's payout status (a live Stripe call on the server): how long a
+// routine reload reuses the last answer. Explicit refreshes always refetch.
+export const PAYOUT_STATUS_MAX_AGE_MS = 5 * 60_000

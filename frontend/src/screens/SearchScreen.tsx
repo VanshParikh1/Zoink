@@ -22,6 +22,7 @@ import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
+import { useTabLoad } from '../context/MainTabContext'
 import { isBlockedThisSession } from '../services/blockedUsers'
 import ScreenBackground from '../components/ScreenBackground'
 import RatingPill from '../components/RatingPill'
@@ -127,7 +128,13 @@ export default function SearchScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
 
-  useEffect(() => {
+  // Trending needs a location fix and a wide browse, so it waits until the
+  // Search tab is first opened rather than running behind Home at launch.
+  // Still loaded once per mount, as before.
+  const trendingRequested = useRef(false)
+  useTabLoad('Search', useCallback(() => {
+    if (trendingRequested.current) return
+    trendingRequested.current = true
     Location.getCurrentPositionAsync({}).then(loc => {
       const { latitude, longitude } = loc.coords
       // Large radius: seeded/demo listings are frequently far from wherever the
@@ -142,7 +149,7 @@ export default function SearchScreen() {
         setTrending(res.items.slice(0, 5))
       }).catch(console.error)
     })
-  }, [])
+  }, []))
 
   useFocusEffect(
     useCallback(() => {

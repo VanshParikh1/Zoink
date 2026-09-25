@@ -22,8 +22,7 @@ import SearchScreen from './SearchScreen'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
-
-type MainTab = 'Home' | 'Search' | 'Inbox' | 'MyProfile'
+import { MainTab, MainTabProvider } from '../context/MainTabContext'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
 const CENTER_SLOT_WIDTH = 72
@@ -218,41 +217,43 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
         }}
       >
         {contentWidth > 0 && (
-          <Animated.ScrollView
-            ref={scrollViewRef as any}
-            horizontal
-            pagingEnabled
-            decelerationRate="fast"
-            overScrollMode="never"
-            showsHorizontalScrollIndicator={false}
-            directionalLockEnabled={true}
-            onScroll={Animated.event(
-              [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-              {
-                useNativeDriver: true,
-                listener: handleScroll,
-              }
-            )}
-            onMomentumScrollEnd={commitSettledTab}
-            onScrollEndDrag={commitSettledTab}
-            scrollEventThrottle={16}
-            style={styles.tabStrip}
-          >
-            <View style={[styles.tabPanel, { width: contentWidth }]}>
-              <HomeScreen />
-            </View>
-            <View style={[styles.tabPanel, { width: contentWidth }]}>
-              <SearchScreen />
-            </View>
-            <View style={[styles.tabPanel, { width: contentWidth }]}>
-              <InboxFeedProvider value={inboxFeed}>
-                <InboxScreen />
-              </InboxFeedProvider>
-            </View>
-            <View style={[styles.tabPanel, { width: contentWidth }]}>
-              <MyProfileScreen />
-            </View>
-          </Animated.ScrollView>
+          <MainTabProvider value={activeTab}>
+            <Animated.ScrollView
+              ref={scrollViewRef as any}
+              horizontal
+              pagingEnabled
+              decelerationRate="fast"
+              overScrollMode="never"
+              showsHorizontalScrollIndicator={false}
+              directionalLockEnabled={true}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                {
+                  useNativeDriver: true,
+                  listener: handleScroll,
+                }
+              )}
+              onMomentumScrollEnd={commitSettledTab}
+              onScrollEndDrag={commitSettledTab}
+              scrollEventThrottle={16}
+              style={styles.tabStrip}
+            >
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <HomeScreen />
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <SearchScreen />
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <InboxFeedProvider value={inboxFeed}>
+                  <InboxScreen />
+                </InboxFeedProvider>
+              </View>
+              <View style={[styles.tabPanel, { width: contentWidth }]}>
+                <MyProfileScreen />
+              </View>
+            </Animated.ScrollView>
+          </MainTabProvider>
         )}
       </View>
 
