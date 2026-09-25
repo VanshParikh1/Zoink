@@ -15,10 +15,12 @@ import {
 } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getConversation, getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
+import { usePolling } from '../hooks/usePolling'
+import { THREAD_DETAILS_POLL_MS, THREAD_MESSAGES_POLL_MS } from '../config/polling'
 import { Message, ConversationDetail } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
@@ -64,6 +66,7 @@ export default function ConversationThreadScreen() {
           setMessages((current) => [...current, ...nextMessages])
           latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
         }
+        return nextMessages
       } else {
         setMessages(nextMessages)
         latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
@@ -75,6 +78,7 @@ export default function ConversationThreadScreen() {
     } finally {
       setLoading(false)
     }
+    return []
   }, [nav, route.params.conversationId])
 
   const loadConversation = useCallback(async () => {
@@ -89,21 +93,27 @@ export default function ConversationThreadScreen() {
     }
   }, [route.params.conversationId])
 
+  // Opening (or returning to) the thread loads everything and marks it read.
   useFocusEffect(
     useCallback(() => {
       loadMessages()
       loadConversation()
       markConversationRead(route.params.conversationId).catch(() => {})
-
-      const intervalId = setInterval(() => {
-        loadMessages(true)
-        loadConversation()
-        markConversationRead(route.params.conversationId).catch(() => {})
-      }, 4000)
-
-      return () => clearInterval(intervalId)
     }, [loadMessages, loadConversation, route.params.conversationId])
   )
+
+  // While it's on screen and the app is in the foreground: new messages every
+  // few seconds, marking the thread read only when the other person actually
+  // sent something; the header / payment banner state far less often.
+  const isFocused = useIsFocused()
+  const pollMessages = useCallback(async () => {
+    const incoming = await loadMessages(true)
+    if (incoming.some((message) => message.senderId !== user?.id)) {
+      markConversationRead(route.params.conversationId).catch(() => {})
+    }
+  }, [loadMessages, route.params.conversationId, user?.id])
+  usePolling(pollMessages, THREAD_MESSAGES_POLL_MS, isFocused)
+  usePolling(loadConversation, THREAD_DETAILS_POLL_MS, isFocused)
 
   async function handleSend() {
     const trimmed = body.trim()
