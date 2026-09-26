@@ -53,14 +53,10 @@ import { globalLimiter } from './middleware/rateLimiter'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-// Hosting target isn't decided yet (local dev goes through a single ngrok
-// tunnel; production could be Fly.io/Railway/Render/etc., all of which sit
-// behind their own reverse proxy). Trust exactly one hop so req.ip resolves
-// to the real client IP from X-Forwarded-For instead of the proxy's IP —
-// otherwise every client behind that proxy collapses onto one rate-limit key.
-// Revisit this once the actual deployment topology is chosen: `1` is correct
-// for exactly one proxy in front of the app, but wrong (too many or too few
-// hops trusted) for anything else, e.g. a CDN + load balancer chain.
+// Railway's edge is the one proxy in front of the app, so trust exactly one
+// hop (req.protocol, req.secure). req.ip then resolves to the edge's address,
+// not the client's; rate limits key on clientIp() (X-Real-IP) instead — see
+// middleware/rateLimiter.ts.
 app.set('trust proxy', 1)
 
 app.use(helmet())

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import rateLimit, { ipKeyGenerator, Options } from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
+import { isIP } from 'net'
 
 // In-memory store (express-rate-limit's default). Fine for the single Express
 // instance we run today. If Zoink ever scales to multiple instances/processes,
@@ -31,8 +32,23 @@ function bearerUserId(req: Request): string | undefined {
   return userId ?? undefined
 }
 
+// The address rate limits are keyed on. In production req.ip is useless for
+// this: with `trust proxy 1` it resolves to the last X-Forwarded-For hop, which
+// is Railway's edge, so everyone shared a handful of edge addresses. Railway's
+// edge sets X-Real-IP to the connecting client and overwrites whatever the
+// client sent (verified 2026-09-26 against the production edge: spoofed,
+// duplicated and lowercase X-Real-IP headers over HTTP/1.1 and HTTP/2 all
+// arrived as the real address). Anywhere the header is absent or isn't a
+// single IP (tests, local dev) this falls back to req.ip. Only valid behind an
+// edge that overwrites the header.
+export function clientIp(req: Request): string {
+  const realIp = req.get('x-real-ip')?.trim()
+  if (realIp && isIP(realIp)) return realIp
+  return req.ip ?? ''
+}
+
 function ipKey(req: Request): string {
-  return ipKeyGenerator(req.ip ?? '')
+  return ipKeyGenerator(clientIp(req))
 }
 
 // Keys by IP, combined with userId when the request carries a valid token, so

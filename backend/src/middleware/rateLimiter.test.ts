@@ -5,7 +5,7 @@ import request from 'supertest'
 import jwt from 'jsonwebtoken'
 import { once } from 'events'
 import type { AddressInfo } from 'net'
-import { buildGlobalLimiter, buildLimiter, globalLimiter } from './rateLimiter'
+import { buildGlobalLimiter, buildLimiter, clientIp, globalLimiter } from './rateLimiter'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret-for-rate-limiter-tests'
 
@@ -136,4 +136,63 @@ test('global limiter treats a token signed with another HMAC algorithm as anonym
 
   assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 200)
   assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 429)
+})
+
+// ── Client address behind Railway's edge (S1) ────────────────────────────────
+
+// What production sees: one trusted proxy hop, X-Forwarded-For ending in the
+// edge's own address (shared by many clients), and X-Real-IP set by the edge
+// to the connecting client.
+const EDGE = '79.127.200.35'
+
+function buildRailwayLikeApp(limiter: ReturnType<typeof buildGlobalLimiter>) {
+  const app = express()
+  app.set('trust proxy', 1)
+  app.use(limiter)
+  app.get('/ping', (req, res) => res.status(200).json({ ip: req.ip, clientIp: clientIp(req) }))
+  return app
+}
+
+function viaEdge(app: express.Express, client: string, extra: Record<string, string> = {}) {
+  return request(app).get('/ping').set('X-Forwarded-For', `${client}, ${EDGE}`).set('X-Real-IP', client).set(extra)
+}
+
+test('behind the edge, clients get their own budgets instead of sharing the edge address', async () => {
+  const app = buildRailwayLikeApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
+
+  const first = await viaEdge(app, '203.0.113.10')
+  assert.equal(first.status, 200)
+  assert.equal(first.body.ip, EDGE, 'req.ip is the edge address, which is why it cannot be the key')
+  assert.equal(first.body.clientIp, '203.0.113.10')
+
+  assert.equal((await viaEdge(app, '203.0.113.11')).status, 200, 'a second client behind the same edge is not blocked')
+  assert.equal((await viaEdge(app, '203.0.113.10')).status, 429, 'the first client is still limited')
+})
+
+test('the limiter key follows X-Real-IP, not whatever the client put in X-Forwarded-For', async () => {
+  const app = buildRailwayLikeApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 2 }))
+
+  // The edge keeps the client's own X-Forwarded-For entries ahead of its own;
+  // rotating them must not buy a fresh budget.
+  for (const spoofed of ['1.1.1.1', '2.2.2.2']) {
+    const res = await request(app).get('/ping').set('X-Forwarded-For', `${spoofed}, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
+    assert.equal(res.status, 200)
+  }
+  const blocked = await request(app).get('/ping').set('X-Forwarded-For', `3.3.3.3, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
+  assert.equal(blocked.status, 429)
+})
+
+test('an X-Real-IP that is not a single IP address falls back to req.ip', async () => {
+  const app = buildRailwayLikeApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
+
+  const res = await request(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', 'not-an-ip')
+  assert.equal(res.body.clientIp, EDGE)
+  // Junk values can't be rotated into fresh budgets either.
+  const again = await request(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', '203.0.113.30, 203.0.113.31')
+  assert.equal(again.status, 429)
+})
+
+test('clientIp accepts IPv6 from X-Real-IP', () => {
+  const req = { get: (name: string) => (name === 'x-real-ip' ? ' 2001:db8::1 ' : undefined), ip: '10.0.0.1' } as any
+  assert.equal(clientIp(req), '2001:db8::1')
 })
