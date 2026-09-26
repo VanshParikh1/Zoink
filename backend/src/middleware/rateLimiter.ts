@@ -75,9 +75,51 @@ export function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit
   })
 }
 
-// Tight limit for brute-force/spam-prone auth routes: login, register, OTP
-// request/verify.
-export const authLimiter = buildLimiter({ windowMs: 15 * 60 * 1000, limit: 10 })
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+// Tight limit for the remaining auth routes (email verification, code resend,
+// legal version), per address + signed-in user.
+export const authLimiter = buildLimiter({ windowMs: 15 * MINUTE, limit: 10 })
+
+function keyedLimiter(options: { windowMs: number; limit: number; key: (req: Request) => string }) {
+  return rateLimit({
+    windowMs: options.windowMs,
+    limit: options.limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: options.key,
+    handler: rateLimitHandler,
+  })
+}
+
+// The address as typed, normalized the way accounts are looked up, so case or
+// whitespace variants of one address share a budget.
+function submittedEmail(req: Request): string {
+  const email = req.body?.email
+  return typeof email === 'string' ? email.trim().toLowerCase() : ''
+}
+
+// Login guesses are counted per address + account, so one shared campus
+// address isn't a single bucket for every student signing in; a looser cap
+// per address stops one client from walking through many accounts. Both run
+// before validation, so malformed attempts count too.
+export const loginAccountLimiter = keyedLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 10,
+  key: (req) => `login:${ipKey(req)}:${submittedEmail(req)}`,
+})
+export const loginAddressLimiter = keyedLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 100,
+  key: (req) => `login-ip:${ipKey(req)}`,
+})
+export const registerLimiter = keyedLimiter({
+  windowMs: HOUR,
+  limit: 20,
+  key: (req) => `register:${ipKey(req)}`,
+})
 
 // Blanket default applied to everything. A signed-in user gets one budget of
 // their own, whichever network they're on; anonymous callers are counted per
@@ -120,10 +162,6 @@ export function buildUserLimiter(name: string, options: { windowMs: number; limi
     handler: rateLimitHandler,
   })
 }
-
-const MINUTE = 60 * 1000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
 
 export const messageLimiter = buildUserLimiter('messages', { windowMs: MINUTE, limit: 60 })
 export const bookingRequestLimiter = buildUserLimiter('booking-requests', { windowMs: HOUR, limit: 20 })

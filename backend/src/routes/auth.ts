@@ -2,18 +2,17 @@ import { Router } from 'express'
 import { register, login, verifyEmail, resendOTP, getLegalVersion } from '../middleware/controllers/authController'
 import { requireAuth } from '../middleware/requireAuth'
 import { validate } from '../middleware/validate'
-import { authLimiter } from '../middleware/rateLimiter'
+import { authLimiter, loginAccountLimiter, loginAddressLimiter, registerLimiter } from '../middleware/rateLimiter'
 import { RegisterSchema, LoginSchema, VerifyEmailSchema } from '../schemas/auth.schema'
 
 const router = Router()
 
-// Brute-force/spam target — every route here is rate-limited.
-router.use(authLimiter)
-
-router.get('/legal-version', getLegalVersion)
-router.post('/register', validate(RegisterSchema), register)
-router.post('/login', validate(LoginSchema), login)
-router.post('/verify-email', requireAuth, validate(VerifyEmailSchema), verifyEmail)
-router.post('/resend-otp', requireAuth, resendOTP)
+// Brute-force/spam targets — every route here is rate-limited, ahead of
+// validation and auth so rejected attempts count too.
+router.get('/legal-version', authLimiter, getLegalVersion)
+router.post('/register', registerLimiter, validate(RegisterSchema), register)
+router.post('/login', loginAddressLimiter, loginAccountLimiter, validate(LoginSchema), login)
+router.post('/verify-email', authLimiter, requireAuth, validate(VerifyEmailSchema), verifyEmail)
+router.post('/resend-otp', authLimiter, requireAuth, resendOTP)
 
 export default router
