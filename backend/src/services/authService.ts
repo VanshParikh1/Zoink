@@ -10,6 +10,7 @@ import {
   TooManyRequestsError,
 } from '../utils/errors'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
+import { hasPlusInLocalPart, normalizeEmail, PLUS_ADDRESS_MESSAGE } from '../utils/email'
 import type { University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,6 +73,14 @@ export async function registerUser(
     throw new BadRequestError('Please update the app to continue — our terms have changed.')
   }
 
+  // Sign-up only: existing '+' accounts keep logging in and verifying. Thrown
+  // here rather than in RegisterSchema so the app, which shows `error`, gets
+  // this message instead of "Validation failed.".
+  email = normalizeEmail(email)
+  if (hasPlusInLocalPart(email)) {
+    throw new BadRequestError(PLUS_ADDRESS_MESSAGE)
+  }
+
   // 2. Check if email already exists
   const existing = await prisma.user.findUnique({ where: { email } })
   if (existing) {
@@ -124,7 +133,7 @@ export async function registerUser(
 
 export async function loginUser(email: string, password: string) {
   // 1. Find user
-  const user = await prisma.user.findUnique({ where: { email } })
+  const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } })
   if (!user || user.deletedAt) {
     // A soft-deleted account's email is rewritten to a tombstone so this
     // lookup normally misses anyway; the deletedAt check is belt-and-braces.

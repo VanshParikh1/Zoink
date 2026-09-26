@@ -29,7 +29,9 @@ const UNIVERSITY_KEYS = Object.keys(UNIVERSITY_DOMAINS) as [University, ...Unive
 export const RegisterSchema = z.object({
   body: z
     .object({
-      email: z.string().email('A valid email address is required.'),
+      // Trimmed and lowercased before the format check; accounts are stored
+      // this way (see utils/email.ts).
+      email: z.string().trim().toLowerCase().email('A valid email address is required.'),
       password: z.string().min(8, 'Password must be at least 8 characters.'),
       firstName: z.string().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.'),
       lastName: z.string().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.'),
@@ -60,7 +62,7 @@ export const RegisterSchema = z.object({
 
 export const LoginSchema = z.object({
   body: z.object({
-    email: z.string().email('A valid email address is required.'),
+    email: z.string().trim().toLowerCase().email('A valid email address is required.'),
     password: z.string().min(1, 'password is required.'),
   }),
 })
