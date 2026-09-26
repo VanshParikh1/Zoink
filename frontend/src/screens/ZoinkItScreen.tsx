@@ -79,12 +79,20 @@ export default function ZoinkItScreen() {
 
   useEffect(() => {
     let active = true
+    // One alert per outage: this polls every 3 s, and used to alert on every
+    // failed read (e.g. the whole time the phone was offline). Re-armed once a
+    // read succeeds.
+    let alertShown = false
     const load = async () => {
       try {
         const next = await getBooking(bookingId)
-        if (active) setBooking(next)
+        if (!active) return
+        alertShown = false
+        setBooking(next)
       } catch (err: any) {
-        if (active) Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
+        if (!active || alertShown) return
+        alertShown = true
+        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
       }
     }
 
