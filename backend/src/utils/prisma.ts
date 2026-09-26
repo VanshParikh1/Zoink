@@ -1,6 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg'
 import { PrismaClient } from '@prisma/client'
-import { Pool } from 'pg'
+import { createPool } from './dbPool'
 
 // NOTE: dotenv.config() is intentionally NOT called here.
 // DATABASE_URL is loaded by:
@@ -13,7 +13,7 @@ import { Pool } from 'pg'
 // whatever DATABASE_URL is in process.env at that moment. Because the test script
 // sets DATABASE_URL at process start (not at runtime), there is no race condition.
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
+const pool = createPool(process.env.DATABASE_URL!)
 const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter } as any)
 
