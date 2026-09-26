@@ -35,6 +35,14 @@ import { fillImageUrl } from '../utils/cloudinaryImage'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
 
+// A poll that was already in flight when a message was sent can return that
+// message too; keep one copy per id.
+function appendNew(current: Message[], incoming: Message[]) {
+  const seen = new Set(current.map((message) => message.id))
+  const fresh = incoming.filter((message) => !seen.has(message.id))
+  return fresh.length > 0 ? [...current, ...fresh] : current
+}
+
 export default function ConversationThreadScreen() {
   const nav = useNavigation<Nav>()
   const insets = useSafeAreaInsets()
@@ -63,7 +71,7 @@ export default function ConversationThreadScreen() {
       const nextMessages = await getConversationMessages(route.params.conversationId, incremental ? latestMessageId.current : undefined)
       if (incremental) {
         if (nextMessages.length > 0) {
-          setMessages((current) => [...current, ...nextMessages])
+          setMessages((current) => appendNew(current, nextMessages))
           latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
         }
         return nextMessages
@@ -126,7 +134,7 @@ export default function ConversationThreadScreen() {
       // Sending your own message should always carry you down to it,
       // even if you had scrolled up to read older history.
       isNearBottomRef.current = true
-      setMessages((current) => [...current, message])
+      setMessages((current) => appendNew(current, [message]))
       latestMessageId.current = message.id
       setBody('')
     } catch (err: any) {
