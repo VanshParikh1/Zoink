@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -11,17 +11,19 @@ import {
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
-import { Feather } from '@expo/vector-icons'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import Feather from '@expo/vector-icons/Feather'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
 import { ListingBrowseItem } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
+import { useTabLoad } from '../context/MainTabContext'
 import { theme } from '../theme/colors'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import HardBlock from '../components/HardBlock'
 import ScreenBackground from '../components/ScreenBackground'
+import { limitImageUrl, SCREEN_WIDTH } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -84,15 +86,17 @@ export default function HomeScreen() {
     }
   }, [fetchListings])
 
-  useEffect(() => {
-    loadLocationAndListings()
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
+  // The first visit resolves location and loads; coming back to the tab after
+  // another screen was on top reloads at the coordinates already found.
+  const locationResolved = useRef(false)
+  useTabLoad('Home', useCallback(() => {
+    if (locationResolved.current) {
       fetchListings(coords)
-    }, [coords, fetchListings])
-  )
+    } else {
+      locationResolved.current = true
+      loadLocationAndListings()
+    }
+  }, [coords, fetchListings, loadLocationAndListings]))
 
   const onRefresh = () => {
     setRefreshing(true)
@@ -114,7 +118,7 @@ export default function HomeScreen() {
         >
           <View style={styles.thumbnailContainer}>
             {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+              <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH / 2 }) }} style={styles.cardImage} />
             ) : (
               <View style={[styles.cardImage, styles.imageFallback]}>
                 <Text style={styles.imageFallbackText}>{item.category}</Text>

@@ -22,9 +22,11 @@ import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
+import { useTabLoad } from '../context/MainTabContext'
 import { isBlockedThisSession } from '../services/blockedUsers'
 import ScreenBackground from '../components/ScreenBackground'
 import RatingPill from '../components/RatingPill'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -59,7 +61,7 @@ function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress
       <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
         <View style={styles.glassThumbnailLarge}>
           {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+            <Image source={{ uri: fillImageUrl(imageUrl, { width: (SCREEN_WIDTH - 48) * 0.75, height: (SCREEN_WIDTH - 48) * 0.75 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
           ) : (
             <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
           )}
@@ -92,7 +94,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
       <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
         <View style={styles.glassThumbnailSmall}>
           {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+            <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
           ) : (
             <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
           )}
@@ -126,7 +128,13 @@ export default function SearchScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
 
-  useEffect(() => {
+  // Trending needs a location fix and a wide browse, so it waits until the
+  // Search tab is first opened rather than running behind Home at launch.
+  // Still loaded once per mount, as before.
+  const trendingRequested = useRef(false)
+  useTabLoad('Search', useCallback(() => {
+    if (trendingRequested.current) return
+    trendingRequested.current = true
     Location.getCurrentPositionAsync({}).then(loc => {
       const { latitude, longitude } = loc.coords
       // Large radius: seeded/demo listings are frequently far from wherever the
@@ -141,7 +149,7 @@ export default function SearchScreen() {
         setTrending(res.items.slice(0, 5))
       }).catch(console.error)
     })
-  }, [])
+  }, []))
 
   useFocusEffect(
     useCallback(() => {

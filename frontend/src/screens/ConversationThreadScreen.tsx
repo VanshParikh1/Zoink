@@ -13,12 +13,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getConversation, getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
+import { usePolling } from '../hooks/usePolling'
+import { THREAD_DETAILS_POLL_MS, THREAD_MESSAGES_POLL_MS } from '../config/polling'
 import { Message, ConversationDetail } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
@@ -28,9 +30,18 @@ import BackButton from '../components/BackButton'
 import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
+
+// A poll that was already in flight when a message was sent can return that
+// message too; keep one copy per id.
+function appendNew(current: Message[], incoming: Message[]) {
+  const seen = new Set(current.map((message) => message.id))
+  const fresh = incoming.filter((message) => !seen.has(message.id))
+  return fresh.length > 0 ? [...current, ...fresh] : current
+}
 
 export default function ConversationThreadScreen() {
   const nav = useNavigation<Nav>()
@@ -60,9 +71,10 @@ export default function ConversationThreadScreen() {
       const nextMessages = await getConversationMessages(route.params.conversationId, incremental ? latestMessageId.current : undefined)
       if (incremental) {
         if (nextMessages.length > 0) {
-          setMessages((current) => [...current, ...nextMessages])
+          setMessages((current) => appendNew(current, nextMessages))
           latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
         }
+        return nextMessages
       } else {
         setMessages(nextMessages)
         latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
@@ -74,6 +86,7 @@ export default function ConversationThreadScreen() {
     } finally {
       setLoading(false)
     }
+    return []
   }, [nav, route.params.conversationId])
 
   const loadConversation = useCallback(async () => {
@@ -88,21 +101,27 @@ export default function ConversationThreadScreen() {
     }
   }, [route.params.conversationId])
 
+  // Opening (or returning to) the thread loads everything and marks it read.
   useFocusEffect(
     useCallback(() => {
       loadMessages()
       loadConversation()
       markConversationRead(route.params.conversationId).catch(() => {})
-
-      const intervalId = setInterval(() => {
-        loadMessages(true)
-        loadConversation()
-        markConversationRead(route.params.conversationId).catch(() => {})
-      }, 4000)
-
-      return () => clearInterval(intervalId)
     }, [loadMessages, loadConversation, route.params.conversationId])
   )
+
+  // While it's on screen and the app is in the foreground: new messages every
+  // few seconds, marking the thread read only when the other person actually
+  // sent something; the header / payment banner state far less often.
+  const isFocused = useIsFocused()
+  const pollMessages = useCallback(async () => {
+    const incoming = await loadMessages(true)
+    if (incoming.some((message) => message.senderId !== user?.id)) {
+      markConversationRead(route.params.conversationId).catch(() => {})
+    }
+  }, [loadMessages, route.params.conversationId, user?.id])
+  usePolling(pollMessages, THREAD_MESSAGES_POLL_MS, isFocused)
+  usePolling(loadConversation, THREAD_DETAILS_POLL_MS, isFocused)
 
   async function handleSend() {
     const trimmed = body.trim()
@@ -115,7 +134,7 @@ export default function ConversationThreadScreen() {
       // Sending your own message should always carry you down to it,
       // even if you had scrolled up to read older history.
       isNearBottomRef.current = true
-      setMessages((current) => [...current, message])
+      setMessages((current) => appendNew(current, [message]))
       latestMessageId.current = message.id
       setBody('')
     } catch (err: any) {
@@ -237,7 +256,7 @@ export default function ConversationThreadScreen() {
             </View>
 
             {headerImageUrl ? (
-              <Image source={{ uri: headerImageUrl }} style={styles.headerThumb} />
+              <Image source={{ uri: fillImageUrl(headerImageUrl, { width: 56, height: 56 }) }} style={styles.headerThumb} />
             ) : (
               <View style={[styles.headerThumb, styles.headerThumbPlaceholder]}>
                 <Feather name="image" size={16} color={theme.textDisabled} />

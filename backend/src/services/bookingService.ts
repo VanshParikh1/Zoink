@@ -24,6 +24,8 @@ import {
   getMockAuthorizedPaymentStatus,
   getOrCreateStripeCustomer,
   getPaymentIntentPaymentMethod,
+  getRentalAuthorizationAmount,
+  retrievePaymentIntent,
   toCents,
   toDecimal,
 } from './paymentService'
@@ -103,7 +105,6 @@ const bookingSelect = {
       lastName: true,
       avatarUrl: true,
       verificationStatus: true,
-      stripeAccountId: true,
     },
   },
   reviewObligations: {
@@ -118,6 +119,34 @@ const bookingSelect = {
       updatedAt: true,
     },
     orderBy: { createdAt: 'asc' as const },
+  },
+} satisfies Prisma.BookingSelect
+
+// A previous Pay attempt's PaymentIntent in one of these states has not been
+// authorized yet, so handing its client secret back is equivalent to a fresh one.
+const REUSABLE_PAYMENT_INTENT_STATUSES = ['requires_payment_method', 'requires_confirmation']
+
+// List endpoints (GET /bookings/me, /bookings/requests). They never touch the
+// renter's email / Stripe customer id (only the payment paths read those, and
+// they load bookingSelect), and toBookingResponse strips them anyway.
+const bookingListSelect = {
+  ...bookingSelect,
+  // Every list screen renders only the thumbnail (images[0]); detail screens
+  // re-fetch the booking and get the full gallery.
+  listing: {
+    select: {
+      ...bookingSelect.listing.select,
+      images: { ...bookingSelect.listing.select.images, take: 1 },
+    },
+  },
+  renter: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      avatarUrl: true,
+      verificationStatus: true,
+    },
   },
 } satisfies Prisma.BookingSelect
 
@@ -168,7 +197,26 @@ function mapPendingReviewForUser(booking: any, userId?: string): PendingReviewRe
   }
 }
 
-function toBookingResponse(booking: any, userId?: string): BookingResponse {
+// A renter gets the listing's street address once their booking is paid
+// (CONFIRMED) and through the rest of the rental; the owner always does.
+const ADDRESS_VISIBLE_TO_RENTER: BookingStatus[] = [
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+  BookingStatus.COMPLETED,
+]
+
+function listingForViewer(booking: any, userId?: string) {
+  if (!booking.listing) return booking.listing
+  const canSeeAddress =
+    userId !== undefined &&
+    (userId === booking.ownerId || (userId === booking.renterId && ADDRESS_VISIBLE_TO_RENTER.includes(booking.status)))
+  return canSeeAddress ? booking.listing : { ...booking.listing, address: null }
+}
+
+function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
+  const booking = { ...rawBooking, listing: listingForViewer(rawBooking, userId) }
   const totalPrice = Number(booking.totalPrice)
   return {
     id: booking.id,
@@ -442,6 +490,57 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
     throw new ConflictError('This booking is not ready for payment.')
   }
 
+  // Every Pay tap used to mint a fresh PaymentIntent, leaving the previous
+  // attempt's authorization (if the renter got that far) held on their card
+  // for ~7 days. Reuse the previous PaymentIntent when it hasn't been paid yet
+  // and still matches this booking's amount; otherwise retire it before a new
+  // one is created. Its payment_intent.canceled webhook is harmless: once the
+  // new PaymentIntent is installed below it is ignored as superseded, and if
+  // it lands first, the update below resets paymentStatus/refundedAt anyway.
+  if (booking.stripePaymentIntentId) {
+    const previous = await retrievePaymentIntent(booking.stripePaymentIntentId)
+
+    if (previous) {
+      const reusable =
+        REUSABLE_PAYMENT_INTENT_STATUSES.includes(previous.status) &&
+        previous.amount === getRentalAuthorizationAmount(booking) &&
+        previous.currency === (process.env.STRIPE_CURRENCY ?? 'cad') &&
+        previous.metadata?.bookingId === booking.id
+
+      if (reusable) {
+        await prisma.bookingEvent.create({
+          data: {
+            bookingId: booking.id,
+            actorId: renterId,
+            type: BookingEventType.PAYMENT_INTENT_CREATED,
+            metadata: { paymentIntentId: previous.id, status: previous.status, reused: true },
+          },
+        })
+
+        return {
+          ...toBookingResponse(booking, renterId),
+          paymentClientSecret: previous.client_secret ?? null,
+        }
+      }
+
+      if (previous.status === 'succeeded') {
+        // A captured rental payment on an ACCEPTED booking should be
+        // impossible (capture only happens at pickup); never charge twice.
+        throw new ConflictError('This booking has already been paid.')
+      }
+
+      if (previous.status !== 'canceled') {
+        try {
+          await cancelPaymentIntent(booking)
+        } catch {
+          // e.g. still `processing` — Stripe refuses to cancel it. Don't mint a
+          // second PaymentIntent next to one that may yet go through.
+          throw new ConflictError('Your previous payment attempt is still being processed. Please try again in a moment.')
+        }
+      }
+    }
+  }
+
   // A real Stripe Customer is required so the payment method attached here
   // can be saved (setup_future_usage) and reused off-session for the
   // deposit PaymentIntent once this one is confirmed (see
@@ -460,6 +559,9 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
       data: {
         stripePaymentIntentId: paymentIntent.id,
         paymentStatus,
+        // Nothing has been paid before the first confirmed PaymentIntent, so a
+        // refundedAt here can only be a stale stamp from a retired attempt.
+        refundedAt: null,
         version: { increment: 1 },
       },
     })
@@ -490,7 +592,7 @@ export async function getBookingById(bookingId: string, userId: string): Promise
 export async function getMyBookings(renterId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
-    select: bookingSelect as any,
+    select: bookingListSelect,
     // Most-recent-activity ordering: updatedAt bumps on every status
     // transition (PENDING -> ACCEPTED -> ... -> COMPLETED/CANCELLED/DECLINED),
     // so a booking that was recently completed or cancelled surfaces near the
@@ -504,7 +606,7 @@ export async function getMyBookings(renterId: string): Promise<BookingResponse[]
 export async function getIncomingRequests(ownerId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { ownerId },
-    select: bookingSelect as any,
+    select: bookingListSelect,
     // status:'asc' keeps PENDING requests (needing the owner's action) pinned
     // above everything else — that's a deliberate actionable-items-first
     // priority, independent of the "most recent activity" fix below, and
@@ -689,13 +791,14 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
             data: { status: 'DECLINED', version: { increment: 1 } },
           })
 
-          for (const rejected of autoRejected) {
-            await createBookingEvent(tx, rejected.id, actorId, BookingEventType.STATUS_CHANGE, {
-              from: 'PENDING',
-              to: 'DECLINED',
-              reason: 'overlap_auto_reject',
-            })
-          }
+          await tx.bookingEvent.createMany({
+            data: autoRejected.map((rejected) => ({
+              bookingId: rejected.id,
+              actorId,
+              type: BookingEventType.STATUS_CHANGE,
+              metadata: { from: 'PENDING', to: 'DECLINED', reason: 'overlap_auto_reject' },
+            })),
+          })
         }
       }
 
@@ -795,12 +898,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       to: nextStatus,
     })
 
-    const completedBooking: any = await tx.booking.findUniqueOrThrow({
-      where: { id: booking.id },
-      select: bookingSelect as any,
-    })
-
-    await createReviewObligationsForCompletedBooking(tx, completedBooking)
+    await createReviewObligationsForCompletedBooking(tx, booking)
 
     return tx.booking.findUniqueOrThrow({
       where: { id: booking.id },

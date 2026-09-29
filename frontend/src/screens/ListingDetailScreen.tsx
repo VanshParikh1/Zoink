@@ -13,7 +13,7 @@ import {
   FlatList,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ScreenBackground from '../components/ScreenBackground'
 import LocationMapPreview from '../components/LocationMapPreview'
 import RatingPill from '../components/RatingPill'
+import { fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -199,7 +200,7 @@ export default function ListingDetailScreen() {
                         })
                       }
                     >
-                      <Image source={{ uri: item.url }} style={styles.carouselImage} resizeMode="cover" />
+                      <Image source={{ uri: limitImageUrl(item.url, { width: SCREEN_WIDTH - 80 }) }} style={styles.carouselImage} resizeMode="cover" />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -266,7 +267,7 @@ export default function ListingDetailScreen() {
               onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
             >
               {listing.owner.avatarUrl ? (
-                <Image source={{ uri: listing.owner.avatarUrl }} style={styles.avatar} />
+                <Image source={{ uri: fillImageUrl(listing.owner.avatarUrl, { width: 48, height: 48 }) }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text style={styles.avatarInitial}>

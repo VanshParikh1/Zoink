@@ -138,6 +138,9 @@ export const uploadListingImage = asyncHandler(async (req: Request, res: Respons
     return res.status(400).json({ error: 'No image file provided.' })
   }
 
+  // Ownership and the photo cap are checked before anything reaches Cloudinary.
+  await listingService.assertCanAddListingImage(id, ownerId)
+
   // Let Cloudinary auto-generate the public_id to avoid folder permission issues
   const url = await uploadImage(req.file.buffer, 'listings')
   const image = await listingService.addListingImage(id, ownerId, url)

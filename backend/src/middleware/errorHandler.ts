@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { ZodError } from 'zod'
+import multer from 'multer'
 import { AppError } from '../utils/errors'
 import { Sentry } from '../instrument'
 
@@ -28,6 +29,28 @@ export function errorHandler(
       Sentry.captureException(err)
     }
     return res.status(err.statusCode).json({ error: err.message })
+  }
+
+  // Upload limits (multer): an oversized file is 413, anything else malformed 400.
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'That file is too large.' })
+    }
+    return res.status(400).json({ error: 'Invalid file upload.' })
+  }
+
+  // Client errors raised by Express / body-parser before a handler runs
+  // (malformed JSON, oversized body, undecodable URL parameter). They carry a
+  // 4xx `status`; the message is fixed here so parser internals never leak.
+  const status = typeof err?.status === 'number' ? err.status : typeof err?.statusCode === 'number' ? err.statusCode : undefined
+  if (status !== undefined && status >= 400 && status < 500) {
+    const message =
+      err.type === 'entity.parse.failed'
+        ? 'Malformed JSON body.'
+        : err.type === 'entity.too.large'
+          ? 'Request body is too large.'
+          : 'Bad request.'
+    return res.status(status).json({ error: message })
   }
 
   // Fallback to 500 for unrecognized errors, logging them server-side

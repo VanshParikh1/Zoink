@@ -10,9 +10,25 @@ import {
   TooManyRequestsError,
 } from '../utils/errors'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
+import { hasPlusInLocalPart, normalizeEmail, PLUS_ADDRESS_MESSAGE } from '../utils/email'
 import type { University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Wrong guesses allowed per code before it's spent (see verifyOTP).
+const MAX_OTP_ATTEMPTS = 5
+
+// A bcrypt hash of a throwaway string, at the same cost (12) as real password
+// hashes. Login compares against it when the email has no live account, so a
+// miss takes as long as a wrong password and response time doesn't reveal
+// which emails are registered.
+const TIMING_EQUALIZER_HASH = '$2b$12$arzA7SjXbBjFXvShAaRZdeuGCkXBXgoJDsqg8e522bgTMtNQ3sehK'
+
+function codesMatch(expected: string, received: string): boolean {
+  const a = Buffer.from(expected)
+  const b = Buffer.from(received)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
 
 function generateOTP(): string {
   // Generates a cryptographically random 6-digit code
@@ -31,7 +47,8 @@ export function signJWT(
   return jwt.sign(
     { userId, verificationStatus, email, firstName, role, termsVersion, privacyVersion },
     process.env.JWT_SECRET!,
-    { expiresIn: '30d' }
+    // Verification (requireAuth, rateLimiter) accepts HS256 only.
+    { algorithm: 'HS256', expiresIn: '30d' }
   )
 }
 
@@ -54,6 +71,14 @@ export async function registerUser(
   // RegisterSchema — see auth.schema.ts — before this ever runs.)
   if (acceptedTermsVersion !== CURRENT_TERMS_VERSION || acceptedPrivacyVersion !== CURRENT_PRIVACY_VERSION) {
     throw new BadRequestError('Please update the app to continue — our terms have changed.')
+  }
+
+  // Sign-up only: existing '+' accounts keep logging in and verifying. Thrown
+  // here rather than in RegisterSchema so the app, which shows `error`, gets
+  // this message instead of "Validation failed.".
+  email = normalizeEmail(email)
+  if (hasPlusInLocalPart(email)) {
+    throw new BadRequestError(PLUS_ADDRESS_MESSAGE)
   }
 
   // 2. Check if email already exists
@@ -94,8 +119,10 @@ export async function registerUser(
     data: { userId: user.id, code, expiresAt },
   })
 
-  // 6. Send OTP email (stubbed until SES is configured)
-  await sendVerificationEmail(user.email, user.firstName, code)
+  // 6. Send the OTP email in the background. sendVerificationEmail never
+  // rejects (it logs SES failures itself), and the user can always resend
+  // from the verification screen, so sign-up doesn't wait on SES latency.
+  void sendVerificationEmail(user.email, user.firstName, code)
 
   // 7. Return JWT so the user is logged in immediately after registering
   const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
@@ -106,10 +133,11 @@ export async function registerUser(
 
 export async function loginUser(email: string, password: string) {
   // 1. Find user
-  const user = await prisma.user.findUnique({ where: { email } })
+  const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } })
   if (!user || user.deletedAt) {
     // A soft-deleted account's email is rewritten to a tombstone so this
     // lookup normally misses anyway; the deletedAt check is belt-and-braces.
+    await bcrypt.compare(password, TIMING_EQUALIZER_HASH)
     throw new UnauthorizedError('Invalid email or password.')
   }
 
@@ -137,7 +165,20 @@ export async function verifyOTP(userId: string, code: string) {
     throw new BadRequestError('No verification code found. Please request a new one.')
   }
 
-  if (token.code !== code) {
+  if (!codesMatch(token.code, code)) {
+    // Counted atomically, so parallel guesses can't all read a stale count.
+    const { failedAttempts } = await prisma.verificationToken.update({
+      where: { id: token.id },
+      data: { failedAttempts: { increment: 1 } },
+      select: { failedAttempts: true },
+    })
+    if (failedAttempts >= MAX_OTP_ATTEMPTS) {
+      await prisma.verificationToken.updateMany({
+        where: { id: token.id, usedAt: null },
+        data: { usedAt: new Date() },
+      })
+      throw new BadRequestError('Too many incorrect attempts. Please request a new code.')
+    }
     throw new BadRequestError('Incorrect verification code.')
   }
 
@@ -145,17 +186,22 @@ export async function verifyOTP(userId: string, code: string) {
     throw new BadRequestError('Verification code has expired. Please request a new one.')
   }
 
-  // Mark token as used and update user status in a transaction
-  await prisma.$transaction([
-    prisma.verificationToken.update({
-      where: { id: token.id },
+  // Mark the token used and verify the user together. The token is claimed
+  // only while it's unused and under the attempt cap, so a right answer
+  // racing the guess that hits the cap can't get through.
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.verificationToken.updateMany({
+      where: { id: token.id, usedAt: null, failedAttempts: { lt: MAX_OTP_ATTEMPTS } },
       data: { usedAt: new Date() },
-    }),
-    prisma.user.update({
+    })
+    if (claimed.count !== 1) {
+      throw new BadRequestError('Too many incorrect attempts. Please request a new code.')
+    }
+    await tx.user.update({
       where: { id: userId },
       data: { verificationStatus: 'VERIFIED', verifiedAt: new Date() },
-    }),
-  ])
+    })
+  })
 
   // Return a fresh JWT with updated verificationStatus
   // Re-fetch user to get email + firstName + role for the new token
@@ -248,9 +294,12 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
   try {
     await sesClient.send(command)
   } catch (err: any) {
-    // SES failed (sandbox restrictions, missing config, etc.)
-    // Log the OTP so local dev is never blocked
-    console.warn(`[DEV] SES send failed: ${err?.message ?? err}`)
-    console.warn(`[DEV] OTP for ${email}: ${code}`)
+    // SES failed (sandbox restrictions, missing config, etc.). Outside
+    // production the code is logged so local dev is never blocked; in
+    // production it must never reach logs (or Sentry breadcrumbs).
+    console.warn(`SES verification email failed: ${err?.message ?? err}`)
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[DEV] OTP for ${email}: ${code}`)
+    }
   }
 }

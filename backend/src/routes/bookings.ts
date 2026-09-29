@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import multer from 'multer'
+import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
+import { bookingRequestLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
 import {
   InitiateHandoffSchema,
@@ -39,7 +41,7 @@ const upload = multer({
     if (file.mimetype.startsWith('image/')) {
       cb(null, true)
     } else {
-      cb(new Error('Only image files are allowed.'))
+      cb(new BadRequestError('Only image files are allowed.'))
     }
   },
 })
@@ -47,7 +49,7 @@ const upload = multer({
 router.use(requireAuth, requireVerified)
 
 // Booking CRUD
-router.post('/', validate(CreateBookingSchema), createBooking)
+router.post('/', bookingRequestLimiter, validate(CreateBookingSchema), createBooking)
 router.get('/me', getMyBookings)
 router.get('/requests', getIncomingRequests)
 
@@ -57,7 +59,7 @@ router.post('/:id/pickup/confirm', validate(HandoffBookingIdParamsSchema), confi
 router.post('/:id/return/initiate', validate(InitiateHandoffSchema), initiateReturn)
 router.post('/:id/return/confirm', validate(HandoffBookingIdParamsSchema), confirmReturn)
 router.post('/:id/photos', validate(UploadHandoffPhotosSchema), uploadHandoffPhotos)
-router.post('/:id/photos/upload', validate(HandoffBookingIdParamsSchema), upload.single('image'), uploadHandoffPhotoImage)
+router.post('/:id/photos/upload', uploadLimiter, validate(HandoffBookingIdParamsSchema), upload.single('image'), uploadHandoffPhotoImage)
 router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
 
 // Read / state-transition routes (param-only)

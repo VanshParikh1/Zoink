@@ -114,7 +114,23 @@ async function updateBookingFromEvent(event: StripeEvent) {
   const isDeposit = isDepositEvent(object, booking)
   const data: any = {}
 
-  if (isDeposit) {
+  // A new rental PaymentIntent is minted on every Pay attempt and overwrites
+  // booking.stripePaymentIntentId, but events for the PREVIOUS PaymentIntent
+  // keep arriving — notably Stripe's automatic payment_intent.canceled once an
+  // abandoned authorization expires. Those describe money that is no longer
+  // this booking's rental payment, so they are recorded for audit only and
+  // never mutate the booking (a stale cancel used to stamp a paid booking
+  // REFUNDED, which then silently suppressed the owner's payout).
+  const eventPaymentIntentId = getEventPaymentIntentId(object)
+  const isSuperseded =
+    !isDeposit &&
+    eventPaymentIntentId !== null &&
+    booking.stripePaymentIntentId !== null &&
+    eventPaymentIntentId !== booking.stripePaymentIntentId
+
+  if (isSuperseded) {
+    // No booking field to update — the WEBHOOK_RECEIVED audit row below still records it.
+  } else if (isDeposit) {
     // Deposit-PI lifecycle events only ever move depositStatus — never the
     // rental payment fields. depositStatus is normally set synchronously
     // (bookingService.transitionBookingStatus / disputeService.resolveDispute /
@@ -221,6 +237,13 @@ async function updateBookingFromEvent(event: StripeEvent) {
           stripeEventId: event.id,
           type: event.type,
           scope: isDeposit ? 'deposit' : 'rental',
+          ...(isSuperseded
+            ? {
+                superseded: true,
+                eventPaymentIntentId,
+                currentPaymentIntentId: booking.stripePaymentIntentId,
+              }
+            : {}),
           paymentStatus: data.paymentStatus,
           depositStatus: data.depositStatus,
           refundedAmountCents: data.refundedAmountCents,

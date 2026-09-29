@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import multer from 'multer'
+import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { UpdateMeSchema, UpdateNotificationPrefsSchema, UserIdParamsSchema } from '../schemas/user.schema'
+import { blockLimiter, uploadLimiter } from '../middleware/rateLimiter'
+import { UpdateMeSchema, UpdateNotificationPrefsSchema, UpdatePushTokenSchema, UserIdParamsSchema } from '../schemas/user.schema'
 import {
   getMe,
   getPublicProfile,
@@ -30,7 +32,7 @@ const upload = multer({
     if (file.mimetype.startsWith('image/')) {
       cb(null, true)
     } else {
-      cb(new Error('Only image files are allowed.'))
+      cb(new BadRequestError('Only image files are allowed.'))
     }
   },
 })
@@ -41,18 +43,19 @@ router.patch('/me', requireAuth, validate(UpdateMeSchema), updateMe)
 router.delete('/me', requireAuth, deleteMe)
 router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
 router.post('/me/accept-terms', requireAuth, acceptTerms)
-router.patch('/me/push-token', requireAuth, updatePushToken)
-router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar)
-router.post('/me/stripe-connect/onboard', requireAuth, onboardStripeConnect)
+router.patch('/me/push-token', requireAuth, validate(UpdatePushTokenSchema), updatePushToken)
+router.post('/me/avatar', requireAuth, uploadLimiter, upload.single('avatar'), uploadAvatar)
+// Payout onboarding creates a real Stripe Connect account — verified students only.
+router.post('/me/stripe-connect/onboard', requireAuth, requireVerified, onboardStripeConnect)
 router.get('/me/stripe-connect/status', requireAuth, getStripeConnectStatus)
 router.get('/me/blocks', requireAuth, getMyBlocks)
 
 // Blocking — auth only (not requireVerified), so an unverified account can
 // still cut off someone who is harassing it.
-router.post('/:id/block', requireAuth, validate(UserIdParamsSchema), blockUser)
-router.delete('/:id/block', requireAuth, validate(UserIdParamsSchema), unblockUser)
+router.post('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema), blockUser)
+router.delete('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema), unblockUser)
 
 // Public profile — must be verified to view others
-router.get('/:id', requireAuth, requireVerified, getPublicProfile)
+router.get('/:id', requireAuth, requireVerified, validate(UserIdParamsSchema), getPublicProfile)
 
 export default router

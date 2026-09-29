@@ -9,6 +9,7 @@ import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'AdminDisputeDetail'>
@@ -290,7 +291,7 @@ export default function AdminDisputeDetailScreen() {
                       key={url}
                       onPress={() => nav.navigate('PhotoViewer', { photos: dispute.booking.pickupPhotos, initialIndex: idx })}
                     >
-                      <Image source={{ uri: url }} style={styles.photoThumb} resizeMode="cover" />
+                      <Image source={{ uri: fillImageUrl(url, { width: 120, height: 120 }) }} style={styles.photoThumb} resizeMode="cover" />
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -306,7 +307,7 @@ export default function AdminDisputeDetailScreen() {
                       key={url}
                       onPress={() => nav.navigate('PhotoViewer', { photos: dispute.booking.returnPhotos, initialIndex: idx })}
                     >
-                      <Image source={{ uri: url }} style={styles.photoThumb} resizeMode="cover" />
+                      <Image source={{ uri: fillImageUrl(url, { width: 120, height: 120 }) }} style={styles.photoThumb} resizeMode="cover" />
                     </TouchableOpacity>
                   ))}
                 </ScrollView>

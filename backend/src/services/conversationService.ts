@@ -61,6 +61,66 @@ const conversationSelect = {
   ownerLastReadAt: true,
 } satisfies Prisma.ConversationSelect
 
+// The inbox list loads the last message and accepted-unpaid booking separately
+// (see withLastMessageAndAcceptedBooking): for more than one parent row,
+// Prisma runs a nested `take: 1` as `WHERE "conversationId" IN (...)` with no
+// LIMIT, reading every message of every conversation to keep one each.
+const { messages: _messages, bookings: _bookings, ...conversationBaseSelect } = conversationSelect
+// The inbox renders only the listing thumbnail (images[0]); the thread screen
+// re-fetches GET /conversations/:id, which keeps every image.
+const conversationListSelect = {
+  ...conversationBaseSelect,
+  listing: {
+    select: {
+      ...conversationBaseSelect.listing.select,
+      images: { ...conversationBaseSelect.listing.select.images, take: 1 },
+    },
+  },
+}
+
+type LastMessageRow = { id: string; body: string; senderId: string; createdAt: Date; conversationId: string }
+
+async function withLastMessageAndAcceptedBooking<T extends { id: string }>(conversations: T[]) {
+  if (conversations.length === 0) return []
+  const ids = conversations.map((conversation) => conversation.id)
+
+  const [lastMessages, acceptedBookings] = await Promise.all([
+    // One row per conversation, served by messages(conversationId, createdAt).
+    prisma.$queryRaw<LastMessageRow[]>`
+      SELECT DISTINCT ON ("conversationId") "id", "body", "senderId", "createdAt", "conversationId"
+      FROM "messages"
+      WHERE "conversationId" IN (${Prisma.join(ids)})
+      ORDER BY "conversationId", "createdAt" DESC, "id" DESC
+    `,
+    // Same ordering the nested `bookings: { take: 1 }` select used (id ASC).
+    prisma.booking.findMany({
+      where: { conversationId: { in: ids }, status: 'ACCEPTED' },
+      select: { id: true, conversationId: true },
+      orderBy: { id: 'asc' },
+    }),
+  ])
+
+  const lastMessageByConversation = new Map(
+    lastMessages.map(({ conversationId, ...message }) => [conversationId, message])
+  )
+  const acceptedBookingByConversation = new Map<string, { id: string }>()
+  for (const booking of acceptedBookings) {
+    if (booking.conversationId && !acceptedBookingByConversation.has(booking.conversationId)) {
+      acceptedBookingByConversation.set(booking.conversationId, { id: booking.id })
+    }
+  }
+
+  return conversations.map((conversation) => {
+    const lastMessage = lastMessageByConversation.get(conversation.id)
+    const acceptedBooking = acceptedBookingByConversation.get(conversation.id)
+    return {
+      ...conversation,
+      messages: lastMessage ? [lastMessage] : [],
+      bookings: acceptedBooking ? [acceptedBooking] : [],
+    }
+  })
+}
+
 const messageInclude = {
   sender: {
     select: {
@@ -173,11 +233,12 @@ export async function getMyConversations(currentUserId: string): Promise<Convers
         ? { NOT: [{ renterId: { in: blockedIds } }, { ownerId: { in: blockedIds } }] }
         : {}),
     },
-    select: conversationSelect as any,
+    select: conversationListSelect,
     orderBy: { createdAt: 'desc' },
   })
 
-  return conversations.map((conversation: any) => toConversationSummary(conversation, currentUserId))
+  const withLatest = await withLastMessageAndAcceptedBooking(conversations)
+  return withLatest.map((conversation) => toConversationSummary(conversation, currentUserId))
 }
 
 // "In flight" for the chat header: any booking that still needs either party
@@ -192,15 +253,19 @@ const IN_FLIGHT_BOOKING_STATUSES: BookingStatus[] = [
 ]
 
 export async function getConversationById(currentUserId: string, conversationId: string): Promise<ConversationDetailResponse> {
-  await getConversationForParticipant(conversationId, currentUserId)
-
+  // One read serves both the participant check and the response — this is
+  // polled every few seconds by an open chat.
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    select: conversationSelect as any,
+    select: conversationSelect,
   })
 
   if (!conversation) {
     throw new NotFoundError('Conversation not found.')
+  }
+
+  if (conversation.renterId !== currentUserId && conversation.ownerId !== currentUserId) {
+    throw new ForbiddenError('You do not have access to this conversation.')
   }
 
   const inFlightBookings = await prisma.booking.findMany({
@@ -225,29 +290,50 @@ export async function getConversationById(currentUserId: string, conversationId:
 export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {
   await getConversationForParticipant(conversationId, currentUserId)
 
+  // The cursor only counts if it belongs to this conversation.
   const afterMessage = afterId
-    ? await prisma.message.findUnique({
-        where: { id: afterId },
+    ? await prisma.message.findFirst({
+        where: { id: afterId, conversationId },
         select: { createdAt: true },
       })
     : null
 
-  const messages = await prisma.message.findMany({
-    where: {
-      conversationId,
-      ...(afterMessage ? { createdAt: { gt: afterMessage.createdAt } } : {}),
-    },
-    include: messageInclude as any,
-    orderBy: { createdAt: 'asc' },
+  if (afterMessage) {
+    // Forward polling: the next (up to) 100 messages after the cursor.
+    const newer = await prisma.message.findMany({
+      where: { conversationId, createdAt: { gt: afterMessage.createdAt } },
+      include: messageInclude,
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    })
+    return newer.map((message) => toMessage(message))
+  }
+
+  // Opening a thread: the newest 100, returned oldest-first, so the client's
+  // poll cursor (the last element) is the latest message rather than the 100th
+  // oldest — which opened long threads on stale history.
+  const latest = await prisma.message.findMany({
+    where: { conversationId },
+    include: messageInclude,
+    orderBy: { createdAt: 'desc' },
     take: 100,
   })
-
-  return messages.map((message: any) => toMessage(message))
+  return latest.reverse().map((message) => toMessage(message))
 }
 
 export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {
   const conversation = await getConversationForParticipant(conversationId, currentUserId)
   const isRenter = conversation.renterId === currentUserId
+  const lastReadAt = isRenter ? conversation.renterLastReadAt : conversation.ownerLastReadAt
+
+  // An open chat calls this every few seconds. lastReadAt is only ever
+  // compared against message timestamps (see toConversationSummary), so with
+  // no message newer than it there is nothing to mark and the write is skipped.
+  const unseen = await prisma.message.findFirst({
+    where: { conversationId, ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}) },
+    select: { id: true },
+  })
+  if (!unseen) return
 
   await prisma.conversation.update({
     where: { id: conversationId },

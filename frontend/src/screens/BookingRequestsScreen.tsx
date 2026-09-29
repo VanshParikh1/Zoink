@@ -10,6 +10,7 @@ import StateCard from '../components/StateCard'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import { sortBookingsLiveFirst } from '../utils/sortBookings'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -150,7 +151,7 @@ export default function BookingRequestsScreen() {
               >
                 <View style={styles.cardTop}>
                   {imageUrl ? (
-                    <Image source={{ uri: imageUrl }} style={styles.thumbnail} />
+                    <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={styles.thumbnail} />
                   ) : (
                     <View style={[styles.thumbnail, styles.thumbnailFallback]}>
                       <Text style={styles.thumbnailEmoji}>{item.listing.category || '📦'}</Text>

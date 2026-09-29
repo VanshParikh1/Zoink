@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Animated, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { Feather } from '@expo/vector-icons'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext'
 import { Booking, User } from '../types'
 import { theme } from '../theme/colors'
 import BackButton from '../components/BackButton'
+import { SCREEN_WIDTH, fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -120,7 +121,7 @@ export default function ActiveRentalScreen() {
 
   return (
     <View style={styles.screen}>
-      {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.heroImage} /> : <View style={styles.heroFallback} />}
+      {imageUrl ? <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH }) }} style={styles.heroImage} /> : <View style={styles.heroFallback} />}
       <ScrollView contentContainerStyle={styles.content}>
         <BackButton style={styles.backLink} />
 
@@ -151,7 +152,7 @@ export default function ActiveRentalScreen() {
 
         <View style={styles.infoRow}>
           {otherParty.avatarUrl ? (
-            <Image source={{ uri: otherParty.avatarUrl }} style={styles.avatar} />
+            <Image source={{ uri: fillImageUrl(otherParty.avatarUrl, { width: 44, height: 44 }) }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
               <Text style={styles.avatarInitial}>{otherParty.firstName.charAt(0)}</Text>

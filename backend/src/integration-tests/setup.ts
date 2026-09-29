@@ -305,11 +305,29 @@ export function buildSignedWebhookPayload(
   return { body, signature }
 }
 
+// ── Handoff photo helper ──────────────────────────────────────────────────────
+// A URL of the shape POST /bookings/:id/photos/upload returns for this booking
+// — the only handoff photo URLs initiateHandoff accepts.
+export function handoffPhotoUrl(bookingId: string, name: string): string {
+  return `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/v1/bookings/booking_${bookingId}_${name}.jpg`
+}
+
 // ── Express app helper ────────────────────────────────────────────────────────
-// Returns the Express app for use with supertest. Import is lazy so the app
-// module loads AFTER this file has set process.env from .env.test.
-export function getApp() {
-  return require('../index').default
+// Returns the app, already listening, for use with supertest. Import is lazy so
+// the app module loads AFTER this file has set process.env from .env.test.
+//
+// One server per test file, bound to 127.0.0.1: supertest(app) would bind a
+// fresh wildcard ephemeral port for every request, and on a busy machine a
+// loopback connection to that port number can land on another process that
+// holds it (seen as random 404s, ECONNRESETs and non-HTTP replies). unref() so
+// the open server never keeps a finished test file's process alive.
+let testServer: import('http').Server | null = null
+export function getApp(): import('http').Server {
+  if (!testServer) {
+    testServer = require('../index').default.listen(0, '127.0.0.1') as import('http').Server
+    testServer.unref()
+  }
+  return testServer
 }
 
 export function stripeSkipReason(): string | null {

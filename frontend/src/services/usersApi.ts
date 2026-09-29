@@ -2,15 +2,24 @@ import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
 import { BlockedUser, MyProfile, NotificationPreferences, PublicProfile } from '../types'
 import { getImageUploadPart } from './uploadFormData'
-import {
+// Demo-mode mocks load only when the build sets EXPO_PUBLIC_DEMO_MODE to
+// 'true'. That value is inlined at build time, so in every other build this
+// condition folds to false and Metro drops the require — the mock modules and
+// their data never reach the bundle. (Calls below sit behind DEMO_MODE, which
+// uses the same check; see config/demoMode.ts.)
+const {
   mockDeleteMyAccount,
   mockGetMyProfile,
   mockGetPublicProfile,
   mockUpdateMyProfile,
   mockUpdateNotificationPreferences,
   mockUploadMyAvatar,
-} from './mockProfiles'
-import { mockBlockUser, mockGetMyBlocks, mockUnblockUser } from './mockBlocks'
+} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockProfiles') : {}) as typeof import('./mockProfiles')
+const {
+  mockBlockUser,
+  mockGetMyBlocks,
+  mockUnblockUser,
+} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockBlocks') : {}) as typeof import('./mockBlocks')
 import { markBlocked, markUnblocked } from './blockedUsers'
 
 export type UpdateMyProfilePayload = {

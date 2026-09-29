@@ -1,8 +1,8 @@
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
-import api from '../services/api'
+import api, { setApiToken } from '../services/api'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { clearPushToken, syncPushToken } from '../services/pushNotifications'
 import type { University } from '@zoink/shared'
@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function loadToken() {
       try {
         const stored = await getTokenAsync(TOKEN_KEY)
+        setApiToken(stored ?? null)
         if (stored) {
           const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : parseJWT(stored)
           setToken(stored)
@@ -98,7 +99,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [token, user])
 
-  async function register(
+  // `newUser` is only used in DEMO_MODE, where there's no real JWT to decode.
+  // For a real session the user is derived from the token itself — the
+  // /auth and /users responses only carry a subset of the claims (they omit
+  // termsVersion/privacyVersion), and trusting that subset left `user`
+  // missing fields the navigation gates check, stranding the client on the
+  // terms screen until an app reload re-decoded the token.
+  const saveSession = useCallback(async (newToken: string, newUser: User) => {
+    await setTokenAsync(TOKEN_KEY, newToken)
+    setApiToken(newToken)
+    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
+    setToken(newToken)
+    setUser(resolvedUser)
+  }, [])
+
+  const register = useCallback(async (
     email: string,
     password: string,
     firstName: string,
@@ -108,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     acceptedTermsVersion: string,
     acceptedPrivacyVersion: string,
     ageAttested: boolean
-  ) {
+  ) => {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, {
         ...DEMO_USER,
@@ -130,9 +146,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ageAttested,
     })
     await saveSession(res.data.token, res.data.user)
-  }
+  }, [saveSession])
 
-  async function login(email: string, password: string) {
+  const login = useCallback(async (email: string, password: string) => {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, {
         ...DEMO_USER,
@@ -143,31 +159,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const res = await api.post('/auth/login', { email, password })
     await saveSession(res.data.token, res.data.user)
-  }
+  }, [saveSession])
 
-  async function logout() {
+  const logout = useCallback(async () => {
     if (!DEMO_MODE && token) {
       await clearPushToken()
     }
     await deleteTokenAsync(TOKEN_KEY)
+    setApiToken(null)
     delete api.defaults.headers.common['Authorization']
     setToken(null)
     setUser(null)
-  }
+  }, [token])
 
   // Called after OTP verification — swaps in the new VERIFIED token
-  function setVerified(newToken: string) {
+  const setVerified = useCallback((newToken: string) => {
     const payload = DEMO_MODE && newToken === DEMO_TOKEN ? DEMO_USER : parseJWT(newToken)
     setToken(newToken)
     setUser(payload)
     setTokenAsync(TOKEN_KEY, newToken)
+    setApiToken(newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-  }
+  }, [])
 
   // Called from the re-acceptance gate (TermsAcceptanceScreen, mode 'update')
   // — stamps the current terms/privacy versions server-side and swaps in the
   // fresh token so the gate in Navigation() clears immediately.
-  async function acceptTerms() {
+  const acceptTerms = useCallback(async () => {
     if (DEMO_MODE) {
       await saveSession(DEMO_TOKEN, { ...DEMO_USER, ...user })
       return
@@ -175,24 +193,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const res = await api.post('/users/me/accept-terms')
     await saveSession(res.data.token, res.data.user)
-  }
+  }, [saveSession, user])
 
-  // `newUser` is only used in DEMO_MODE, where there's no real JWT to decode.
-  // For a real session the user is derived from the token itself — the
-  // /auth and /users responses only carry a subset of the claims (they omit
-  // termsVersion/privacyVersion), and trusting that subset left `user`
-  // missing fields the navigation gates check, stranding the client on the
-  // terms screen until an app reload re-decoded the token.
-  async function saveSession(newToken: string, newUser: User) {
-    await setTokenAsync(TOKEN_KEY, newToken)
-    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-    const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
-    setToken(newToken)
-    setUser(resolvedUser)
-  }
+  // Stable unless auth state actually changes, so every useAuth() consumer
+  // isn't re-rendered whenever the provider renders.
+  const value = useMemo(
+    () => ({ user, token, isLoading, register, login, logout, setVerified, acceptTerms }),
+    [user, token, isLoading, register, login, logout, setVerified, acceptTerms]
+  )
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, register, login, logout, setVerified, acceptTerms }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   )

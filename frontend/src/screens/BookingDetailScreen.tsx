@@ -11,6 +11,7 @@ import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import { formatLongDate } from '../utils/formatDate'
+import { SCREEN_WIDTH, limitImageUrl } from '../utils/cloudinaryImage'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -305,7 +306,7 @@ export default function BookingDetailScreen() {
               {completedPickupPhotos.length > 0 ? (
                 completedPickupPhotos.map((url) => (
                   <TouchableOpacity key={url} onPress={handleViewPhotos}>
-                    <Image source={{ uri: url }} style={styles.inlinePhoto} resizeMode="cover" />
+                    <Image source={{ uri: limitImageUrl(url, { width: SCREEN_WIDTH }) }} style={styles.inlinePhoto} resizeMode="cover" />
                   </TouchableOpacity>
                 ))
               ) : (
@@ -321,7 +322,7 @@ export default function BookingDetailScreen() {
               {completedReturnPhotos.length > 0 ? (
                 completedReturnPhotos.map((url) => (
                   <TouchableOpacity key={url} onPress={handleViewPhotos}>
-                    <Image source={{ uri: url }} style={styles.inlinePhoto} resizeMode="cover" />
+                    <Image source={{ uri: limitImageUrl(url, { width: SCREEN_WIDTH }) }} style={styles.inlinePhoto} resizeMode="cover" />
                   </TouchableOpacity>
                 ))
               ) : (
@@ -440,7 +441,7 @@ export default function BookingDetailScreen() {
                     key={url}
                     onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.pickupPhotos, initialIndex: idx })}
                   >
-                    <Image source={{ uri: url }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
+                    <Image source={{ uri: limitImageUrl(url, { width: PHOTO_PREVIEW_WIDTH, height: 220 }) }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
                   </TouchableOpacity>
                 ))
               ) : (
@@ -455,7 +456,7 @@ export default function BookingDetailScreen() {
                     key={url}
                     onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.returnPhotos, initialIndex: idx })}
                   >
-                    <Image source={{ uri: url }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
+                    <Image source={{ uri: limitImageUrl(url, { width: PHOTO_PREVIEW_WIDTH, height: 220 }) }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
                   </TouchableOpacity>
                 ))
               ) : (

@@ -201,9 +201,11 @@ export async function getPendingReviews(userId: string): Promise<PendingReviewRe
               id: true,
               title: true,
               category: true,
+              // The review prompt shows only the thumbnail.
               images: {
                 select: { id: true, url: true, order: true },
                 orderBy: { order: 'asc' as const },
+                take: 1,
               },
             },
           },

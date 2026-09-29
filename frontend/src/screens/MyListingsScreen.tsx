@@ -21,6 +21,7 @@ import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -78,7 +79,7 @@ export default function MyListingsScreen() {
           }
         >
           {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.image} />
+            <Image source={{ uri: fillImageUrl(imageUrl, { width: 70, height: 70 }) }} style={styles.image} />
           ) : (
             <View style={[styles.image, styles.imageFallback]}>
               <ZoinkFullLogo width={80} height={24} />

@@ -97,6 +97,8 @@ export interface Listing {
   reviewCount: number;
   latitude: number;
   longitude: number;
+  publicLatitude: number | null;
+  publicLongitude: number | null;
   city: string;
   address: string | null;
   ownerId: string;
@@ -280,6 +282,7 @@ export interface VerificationToken {
   code: string;
   expiresAt: string;
   usedAt: string | null;
+  failedAttempts: number;
   createdAt: string;
   user?: User;
 }

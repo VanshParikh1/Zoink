@@ -158,6 +158,14 @@ export async function createPaymentIntent(
   )
 }
 
+/** Reads a PaymentIntent back from Stripe. Returns null in mock mode (no
+ *  STRIPE_SECRET_KEY), where there is no real PaymentIntent to inspect. */
+export async function retrievePaymentIntent(paymentIntentId: string) {
+  const stripe = getStripe()
+  if (!stripe) return null
+  return stripe.paymentIntents.retrieve(paymentIntentId)
+}
+
 /** Creates and immediately confirms a manual-capture PaymentIntent for the
  *  deposit, off-session, against the payment method the borrower already
  *  attached while confirming the rental PaymentIntent. Called once the
@@ -224,7 +232,12 @@ export async function getOrCreateStripeCustomer(
     return `cus_mock_${userId}`
   }
 
-  const customer = await stripe.customers.create({ email, metadata: { userId } })
+  // Keyed per user so a double-tapped Pay (or a retried request) can't create
+  // a second Customer for the same person within Stripe's 24h key window.
+  const customer = await stripe.customers.create(
+    { email, metadata: { userId } },
+    { idempotencyKey: `customer-${userId}` }
+  )
 
   await prisma.user.update({
     where: { id: userId },
@@ -385,7 +398,7 @@ export async function transferDepositCompensation(
   )
 }
 
-export async function createConnectAccountLink(accountId?: string | null) {
+export async function createConnectAccountLink(accountId: string | null | undefined, userId: string) {
   const stripe = getStripe()
   if (!stripe) {
     return { url: 'https://demo-stripe-onboarding.zoink.com' }
@@ -393,7 +406,9 @@ export async function createConnectAccountLink(accountId?: string | null) {
 
   let account = accountId
   if (!account) {
-    const acc = await stripe.accounts.create({ type: 'express' })
+    // Keyed per user: a double-tapped "Set up payouts" returns the same Express
+    // account instead of creating a second one whose id overwrites the first.
+    const acc = await stripe.accounts.create({ type: 'express' }, { idempotencyKey: `connect-account-${userId}` })
     account = acc.id
   }
 

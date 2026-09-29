@@ -31,7 +31,9 @@ export default function LocationMapPreview({
   const [width, setWidth] = useState(0)
 
   const tiles = useMemo(
-    () => buildTileGrid(latitude, longitude, zoom, width, height, GRID_RADIUS),
+    // Static preview: only the tiles that are actually on screen (typically
+    // 4-6 of the 25 in the grid), each one a billed MapTiler request.
+    () => buildTileGrid(latitude, longitude, zoom, width, height, GRID_RADIUS, true),
     [latitude, longitude, zoom, width, height]
   )
 

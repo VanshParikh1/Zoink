@@ -14,6 +14,9 @@ if (process.env.NODE_ENV !== 'test') {
   dotenv.config()
 }
 
+import { assertSafeProductionConfig } from './config/productionGuards'
+assertSafeProductionConfig()
+
 // Must be imported (and thus initialized) before anything else below so
 // Sentry is capturing from the earliest possible point in the app.
 import './instrument'
@@ -41,6 +44,7 @@ import {
   purgeOldMessages,
   purgeOldDisputesAndReports,
   purgeOldHandoffPhotos,
+  purgeOldVerificationTokens,
 } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
@@ -49,18 +53,16 @@ import { globalLimiter } from './middleware/rateLimiter'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-// Hosting target isn't decided yet (local dev goes through a single ngrok
-// tunnel; production could be Fly.io/Railway/Render/etc., all of which sit
-// behind their own reverse proxy). Trust exactly one hop so req.ip resolves
-// to the real client IP from X-Forwarded-For instead of the proxy's IP —
-// otherwise every client behind that proxy collapses onto one rate-limit key.
-// Revisit this once the actual deployment topology is chosen: `1` is correct
-// for exactly one proxy in front of the app, but wrong (too many or too few
-// hops trusted) for anything else, e.g. a CDN + load balancer chain.
+// Railway's edge is the one proxy in front of the app, so trust exactly one
+// hop (req.protocol, req.secure). req.ip then resolves to the edge's address,
+// not the client's; rate limits key on clientIp() (X-Real-IP) instead — see
+// middleware/rateLimiter.ts.
 app.set('trust proxy', 1)
 
 app.use(helmet())
-app.use(cors())
+// The API only serves the native app, which isn't subject to CORS, so no
+// browser origin is granted access (this used to answer every origin with *).
+app.use(cors({ origin: false }))
 // Stripe webhook is authenticated via signature, not by rate limit — keep it
 // exempt so a burst of legitimate webhook deliveries/retries never gets
 // dropped by the blanket limiter below.
@@ -158,7 +160,8 @@ if (process.env.NODE_ENV !== 'test') {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
       const deposits = await releaseDueDeposits()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits })
+      const verificationCodes = await purgeOldVerificationTokens()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

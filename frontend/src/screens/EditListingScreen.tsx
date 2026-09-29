@@ -29,6 +29,7 @@ import { theme } from '../theme/colors'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import BackButton from '../components/BackButton'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -218,7 +219,7 @@ export default function EditListingScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
           {listing?.images.map((img) => (
             <View key={img.id} style={styles.photoWrapper}>
-              <Image source={{ uri: img.url }} style={styles.photoThumb} />
+              <Image source={{ uri: fillImageUrl(img.url, { width: 90, height: 90 }) }} style={styles.photoThumb} />
               <TouchableOpacity style={styles.photoRemove} onPress={() => handleRemovePhoto(img.id)}>
                 <Text style={styles.photoRemoveText}>X</Text>
               </TouchableOpacity>

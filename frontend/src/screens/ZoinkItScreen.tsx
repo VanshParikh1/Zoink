@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext'
 import { theme } from '../theme/colors'
 import ZoinkLogo from '../components/ZoinkLogo'
 import BackButton from '../components/BackButton'
+import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -55,6 +56,9 @@ export default function ZoinkItScreen() {
   const [saving, setSaving] = useState(false)
 
   const pendingStatus = mode === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
+  const completedStatus = mode === 'pickup' ? 'ACTIVE' : 'COMPLETED'
+  const ownerTapField = mode === 'pickup' ? 'ownerPickupTappedAt' : 'ownerReturnTappedAt'
+  const renterTapField = mode === 'pickup' ? 'renterPickupTappedAt' : 'renterReturnTappedAt'
   const startStatus = mode === 'pickup' ? 'CONFIRMED' : 'ACTIVE'
   const isOwner = booking?.ownerId === user?.id
   const isRenter = booking?.renterId === user?.id
@@ -75,12 +79,20 @@ export default function ZoinkItScreen() {
 
   useEffect(() => {
     let active = true
+    // One alert per outage: this polls every 3 s, and used to alert on every
+    // failed read (e.g. the whole time the phone was offline). Re-armed once a
+    // read succeeds.
+    let alertShown = false
     const load = async () => {
       try {
         const next = await getBooking(bookingId)
-        if (active) setBooking(next)
+        if (!active) return
+        alertShown = false
+        setBooking(next)
       } catch (err: any) {
-        if (active) Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
+        if (!active || alertShown) return
+        alertShown = true
+        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
       }
     }
 
@@ -172,44 +184,14 @@ export default function ZoinkItScreen() {
     }, 1500)
   }, [bounce, bookingId, mode, nav, ripple])
 
-  useEffect(() => {
-    if (!pressed || success) return
-
-    const startedAt = Date.now()
-    const poll = async () => {
-      try {
-        const result = await confirmHandoff(bookingId, mode)
-        setBooking(result.booking)
-        if (result.bothConfirmed) {
-          await handleSuccess(result.booking)
-        } else if (Date.now() - startedAt >= TIMEOUT_MS) {
-          setPressed(false)
-          setTimedOut(true)
-        }
-      } catch (err: any) {
-        setPressed(false)
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not confirm handoff.')
-      }
-    }
-
-    const id = setInterval(poll, 2000)
-    const timeout = setTimeout(() => {
-      setPressed(false)
-      setTimedOut(true)
-    }, TIMEOUT_MS)
-
-    return () => {
-      clearInterval(id)
-      clearTimeout(timeout)
-    }
-  }, [bookingId, handleSuccess, mode, pressed, success])
-
-  async function pressZoink() {
-    if (locked) return
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-    setTimedOut(false)
-    setPressed(true)
+  // One confirm per tap, never two at once. Both phones tapping in the same
+  // instant can make one write lose the booking's version check (409); that's
+  // not worth an alert, since the read-only effect below taps again if it's
+  // still needed.
+  const tapInFlight = useRef(false)
+  const tap = useCallback(async () => {
+    if (tapInFlight.current) return
+    tapInFlight.current = true
     try {
       const result = await confirmHandoff(bookingId, mode)
       setBooking(result.booking)
@@ -217,9 +199,56 @@ export default function ZoinkItScreen() {
         await handleSuccess(result.booking)
       }
     } catch (err: any) {
+      if (err?.response?.status === 409) return
       setPressed(false)
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not confirm handoff.')
+    } finally {
+      tapInFlight.current = false
     }
+  }, [bookingId, handleSuccess, mode])
+
+  // After tapping, this side only reads: the booking poll above shows when the
+  // other person's tap completes the handoff. It taps once more only when the
+  // other person tapped after this phone did and the handoff still isn't done
+  // (their tap fell outside the server's confirm window, or ours lost a 409).
+  useEffect(() => {
+    if (!pressed || success || !booking || tapInFlight.current) return
+
+    if (booking.status === completedStatus) {
+      handleSuccess(booking)
+      return
+    }
+    if (booking.status !== pendingStatus) {
+      setPressed(false)
+      Alert.alert('Error', 'Could not confirm handoff.')
+      return
+    }
+
+    const mine = booking[isOwner ? ownerTapField : renterTapField]
+    const theirs = booking[isOwner ? renterTapField : ownerTapField]
+    if (theirs && (!mine || Date.parse(theirs) > Date.parse(mine))) {
+      tap()
+    }
+  }, [booking, completedStatus, handleSuccess, isOwner, pendingStatus, pressed, success, tap])
+
+  useEffect(() => {
+    if (!pressed || success) return
+
+    const timeout = setTimeout(() => {
+      setPressed(false)
+      setTimedOut(true)
+    }, TIMEOUT_MS)
+
+    return () => clearTimeout(timeout)
+  }, [pressed, success])
+
+  async function pressZoink() {
+    if (locked) return
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    setTimedOut(false)
+    setPressed(true)
+    await tap()
   }
 
   // Handoff photos MUST be captured live at the handoff — never pulled from the
@@ -385,7 +414,7 @@ export default function ZoinkItScreen() {
               activeOpacity={0.85}
               onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
             >
-              <Image source={{ uri: url }} style={styles.existingPhoto} resizeMode="cover" />
+              <Image source={{ uri: fillImageUrl(url, { width: 84, height: 84 }) }} style={styles.existingPhoto} resizeMode="cover" />
             </TouchableOpacity>
           ))}
         </View>
