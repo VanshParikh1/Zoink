@@ -4,19 +4,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zoink | Campus rentals with a held deposit</title>
   <meta name="description"
-    content="Zoink is a verified student rental marketplace for borrowing useful things nearby and lending the stuff sitting in your room.">
-  <title>Zoink | Campus Rentals</title>
-  <link rel="icon" href="assets/logo.png">
-  <script>
-    window.tailwind = window.tailwind || {};
-    tailwind.config = {
-      corePlugins: {
-        preflight: false
-      }
-    };
-  </script>
-  <script src="https://cdn.tailwindcss.com"></script>
+    content="Rent cameras, speakers, tools and more from students nearby, or lend yours and get paid. Owners set a deposit that is held on the renter's card, and both sides photo-confirm every handoff.">
+  <link rel="canonical" href="https://zoink.vercel.app/">
+  <meta name="theme-color" content="#040f0f">
+
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Zoink">
+  <meta property="og:url" content="https://zoink.vercel.app/">
+  <meta property="og:title" content="Need it once? Zoink it.">
+  <meta property="og:description"
+    content="Student-to-student rentals with a deposit held on the renter's card and a photo-confirmed handoff at pickup and return.">
+  <meta property="og:image" content="https://zoink.vercel.app/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Zoink: Need it once? Zoink it.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Need it once? Zoink it.">
+  <meta name="twitter:description"
+    content="Student-to-student rentals with a deposit held on the renter's card and a photo-confirmed handoff at pickup and return.">
+  <meta name="twitter:image" content="https://zoink.vercel.app/assets/og-image.png">
+
   <style>
     :root {
       --acid: #00ef20;
@@ -35,6 +47,7 @@
       --radius-xl: 34px;
       --radius-lg: 24px;
       --radius-md: 16px;
+      --nav-h: 78px;
       color-scheme: light;
       font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
       color: var(--ink);
@@ -78,6 +91,11 @@
       text-decoration: none;
     }
 
+    :focus-visible {
+      outline: 3px solid var(--forest);
+      outline-offset: 3px;
+    }
+
     button,
     input,
     select,
@@ -97,8 +115,62 @@
       margin-top: 0;
     }
 
-    .page {
+    h3 {
+      font-weight: 950;
+    }
+
+    .i {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .i-sm {
+      width: 16px;
+      height: 16px;
+    }
+
+    .i-lg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
       overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -60px;
+      z-index: 50;
+      padding: 10px 14px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--acid);
+      font-weight: 950;
+    }
+
+    .skip-link:focus {
+      top: 12px;
+    }
+
+    /* clip, not hidden: overflow:hidden would stop the sticky nav from sticking */
+    .page {
+      overflow-x: clip;
     }
 
     .shell {
@@ -110,13 +182,14 @@
       position: sticky;
       top: 0;
       z-index: 30;
-      background: rgba(244, 237, 225, 0.78);
+      background: rgba(244, 237, 225, 0.86);
       border-bottom: 2px solid var(--ink);
       backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
 
     .nav-inner {
-      min-height: 78px;
+      min-height: var(--nav-h);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -197,7 +270,6 @@
     .button:focus-visible {
       transform: translate(3px, 3px);
       box-shadow: 2px 2px 0 var(--ink);
-      outline: none;
     }
 
     .button.secondary {
@@ -211,15 +283,15 @@
       box-shadow: 5px 5px 0 var(--acid);
     }
 
-    .button svg,
-    .pill svg,
-    .trust-item svg,
-    .footer-links svg {
-      flex: 0 0 auto;
+    .button.dark:hover,
+    .button.dark:focus-visible {
+      box-shadow: 2px 2px 0 var(--acid);
     }
 
+    /* ---------- hero ---------- */
+
     .hero {
-      min-height: calc(100vh - 78px);
+      min-height: calc(100vh - var(--nav-h));
       display: grid;
       grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
       align-items: center;
@@ -252,24 +324,14 @@
       box-shadow: 0 0 0 6px rgba(0, 239, 32, 0.18);
     }
 
-    h1 {
+    .hero-title {
       max-width: 820px;
-      margin-bottom: 22px;
+      margin: 0 0 22px;
+      color: var(--ink);
       font-size: clamp(58px, 9.2vw, 124px);
       line-height: 0.82;
       letter-spacing: -0.085em;
       font-weight: 950;
-    }
-
-    .hero-title {
-      display: block !important;
-      max-width: 820px !important;
-      margin: 0 0 22px !important;
-      color: var(--ink) !important;
-      font-size: clamp(58px, 9.2vw, 124px) !important;
-      line-height: 0.82 !important;
-      letter-spacing: -0.085em !important;
-      font-weight: 950 !important;
     }
 
     .marker {
@@ -295,9 +357,14 @@
       max-width: 650px;
       margin-bottom: 28px;
       color: var(--slate);
-      font-size: clamp(18px, 2.2vw, 24px);
-      line-height: 1.35;
+      font-size: clamp(18px, 2.2vw, 23px);
+      line-height: 1.38;
       font-weight: 700;
+    }
+
+    .hero-copy strong {
+      color: var(--ink);
+      font-weight: 950;
     }
 
     .hero-actions {
@@ -305,7 +372,7 @@
       flex-wrap: wrap;
       gap: 14px;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 22px;
     }
 
     .proof-row {
@@ -313,11 +380,15 @@
       flex-wrap: wrap;
       gap: 9px;
       max-width: 680px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
     }
 
     .pill {
       display: inline-flex;
       align-items: center;
+      gap: 8px;
       min-height: 34px;
       padding: 7px 12px;
       border: 2px solid var(--ink);
@@ -329,7 +400,8 @@
 
     .hero-board {
       position: relative;
-      min-height: 620px;
+      min-height: 790px;
+      animation-delay: 100ms;
     }
 
     .ticket {
@@ -344,7 +416,6 @@
     .ticket-main {
       inset: 16px 26px auto auto;
       width: min(420px, 92%);
-      min-height: 560px;
       transform: rotate(2deg);
     }
 
@@ -353,7 +424,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 18px;
-      padding: 22px;
+      padding: 20px 22px;
       border-bottom: 3px solid var(--ink);
       background: var(--acid);
     }
@@ -369,7 +440,7 @@
     }
 
     .ticket-header img {
-      width: 132px;
+      width: 120px;
       height: auto;
     }
 
@@ -385,32 +456,15 @@
       font-weight: 950;
     }
 
-    .status-dot::before {
-      content: "";
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--forest);
-    }
-
     .ticket-body {
-      padding: 20px;
+      padding: 18px;
       display: grid;
-      gap: 14px;
-    }
-
-    .search-chip {
-      padding: 14px 16px;
-      border: 2px solid var(--ink);
-      border-radius: 999px;
-      background: #fff;
-      color: var(--muted);
-      font-weight: 850;
+      gap: 12px;
     }
 
     .item-card {
       display: grid;
-      grid-template-columns: 88px 1fr;
+      grid-template-columns: 72px 1fr;
       gap: 14px;
       align-items: center;
       padding: 12px;
@@ -422,13 +476,13 @@
     .thumb {
       aspect-ratio: 1;
       border: 2px solid var(--ink);
-      border-radius: 18px;
+      border-radius: 16px;
       display: grid;
       place-items: center;
       background:
         linear-gradient(135deg, rgba(0, 239, 32, 0.16), transparent 50%),
         var(--cream);
-      font-size: 32px;
+      font-size: 24px;
       font-weight: 950;
     }
 
@@ -439,37 +493,99 @@
     }
 
     .item-card p {
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 800;
+      margin-bottom: 0;
+      color: var(--forest);
+      font-size: 14px;
+      font-weight: 950;
     }
 
-    .price-row {
+    .board-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 10px;
+      padding: 11px 13px;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: #fff;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .board-row .label {
+      display: inline-flex;
+      align-items: center;
       gap: 8px;
     }
 
-    .price {
+    .board-row .value {
       font-weight: 950;
-      color: var(--forest);
     }
 
-    .rating {
-      padding: 3px 8px;
+    .photo-strip {
+      display: flex;
+      gap: 6px;
+    }
+
+    .photo-strip span {
+      width: 26px;
+      height: 26px;
+      border: 2px solid var(--ink);
+      border-radius: 7px;
+      background:
+        linear-gradient(135deg, rgba(0, 239, 32, 0.45), transparent 60%),
+        var(--sand);
+    }
+
+    .tap-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .tap {
+      padding: 12px;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .tap strong {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 15px;
+      font-weight: 950;
+    }
+
+    .tap.done {
+      background: var(--acid-soft);
+    }
+
+    .tap.waiting strong {
+      color: var(--muted);
+    }
+
+    .timer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
       border: 2px solid var(--ink);
       border-radius: 999px;
-      background: var(--acid-soft);
-      font-size: 12px;
+      background: var(--ink);
+      color: var(--acid);
       font-weight: 950;
     }
 
     .mini-note {
       left: 0;
-      bottom: 56px;
-      width: 260px;
+      bottom: 34px;
+      width: min(262px, 49%);
       padding: 18px;
       transform: rotate(-5deg);
       background: var(--ink);
@@ -488,22 +604,28 @@
     .mini-note span {
       display: block;
       margin-top: 8px;
-      color: rgba(255, 249, 239, 0.82);
+      color: rgba(255, 249, 239, 0.84);
       font-weight: 800;
     }
 
     .ribbon {
       right: 0;
-      bottom: 2px;
-      width: 310px;
+      bottom: 0;
+      width: min(262px, 49%);
       padding: 16px 18px;
-      transform: rotate(5deg);
+      transform: rotate(4deg);
       background: var(--acid-soft);
       font-weight: 950;
     }
 
+    /* ---------- sections ---------- */
+
     section {
       padding: 72px 0;
+    }
+
+    section[id] {
+      scroll-margin-top: calc(var(--nav-h) + 12px);
     }
 
     .section-head {
@@ -514,22 +636,13 @@
       margin-bottom: 28px;
     }
 
-    h2 {
-      margin-bottom: 0;
+    .section-title {
+      margin: 0;
+      color: var(--ink);
       font-size: clamp(34px, 5vw, 64px);
       line-height: 0.92;
       letter-spacing: -0.07em;
       font-weight: 950;
-    }
-
-    .section-title {
-      display: block !important;
-      margin: 0 !important;
-      color: var(--ink) !important;
-      font-size: clamp(34px, 5vw, 64px) !important;
-      line-height: 0.92 !important;
-      letter-spacing: -0.07em !important;
-      font-weight: 950 !important;
     }
 
     .section-copy {
@@ -540,10 +653,9 @@
       font-weight: 700;
     }
 
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
+    .section-copy a {
+      text-decoration: underline;
+      text-underline-offset: 3px;
     }
 
     .card {
@@ -553,9 +665,18 @@
       box-shadow: 8px 8px 0 var(--ink);
     }
 
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
     .step-card {
       padding: 24px;
-      min-height: 260px;
+      min-height: 280px;
       display: flex;
       flex-direction: column;
     }
@@ -585,19 +706,267 @@
       font-weight: 800;
     }
 
-    .step-card:nth-child(2) {
+    .step-card.dark {
       background: var(--ink);
       color: var(--paper);
     }
 
-    .step-card:nth-child(2) p {
-      color: rgba(255, 249, 239, 0.76);
+    .step-card.dark p {
+      color: rgba(255, 249, 239, 0.78);
     }
 
-    .step-card:nth-child(2) .number {
+    .step-card.dark .number {
       background: var(--paper);
       color: var(--ink);
     }
+
+    /* deposit */
+
+    .deposit-band {
+      padding: 34px;
+      background: var(--ink);
+      color: var(--paper);
+      box-shadow: 12px 12px 0 var(--acid);
+    }
+
+    .deposit-band .section-title {
+      color: var(--paper);
+    }
+
+    .deposit-band .section-copy {
+      color: rgba(255, 249, 239, 0.8);
+    }
+
+    .deposit-flow {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .deposit-state {
+      padding: 22px;
+      border: 2px solid var(--paper);
+      border-radius: var(--radius-md);
+    }
+
+    .deposit-state .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 6px 11px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--acid);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .deposit-state h3 {
+      margin-bottom: 8px;
+      font-size: 21px;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      color: var(--paper);
+    }
+
+    .deposit-state p {
+      margin-bottom: 0;
+      color: rgba(255, 249, 239, 0.78);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .deposit-fine {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin: 22px 0 0;
+      padding: 16px 18px;
+      border: 2px dashed rgba(255, 249, 239, 0.5);
+      border-radius: var(--radius-md);
+      color: rgba(255, 249, 239, 0.86);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .deposit-fine .i {
+      margin-top: 2px;
+      color: var(--acid);
+    }
+
+    .deposit-fine a {
+      color: var(--acid);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    /* lenders */
+
+    .lend-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .lend-points {
+      display: grid;
+      gap: 14px;
+      margin: 26px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .lend-points li {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      font-weight: 800;
+      color: var(--slate);
+    }
+
+    .lend-points strong {
+      display: block;
+      color: var(--ink);
+      font-weight: 950;
+    }
+
+    .point-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: var(--acid);
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+
+    .calc {
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .calc h3 {
+      margin-bottom: 4px;
+      font-size: 26px;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .calc-sub {
+      margin-bottom: 20px;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .calc-inputs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 50px;
+      padding: 13px 14px;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--ink);
+      font-weight: 850;
+    }
+
+    input:focus-visible,
+    select:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 5px rgba(0, 239, 32, 0.35);
+    }
+
+    .money-input {
+      position: relative;
+    }
+
+    .money-input span {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-weight: 950;
+      pointer-events: none;
+    }
+
+    .money-input input {
+      padding-left: 28px;
+    }
+
+    .calc-lines {
+      display: grid;
+      gap: 0;
+      margin: 0;
+      border: 2px solid var(--ink);
+      border-radius: var(--radius-md);
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .calc-lines div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--line);
+      font-weight: 850;
+    }
+
+    .calc-lines dt {
+      color: var(--slate);
+    }
+
+    .calc-lines dd {
+      margin: 0;
+      font-weight: 950;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .calc-lines .total {
+      border-bottom: 0;
+      background: var(--acid);
+      font-size: 20px;
+    }
+
+    .calc-lines .total dt {
+      color: var(--ink);
+    }
+
+    .calc-note {
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    /* renters + categories */
 
     .category-wall {
       display: grid;
@@ -610,55 +979,30 @@
       padding: 30px;
       background: var(--ink);
       color: var(--paper);
-      min-height: 430px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .category-big::after {
-      content: "Borrow less. Do more.";
-      position: absolute;
-      right: -18px;
-      bottom: 12px;
-      color: rgba(0, 239, 32, 0.16);
-      font-size: 84px;
-      line-height: 0.8;
-      font-weight: 950;
-      letter-spacing: -0.08em;
-      max-width: 520px;
-    }
-
-    .category-big h2 {
-      position: relative;
-      z-index: 1;
-      color: var(--paper);
     }
 
     .category-big .section-title {
-      position: relative;
-      z-index: 1;
-      color: var(--paper) !important;
+      color: var(--paper);
     }
 
     .category-big p {
-      position: relative;
-      z-index: 1;
       max-width: 460px;
-      color: rgba(255, 249, 239, 0.78);
+      margin: 18px 0 0;
+      color: rgba(255, 249, 239, 0.8);
       font-size: 18px;
       font-weight: 800;
     }
 
     .category-tags {
-      position: relative;
-      z-index: 1;
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-top: 28px;
+      margin: 28px 0 0;
+      padding: 0;
+      list-style: none;
     }
 
-    .category-tags span {
+    .category-tags li {
       padding: 10px 13px;
       border: 2px solid var(--acid);
       border-radius: 999px;
@@ -677,10 +1021,10 @@
 
     .stat-card strong {
       display: block;
-      margin-bottom: 8px;
-      font-size: 54px;
-      line-height: 0.9;
-      letter-spacing: -0.08em;
+      margin-bottom: 10px;
+      font-size: clamp(34px, 4vw, 46px);
+      line-height: 0.92;
+      letter-spacing: -0.07em;
     }
 
     .stat-card p {
@@ -689,49 +1033,7 @@
       font-weight: 850;
     }
 
-    .trust-band {
-      padding: 32px;
-      background: var(--paper);
-    }
-
-    .trust-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-top: 26px;
-    }
-
-    .trust-item {
-      padding: 22px;
-      border: 2px solid var(--ink);
-      border-radius: var(--radius-md);
-      background: #fff;
-    }
-
-    .trust-symbol {
-      width: 48px;
-      height: 48px;
-      display: grid;
-      place-items: center;
-      margin-bottom: 16px;
-      border: 2px solid var(--ink);
-      border-radius: 16px;
-      background: var(--acid);
-      box-shadow: 4px 4px 0 var(--ink);
-    }
-
-    .trust-item h3 {
-      margin-bottom: 8px;
-      font-size: 19px;
-      letter-spacing: -0.04em;
-    }
-
-    .trust-item p {
-      margin-bottom: 0;
-      color: var(--muted);
-      font-weight: 800;
-      font-size: 14px;
-    }
+    /* campuses */
 
     .campus-strip {
       padding: 26px;
@@ -742,21 +1044,109 @@
       box-shadow: var(--shadow-soft);
     }
 
+    .campus-inner {
+      transform: rotate(1deg);
+      text-align: center;
+    }
+
+    .campus-inner h2 {
+      margin: 0 0 14px;
+      font-size: 14px;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
     .campus-track {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 10px;
-      transform: rotate(1deg);
+      margin: 0;
+      padding: 0;
+      list-style: none;
     }
 
-    .campus-track span {
+    .campus-track li {
       padding: 10px 14px;
       border: 2px solid var(--ink);
       border-radius: 999px;
       background: var(--paper);
       font-weight: 950;
     }
+
+    /* faq */
+
+    .faq-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .faq-col {
+      display: grid;
+      gap: 14px;
+    }
+
+    .faq-item {
+      border: 2px solid var(--ink);
+      border-radius: var(--radius-md);
+      background: var(--paper);
+      box-shadow: 5px 5px 0 var(--ink);
+    }
+
+    .faq-item summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 20px;
+      cursor: pointer;
+      list-style: none;
+      font-size: 17px;
+      font-weight: 950;
+      letter-spacing: -0.02em;
+    }
+
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-item summary .i {
+      transition: transform 160ms ease;
+    }
+
+    .faq-item[open] summary .i {
+      transform: rotate(180deg);
+    }
+
+    .faq-item[open] summary {
+      border-bottom: 2px solid var(--line);
+    }
+
+    .faq-body {
+      padding: 14px 20px 18px;
+      color: var(--slate);
+      font-weight: 750;
+    }
+
+    .faq-body p {
+      margin-bottom: 10px;
+    }
+
+    .faq-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .faq-body a {
+      color: var(--forest);
+      font-weight: 950;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    /* waitlist */
 
     .waitlist {
       display: grid;
@@ -768,10 +1158,10 @@
 
     .waitlist-copy {
       position: sticky;
-      top: 112px;
+      top: calc(var(--nav-h) + 34px);
     }
 
-    .waitlist-copy h2 {
+    .waitlist-copy .section-title {
       margin-bottom: 18px;
     }
 
@@ -787,63 +1177,25 @@
       background: var(--paper);
     }
 
-    .form-grid {
-      display: grid;
-      gap: 13px;
-    }
-
-    .field {
-      display: grid;
-      gap: 7px;
-    }
-
-    label {
-      font-size: 13px;
-      font-weight: 950;
-    }
-
-    input,
-    select,
-    textarea {
+    .tally-frame {
+      display: block;
       width: 100%;
-      min-height: 50px;
-      padding: 13px 14px;
-      border: 2px solid var(--ink);
-      border-radius: 14px;
-      background: #fff;
-      color: var(--ink);
-      outline: none;
+      min-height: 420px;
+      border: 0;
+    }
+
+    .form-fallback {
+      margin: 0;
       font-weight: 800;
     }
 
-    textarea {
-      min-height: 110px;
-      resize: vertical;
+    .form-fallback a {
+      color: var(--forest);
+      font-weight: 950;
+      text-decoration: underline;
     }
 
-    input:focus,
-    select:focus,
-    textarea:focus {
-      box-shadow: 0 0 0 5px rgba(0, 239, 32, 0.22);
-    }
-
-    .split {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .tally-frame {
-      width: 100%;
-      min-height: 620px;
-      border: 0;
-      border-radius: 20px;
-      background: #fff;
-    }
-
-    .hidden {
-      display: none;
-    }
+    /* footer */
 
     .footer {
       padding: 30px 0 42px;
@@ -860,6 +1212,13 @@
       font-weight: 850;
     }
 
+    .footer-inner small {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
     .footer-links {
       display: flex;
       flex-wrap: wrap;
@@ -871,7 +1230,6 @@
     .footer a:hover,
     .footer a:focus-visible {
       color: var(--forest);
-      outline: none;
     }
 
     .social-icon {
@@ -887,19 +1245,19 @@
       transition: transform 150ms ease, box-shadow 150ms ease;
     }
 
+    .footer .social-icon:hover,
+    .footer .social-icon:focus-visible {
+      color: var(--acid);
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 var(--acid);
+    }
+
     .social-icon svg {
-      color: var(--acid) !important;
-      stroke: currentColor !important;
       fill: none;
+      stroke: currentColor;
       stroke-width: 2.6;
       stroke-linecap: round;
       stroke-linejoin: round;
-    }
-
-    .social-icon:hover,
-    .social-icon:focus-visible {
-      transform: translate(2px, 2px);
-      box-shadow: 2px 2px 0 var(--acid);
     }
 
     @keyframes riseIn {
@@ -916,14 +1274,11 @@
 
     .hero>*,
     .step-card,
+    .deposit-band,
+    .lend-grid,
     .category-wall,
-    .trust-band,
     .waitlist {
       animation: riseIn 520ms ease both;
-    }
-
-    .hero-board {
-      animation-delay: 100ms;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -937,11 +1292,23 @@
       }
     }
 
+    @media (max-width: 1080px) {
+      .steps {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .nav-links {
+        gap: 14px;
+        font-size: 15px;
+      }
+    }
+
     @media (max-width: 960px) {
 
       .hero,
       .waitlist,
-      .category-wall {
+      .category-wall,
+      .lend-grid {
         grid-template-columns: 1fr;
       }
 
@@ -950,17 +1317,13 @@
         padding-top: 52px;
       }
 
-      .hero-board {
-        min-height: 610px;
-      }
-
       .waitlist-copy {
         position: static;
       }
 
-      .steps,
-      .trust-grid {
-        grid-template-columns: 1fr 1fr;
+      .deposit-flow,
+      .faq-list {
+        grid-template-columns: 1fr;
       }
 
       .section-head {
@@ -970,15 +1333,19 @@
       .section-copy {
         margin-top: 12px;
       }
+
+      .nav-links a:not(.button) {
+        display: none;
+      }
     }
 
     @media (max-width: 680px) {
-      .shell {
-        width: min(100% - 24px, 1160px);
+      :root {
+        --nav-h: 68px;
       }
 
-      .nav-inner {
-        min-height: 68px;
+      .shell {
+        width: min(100% - 24px, 1160px);
       }
 
       .brand img {
@@ -989,10 +1356,6 @@
         padding: 7px 10px;
       }
 
-      .nav-links a:not(.button) {
-        display: none;
-      }
-
       .nav .button {
         min-height: 42px;
         padding: 10px 14px;
@@ -1000,14 +1363,12 @@
         box-shadow: 3px 3px 0 var(--ink);
       }
 
-      h1,
       .hero-title {
-        font-size: clamp(54px, 18vw, 82px) !important;
+        font-size: clamp(54px, 18vw, 82px);
       }
 
-      h2,
       .section-title {
-        font-size: clamp(38px, 13vw, 62px) !important;
+        font-size: clamp(38px, 12vw, 58px);
       }
 
       .hero-copy {
@@ -1017,7 +1378,7 @@
       .hero-board {
         min-height: auto;
         display: grid;
-        gap: 14px;
+        gap: 16px;
       }
 
       .ticket {
@@ -1028,8 +1389,8 @@
         box-shadow: 7px 7px 0 var(--ink);
       }
 
-      .ticket-main {
-        min-height: auto;
+      .mini-note {
+        box-shadow: 7px 7px 0 var(--acid);
       }
 
       .mini-note,
@@ -1037,21 +1398,39 @@
         width: 100%;
       }
 
-      .steps,
-      .trust-grid {
+      .steps {
         grid-template-columns: 1fr;
       }
 
+      .step-card {
+        min-height: 0;
+      }
+
+      .deposit-band,
+      .calc,
       .category-big {
-        min-height: 360px;
+        padding: 22px;
       }
 
-      .category-big::after {
-        font-size: 58px;
+      .deposit-band {
+        box-shadow: 8px 8px 0 var(--acid);
       }
 
-      .split {
+      .calc-inputs {
         grid-template-columns: 1fr;
+      }
+
+      .waitlist {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .waitlist-card {
+        padding: 10px;
+        box-shadow: 8px 8px 0 var(--acid);
+      }
+
+      .form-card-inner {
+        padding: 12px;
       }
 
       .footer-inner {
@@ -1059,282 +1438,406 @@
       }
 
       .footer-links {
-        margin-top: 12px;
+        margin-top: 14px;
       }
     }
   </style>
 </head>
 
 <body>
+  <!-- Icons: Lucide (lucide-static v1.48.0, ISC licence), inlined -->
+  <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden">
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" /> <circle cx="12" cy="13" r="3" /></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+    <symbol id="i-graduation-cap" viewBox="0 0 24 24"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z" /> <path d="M22 10v6" /> <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5" /></symbol>
+    <symbol id="i-hand-coins" viewBox="0 0 24 24"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17" /> <path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9" /> <path d="m2 16 6 6" /> <circle cx="16" cy="9" r="2.9" /> <circle cx="6" cy="5" r="3" /></symbol>
+    <symbol id="i-handshake" viewBox="0 0 24 24"><path d="m11 17 2 2a1 1 0 1 0 3-3" /> <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" /> <path d="m21 3 1 11h-2" /> <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" /> <path d="M3 4h8" /></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+    <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M12 17V7" /> <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8" /> <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z" /></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /></symbol>
+    <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /> <path d="m9 12 2 2 4-4" /></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2" /> <line x1="12" x2="15" y1="14" y2="11" /> <circle cx="12" cy="14" r="8" /></symbol>
+    <symbol id="i-undo-2" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /> <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" /> <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" /></symbol>
+  </svg>
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <div class="page">
     <nav class="nav" aria-label="Main navigation">
       <div class="shell nav-inner">
-        <a class="brand" href="#top" aria-label="Zoink home">
+        <a class="brand" href="#main" aria-label="Zoink home">
           <span class="brand-plate">
-            <img src="assets/ZoinkTransparent.png" alt="Zoink">
+            <img src="assets/ZoinkTransparent.png" alt="Zoink" width="557" height="149">
           </span>
         </a>
         <div class="nav-links">
           <a href="#how">How it works</a>
-          <a href="#trust">Trust</a>
+          <a href="#deposit">Deposits</a>
+          <a href="#lend">Lend</a>
+          <a href="#faq">FAQ</a>
           <a class="button secondary" href="#waitlist">Join waitlist</a>
         </div>
       </div>
     </nav>
 
-    <main id="top">
+    <main id="main">
       <header class="shell hero">
         <div>
-          <div class="kicker">
-            <i data-lucide="sparkles" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>
-            Verified student rentals
-          </div>
+          <p class="kicker">Student-to-student rentals</p>
           <h1 class="hero-title">Need it once? <span class="marker">Zoink it.</span></h1>
-          <p class="hero-copy">Rent cameras, speakers, tools, tents, textbooks, and random lifesavers from students
-            nearby. Lend the stuff sitting in your room and get paid.</p>
+          <p class="hero-copy">Rent cameras, speakers, tools and more from students nearby, or lend yours and get paid.
+            <strong>The owner's deposit is held on the renter's card until the item is back</strong>, and both sides
+            confirm every handoff with photos.</p>
           <div class="hero-actions">
             <a class="button dark" href="#waitlist">
               Get early access
-              <i data-lucide="arrow-right" class="h-5 w-5 stroke-[3]" aria-hidden="true"></i>
+              <svg class="i" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
             </a>
             <a class="button secondary" href="#how">
-              <i data-lucide="route" class="h-5 w-5 stroke-[3]" aria-hidden="true"></i>
-              See the flow
+              <svg class="i" aria-hidden="true"><use href="#i-route"></use></svg>
+              See how a rental works
             </a>
           </div>
-          <div class="proof-row" aria-label="Launch proof points">
-            <span class="pill gap-2"><i data-lucide="map-pin" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>UofT
-              first wave</span>
-            <span class="pill gap-2"><i data-lucide="badge-check" class="h-4 w-4 stroke-[3]"
-                aria-hidden="true"></i>Verified students only</span>
-            <span class="pill gap-2"><i data-lucide="camera" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Photo
-              handoffs</span>
-            <span class="pill gap-2"><i data-lucide="footprints" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>Built
-              for walkable campus rentals</span>
-          </div>
+          <ul class="proof-row" aria-label="What every rental includes">
+            <li class="pill"><svg class="i i-sm" aria-hidden="true"><use href="#i-lock"></use></svg>Deposit held, not
+              charged</li>
+            <li class="pill"><svg class="i i-sm" aria-hidden="true"><use href="#i-camera"></use></svg>Photo-confirmed
+              handoffs</li>
+            <li class="pill"><svg class="i i-sm" aria-hidden="true"><use href="#i-graduation-cap"></use></svg>Student
+              email to join</li>
+            <li class="pill"><svg class="i i-sm" aria-hidden="true"><use href="#i-wallet"></use></svg>Payout 24&nbsp;h after
+              return</li>
+          </ul>
         </div>
 
-        <aside class="hero-board" aria-label="Zoink app concept preview">
-          <div class="ticket ticket-main">
+        <aside class="hero-board" role="img"
+          aria-label="Illustration of the Zoink It pickup screen: the owner has tapped, the renter has a few minutes left to tap, and a $150 deposit is held.">
+          <div class="ticket ticket-main" aria-hidden="true">
             <div class="ticket-header">
               <span class="ticket-logo-plate">
-                <img src="assets/ZoinkTransparent.png" alt="">
+                <img src="assets/ZoinkTransparent.png" alt="" width="557" height="149">
               </span>
-              <span class="status-dot gap-2"><i data-lucide="radar" class="h-4 w-4 stroke-[3]"
-                  aria-hidden="true"></i>live nearby</span>
+              <span class="status-dot"><svg class="i i-sm" aria-hidden="true"><use href="#i-handshake"></use></svg>Pickup</span>
             </div>
             <div class="ticket-body">
-              <div class="search-chip flex items-center gap-2">
-                <i data-lucide="search" class="h-5 w-5 stroke-[3]" aria-hidden="true"></i>
-                Search: projector for Friday night
-              </div>
-              <article class="item-card">
+              <div class="item-card">
                 <div class="thumb">CAM</div>
                 <div>
                   <h3>Sony camera kit</h3>
-                  <p>0.8 km away, available today</p>
-                  <div class="price-row"><span class="price">$18 / day</span><span class="rating">4.9</span></div>
+                  <p>$18 / day · 3 days</p>
                 </div>
-              </article>
-              <article class="item-card">
-                <div class="thumb">SPK</div>
-                <div>
-                  <h3>Party speaker</h3>
-                  <p>Near campus, handoff at library</p>
-                  <div class="price-row"><span class="price">$12 / day</span><span class="rating">5.0</span></div>
-                </div>
-              </article>
-              <article class="item-card">
-                <div class="thumb">KIT</div>
-                <div>
-                  <h3>Moving toolkit</h3>
-                  <p>Great for dorm assembly</p>
-                  <div class="price-row"><span class="price">$9 / day</span><span class="rating">4.8</span></div>
-                </div>
-              </article>
+              </div>
+              <div class="board-row">
+                <span class="label"><svg class="i i-sm"><use href="#i-lock"></use></svg>Deposit</span>
+                <span class="value">$150 held</span>
+              </div>
+              <div class="board-row">
+                <span class="label"><svg class="i i-sm"><use href="#i-camera"></use></svg>Pickup photos</span>
+                <span class="photo-strip"><span></span><span></span><span></span></span>
+              </div>
+              <div class="tap-grid">
+                <div class="tap done">Owner<strong><svg class="i i-sm"><use href="#i-check"></use></svg>Zoinked</strong></div>
+                <div class="tap waiting">Renter<strong>Tap now</strong></div>
+              </div>
+              <div class="timer-bar"><svg class="i i-sm"><use href="#i-timer"></use></svg>4:12 left to tap</div>
             </div>
           </div>
-          <div class="ticket mini-note">
+          <div class="ticket mini-note" aria-hidden="true">
             <strong>5 min</strong>
-            <span>to request, message, and lock in pickup details.</span>
+            <span>Both of you tap Zoink It in the same five-minute window. The rental starts only when both taps
+              land.</span>
           </div>
-          <div class="ticket ribbon">Secure payments, deposits, and review-backed reputations.</div>
+          <div class="ticket ribbon" aria-hidden="true">Deposit: held, not charged. Released 24&nbsp;h after return unless a
+            claim is opened.</div>
         </aside>
       </header>
 
       <section class="shell" id="how" aria-labelledby="how-title">
         <div class="section-head">
           <h2 class="section-title" id="how-title">The rental flow, minus the chaos.</h2>
-          <p class="section-copy">Zoink turns the usual group-chat scramble into a simple campus marketplace: find it,
-            book it, hand it off, bring it back.</p>
+          <p class="section-copy">Group-chat rentals have no answer for "who holds the money?" or "did the handoff
+            actually happen?" Zoink does, at every step.</p>
         </div>
-        <div class="steps">
-          <article class="card step-card">
-            <div class="number">01</div>
-            <h3>Find what is close.</h3>
-            <p>Browse items by category, campus, price, and availability so last-minute needs do not become last-minute
-              purchases.</p>
-          </article>
-          <article class="card step-card">
-            <div class="number">02</div>
-            <h3>Request and pay safely.</h3>
-            <p>Send dates, chat with the owner, and use secure checkout instead of awkward cash or mystery e-transfers.
-            </p>
-          </article>
-          <article class="card step-card">
-            <div class="number">03</div>
-            <h3>Zoink It at handoff.</h3>
-            <p>Pickup and return use photos plus synchronized taps so both sides have a clean record.</p>
-          </article>
+        <ol class="steps">
+          <li class="card step-card">
+            <div class="number" aria-hidden="true">01</div>
+            <h3>Find it nearby.</h3>
+            <p>Browse by category and distance, then message the owner in the app to sort out dates and a meeting
+              spot.</p>
+          </li>
+          <li class="card step-card dark">
+            <div class="number" aria-hidden="true">02</div>
+            <h3>Request, then pay.</h3>
+            <p>Ask for up to 7 days. Once the owner accepts, pay the rent plus 13% HST through Stripe, and the owner's
+              deposit is held on your card.</p>
+          </li>
+          <li class="card step-card">
+            <div class="number" aria-hidden="true">03</div>
+            <h3>Zoink It at pickup.</h3>
+            <p>Take photos of the item, then both tap Zoink It within five minutes. Only then is the rent actually
+              charged.</p>
+          </li>
+          <li class="card step-card">
+            <div class="number" aria-hidden="true">04</div>
+            <h3>Return and release.</h3>
+            <p>Photos and Zoink It again at return. If nobody opens a claim within 24 hours, the deposit hold is
+              released and the owner is paid.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="shell" id="deposit" aria-labelledby="deposit-title">
+        <div class="card deposit-band">
+          <div class="section-head">
+            <h2 class="section-title" id="deposit-title">The deposit is held, not charged.</h2>
+            <p class="section-copy">Owners set a deposit on each listing. It's authorized on the renter's card when
+              they pay and held through the whole rental. It ends up in one of three places:</p>
+          </div>
+          <ol class="deposit-flow">
+            <li class="deposit-state">
+              <span class="tag"><svg class="i i-sm" aria-hidden="true"><use href="#i-lock"></use></svg>During the
+                rental</span>
+              <h3>Held on the renter's card</h3>
+              <p>Not a charge, just a hold. It stays in place from payment until 24 hours after the return.</p>
+            </li>
+            <li class="deposit-state">
+              <span class="tag"><svg class="i i-sm" aria-hidden="true"><use href="#i-undo-2"></use></svg>Item comes
+                back fine</span>
+              <h3>Released to the renter</h3>
+              <p>Automatically, 24 hours after the return Zoink It, if nobody has opened a claim.</p>
+            </li>
+            <li class="deposit-state">
+              <span class="tag"><svg class="i i-sm" aria-hidden="true"><use href="#i-hand-coins"></use></svg>Damage or
+                no return</span>
+              <h3>Paid to the owner</h3>
+              <p>The owner opens a claim within 24 hours with the handoff photos. Whatever Zoink approves, up to the full
+                deposit, goes to the owner with no commission taken.</p>
+            </li>
+          </ol>
+          <p class="deposit-fine">
+            <svg class="i" aria-hidden="true"><use href="#i-shield-check"></use></svg>
+            <span>Worth knowing: the deposit is the only money Zoink can recover for an owner, and only if one was set.
+              Zoink doesn't sell insurance. Set a deposit that covers what you'd actually lose.
+              <a href="terms.html#11">Read the deposit rules</a>.</span>
+          </p>
+        </div>
+      </section>
+
+      <section class="shell" id="lend" aria-labelledby="lend-title">
+        <div class="lend-grid">
+          <div>
+            <h2 class="section-title" id="lend-title">Your stuff earns while you're in class.</h2>
+            <ul class="lend-points">
+              <li>
+                <span class="point-icon"><svg class="i" aria-hidden="true"><use href="#i-receipt"></use></svg></span>
+                <span><strong>You set the terms.</strong>Your daily price, your deposit, your item's value. You accept or
+                  decline every request.</span>
+              </li>
+              <li>
+                <span class="point-icon"><svg class="i" aria-hidden="true"><use href="#i-camera"></use></svg></span>
+                <span><strong>A photo record of every handoff.</strong>Pickup and return photos, timestamped and
+                  confirmed by both of you, are the evidence if something goes wrong.</span>
+              </li>
+              <li>
+                <span class="point-icon"><svg class="i" aria-hidden="true"><use href="#i-wallet"></use></svg></span>
+                <span><strong>Paid through Stripe.</strong>Your payout is released 24 hours after the return, unless a claim is still open. Commission
+                  comes out of the rent only, never out of a deposit or damage payment.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="card calc">
+            <h3 id="calc-title">What you'd keep</h3>
+            <p class="calc-sub">Zoink's commission drops as your daily price goes up.</p>
+            <form class="calc-inputs" id="earnForm" onsubmit="return false">
+              <div class="field">
+                <label for="earnRate">Daily price</label>
+                <div class="money-input">
+                  <span aria-hidden="true">$</span>
+                  <input id="earnRate" name="rate" type="number" inputmode="decimal" min="1" max="1000" step="1"
+                    value="18">
+                </div>
+              </div>
+              <div class="field">
+                <label for="earnDays">Rental length</label>
+                <select id="earnDays" name="days">
+                  <option value="1">1 day</option>
+                  <option value="2">2 days</option>
+                  <option value="3" selected>3 days</option>
+                  <option value="4">4 days</option>
+                  <option value="5">5 days</option>
+                  <option value="6">6 days</option>
+                  <option value="7">7 days</option>
+                </select>
+              </div>
+            </form>
+            <dl class="calc-lines" aria-live="polite">
+              <div><dt>Rent</dt><dd id="earnRent">$54.00</dd></div>
+              <div><dt>Zoink commission (<span id="earnPct">15%</span>)</dt><dd id="earnFee">−$8.10</dd></div>
+              <div class="total"><dt>You keep</dt><dd id="earnKeep">$45.90</dd></div>
+            </dl>
+            <p class="calc-note">15% up to $20/day, 12.5% up to $50/day, 10% above that. Renters pay 13% HST on top,
+              which doesn't come out of your payout. Your exact payout is shown in the app before you accept.</p>
+          </div>
         </div>
       </section>
 
       <section class="shell" aria-labelledby="stuff-title">
         <div class="category-wall">
-          <article class="card category-big">
+          <div class="card category-big">
             <h2 class="section-title" id="stuff-title">Stuff students actually need.</h2>
-            <p>Not a generic marketplace. Zoink is tuned for the weird, practical, one-weekend-at-a-time inventory of
-              campus life.</p>
-            <div class="category-tags" aria-label="Common rental categories">
-              <span>Cameras</span>
-              <span>Speakers</span>
-              <span>Projectors</span>
-              <span>Tools</span>
-              <span>Camping gear</span>
-              <span>Textbooks</span>
-              <span>Event gear</span>
-              <span>Kitchen stuff</span>
-            </div>
-          </article>
+            <p>For the one shoot, one party, one move, or one trip where buying makes no sense.</p>
+            <ul class="category-tags" aria-label="Rental categories">
+              <li>Cameras</li>
+              <li>Audio &amp; video</li>
+              <li>Electronics</li>
+              <li>Tools</li>
+              <li>Sports</li>
+              <li>Outdoors</li>
+              <li>Books</li>
+              <li>Clothing</li>
+            </ul>
+          </div>
           <div class="stacked">
-            <article class="card stat-card">
-              <strong>Earn</strong>
-              <p>Lend what is already sitting around and turn idle gear into campus cash.</p>
-            </article>
-            <article class="card stat-card">
-              <strong>Save</strong>
-              <p>Rent for the actual days you need it instead of buying something you will use twice.</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="shell" id="trust" aria-labelledby="trust-title">
-        <div class="card trust-band">
-          <div class="section-head">
-            <h2 class="section-title" id="trust-title">Trust is built into the handoff.</h2>
-            <p class="section-copy">Peer-to-peer only works when both sides feel protected. Zoink keeps the important
-              moments recorded and reviewable.</p>
-          </div>
-          <div class="trust-grid">
-            <article class="trust-item">
-              <div class="trust-symbol">
-                <i data-lucide="graduation-cap" class="h-6 w-6 stroke-[3]" aria-hidden="true"></i>
-              </div>
-              <h3>Verified student access</h3>
-              <p>University email verification keeps the marketplace focused on real campus communities.</p>
-            </article>
-            <article class="trust-item">
-              <div class="trust-symbol">
-                <i data-lucide="shield-check" class="h-6 w-6 stroke-[3]" aria-hidden="true"></i>
-              </div>
-              <h3>Deposit and payment flow</h3>
-              <p>Owners can accept requests only when payment authorization is ready, with deposits and payouts tracked
-                by the platform.</p>
-            </article>
-            <article class="trust-item">
-              <div class="trust-symbol">
-                <i data-lucide="handshake" class="h-6 w-6 stroke-[3]" aria-hidden="true"></i>
-              </div>
-              <h3>Photo-backed handoffs</h3>
-              <p>Pickup and return photos plus Zoink It taps give both sides a shared record if something goes sideways.
+            <div class="card stat-card">
+              <strong>Rent + HST.</strong>
+              <p>That's all a renter pays. No service fee, no protection fee. The deposit is a hold, not a charge.</p>
+            </div>
+            <div class="card stat-card">
+              <strong>Plans changed?</strong>
+              <p>Either side can cancel free before the rental starts. The rent, HST and deposit hold are all released.
               </p>
-            </article>
+            </div>
           </div>
         </div>
       </section>
 
-      <section aria-label="Launch campuses">
+      <section aria-labelledby="campus-title">
         <div class="campus-strip">
-          <div class="campus-track">
-            <span>University of Toronto</span>
-            <span>Toronto Metropolitan University</span>
-            <span>Wilfrid Laurier University</span>
-            <span>York University</span>
-            <span>Ontario Tech University</span>
-            <span>McMaster University</span>
+          <div class="campus-inner">
+            <h2 id="campus-title">Sign up with your student email from</h2>
+            <ul class="campus-track">
+              <li>University of Toronto</li>
+              <li>Toronto Metropolitan University</li>
+              <li>York University</li>
+              <li>Ontario Tech University</li>
+              <li>McMaster University</li>
+              <li>Wilfrid Laurier University</li>
+              <li>University of Waterloo</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="shell" id="faq" aria-labelledby="faq-title">
+        <div class="section-head">
+          <h2 class="section-title" id="faq-title">Questions, answered.</h2>
+          <p class="section-copy">The short version. The <a href="terms.html">Terms</a> have the full rules.</p>
+        </div>
+        <div class="faq-list">
+          <div class="faq-col">
+            <details class="faq-item">
+              <summary>Who can use Zoink?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>Students 18 or older who live in Ontario and are enrolled at one of the universities above. You
+                  confirm your student email with a one-time code before you can list or book.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>What does a renter pay?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>The rental price plus 13% HST. There's no service fee and no protection fee. The owner's deposit is
+                  held on your card on top of that, but it isn't charged unless a damage claim against it is approved.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>When is my card charged?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>You pay after the owner accepts, but the rent is only charged once you both Zoink It at pickup. The
+                  deposit stays a hold until 24 hours after the return.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>How long can I rent something?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>Up to 7 days per booking.</p>
+              </div>
+            </details>
+          </div>
+          <div class="faq-col">
+            <details class="faq-item">
+              <summary>What if my item comes back damaged?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>Open a claim in the app within 24 hours of the return, with the handoff photos and anything else
+                  that helps. The renter gets to respond, then Zoink decides how the deposit is split. An approved
+                  amount is paid to you with no commission.</p>
+                <p>Zoink can only pay out up to the deposit. Anything beyond that is between you and the renter.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>Is there insurance?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>No. Zoink doesn't offer insurance or a protection plan. The deposit is the only money held against
+                  loss or damage, so owners should set one that reflects the item's real value.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>Can I cancel?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>Yes. Either side can cancel a confirmed booking in the app, free, any time before the rental start
+                  time. Everything held on the renter's card is released. After the start time it can't be cancelled.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>How much does Zoink take from owners?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"></use></svg></summary>
+              <div class="faq-body">
+                <p>15% of the rent for items up to $20/day, 12.5% up to $50/day, and 10% above that. Nothing is taken
+                  from deposits or damage payments. You see your exact payout before you accept.</p>
+              </div>
+            </details>
           </div>
         </div>
       </section>
 
       <section class="shell waitlist" id="waitlist" aria-labelledby="waitlist-title">
         <div class="waitlist-copy">
-          <div class="kicker">
-            <i data-lucide="ticket" class="h-4 w-4 stroke-[3]" aria-hidden="true"></i>
-            Early access
-          </div>
+          <p class="kicker">Early access</p>
           <h2 class="section-title" id="waitlist-title">Get in before your campus does.</h2>
-          <p class="section-copy">Tell us where you study, whether you want to rent or lend first, and what you would
-            actually Zoink. We will use that to better shape the first launch waves.</p>
+          <p class="section-copy">Tell us where you study, whether you want to rent or lend first, and what you'd
+            actually Zoink. We use it to plan launch and to let you know when you can sign up.</p>
         </div>
 
-        <div class="card waitlist-card" id="inlineFormWrap">
+        <div class="card waitlist-card">
           <div class="form-card-inner">
-            <form class="form-grid" id="waitlistForm">
-              <div class="field">
-                <label for="email">University email</label>
-                <input id="email" name="email" type="email" autocomplete="email" placeholder="you@university.ca"
-                  required>
-              </div>
-              <div class="split">
-                <div class="field">
-                  <label for="university">University</label>
-                  <select id="university" name="university" required>
-                    <option value="">Choose one</option>
-                    <option>University of Toronto</option>
-                    <option>Toronto Metropolitan University</option>
-                    <option>Wilfrid Laurier University</option>
-                    <option>York University</option>
-                    <option>Ontario Tech University</option>
-                    <option>McMaster University</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="intent">I want to</label>
-                  <select id="intent" name="intent" required>
-                    <option value="">Choose one</option>
-                    <option>Rent items</option>
-                    <option>Lend items</option>
-                    <option>Both</option>
-                  </select>
-                </div>
-              </div>
-              <div class="field">
-                <label for="items">What would you rent or lend?</label>
-                <textarea id="items" name="items" placeholder="Camera, projector, drill, tent..."></textarea>
-              </div>
-              <button class="button" type="submit">
-                Join the waitlist
-                <i data-lucide="send" class="h-5 w-5 stroke-[3]" aria-hidden="true"></i>
-              </button>
-            </form>
+            <iframe class="tally-frame" id="tallyFrame" title="Zoink waitlist form"
+              data-tally-src="https://tally.so/embed/obvBkV?alignLeft=1&amp;hideTitle=1&amp;transparentBackground=1&amp;dynamicHeight=1"
+              loading="lazy" width="100%" height="420"></iframe>
+            <noscript>
+              <p class="form-fallback">The form needs JavaScript. You can also <a href="https://tally.so/r/obvBkV">open
+                  the waitlist form directly</a>.</p>
+            </noscript>
           </div>
         </div>
-
-        <div class="card waitlist-card hidden" id="tallyWrap" aria-label="Zoink waitlist form"></div>
       </section>
     </main>
 
     <footer class="footer">
       <div class="shell footer-inner">
-        <span>Copyright 2026 Zoink campus rentals</span>
+        <div>
+          © 2026 Zoink
+          <small>For university students in Ontario, Canada.</small>
+        </div>
         <div class="footer-links">
           <a href="terms.html">Terms</a>
           <a href="privacy.html">Privacy</a>
           <a class="social-icon" href="https://www.instagram.com/zoink.it" target="_blank" rel="noreferrer"
             aria-label="Zoink on Instagram">
-            <svg class="instagram-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="5"></rect>
               <circle cx="12" cy="12" r="4"></circle>
               <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"></circle>
@@ -1346,36 +1849,70 @@
     </footer>
   </div>
 
-  <script src="https://unpkg.com/lucide@latest"></script>
   <script>
-    const TALLY_FORM_URL = "https://tally.so/r/obvBkV";
-    const CONTACT_EMAIL = "zoinksupport@gmail.com";
+    // Waitlist: forward ?utm_* / ?ref from this page's URL into the Tally embed so sign-ups can be traced
+    // back to the post that drove them (Tally only records params that exist as hidden fields on the form).
+    (function () {
+      var frame = document.getElementById("tallyFrame");
+      var src = new URL(frame.dataset.tallySrc);
+      new URLSearchParams(window.location.search).forEach(function (value, key) {
+        if (/^utm_/.test(key) || key === "ref") src.searchParams.set(key, value);
+      });
+      frame.dataset.tallySrc = src.toString();
 
-    const waitlistForm = document.querySelector("#waitlistForm");
-    const tallyWrap = document.querySelector("#tallyWrap");
-    const inlineFormWrap = document.querySelector("#inlineFormWrap");
+      function loadEmbeds() {
+        if (typeof window.Tally !== "undefined") {
+          window.Tally.loadEmbeds();
+        } else {
+          frame.src = frame.dataset.tallySrc;
+        }
+      }
 
-    if (TALLY_FORM_URL) {
-      inlineFormWrap.classList.add("hidden");
-      tallyWrap.classList.remove("hidden");
-      tallyWrap.innerHTML = `<div class="form-card-inner"><iframe class="tally-frame" title="Zoink waitlist" src="${TALLY_FORM_URL}" loading="lazy"></iframe></div>`;
-    }
+      var script = document.createElement("script");
+      script.src = "https://tally.so/widgets/embed.js";
+      script.onload = loadEmbeds;
+      script.onerror = loadEmbeds;
+      document.body.appendChild(script);
+    })();
 
-    waitlistForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const data = new FormData(waitlistForm);
-      const subject = encodeURIComponent("Zoink waitlist signup");
-      const body = encodeURIComponent([
-        "Email: " + data.get("email"),
-        "University: " + data.get("university"),
-        "Intent: " + data.get("intent"),
-        "Items: " + data.get("items")
-      ].join("\n"));
-      window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
-    });
+    // Earnings estimate: mirrors the commission tiers in the Terms (section 10.3).
+    (function () {
+      var rateInput = document.getElementById("earnRate");
+      var daysInput = document.getElementById("earnDays");
+      var money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", currencyDisplay: "narrowSymbol" });
 
-    if (window.lucide) {
-      lucide.createIcons();
+      // Percent, not fraction, so the label never shows float noise.
+      function commissionPct(daily) {
+        if (daily <= 20) return 15;
+        if (daily <= 50) return 12.5;
+        return 10;
+      }
+
+      function update() {
+        var daily = Math.max(0, Number(rateInput.value) || 0);
+        var days = Number(daysInput.value) || 1;
+        var rentCents = Math.round(daily * 100) * days;
+        var pct = commissionPct(daily);
+        var feeCents = Math.round(rentCents * pct / 100);
+        document.getElementById("earnRent").textContent = money.format(rentCents / 100);
+        document.getElementById("earnPct").textContent = pct + "%";
+        document.getElementById("earnFee").textContent = "−" + money.format(feeCents / 100);
+        document.getElementById("earnKeep").textContent = money.format((rentCents - feeCents) / 100);
+      }
+
+      rateInput.addEventListener("input", update);
+      daysInput.addEventListener("change", update);
+      update();
+    })();
+
+    // Vercel Web Analytics: only on the deployed site (the script path 404s anywhere else).
+    // Needs Analytics switched on for the project in the Vercel dashboard.
+    if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname) && window.location.protocol === "https:") {
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+      var va = document.createElement("script");
+      va.defer = true;
+      va.src = "/_vercel/insights/script.js";
+      document.head.appendChild(va);
     }
   </script>
 </body>
