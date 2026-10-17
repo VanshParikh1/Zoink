@@ -20,6 +20,7 @@ import { ListingBrowseItem } from '../types'
 import { getNearbyListings } from '../services/listingsApi'
 import { useTabLoad } from '../context/MainTabContext'
 import { theme } from '../theme/colors'
+import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
 import ZoinkFullLogo from '../components/ZoinkFullLogo'
 import HardBlock from '../components/HardBlock'
 import ScreenBackground from '../components/ScreenBackground'
@@ -31,6 +32,7 @@ const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 5000
 
 export default function HomeScreen() {
+  const tabBarClearance = useTabBarClearance()
   const { user, logout } = useAuth()
   const nav = useNavigation<Nav>()
 
@@ -163,7 +165,7 @@ export default function HomeScreen() {
         numColumns={2}
         columnWrapperStyle={styles.rowWrapper}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarClearance + 16 }]}
         ListHeaderComponent={
           <View style={styles.headerBlock}>
             {/* ── Top row: greeting ── */}
@@ -263,7 +265,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  listContent: { paddingHorizontal: 16, paddingTop: theme.header.tabTop, paddingBottom: 120 },
+  listContent: { paddingHorizontal: 16, paddingTop: theme.header.tabTop },
   headerBlock: { marginBottom: 20 },
   headerTopRow: {
     flexDirection: 'row',

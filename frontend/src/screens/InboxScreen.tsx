@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { useConversationsFeed, useSharedInboxFeed } from '../context/InboxContext'
 import { theme } from '../theme/colors'
+import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
 import StateCard from '../components/StateCard'
 import { useAuth } from '../context/AuthContext'
 import ScreenBackground from '../components/ScreenBackground'
@@ -16,6 +17,7 @@ import { fillImageUrl } from '../utils/cloudinaryImage'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 export default function InboxScreen() {
+  const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const { user } = useAuth()
   // Inside MainAppScreen the list shares the feed behind the tab's unread dot;
@@ -58,7 +60,7 @@ export default function InboxScreen() {
           setRefreshing(true)
           refresh().finally(() => setRefreshing(false))
         }} tintColor={theme.primary} colors={[theme.primary]} />}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance + 16 }]}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No messages yet</Text>
@@ -131,7 +133,7 @@ export default function InboxScreen() {
 
 const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  content: { paddingHorizontal: 24, paddingBottom: 120, paddingTop: 16 },
+  content: { paddingHorizontal: 24, paddingTop: 16 },
   header: {
     paddingTop: theme.header.tabTop,
     paddingBottom: 16,

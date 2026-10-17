@@ -18,6 +18,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { theme } from '../theme/colors'
+import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
 import SearchBar from '../components/SearchBar'
 import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
@@ -116,6 +117,7 @@ function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPre
 }
 
 export default function SearchScreen() {
+  const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const [query, setQuery] = useState('')
   const [isResultsState, setIsResultsState] = useState(false)
@@ -322,7 +324,7 @@ export default function SearchScreen() {
             <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
           </View>
         )}
-        contentContainerStyle={styles.idleContent}
+        contentContainerStyle={[styles.idleContent, { paddingBottom: tabBarClearance + 16 }]}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -352,7 +354,6 @@ const styles = StyleSheet.create({
   },
   idleContent: {
     paddingTop: 16,
-    paddingBottom: 120,
   },
   emptyStateWrap: {
     paddingHorizontal: 24,

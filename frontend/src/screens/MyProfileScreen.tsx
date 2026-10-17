@@ -28,6 +28,7 @@ import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect, StripeConnectStatus } from '../services/usersApi'
 import { MyProfile } from '../types'
 import { theme } from '../theme/colors'
+import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
 import ZoinkButton from '../components/ZoinkButton'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
@@ -53,6 +54,7 @@ async function getPromptSeen(key: string) {
 }
 
 export default function MyProfileScreen() {
+  const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const { user, logout } = useAuth()
   const [profile, setProfile] = useState<MyProfile | null>(null)
@@ -246,7 +248,7 @@ export default function MyProfileScreen() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance + 16 }]}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
               setRefreshing(true)
               loadProfile(true)
@@ -554,7 +556,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   container: { flex: 1 },
-  content: { paddingHorizontal: 18, paddingBottom: 140 },
+  content: { paddingHorizontal: 18 },
   loadingScreen: {
     flex: 1,
     backgroundColor: theme.screen,
