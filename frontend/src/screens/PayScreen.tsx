@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useStripe } from '@stripe/stripe-react-native'
 import { RootStackParamList } from '../navigation'
 import { confirmBookingPayment, createBookingPaymentIntent, getBooking } from '../services/bookingsApi'
+import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
 import { formatLongDate } from '../utils/formatDate'
@@ -22,11 +23,6 @@ import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'Pay'>
-
-// Mirrors DEPOSIT_HOLD_HOURS in backend/src/config/bookingWindows.ts (released
-// by cleanupJob.releaseDueDeposits once a completed booking has no open
-// dispute) — keep in sync. Copy only; nothing here schedules the release.
-const DEPOSIT_HOLD_HOURS = 24
 
 // "Pay $X + hold $Y" fits at 17px on a 375pt phone up to about this many
 // characters; longer labels drop to 15 instead of wrapping.

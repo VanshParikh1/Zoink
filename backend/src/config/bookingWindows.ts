@@ -9,8 +9,9 @@
 
 // How long after a booking completes before its deposit auto-releases with
 // no dispute filed (see cleanupJob.releaseDueDeposits, disputeService's
-// DISPUTE_WINDOW_HOURS).
-export const DEPOSIT_HOLD_HOURS = 24
+// DISPUTE_WINDOW_HOURS). Defined in @zoink/shared so the app's copy quotes
+// the same number.
+export { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 
 // How long after a booking completes before the owner's payout is released
 // (see cleanupJob.releaseDuePayouts).

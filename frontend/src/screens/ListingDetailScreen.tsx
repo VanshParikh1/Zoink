@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   Pressable,
@@ -63,6 +64,7 @@ export default function ListingDetailScreen() {
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
   const [activeImg, setActiveImg] = useState(0)
+  const scrollY = useRef(new Animated.Value(0)).current
 
   const isOwner = listing?.ownerId === user?.id
 
@@ -215,31 +217,47 @@ export default function ListingDetailScreen() {
         </View>
       )}
 
-      <View style={[styles.heroControls, { top: insets.top + space.sm }]} pointerEvents="box-none">
-        <IconButton
-          accessibilityLabel="Go back"
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-            nav.goBack()
-          }}
-        >
-          <Feather name="chevron-left" size={24} color={colors.ink} />
-        </IconButton>
-        <View style={styles.heroRight} pointerEvents="box-none">
-          {photos.length > 1 ? (
-            <Badge label={`${activeImg + 1} of ${photos.length} photos`} variant="surface" size={13} />
-          ) : null}
+    </View>
+  )
+
+  // Back/share stay pinned above the scroll. Over the photo the bar is
+  // transparent; once the hero has scrolled away it fades to a surface
+  // background with an ink border so the buttons stay legible over text.
+  const barHeight = insets.top + space.sm + 44 + space.sm
+  const barBackground = scrollY.interpolate({
+    inputRange: [heroHeight - barHeight - 40, heroHeight - barHeight],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  })
+
+  const navBar = (
+    <View style={[styles.navBar, { height: barHeight }]} pointerEvents="box-none">
+      <Animated.View pointerEvents="none" style={[styles.navBarBackground, { opacity: barBackground }]} />
+        <View style={[styles.navRow, { top: insets.top + space.sm }]} pointerEvents="box-none">
           <IconButton
-            accessibilityLabel="Share this listing"
+            accessibilityLabel="Go back"
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-              handleShare()
+              nav.goBack()
             }}
           >
-            <Feather name="share" size={18} color={colors.ink} />
+            <Feather name="chevron-left" size={24} color={colors.ink} />
           </IconButton>
+          <View style={styles.heroRight} pointerEvents="box-none">
+            {photos.length > 1 ? (
+              <Badge label={`${activeImg + 1} of ${photos.length} photos`} variant="surface" size={13} />
+            ) : null}
+            <IconButton
+              accessibilityLabel="Share this listing"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                handleShare()
+              }}
+            >
+              <Feather name="share" size={18} color={colors.ink} />
+            </IconButton>
+          </View>
         </View>
-      </View>
     </View>
   )
 
@@ -259,7 +277,8 @@ export default function ListingDetailScreen() {
   ) : undefined
 
   return (
-    <Screen edgeToEdgeTop contentStyle={styles.screenContent} footer={footer}>
+    <View style={styles.root}>
+    <Screen edgeToEdgeTop scrollY={scrollY} contentStyle={styles.screenContent} footer={footer}>
       {hero}
 
       <View style={styles.body}>
@@ -354,6 +373,8 @@ export default function ListingDetailScreen() {
         )}
       </View>
     </Screen>
+    {navBar}
+    </View>
   )
 }
 
@@ -375,7 +396,22 @@ const styles = StyleSheet.create({
   noPhotoThumb: {
     borderRadius: 30,
   },
-  heroControls: {
+  root: {
+    flex: 1,
+  },
+  navBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  navBarBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.surface,
+    borderBottomWidth: border.base,
+    borderBottomColor: colors.ink,
+  },
+  navRow: {
     position: 'absolute',
     left: space.xxl,
     right: space.xxl,

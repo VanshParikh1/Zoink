@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing } from '../services/listingsApi'
 import { createBooking } from '../services/bookingsApi'
+import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
@@ -385,13 +386,25 @@ export default function BookingRequestScreen() {
               { label: 'Daily rate', value: `$${Number(listing.dailyPrice).toFixed(2)}` },
               { label: 'Rental days', value: rentalDays > 0 ? `${rentalDays}` : '—' },
               { label: 'Rental total', value: `$${totalPrice.toFixed(2)}` },
-              { label: 'Deposit hold', value: `$${depositAmount.toFixed(2)}` },
               { label: 'HST (13%)', value: `$${hstAmount.toFixed(2)}` },
             ]}
-            total={{ label: 'Total', value: `$${(totalPrice + depositAmount + hstAmount).toFixed(2)}` }}
+            // Same split as Checkout: rent + HST is what's captured at pickup;
+            // the deposit is a separate hold, never part of this total.
+            total={{ label: 'Charged at pickup', value: `$${(totalPrice + hstAmount).toFixed(2)}` }}
             highlight="lime"
           />
         </Card>
+
+        {depositAmount > 0 ? (
+          <Card shadow={false} padding={space.lg} contentStyle={styles.depositRow}>
+            <Feather name="lock" size={18} color={colors.ink} />
+            <View style={styles.depositText}>
+              <Text style={styles.depositLabel}>Deposit hold</Text>
+              <Text style={styles.depositNote}>Released {DEPOSIT_HOLD_HOURS}h after return</Text>
+            </View>
+            <Text style={styles.depositValue}>${depositAmount.toFixed(2)}</Text>
+          </Card>
+        ) : null}
 
         <TextField
           label="Message to owner"
@@ -532,6 +545,29 @@ const styles = StyleSheet.create({
   },
   dayTextSelected: {
     fontFamily: fonts.black,
+  },
+  depositRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  depositText: {
+    flex: 1,
+    gap: 2,
+  },
+  depositLabel: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  depositNote: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  depositValue: {
+    ...type.bodySm,
+    fontFamily: fonts.black,
+    color: colors.ink,
   },
   breakdownCard: {
     gap: space.sm,
