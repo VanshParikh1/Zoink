@@ -1,6 +1,7 @@
 import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
+import { DEMO_MODE } from '../config/demoMode'
 
 const TOKEN_KEY = 'zoink_jwt'
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
@@ -33,6 +34,16 @@ async function currentToken(): Promise<string | null> {
         : await SecureStore.getItemAsync(TOKEN_KEY)
   }
   return cachedToken
+}
+
+// Demo mode runs entirely on the mock services and must never reach a real
+// backend. Anything that slips past them is refused here, loudly.
+if (DEMO_MODE) {
+  api.interceptors.request.use((config) => {
+    const message = `Demo mode blocked a backend request: ${config.method?.toUpperCase()} ${config.url}`
+    console.warn(message)
+    return Promise.reject(new Error(message))
+  })
 }
 
 api.interceptors.request.use(async (config) => {

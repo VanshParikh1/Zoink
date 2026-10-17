@@ -73,12 +73,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function loadToken() {
       try {
         const stored = await getTokenAsync(TOKEN_KEY)
-        setApiToken(stored ?? null)
         if (stored) {
-          const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : parseJWT(stored)
+          const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : tryParseJWT(stored)
+          if (!payload) {
+            // e.g. a demo-mode token left behind after switching demo mode off.
+            // Drop it and start signed out instead of failing the launch.
+            console.warn('Stored session token could not be decoded; clearing it')
+            await deleteTokenAsync(TOKEN_KEY)
+            setApiToken(null)
+            return
+          }
+          setApiToken(stored)
           setToken(stored)
           setUser(payload)
           api.defaults.headers.common['Authorization'] = `Bearer ${stored}`
+        } else {
+          setApiToken(null)
         }
       } catch (e) {
         console.error('Failed to load token', e)
@@ -213,6 +223,15 @@ export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
   return ctx
+}
+
+// null when the token isn't a decodable JWT.
+function tryParseJWT(token: string): User | null {
+  try {
+    return parseJWT(token)
+  } catch {
+    return null
+  }
 }
 
 // Decode JWT payload without a library — JWTs are just base64 encoded JSON
