@@ -16,6 +16,8 @@ type Props = {
   leftIcon?: React.ReactNode
   /** Compact 40pt height for inline actions (not used for the zoink variant). */
   size?: 'md' | 'sm'
+  /** Drops the label to 15px for long labels that would otherwise be cut off. */
+  compactLabel?: boolean
   accessibilityLabel?: string
   style?: StyleProp<ViewStyle>
 }
@@ -71,6 +73,7 @@ export default function Button({
   leftIcon,
   accessibilityLabel,
   size = 'md',
+  compactLabel = false,
   style,
 }: Props) {
   const spec = VARIANTS[variant]
@@ -95,7 +98,7 @@ export default function Button({
       ) : (
         <>
           {leftIcon}
-          <Text style={[spec.text, { color: textColor }]} numberOfLines={1}>
+          <Text style={[spec.text, { color: textColor }, compactLabel ? styles.compactLabel : null]} numberOfLines={1}>
             {label}
           </Text>
         </>
@@ -149,6 +152,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 24,
     borderRadius: radius.pill,
+  },
+  compactLabel: {
+    fontSize: 15,
+    lineHeight: 19,
   },
   smallBox: {
     paddingHorizontal: 16,
