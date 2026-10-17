@@ -18,5 +18,6 @@ export { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 export const PAYOUT_HOLD_HOURS = 24
 
 // How long a one-sided handoff tap (pickup or return) is held before it's
-// cleared as stale (see cleanupJob.cleanupStaleHandoffs).
-export const ZOINK_TAP_WINDOW_MS = 5 * 60 * 1000
+// cleared as stale (see cleanupJob.cleanupStaleHandoffs). Defined in
+// @zoink/shared so the app's countdown uses the same number.
+export { ZOINK_TAP_WINDOW_MS } from '@zoink/shared'
