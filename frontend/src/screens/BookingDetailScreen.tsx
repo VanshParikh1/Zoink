@@ -1,17 +1,26 @@
-import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import React, { useCallback, useEffect, useState } from 'react'
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { acceptBooking, cancelBooking, declineBooking, getBooking, getHandoffPhotos } from '../services/bookingsApi'
 import { getMyDisputes } from '../services/disputesApi'
 import { useAuth } from '../context/AuthContext'
 import { Booking, Dispute, DisputeStatus } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import { formatLongDate } from '../utils/formatDate'
-import { SCREEN_WIDTH, limitImageUrl } from '../utils/cloudinaryImage'
+import { colors } from '../theme/colors'
+import { radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import { categoryAbbreviation } from '../config/categories'
+import { fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Button from '../components/mockup/Button'
+import Card from '../components/mockup/Card'
+import Thumb from '../components/mockup/Thumb'
+import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
+import Timeline, { TimelineStep } from '../components/mockup/Timeline'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -59,11 +68,85 @@ function renterDepositStatusLabel(status: Booking['depositStatus']): string | nu
   return null
 }
 
+
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
 
-// Mirrors modalScreen's horizontal padding (24 * 2) so thumbnails fill the width evenly.
-const PHOTO_PREVIEW_WIDTH = Dimensions.get('window').width - 48
+const HOUR_MS = 60 * 60 * 1000
+const ITEM_THUMB = 52
+
+function shortDate(iso: string | null | undefined) {
+  if (!iso) return null
+  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+/** The later of two timestamps: a handoff is confirmed when the second tap lands. */
+function laterOf(a: string | null, b: string | null) {
+  if (!a || !b) return null
+  return Date.parse(a) > Date.parse(b) ? a : b
+}
+
+function money(amount: number) {
+  return `$${amount.toFixed(2)}`
+}
+
+/** Header title per status (and, once completed, whether everything has settled). */
+function titleFor(booking: Booking, settled: boolean) {
+  switch (booking.status) {
+    case 'PENDING':
+      return 'Waiting for the owner.'
+    case 'ACCEPTED':
+      return 'Ready to pay.'
+    case 'CONFIRMED':
+    case 'PICKUP_PENDING':
+      return 'See you at pickup.'
+    case 'ACTIVE':
+      return 'Rental in progress.'
+    case 'RETURN_PENDING':
+      return 'Return and release.'
+    case 'COMPLETED':
+      return settled ? 'All done.' : 'Return and release.'
+    case 'DECLINED':
+    case 'CANCELLED':
+    default:
+      return 'Cancelled.'
+  }
+}
+
+function statusLineFor(booking: Booking) {
+  switch (booking.status) {
+    case 'PENDING':
+      return `Requested ${shortDate(booking.createdAt)}`
+    case 'ACCEPTED':
+      return 'Accepted · pay to confirm'
+    case 'CONFIRMED':
+    case 'PICKUP_PENDING':
+      return `Pickup ${shortDate(booking.startDate)}`
+    case 'ACTIVE':
+      return `Due back ${shortDate(booking.endDate)}`
+    case 'RETURN_PENDING':
+      return 'Return in progress'
+    case 'COMPLETED':
+      return booking.completedAt ? `Returned ${shortDate(booking.completedAt)}` : 'Returned'
+    case 'DECLINED':
+      return 'Declined by the owner'
+    default:
+      return 'Cancelled'
+  }
+}
+
+/** Re-renders every minute while focused, for the claim-window countdown. */
+function useMinuteClock(active: boolean) {
+  const isFocused = useIsFocused()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active || !isFocused) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 60 * 1000)
+    return () => clearInterval(id)
+  }, [active, isFocused])
+  return now
+}
 
 export default function BookingDetailScreen() {
   const nav = useNavigation<Nav>()
@@ -152,18 +235,23 @@ export default function BookingDetailScreen() {
     }
   }
 
+
+  const completedAtMs = booking?.completedAt ? Date.parse(booking.completedAt) : null
+  const claimWindowOpen =
+    booking?.status === 'COMPLETED' && completedAtMs != null && Date.now() - completedAtMs < DEPOSIT_HOLD_HOURS * HOUR_MS
+  const now = useMinuteClock(!!claimWindowOpen)
+  const { width: windowWidth } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
+        <ActivityIndicator size="large" color={colors.greenText} />
       </View>
     )
   }
 
   if (!booking) return null
-
-  const completedPickupPhotos = booking.pickupPhotos ?? []
-  const completedReturnPhotos = booking.returnPhotos ?? []
 
   const disputeIsActive = ACTIVE_DISPUTE_STATUSES.includes(booking.disputeStatus)
   const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
@@ -175,400 +263,354 @@ export default function BookingDetailScreen() {
   const commissionRatePct = booking.totalPrice > 0 ? (booking.commissionAmount / booking.totalPrice) * 100 : 0
   const ownerDepositLabel = ownerDepositStatusLabel(booking.depositStatus)
   const renterDepositLabel = renterDepositStatusLabel(booking.depositStatus)
+  const hasDeposit = booking.depositAmount > 0
+  const otherParty = isOwner ? booking.renter : booking.owner
+  const pickupPhotos = booking.pickupPhotos ?? []
+  const returnPhotos = booking.returnPhotos ?? []
+  const itemImage = booking.listing.images?.[0]?.url
+  const closed = booking.status === 'CANCELLED' || booking.status === 'DECLINED'
+
+  // ── Timeline, from status + timestamps only ─────────────────────────────
+  const order = ['PENDING', 'ACCEPTED', 'CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING', 'COMPLETED']
+  const at = (status: string) => order.indexOf(booking.status) >= order.indexOf(status)
+  const pickedUpAt = laterOf(booking.ownerPickupTappedAt, booking.renterPickupTappedAt)
+  const returnedAt = booking.completedAt ?? laterOf(booking.ownerReturnTappedAt, booking.renterReturnTappedAt)
+  const elapsedMs = completedAtMs != null ? now - completedAtMs : 0
+  const holdMs = DEPOSIT_HOLD_HOURS * HOUR_MS
+  const windowOver = booking.status === 'COMPLETED' && completedAtMs != null && elapsedMs >= holdMs
+  const finalDone = isOwner
+    ? booking.paymentStatus === 'PAID_OUT'
+    : booking.depositStatus !== 'AUTHORIZED' && windowOver
+  const settled = booking.status === 'COMPLETED' && finalDone
+  const hoursLeft = Math.max(0, Math.ceil((holdMs - elapsedMs) / HOUR_MS))
+  const releaseAt = completedAtMs != null ? new Date(completedAtMs + holdMs).toISOString() : null
+  const payoutAt = completedAtMs != null ? new Date(completedAtMs + PAYOUT_HOLD_HOURS * HOUR_MS).toISOString() : null
+  const rentCharged = booking.paymentStatus === 'CAPTURED' || booking.paymentStatus === 'PAYOUT_PENDING' || booking.paymentStatus === 'PAID_OUT'
+
+  const currentIndex =
+    booking.status === 'PENDING' || booking.status === 'ACCEPTED'
+      ? 1
+      : booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING'
+        ? 2
+        : booking.status === 'ACTIVE' || booking.status === 'RETURN_PENDING'
+          ? 3
+          : disputeIsActive || !windowOver
+            ? 4
+            : finalDone
+              ? 6
+              : 5
+  const stateOf = (i: number): TimelineStep['state'] => (i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'upcoming')
+
+  const joinCaption = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ') || null
+
+  const steps: TimelineStep[] = [
+    { key: 'requested', title: 'Requested', state: 'done', caption: shortDate(booking.createdAt) },
+    {
+      key: 'accepted',
+      title: 'Accepted & paid',
+      state: stateOf(1),
+      caption: at('CONFIRMED') ? shortDate(booking.paidAt) : null,
+      current:
+        booking.status === 'PENDING'
+          ? {
+              badge: 'Waiting for owner',
+              headline: isOwner ? 'Accept or decline this request' : `${booking.owner.firstName} is reviewing your request`,
+            }
+          : {
+              badge: 'Payment needed',
+              headline: isOwner ? `Waiting for ${booking.renter.firstName} to pay` : 'Pay to lock in your dates',
+            },
+    },
+    {
+      key: 'pickup',
+      title: 'Picked up · Zoinked',
+      state: stateOf(2),
+      caption: at('ACTIVE')
+        ? joinCaption(shortDate(pickedUpAt), pickupPhotos.length ? `${pickupPhotos.length} photos` : null, rentCharged && 'rent charged')
+        : `Planned ${shortDate(booking.startDate)}`,
+      current: {
+        badge: booking.status === 'PICKUP_PENDING' ? 'Photos in' : 'Waiting for pickup',
+        headline: `Meet ${otherParty.firstName} and Zoink It together`,
+        body: `Pickup ${shortDate(booking.startDate)}.`,
+      },
+    },
+    {
+      key: 'return',
+      title: 'Returned · Zoinked',
+      state: stateOf(3),
+      caption: booking.status === 'COMPLETED'
+        ? joinCaption(shortDate(returnedAt), returnPhotos.length ? `${returnPhotos.length} photos` : null)
+        : `Due ${shortDate(booking.endDate)}`,
+      current:
+        booking.status === 'RETURN_PENDING'
+          ? { badge: 'Return pending', headline: 'Both tap Zoink It to finish the return' }
+          : { badge: 'Rental in progress', headline: `Return by ${shortDate(booking.endDate)}` },
+    },
+    {
+      key: 'claim',
+      title: 'Claim window',
+      state: stateOf(4),
+      caption: windowOver ? 'Closed' : `${DEPOSIT_HOLD_HOURS}h after the return`,
+      current: {
+        badge: 'Claim window open',
+        headline: isOwner
+          ? `${hoursLeft} h to report a problem`
+          : hasDeposit
+            ? `${hoursLeft} h until your ${money(booking.depositAmount)} hold releases`
+            : `${hoursLeft} h left to report a problem`,
+        progress: Math.min(1, elapsedMs / holdMs),
+        body: isOwner
+          ? 'If something is damaged or missing, report it before the window closes.'
+          : 'If neither of you reports a problem, the rental closes on its own.',
+      },
+      override: disputeIsActive ? (
+        <Card shadow={false} contentStyle={styles.disputeCard}>
+          <Text style={styles.disputeTitle}>Problem reported</Text>
+          <Text style={styles.caption}>{disputeActiveLabel(booking.disputeStatus)}</Text>
+          {booking.disputeReason ? <Text style={styles.bodyText}>{booking.disputeReason}</Text> : null}
+        </Card>
+      ) : undefined,
+    },
+    isOwner
+      ? {
+          key: 'payout',
+          title: 'Paid out',
+          state: stateOf(5),
+          caption: finalDone
+            ? shortDate(booking.payoutSentAt)
+            : payoutAt
+              ? `Expected ${shortDate(payoutAt)}`
+              : `${PAYOUT_HOLD_HOURS}h after the return`,
+          current: { badge: 'Payout pending', headline: 'Your payout is on its way' },
+        }
+      : {
+          key: 'deposit',
+          title: hasDeposit ? 'Deposit released' : 'Rental closed',
+          state: stateOf(5),
+          caption: finalDone
+            ? hasDeposit
+              ? renterDepositLabel
+              : null
+            : releaseAt
+              ? `Expected ${shortDate(releaseAt)}`
+              : `${DEPOSIT_HOLD_HOURS}h after the return`,
+          current: { badge: 'Releasing', headline: 'Your deposit is being released' },
+        },
+  ]
+
+  // ── Actions, chosen by the existing state logic ──────────────────────────
+  let primary: { label: string; onPress: () => void } | null = null
+  if (isOwner && booking.status === 'PENDING') {
+    primary = { label: busy ? 'Saving...' : 'Accept request', onPress: () => runAction(() => acceptBooking(booking.id)) }
+  } else if (isRenter && booking.status === 'ACCEPTED') {
+    primary = { label: 'Pay now', onPress: () => nav.navigate('Pay', { bookingId: booking.id }) }
+  } else if (isOwner && booking.status === 'CONFIRMED') {
+    primary = { label: 'Start Handoff', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
+  } else if (isRenter && booking.status === 'ACTIVE') {
+    primary = { label: 'Start Return', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' }) }
+  } else if (booking.status === 'PICKUP_PENDING') {
+    primary = { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
+  } else if (booking.status === 'RETURN_PENDING') {
+    primary = { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' }) }
+  } else if (booking.status === 'COMPLETED' && booking.pendingReview) {
+    primary = {
+      label: 'Leave required review',
+      onPress: () =>
+        nav.reset({
+          index: 0,
+          routes: [{ name: 'ReviewPrompt', params: { review: booking.pendingReview! } }],
+        }),
+    }
+  }
+
+  const secondary: { label: string; onPress: () => void }[] = []
+  if (isOwner && booking.status === 'PENDING') {
+    secondary.push({ label: 'Decline', onPress: () => runAction(() => declineBooking(booking.id)) })
+  }
+  if (booking.conversationId) {
+    secondary.push({
+      label: isOwner ? 'Message renter' : 'Message owner',
+      onPress: () => nav.navigate('ConversationThread', { conversationId: booking.conversationId!, title: booking.listing.title }),
+    })
+  }
+  if (booking.status === 'COMPLETED') {
+    secondary.push({ label: 'View photos', onPress: handleViewPhotos })
+  }
+  if (canFileDispute) {
+    secondary.push({
+      label: 'Report a problem',
+      onPress: () => nav.navigate('FileDispute', { bookingId: booking.id, listingTitle: booking.listing.title }),
+    })
+  }
+  if (['PENDING', 'ACCEPTED', 'CONFIRMED', 'PICKUP_PENDING'].includes(booking.status)) {
+    secondary.push({ label: 'Cancel booking', onPress: () => runAction(() => cancelBooking(booking.id)) })
+  }
+
+  const priceRows: PriceRow[] = [
+    { label: 'Rental total', value: money(booking.totalPrice) },
+    ...(booking.insuranceOptIn ? [{ label: 'Insurance', value: money(booking.insuranceFee) }] : []),
+    { label: 'HST (13%)', value: money(booking.hstAmount) },
+  ]
 
   return (
-    <ScreenBackground>
-      <ScrollView contentContainerStyle={styles.content}>
-        <BackButton style={styles.backLink} />
-
-        <Text style={styles.title}>{booking.listing.title}</Text>
-        <Text style={styles.subtitle}>{booking.status}</Text>
-
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Dates</Text>
-            <Text style={styles.value}>
-              {formatLongDate(booking.startDate)} - {formatLongDate(booking.endDate)}
+    <Screen
+      header={<ScreenHeader title={titleFor(booking, settled)} back />}
+      footer={primary ? <Button label={primary.label} onPress={primary.onPress} disabled={busy} /> : undefined}
+    >
+      <View style={styles.content}>
+        <Card shadow={false} padding={space.lg} contentStyle={styles.itemRow}>
+          <Thumb
+            size={ITEM_THUMB}
+            source={itemImage ? { uri: fillImageUrl(itemImage, { width: ITEM_THUMB, height: ITEM_THUMB }) } : undefined}
+            initials={categoryAbbreviation(booking.listing.category)}
+            initialsSize={15}
+          />
+          <View style={styles.flex}>
+            <Text style={styles.itemTitle} numberOfLines={1}>
+              {booking.listing.title}
+            </Text>
+            <Text style={type.price}>{statusLineFor(booking)}</Text>
+            <Text style={styles.caption}>
+              {shortDate(booking.startDate)} – {shortDate(booking.endDate)} · {isOwner ? 'Renter' : 'Owner'} {otherParty.firstName} {otherParty.lastName}
             </Text>
           </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Rental total</Text>
-            <Text style={styles.value}>${booking.totalPrice.toFixed(2)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Deposit</Text>
-            <Text style={styles.value}>${booking.depositAmount.toFixed(2)}</Text>
-          </View>
-          {!isOwner && renterDepositLabel ? (
-            <View style={styles.row}>
-              <Text style={styles.label}>Deposit status</Text>
-              <Text style={styles.value}>{renterDepositLabel}</Text>
-            </View>
-          ) : null}
-          {booking.insuranceOptIn ? (
-            <View style={styles.row}>
-              <Text style={styles.label}>Insurance</Text>
-              <Text style={styles.value}>${booking.insuranceFee.toFixed(2)}</Text>
-            </View>
-          ) : null}
-          <View style={styles.row}>
-            <Text style={styles.label}>HST (13%)</Text>
-            <Text style={styles.value}>${booking.hstAmount.toFixed(2)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Total</Text>
-            <Text style={styles.value}>
-              ${(booking.totalPrice + booking.depositAmount + booking.insuranceFee + booking.hstAmount).toFixed(2)}
+        </Card>
+
+        {closed ? (
+          <Card shadow={false} contentStyle={styles.closedCard}>
+            <Text style={styles.disputeTitle}>{booking.status === 'DECLINED' ? 'Declined' : 'Cancelled'}</Text>
+            <Text style={styles.bodyText}>
+              {booking.status === 'DECLINED'
+                ? `${booking.owner.firstName} declined this request. Nothing was charged.`
+                : 'This booking was cancelled.'}
             </Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>{isOwner ? 'Renter' : 'Owner'}</Text>
-            <Text style={styles.value}>
-              {isOwner ? `${booking.renter.firstName} ${booking.renter.lastName}` : `${booking.owner.firstName} ${booking.owner.lastName}`}
-            </Text>
-          </View>
-        </View>
-
-        {isOwner ? (
-          <View style={styles.card}>
-            <Text style={styles.messageTitle}>Your payout</Text>
-            <View style={styles.row}>
-              <Text style={styles.label}>Rental price</Text>
-              <Text style={styles.value}>${booking.totalPrice.toFixed(2)}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Commission ({commissionRatePct.toFixed(1)}%)</Text>
-              <Text style={styles.value}>−${booking.commissionAmount.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.row, styles.payoutNetRow]}>
-              <Text style={styles.payoutNetLabel}>Net payout</Text>
-              <Text style={styles.payoutNetValue}>${booking.ownerPayout.toFixed(2)}</Text>
-            </View>
-
-            {booking.paymentStatus === 'PAYOUT_PENDING' || booking.paymentStatus === 'PAID_OUT' ? (
-              <View style={styles.row}>
-                <Text style={styles.label}>Payout status</Text>
-                <View style={[styles.payoutBadge, booking.paymentStatus === 'PAID_OUT' ? styles.payoutBadgePaid : styles.payoutBadgePending]}>
-                  <Text style={styles.payoutBadgeText}>{booking.paymentStatus === 'PAID_OUT' ? 'Paid out' : 'Pending'}</Text>
-                </View>
-              </View>
-            ) : null}
-            {booking.paymentStatus === 'PAID_OUT' && booking.payoutSentAt ? (
-              <Text style={styles.payoutDateText}>
-                Paid on {formatLongDate(booking.payoutSentAt)}
-              </Text>
-            ) : null}
-
-            {ownerDepositLabel ? (
-              <View style={styles.payoutDepositBox}>
-                <Text style={styles.payoutDepositLabel}>Security deposit — not part of your earnings</Text>
-                <Text style={styles.payoutDepositValue}>{ownerDepositLabel}</Text>
-                {booking.depositStatus === 'CAPTURED' ? (
-                  <Text style={styles.payoutDepositCaption}>
-                    Paid to you as a separate transfer — not included in the net payout above.
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {disputeIsActive ? (
-          <View style={styles.disputeBanner}>
-            <Text style={styles.disputeBannerText}>{disputeActiveLabel(booking.disputeStatus)}</Text>
-          </View>
-        ) : null}
+          </Card>
+        ) : (
+          <Timeline steps={steps} />
+        )}
 
         {disputeIsResolved ? (
-          <View style={styles.card}>
-            <Text style={styles.messageTitle}>{disputeOutcomeLabel(booking.disputeStatus)}</Text>
-            {myDispute?.resolutionNotes ? <Text style={styles.messageBody}>{myDispute.resolutionNotes}</Text> : null}
+          <Card shadow={false} contentStyle={styles.stack}>
+            <Text style={styles.sectionTitle}>{disputeOutcomeLabel(booking.disputeStatus)}</Text>
+            {myDispute?.resolutionNotes ? <Text style={styles.bodyText}>{myDispute.resolutionNotes}</Text> : null}
+          </Card>
+        ) : null}
+
+        {isOwner ? (
+          <Card contentStyle={styles.stack}>
+            <Text style={styles.sectionTitle}>Your payout</Text>
+            <PriceTable
+              rows={[
+                { label: 'Rental price', value: money(booking.totalPrice) },
+                { label: `Zoink commission (${commissionRatePct.toFixed(1)}%)`, value: `−${money(booking.commissionAmount)}` },
+              ]}
+              total={{ label: 'You get', value: money(booking.ownerPayout) }}
+              highlight="green"
+            />
+            <Text style={styles.caption}>
+              {booking.paymentStatus === 'PAID_OUT' && booking.payoutSentAt
+                ? `Paid out ${shortDate(booking.payoutSentAt)}.`
+                : `Lands ${PAYOUT_HOLD_HOURS}h after the item comes back, unless a problem is reported.`}
+            </Text>
+            {ownerDepositLabel ? (
+              <Text style={styles.caption}>
+                Security deposit (not part of your earnings): {ownerDepositLabel}
+                {booking.depositStatus === 'CAPTURED' ? ', paid to you as a separate transfer.' : '.'}
+              </Text>
+            ) : null}
+          </Card>
+        ) : !closed ? (
+          <Card shadow={false} contentStyle={styles.stack}>
+            <PriceTable rows={priceRows} total={{ label: rentCharged ? 'Charged' : 'Charged at pickup', value: money(booking.totalPrice + booking.insuranceFee + booking.hstAmount) }} />
+            {hasDeposit ? (
+              <Text style={styles.caption}>
+                Deposit {money(booking.depositAmount)}{renterDepositLabel ? ` · ${renterDepositLabel}` : ''}
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {secondary.length > 0 ? (
+          <View style={styles.grid}>
+            {secondary.map((action) => (
+              <Button
+                key={action.label}
+                label={action.label}
+                variant="secondary"
+                onPress={action.onPress}
+                disabled={busy}
+                compactLabel
+                style={styles.gridItem}
+              />
+            ))}
           </View>
         ) : null}
-
-        {canFileDispute ? (
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => nav.navigate('FileDispute', { bookingId: booking.id, listingTitle: booking.listing.title })}
-            disabled={busy}
-          >
-            <Text style={styles.secondaryText}>Report a Problem</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {booking.status === 'COMPLETED' ? (
-          <View style={styles.photosCard}>
-            <View style={styles.photosHeader}>
-              <Text style={styles.photosTitle}>Pickup Photos</Text>
-              <Text style={styles.photosCount}>{completedPickupPhotos.length}</Text>
-            </View>
-            <View style={styles.inlinePhotoColumn}>
-              {completedPickupPhotos.length > 0 ? (
-                completedPickupPhotos.map((url) => (
-                  <TouchableOpacity key={url} onPress={handleViewPhotos}>
-                    <Image source={{ uri: limitImageUrl(url, { width: SCREEN_WIDTH }) }} style={styles.inlinePhoto} resizeMode="cover" />
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={styles.emptyPhotosText}>No pickup photos found.</Text>
-              )}
-            </View>
-
-            <View style={styles.photosHeader}>
-              <Text style={styles.photosTitle}>Return Photos</Text>
-              <Text style={styles.photosCount}>{completedReturnPhotos.length}</Text>
-            </View>
-            <View style={styles.inlinePhotoColumn}>
-              {completedReturnPhotos.length > 0 ? (
-                completedReturnPhotos.map((url) => (
-                  <TouchableOpacity key={url} onPress={handleViewPhotos}>
-                    <Image source={{ uri: limitImageUrl(url, { width: SCREEN_WIDTH }) }} style={styles.inlinePhoto} resizeMode="cover" />
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={styles.emptyPhotosText}>No return photos found.</Text>
-              )}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.actions}>
-          {isOwner && booking.status === 'PENDING' ? (
-            <>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => runAction(() => acceptBooking(booking.id))} disabled={busy}>
-                <Text style={styles.primaryText}>{busy ? 'Saving...' : 'Accept request'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => runAction(() => declineBooking(booking.id))} disabled={busy}>
-                <Text style={styles.secondaryText}>Decline</Text>
-              </TouchableOpacity>
-            </>
-          ) : null}
-
-          {isRenter && booking.status === 'ACCEPTED' ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => nav.navigate('Pay', { bookingId: booking.id })}
-              disabled={busy}
-            >
-              <Text style={styles.primaryText}>Pay now</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {isOwner && booking.status === 'CONFIRMED' ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
-              disabled={busy}
-            >
-              <Text style={styles.primaryText}>Start Handoff</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {isRenter && booking.status === 'ACTIVE' ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' })}
-              disabled={busy}
-            >
-              <Text style={styles.primaryText}>Start Return</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {booking.status === 'PICKUP_PENDING' ? (
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' })}
-              disabled={busy}
-            >
-              <Text style={styles.secondaryText}>Zoink It</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {booking.status === 'RETURN_PENDING' ? (
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'return' })}
-              disabled={busy}
-            >
-              <Text style={styles.secondaryText}>Zoink It</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {booking.status === 'COMPLETED' && booking.pendingReview ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() =>
-                nav.reset({
-                  index: 0,
-                  routes: [{ name: 'ReviewPrompt', params: { review: booking.pendingReview! } }],
-                })
-              }
-              disabled={busy}
-            >
-              <Text style={styles.primaryText}>Leave required review</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {booking.status === 'COMPLETED' ? (
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleViewPhotos} disabled={busy}>
-              <Text style={styles.secondaryText}>View Photos</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {booking.status === 'PENDING' || booking.status === 'ACCEPTED' || booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING' ? (
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => runAction(() => cancelBooking(booking.id))} disabled={busy}>
-              <Text style={styles.secondaryText}>Cancel booking</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </ScrollView>
+      </View>
 
       <Modal visible={photosModalVisible} animationType="slide" onRequestClose={() => setPhotosModalVisible(false)}>
-        <View style={styles.modalScreen}>
-          <ScrollView contentContainerStyle={styles.modalContent}>
+        <View style={[styles.modalScreen, { paddingTop: insets.top + space.sm }]}>
+          <ScrollView contentContainerStyle={[styles.modalContent, { paddingBottom: insets.bottom + space.screen }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalHeading}>Rental Photos</Text>
-              <TouchableOpacity onPress={() => setPhotosModalVisible(false)}>
-                <Text style={styles.closeText}>Close</Text>
-              </TouchableOpacity>
+              <Text style={styles.modalHeading}>Rental photos</Text>
+              <Button label="Close" variant="secondary" size="sm" onPress={() => setPhotosModalVisible(false)} />
             </View>
 
-            <Text style={styles.modalTitle}>Pickup Photos ({handoffPhotos?.pickupPhotos.length ?? 0})</Text>
-            <View style={styles.photoColumn}>
-              {(handoffPhotos?.pickupPhotos ?? []).length > 0 ? (
-                (handoffPhotos?.pickupPhotos ?? []).map((url, idx) => (
-                  <TouchableOpacity
-                    key={url}
-                    onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.pickupPhotos, initialIndex: idx })}
-                  >
-                    <Image source={{ uri: limitImageUrl(url, { width: PHOTO_PREVIEW_WIDTH, height: 220 }) }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={styles.emptyPhotosText}>No pickup photos found.</Text>
-              )}
-            </View>
-            <Text style={styles.modalTitle}>Return Photos ({handoffPhotos?.returnPhotos.length ?? 0})</Text>
-            <View style={styles.photoColumn}>
-              {(handoffPhotos?.returnPhotos ?? []).length > 0 ? (
-                (handoffPhotos?.returnPhotos ?? []).map((url, idx) => (
-                  <TouchableOpacity
-                    key={url}
-                    onPress={() => nav.navigate('PhotoViewer', { photos: handoffPhotos!.returnPhotos, initialIndex: idx })}
-                  >
-                    <Image source={{ uri: limitImageUrl(url, { width: PHOTO_PREVIEW_WIDTH, height: 220 }) }} style={styles.photoPreview} resizeMode="contain" resizeMethod="scale" />
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={styles.emptyPhotosText}>No return photos found.</Text>
-              )}
-            </View>
+            {(['pickupPhotos', 'returnPhotos'] as const).map((key) => {
+              const urls = handoffPhotos?.[key] ?? []
+              return (
+                <View key={key} style={styles.stack}>
+                  <Text style={styles.modalTitle}>
+                    {key === 'pickupPhotos' ? 'Pickup photos' : 'Return photos'} ({urls.length})
+                  </Text>
+                  {urls.length > 0 ? (
+                    urls.map((url, idx) => (
+                      <Pressable
+                        key={url}
+                        onPress={() => nav.navigate('PhotoViewer', { photos: urls, initialIndex: idx })}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel={`Open photo ${idx + 1}`}
+                      >
+                        <Image
+                          source={{ uri: limitImageUrl(url, { width: windowWidth - space.screen * 2, height: 220 }) }}
+                          style={styles.photoPreview}
+                          resizeMode="contain"
+                          resizeMethod="scale"
+                        />
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text style={styles.modalEmpty}>{key === 'pickupPhotos' ? 'No pickup photos found.' : 'No return photos found.'}</Text>
+                  )}
+                </View>
+              )
+            })}
           </ScrollView>
         </View>
       </Modal>
-    </ScreenBackground>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  backLink: { marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', marginTop: 8 },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: 8,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 12,
-  },
-  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-  label: { color: theme.textMuted, fontSize: 14, flex: 1 },
-  value: { color: theme.text, fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
-  messageTitle: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  messageBody: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  payoutNetRow: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12 },
-  payoutNetLabel: { color: theme.text, fontSize: 15, fontWeight: '900', flex: 1 },
-  payoutNetValue: { color: theme.primaryDeep, fontSize: 18, fontWeight: '900', flex: 1, textAlign: 'right' },
-  payoutBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.pill, borderWidth: 1 },
-  payoutBadgePending: { backgroundColor: theme.warningSurface, borderColor: theme.warning },
-  payoutBadgePaid: { backgroundColor: theme.primarySurface, borderColor: theme.primary },
-  payoutBadgeText: { color: theme.text, fontSize: 12, fontWeight: '800' },
-  payoutDateText: { color: theme.textMuted, fontSize: 12, textAlign: 'right' },
-  payoutDepositBox: {
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 8,
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    gap: 4,
-  },
-  payoutDepositLabel: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
-  payoutDepositValue: { color: theme.text, fontSize: 14, fontWeight: '800' },
-  payoutDepositCaption: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
-  disputeBanner: {
-    backgroundColor: theme.warningSurface,
-    borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: theme.warning,
-  },
-  disputeBannerText: { color: theme.text, fontSize: 14, fontWeight: '800' },
-  photosCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 14,
-  },
-  photosHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  photosTitle: { color: '#111114', fontSize: 18, fontWeight: '900' },
-  photosCount: {
-    minWidth: 28,
-    textAlign: 'center',
-    overflow: 'hidden',
-    borderRadius: 999,
-    backgroundColor: theme.primarySurface,
-    color: theme.primaryDeep,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  inlinePhotoColumn: { gap: 10 },
-  inlinePhoto: { width: '100%', height: 210, borderRadius: 8, backgroundColor: theme.surfaceSubdued },
-  actions: { gap: 12, marginTop: 8 },
-  primaryButton: { backgroundColor: theme.primary, borderRadius: 8, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
-  primaryText: { color: theme.textOnPrimary, fontSize: 15, fontWeight: '900' },
-  secondaryButton: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-    paddingHorizontal: 12,
-  },
-  secondaryText: { color: theme.text, fontSize: 15, fontWeight: '800', textAlign: 'center' },
-  modalScreen: { flex: 1, backgroundColor: '#000000', padding: 24, paddingTop: 64 },
-  modalContent: { gap: 16, paddingBottom: 32 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  content: { gap: space.lg, paddingTop: space.xs },
+  flex: { flex: 1, gap: 2 },
+  stack: { gap: space.sm },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
+  itemTitle: { ...type.body, fontFamily: fonts.bold, lineHeight: 20, color: colors.ink },
+  caption: { ...type.caption, color: colors.mutedAlt },
+  bodyText: { ...type.bodySm, color: colors.muted },
+  sectionTitle: { ...type.section, color: colors.ink },
+  disputeCard: { gap: space.xs, backgroundColor: colors.tan },
+  disputeTitle: { ...type.section, color: colors.danger },
+  closedCard: { gap: space.xs, backgroundColor: colors.tan },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  gridItem: { flexBasis: '47%', flexGrow: 1 },
+  modalScreen: { flex: 1, backgroundColor: colors.ink, paddingHorizontal: space.screen },
+  modalContent: { gap: space.screen },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  modalHeading: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' },
-  closeText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  modalTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900' },
-  photoColumn: { gap: 12, minHeight: 24 },
-  photoPreview: { width: PHOTO_PREVIEW_WIDTH, height: 220, borderRadius: 8, backgroundColor: '#000000' },
-  emptyPhotosText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '700' },
+  modalHeading: { ...type.h2, color: colors.onInk },
+  modalTitle: { ...type.label, color: colors.onInk },
+  modalEmpty: { ...type.bodySm, color: colors.onInkMuted },
+  photoPreview: { width: '100%', height: 220, borderRadius: radius.thumb, backgroundColor: colors.muted },
 })

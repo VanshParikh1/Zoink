@@ -15,7 +15,7 @@ export { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 
 // How long after a booking completes before the owner's payout is released
 // (see cleanupJob.releaseDuePayouts).
-export const PAYOUT_HOLD_HOURS = 24
+export { PAYOUT_HOLD_HOURS } from '@zoink/shared'
 
 // How long a one-sided handoff tap (pickup or return) is held before it's
 // cleared as stale (see cleanupJob.cleanupStaleHandoffs). Defined in

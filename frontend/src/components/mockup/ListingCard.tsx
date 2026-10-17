@@ -7,19 +7,23 @@ import { fillImageUrl } from '../../utils/cloudinaryImage'
 import { categoryAbbreviation } from '../../config/categories'
 import HardShadow from './HardShadow'
 import Thumb from './Thumb'
-import Badge from './Badge'
+import Badge, { BadgeVariant } from './Badge'
 import { listingDisplay, ListingCardData } from './listingFormat'
 
 const THUMB = 62
 
 type Props = {
   listing: ListingCardData
+  /** Replaces the price line (e.g. rental dates). */
+  subtitle?: string
+  /** Replaces the deposit badge (e.g. a booking status). */
+  badge?: { label: string; variant: BadgeVariant }
   onPress: () => void
   style?: StyleProp<ViewStyle>
 }
 
 /** One listing row: photo, title, price (and distance when the data has it), deposit badge. */
-export default function ListingCard({ listing, onPress, style }: Props) {
+export default function ListingCard({ listing, subtitle, badge, onPress, style }: Props) {
   const { priceLine, deposit, imageUrl, accessibilityLabel } = listingDisplay(listing)
 
   return (
@@ -30,7 +34,7 @@ export default function ListingCard({ listing, onPress, style }: Props) {
       radius={radius.cardLg}
       style={style}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={subtitle || badge ? [listing.title, subtitle, badge?.label].filter(Boolean).join(', ') : accessibilityLabel}
     >
       <View style={styles.card}>
         <Thumb
@@ -44,10 +48,10 @@ export default function ListingCard({ listing, onPress, style }: Props) {
             {listing.title}
           </Text>
           <Text style={type.price} numberOfLines={1}>
-            {priceLine}
+            {subtitle ?? priceLine}
           </Text>
         </View>
-        {deposit ? <Badge label={deposit} variant="lime" /> : null}
+        {badge ? <Badge label={badge.label} variant={badge.variant} /> : deposit ? <Badge label={deposit} variant="lime" /> : null}
       </View>
     </HardShadow>
   )

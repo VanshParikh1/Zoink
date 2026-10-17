@@ -4,7 +4,7 @@ import { colors } from '../../theme/colors'
 import { border, radius } from '../../theme/tokens'
 import { fonts } from '../../theme/typography'
 
-export type BadgeVariant = 'lime' | 'green' | 'surface' | 'inkGreen'
+export type BadgeVariant = 'lime' | 'green' | 'surface' | 'tan' | 'inkGreen'
 
 type Props = {
   label: string
@@ -18,6 +18,7 @@ const VARIANTS: Record<BadgeVariant, { bg: string; fg: string; bordered: boolean
   lime: { bg: colors.lime, fg: colors.ink, bordered: true },
   green: { bg: colors.green, fg: colors.ink, bordered: true },
   surface: { bg: colors.surface, fg: colors.ink, bordered: true },
+  tan: { bg: colors.tan, fg: colors.ink, bordered: true },
   inkGreen: { bg: colors.ink, fg: colors.green, bordered: false },
 }
 
