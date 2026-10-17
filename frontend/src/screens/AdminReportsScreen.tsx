@@ -1,13 +1,21 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import StateCard from '../components/StateCard'
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { listReports, resolveReport } from '../services/adminApi'
 import { AdminReportListItem, ReportStatus, ReportTargetType } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { radius, shadow, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
+import Badge from '../components/mockup/Badge'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import StatePanel from '../components/mockup/StatePanel'
+import { reportStatusBadge } from '../components/mockup/adminStatus'
 
 const REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -24,19 +32,6 @@ const FILTERS: { label: string; value: ReportStatus | undefined }[] = [
   { label: 'Dismissed', value: 'DISMISSED' },
 ]
 
-function statusTone(status: ReportStatus) {
-  switch (status) {
-    case 'OPEN':
-      return styles.statusYellow
-    case 'REVIEWED':
-      return styles.statusGreen
-    case 'DISMISSED':
-      return styles.statusGrey
-    default:
-      return styles.statusGrey
-  }
-}
-
 const TARGET_TYPE_LABELS: Record<ReportTargetType, string> = {
   USER: 'User',
   LISTING: 'Listing',
@@ -49,6 +44,7 @@ export default function AdminReportsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const insets = useSafeAreaInsets()
 
   const [activeReport, setActiveReport] = useState<AdminReportListItem | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
@@ -97,17 +93,18 @@ export default function AdminReportsScreen() {
     }
   }
 
+  const header = <ScreenHeader title="Report queue" back />
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <Screen scroll={false} header={header} contentStyle={styles.centered}>
+        <ActivityIndicator size="large" color={colors.greenText} />
+      </Screen>
     )
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
+    <Screen scroll={false} header={header} contentStyle={styles.screenContent}>
       <FlatList
         data={reports}
         keyExtractor={(item) => item.id}
@@ -118,202 +115,119 @@ export default function AdminReportsScreen() {
               setRefreshing(true)
               loadReports(filter)
             }}
-            tintColor={theme.primary}
-            colors={[theme.primary]}
+            tintColor={colors.greenText}
+            colors={[colors.green]}
           />
         }
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
+        keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
-          <View style={styles.header}>
-            <BackButton style={styles.backLink} />
-            <Text style={styles.title}>Report queue</Text>
+          <View style={styles.listHeader}>
             <Text style={styles.subtitle}>Review reports filed against listings and users for misconduct.</Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContainer}>
-              {FILTERS.map((item) => {
-                const isSelected = filter === item.value
-                return (
-                  <TouchableOpacity
-                    key={item.label}
-                    style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
-                    onPress={() => setFilter(item.value)}
-                  >
-                    <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>{item.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {FILTERS.map((item) => (
+                <Chip key={item.label} label={item.label} active={filter === item.value} onPress={() => setFilter(item.value)} />
+              ))}
             </ScrollView>
           </View>
         }
         ListEmptyComponent={
           error ? (
-            <StateCard tone="error" eyebrow="REPORT QUEUE" title="Couldn't load reports" body={error} actionLabel="Try again" onAction={() => loadReports(filter)} />
+            <StatePanel
+              title="Couldn't load reports"
+              body={error}
+              action={{ label: 'Try again', onPress: () => loadReports(filter), variant: 'primary' }}
+            />
           ) : (
-            <StateCard eyebrow="ALL CLEAR" title="No reports here" body="Nothing matches this filter right now." />
+            <StatePanel title="No reports here" body="Nothing matches this filter right now." />
           )
         }
-        renderItem={({ item }) => (
-          <View style={styles.cardWrap}>
-            <TouchableOpacity style={styles.card} onPress={() => openResolve(item)} disabled={item.status !== 'OPEN'}>
-              <View style={styles.cardRow}>
-                <Text style={styles.cardTitle}>
-                  {TARGET_TYPE_LABELS[item.targetType]} · {REASON_LABELS[item.reason] ?? item.reason}
-                </Text>
-                <Text style={[styles.pill, statusTone(item.status)]}>{item.status}</Text>
-              </View>
-              <Text style={styles.cardTarget} numberOfLines={item.targetType === 'MESSAGE' ? 3 : 1}>{item.targetLabel}</Text>
-              {item.description ? (
-                <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
-              ) : null}
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardFooterText}>{item.reporter.firstName} · {item.reporter.email}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
+        ItemSeparatorComponent={Separator}
+        renderItem={({ item }) => {
+          const badge = reportStatusBadge(item.status)
+          const title = `${TARGET_TYPE_LABELS[item.targetType]} · ${REASON_LABELS[item.reason] ?? item.reason}`
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${title}, ${badge.label}`}
+              accessibilityState={{ disabled: item.status !== 'OPEN' }}
+              onPress={() => openResolve(item)}
+              disabled={item.status !== 'OPEN'}
+              style={({ pressed }) => (pressed ? styles.pressed : null)}
+            >
+              <Card shadow={item.status === 'OPEN' ? 'sm' : false} padding={space.xxl} style={item.status === 'OPEN' ? null : styles.shadowSpace} contentStyle={styles.card}>
+                <View style={styles.cardRow}>
+                  <Text style={styles.cardTitle}>{title}</Text>
+                  <Badge label={badge.label} variant={badge.variant} />
+                </View>
+                <Text style={styles.cardTarget} numberOfLines={item.targetType === 'MESSAGE' ? 3 : 1}>{item.targetLabel}</Text>
+                {item.description ? <Text style={styles.cardBody} numberOfLines={2}>{item.description}</Text> : null}
+                <Text style={styles.caption} numberOfLines={1}>{item.reporter.firstName} · {item.reporter.email}</Text>
+              </Card>
+            </Pressable>
+          )
+        }}
+        showsVerticalScrollIndicator={false}
       />
 
-      <Modal visible={!!activeReport} animationType="slide" transparent onRequestClose={() => setActiveReport(null)}>
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Resolve report</Text>
+      <Modal visible={!!activeReport} animationType="fade" transparent onRequestClose={() => setActiveReport(null)}>
+        <KeyboardAvoidingView style={styles.scrim} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <Card radius="hero" shadow="lg" padding={space.screen} style={styles.sheet} contentStyle={styles.sheetBody}>
+            <Text style={styles.sheetTitle}>Resolve report</Text>
             {activeReport ? (
-              <Text style={styles.modalSubtitle}>
-                {TARGET_TYPE_LABELS[activeReport.targetType]} · {REASON_LABELS[activeReport.reason] ?? activeReport.reason}
-              </Text>
+              <>
+                <Text style={styles.cardTitle}>
+                  {TARGET_TYPE_LABELS[activeReport.targetType]} · {REASON_LABELS[activeReport.reason] ?? activeReport.reason}
+                </Text>
+                <Text style={styles.cardTarget}>{activeReport.targetLabel}</Text>
+                {activeReport.description ? <Text style={styles.cardBody}>{activeReport.description}</Text> : null}
+              </>
             ) : null}
-            {activeReport ? (
-              <Text style={styles.modalTarget}>{activeReport.targetLabel}</Text>
-            ) : null}
-            {activeReport?.description ? (
-              <Text style={styles.modalDescription}>{activeReport.description}</Text>
-            ) : null}
-
-            <Text style={styles.label}>Admin notes (optional)</Text>
-            <TextInput
+            <TextField
+              label="Admin notes (optional)"
               value={adminNotes}
               onChangeText={setAdminNotes}
               editable={!resolving}
               multiline
               maxLength={1000}
               placeholder="Notes about how this was reviewed."
-              placeholderTextColor={theme.textMuted}
-              style={styles.input}
             />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.dismissButton]}
-                onPress={() => handleResolve('DISMISSED')}
-                disabled={resolving}
-              >
-                <Text style={styles.dismissButtonText}>Dismiss</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.reviewedButton]}
-                onPress={() => handleResolve('REVIEWED')}
-                disabled={resolving}
-              >
-                {resolving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.reviewedButtonText}>Mark reviewed</Text>}
-              </TouchableOpacity>
+            <View style={styles.sheetActions}>
+              <Button label="Mark reviewed" onPress={() => handleResolve('REVIEWED')} loading={resolving} />
+              <Button label="Dismiss" variant="secondary" onPress={() => handleResolve('DISMISSED')} disabled={resolving} />
+              <Button label="Cancel" variant="link" onPress={() => setActiveReport(null)} disabled={resolving} style={styles.cancel} />
             </View>
-
-            <TouchableOpacity onPress={() => setActiveReport(null)} disabled={resolving}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+          </Card>
         </KeyboardAvoidingView>
       </Modal>
-      </ScreenBackground>
-    </DismissKeyboardView>
+    </Screen>
   )
 }
 
+function Separator() {
+  return <View style={styles.separator} />
+}
+
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
-  header: { marginBottom: 8 },
-  backLink: { marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  chipsScroll: { marginTop: 16, flexGrow: 0 },
-  chipsContainer: { gap: 8, flexDirection: 'row', paddingRight: 24 },
-  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: theme.radius.pill, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  chipSelected: { backgroundColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.surface },
-  chipTextSelected: { color: theme.textOnPrimary, fontWeight: '800', fontSize: 13 },
-  chipTextUnselected: { color: theme.text, fontWeight: '700', fontSize: 13 },
-  cardWrap: {
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-    marginBottom: 14,
-  },
-  card: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    padding: 18,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
-    gap: 10,
-  },
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  cardTitle: { color: theme.text, fontSize: 16, fontWeight: '900', flex: 1 },
-  cardTarget: { color: theme.primaryDeep, fontSize: 13, fontWeight: '800' },
-  cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardFooterText: { color: theme.textDisabled, fontSize: 12, fontWeight: '700', flex: 1 },
-  pill: {
-    overflow: 'hidden',
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    fontSize: 10,
-    fontWeight: '900',
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  statusYellow: { backgroundColor: '#FFF5D6', color: '#8A5A00' },
-  statusGrey: { backgroundColor: '#EFEFF1', color: '#6D7175' },
-  statusGreen: { backgroundColor: theme.primarySurface, color: theme.primaryDeep },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalCard: {
-    backgroundColor: theme.surface,
-    borderTopLeftRadius: theme.radius.lg,
-    borderTopRightRadius: theme.radius.lg,
-    borderTopWidth: theme.hard.border,
-    borderLeftWidth: theme.hard.border,
-    borderRightWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    padding: 24,
-    gap: 14,
-  },
-  modalTitle: { color: theme.text, fontSize: 20, fontWeight: '900' },
-  modalSubtitle: { color: theme.primary, fontSize: 14, fontWeight: '800' },
-  modalTarget: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  modalDescription: { color: theme.textMuted, fontSize: 14, lineHeight: 20 },
-  label: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  input: {
-    minHeight: 90,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.screen,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
-    fontSize: 15,
-    textAlignVertical: 'top',
-  },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  modalButton: { flex: 1, minHeight: 50, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', borderWidth: theme.hard.border, borderColor: theme.hard.ink },
-  dismissButton: { backgroundColor: theme.surfaceSubdued },
-  dismissButtonText: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  reviewedButton: { backgroundColor: theme.primary },
-  reviewedButtonText: { color: theme.textOnPrimary, fontSize: 15, fontWeight: '900' },
-  cancelText: { color: theme.textMuted, fontSize: 14, fontWeight: '700', textAlign: 'center', paddingTop: 4 },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  screenContent: { paddingHorizontal: 0, paddingBottom: 0 },
+  content: { paddingHorizontal: space.screen },
+  listHeader: { gap: space.lg, marginBottom: space.lg },
+  subtitle: { ...type.bodySm, color: colors.mutedAlt },
+  chips: { gap: space.sm, paddingVertical: space.xs },
+  separator: { height: space.lg },
+  pressed: { opacity: 0.85 },
+  shadowSpace: { paddingRight: shadow.sm, paddingBottom: shadow.sm },
+  card: { gap: space.sm },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.lg },
+  cardTitle: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink, flex: 1 },
+  cardTarget: { ...type.bodySm, color: colors.ink },
+  cardBody: { ...type.bodySm, color: colors.muted },
+  caption: { ...type.caption, color: colors.mutedAlt },
+  scrim: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', padding: space.screen },
+  sheet: { width: '100%' },
+  sheetBody: { gap: space.lg, borderRadius: radius.hero },
+  sheetTitle: { ...type.section, color: colors.ink },
+  sheetActions: { gap: space.md, marginTop: space.xs },
+  cancel: { alignSelf: 'center' },
 })

@@ -1,6 +1,8 @@
 import React from 'react'
 import { StyleSheet, Text, TouchableOpacity } from 'react-native'
-import { theme } from '../theme/colors'
+import { colors } from '../theme/colors'
+import { border, radius } from '../theme/tokens'
+import { type } from '../theme/typography'
 
 type Props = {
   onPress: () => void
@@ -12,7 +14,13 @@ type Props = {
 // stop being true just because you opened the thread.
 export default function PaymentNeededBadge({ onPress }: Props) {
   return (
-    <TouchableOpacity style={styles.badge} onPress={onPress} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+    <TouchableOpacity
+      style={styles.badge}
+      onPress={onPress}
+      hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+      accessibilityRole="button"
+      accessibilityLabel="Payment needed. Pay now"
+    >
       <Text style={styles.text}>Payment needed</Text>
     </TouchableOpacity>
   )
@@ -21,18 +29,15 @@ export default function PaymentNeededBadge({ onPress }: Props) {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.warningSurface,
-    borderRadius: theme.radius.pill,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.warning,
+    backgroundColor: colors.warning,
+    borderRadius: radius.pill,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   text: {
-    color: theme.warning,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
+    ...type.eyebrow,
+    color: colors.ink,
   },
 })

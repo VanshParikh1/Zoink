@@ -1,15 +1,21 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import StateCard from '../components/StateCard'
-import HardBlock from '../components/HardBlock'
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
 import { listDisputes } from '../services/adminApi'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
+import Badge from '../components/mockup/Badge'
+import StatePanel from '../components/mockup/StatePanel'
+import { disputeStatusBadge } from '../components/mockup/adminStatus'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -30,22 +36,6 @@ const FILTERS: { label: string; value: DisputeStatus | undefined }[] = [
   { label: 'Dismissed', value: 'DISMISSED' },
 ]
 
-function statusTone(status: DisputeStatus) {
-  switch (status) {
-    case 'OPEN':
-      return styles.statusYellow
-    case 'UNDER_REVIEW':
-      return styles.statusBlue
-    case 'RESOLVED_REFUND':
-    case 'RESOLVED_NO_ACTION':
-      return styles.statusGreen
-    case 'DISMISSED':
-      return styles.statusGrey
-    default:
-      return styles.statusGrey
-  }
-}
-
 export default function AdminDisputesScreen() {
   const nav = useNavigation<Nav>()
   const [disputes, setDisputes] = useState<AdminDisputeListItem[]>([])
@@ -53,6 +43,7 @@ export default function AdminDisputesScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const insets = useSafeAreaInsets()
 
   const loadDisputes = useCallback(async (status: DisputeStatus | undefined) => {
     try {
@@ -74,16 +65,18 @@ export default function AdminDisputesScreen() {
     }, [loadDisputes, filter])
   )
 
+  const header = <ScreenHeader title="Dispute queue" back />
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <Screen scroll={false} header={header} contentStyle={styles.centered}>
+        <ActivityIndicator size="large" color={colors.greenText} />
+      </Screen>
     )
   }
 
   return (
-    <ScreenBackground>
+    <Screen scroll={false} header={header} contentStyle={styles.screenContent}>
       <FlatList
         data={disputes}
         keyExtractor={(item) => item.id}
@@ -94,107 +87,78 @@ export default function AdminDisputesScreen() {
               setRefreshing(true)
               loadDisputes(filter)
             }}
-            tintColor={theme.primary}
-            colors={[theme.primary]}
+            tintColor={colors.greenText}
+            colors={[colors.green]}
           />
         }
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
         ListHeaderComponent={
-          <View style={styles.header}>
-            <BackButton style={styles.backLink} />
-            <Text style={styles.title}>Dispute queue</Text>
+          <View style={styles.listHeader}>
             <Text style={styles.subtitle}>Review and resolve disputes raised across all bookings.</Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContainer}>
-              {FILTERS.map((item) => {
-                const isSelected = filter === item.value
-                return (
-                  <TouchableOpacity
-                    key={item.label}
-                    style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
-                    onPress={() => setFilter(item.value)}
-                  >
-                    <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>{item.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {FILTERS.map((item) => (
+                <Chip key={item.label} label={item.label} active={filter === item.value} onPress={() => setFilter(item.value)} />
+              ))}
             </ScrollView>
           </View>
         }
         ListEmptyComponent={
           error ? (
-            <StateCard tone="error" eyebrow="DISPUTE QUEUE" title="Couldn't load disputes" body={error} actionLabel="Try again" onAction={() => loadDisputes(filter)} />
+            <StatePanel
+              title="Couldn't load disputes"
+              body={error}
+              action={{ label: 'Try again', onPress: () => loadDisputes(filter), variant: 'primary' }}
+            />
           ) : (
-            <StateCard eyebrow="ALL CLEAR" title="No disputes here" body="Nothing matches this filter right now." />
+            <StatePanel title="No disputes here" body="Nothing matches this filter right now." />
           )
         }
-        renderItem={({ item }) => (
-          <View style={styles.cardWrap}>
-            <TouchableOpacity style={styles.card} onPress={() => nav.navigate('AdminDisputeDetail', { disputeId: item.id })}>
-              <View style={styles.cardRow}>
-                <Text style={styles.cardTitle}>{REASON_LABELS[item.reason] ?? item.reason}</Text>
-                <Text style={[styles.pill, statusTone(item.status)]}>{item.status.replace(/_/g, ' ')}</Text>
-              </View>
-              <Text style={styles.cardMeta} numberOfLines={2}>{item.description}</Text>
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardFooterText}>{item.raisedByUser.firstName} · {item.raisedByUser.email}</Text>
-                <Text style={styles.cardPrice}>${Number(item.booking.totalPrice).toFixed(2)}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
+        ItemSeparatorComponent={Separator}
+        renderItem={({ item }) => {
+          const badge = disputeStatusBadge(item.status)
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${REASON_LABELS[item.reason] ?? item.reason}, ${badge.label}`}
+              onPress={() => nav.navigate('AdminDisputeDetail', { disputeId: item.id })}
+              style={({ pressed }) => (pressed ? styles.pressed : null)}
+            >
+              <Card shadow="sm" padding={space.xxl} contentStyle={styles.card}>
+                <View style={styles.cardRow}>
+                  <Text style={styles.cardTitle}>{REASON_LABELS[item.reason] ?? item.reason}</Text>
+                  <Badge label={badge.label} variant={badge.variant} />
+                </View>
+                <Text style={styles.cardBody} numberOfLines={2}>{item.description}</Text>
+                <View style={styles.cardRow}>
+                  <Text style={styles.cardMeta} numberOfLines={1}>{item.raisedByUser.firstName} · {item.raisedByUser.email}</Text>
+                  <Text style={type.price}>${Number(item.booking.totalPrice).toFixed(2)}</Text>
+                </View>
+              </Card>
+            </Pressable>
+          )
+        }}
+        showsVerticalScrollIndicator={false}
       />
-    </ScreenBackground>
+    </Screen>
   )
 }
 
+function Separator() {
+  return <View style={styles.separator} />
+}
+
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 32, gap: 14 },
-  header: { marginBottom: 8 },
-  backLink: { marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 8 },
-  chipsScroll: { marginTop: 16, flexGrow: 0 },
-  chipsContainer: { gap: 8, flexDirection: 'row', paddingRight: 24 },
-  chip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: theme.radius.pill, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  chipSelected: { backgroundColor: theme.primary },
-  chipUnselected: { backgroundColor: theme.surface },
-  chipTextSelected: { color: theme.textOnPrimary, fontWeight: '800', fontSize: 13 },
-  chipTextUnselected: { color: theme.text, fontWeight: '700', fontSize: 13 },
-  cardWrap: {
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-    marginBottom: 14,
-  },
-  card: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    padding: 18,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
-    gap: 10,
-  },
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  cardTitle: { color: theme.text, fontSize: 16, fontWeight: '900', flex: 1 },
-  cardMeta: { color: theme.textMuted, fontSize: 14, lineHeight: 20 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardFooterText: { color: theme.textDisabled, fontSize: 12, fontWeight: '700', flex: 1 },
-  cardPrice: { color: theme.primaryDeep, fontSize: 15, fontWeight: '900' },
-  pill: {
-    overflow: 'hidden',
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    fontSize: 10,
-    fontWeight: '900',
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  statusYellow: { backgroundColor: '#FFF5D6', color: '#8A5A00' },
-  statusBlue: { backgroundColor: '#E1F0FF', color: '#185EA8' },
-  statusGrey: { backgroundColor: '#EFEFF1', color: '#6D7175' },
-  statusGreen: { backgroundColor: theme.primarySurface, color: theme.primaryDeep },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  screenContent: { paddingHorizontal: 0, paddingBottom: 0 },
+  content: { paddingHorizontal: space.screen },
+  listHeader: { gap: space.lg, marginBottom: space.lg },
+  subtitle: { ...type.bodySm, color: colors.mutedAlt },
+  chips: { gap: space.sm, paddingVertical: space.xs },
+  separator: { height: space.lg },
+  pressed: { opacity: 0.85 },
+  card: { gap: space.sm },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.lg },
+  cardTitle: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink, flex: 1 },
+  cardBody: { ...type.bodySm, color: colors.muted },
+  cardMeta: { ...type.caption, color: colors.mutedAlt, flex: 1 },
 })

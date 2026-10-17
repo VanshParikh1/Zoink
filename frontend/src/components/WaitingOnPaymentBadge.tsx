@@ -1,6 +1,8 @@
 import React from 'react'
 import { StyleSheet, Text, View, ViewStyle } from 'react-native'
-import { theme } from '../theme/colors'
+import { colors } from '../theme/colors'
+import { border, radius } from '../theme/tokens'
+import { type } from '../theme/typography'
 
 type Props = {
   style?: ViewStyle
@@ -21,18 +23,15 @@ export default function WaitingOnPaymentBadge({ style }: Props) {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.warningSurface,
-    borderRadius: theme.radius.pill,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.warning,
+    backgroundColor: colors.warning,
+    borderRadius: radius.pill,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   text: {
-    color: theme.warning,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
+    ...type.eyebrow,
+    color: colors.ink,
   },
 })

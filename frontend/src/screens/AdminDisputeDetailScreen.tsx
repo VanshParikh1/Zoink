@@ -1,15 +1,23 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
-import { theme } from '../theme/colors'
-import { fonts } from '../theme/typography'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
+import Badge from '../components/mockup/Badge'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
+import { disputeStatusBadge } from '../components/mockup/adminStatus'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -94,10 +102,10 @@ const EVENT_ACCENTS: Record<string, EventAccent> = {
 
 function eventAccentColor(type: string) {
   const accent: EventAccent = EVENT_ACCENTS[type] ?? 'neutral'
-  if (accent === 'success') return theme.primaryDeep
-  if (accent === 'warning') return theme.warning
-  if (accent === 'danger') return theme.danger
-  return theme.textMuted
+  if (accent === 'success') return colors.green
+  if (accent === 'warning') return colors.warning
+  if (accent === 'danger') return colors.danger
+  return colors.tan
 }
 
 // Event metadata is a small flat object in practice (e.g. { disputeId, reason }).
@@ -223,11 +231,13 @@ export default function AdminDisputeDetailScreen() {
     }
   }
 
+  const header = <ScreenHeader title="Dispute" back />
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <Screen scroll={false} header={header} contentStyle={styles.centered}>
+        <ActivityIndicator size="large" color={colors.greenText} />
+      </Screen>
     )
   }
 
@@ -242,362 +252,233 @@ export default function AdminDisputeDetailScreen() {
     refundAmountInput.trim() !== '' &&
     Number.isFinite(Number(refundAmountInput)) &&
     Math.round(Number(refundAmountInput) * 100) > Math.round(Number(refundCapAmount) * 100)
+  const isDepositCapture = dispute.booking.status === 'COMPLETED'
+  const badge = disputeStatusBadge(dispute.status)
+  // Status banner: surface while open, lime once resolved, tan when dismissed.
+  const bannerStyle = isActive ? null : dispute.status === 'DISMISSED' ? styles.bannerTan : styles.bannerLime
+
+  const photoStrip = (urls: string[]) => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+      {urls.map((url, idx) => (
+        <Pressable
+          key={url}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={`Photo ${idx + 1} of ${urls.length}`}
+          onPress={() => nav.navigate('PhotoViewer', { photos: urls, initialIndex: idx })}
+        >
+          <Image source={{ uri: fillImageUrl(url, { width: 144, height: 144 }) }} style={styles.photoThumb} resizeMode="cover" />
+        </Pressable>
+      ))}
+    </ScrollView>
+  )
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <BackButton style={styles.backLink} />
-
-        <Text style={styles.title}>{REASON_LABELS[dispute.reason] ?? dispute.reason}</Text>
-        <Text style={styles.subtitle}>{dispute.status.replace(/_/g, ' ')}</Text>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Reported by</Text>
-          <Text style={styles.value}>{dispute.raisedByUser.firstName} · {dispute.raisedByUser.email}</Text>
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.bodyText}>{dispute.description}</Text>
-          <Text style={styles.sectionTitle}>Filed</Text>
-          <Text style={styles.value}>{new Date(dispute.createdAt).toLocaleString()}</Text>
+    <Screen
+      keyboardAvoiding
+      header={header}
+      contentStyle={styles.content}
+      footer={isActive ? <Button label="Submit resolution" onPress={handleResolve} loading={busy} /> : undefined}
+    >
+      <Card shadow={false} padding={space.xxl} contentStyle={[styles.banner, bannerStyle]}>
+        <View style={styles.bannerRow}>
+          <Text style={styles.bannerTitle}>{REASON_LABELS[dispute.reason] ?? dispute.reason}</Text>
+          <Badge label={badge.label} variant={badge.variant} />
         </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Booking</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>Status</Text>
-            <Text style={styles.value}>{dispute.booking.status}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Payment status</Text>
-            <Text style={styles.value}>{dispute.booking.paymentStatus}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Total</Text>
-            <Text style={styles.value}>${Number(dispute.booking.totalPrice).toFixed(2)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Photos</Text>
-          {!hasPickupPhotos && !hasReturnPhotos ? (
-            <Text style={styles.bodyText}>No before or after photos available.</Text>
-          ) : (
-            <>
-              <Text style={styles.photoGroupLabel}>Before (pickup)</Text>
-              {hasPickupPhotos ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
-                  {dispute.booking.pickupPhotos.map((url, idx) => (
-                    <TouchableOpacity
-                      key={url}
-                      onPress={() => nav.navigate('PhotoViewer', { photos: dispute.booking.pickupPhotos, initialIndex: idx })}
-                    >
-                      <Image source={{ uri: fillImageUrl(url, { width: 120, height: 120 }) }} style={styles.photoThumb} resizeMode="cover" />
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={styles.bodyText}>No before photos available.</Text>
-              )}
-
-              <Text style={styles.photoGroupLabel}>After (return)</Text>
-              {hasReturnPhotos ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
-                  {dispute.booking.returnPhotos.map((url, idx) => (
-                    <TouchableOpacity
-                      key={url}
-                      onPress={() => nav.navigate('PhotoViewer', { photos: dispute.booking.returnPhotos, initialIndex: idx })}
-                    >
-                      <Image source={{ uri: fillImageUrl(url, { width: 120, height: 120 }) }} style={styles.photoThumb} resizeMode="cover" />
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={styles.bodyText}>No after photos available.</Text>
-              )}
-            </>
-          )}
-        </View>
-
         {!isActive ? (
-          <View style={styles.card}>
+          <>
             {/* This dispute may have been resolved while the booking was still ACTIVE
                 (refund path) — booking.status here reflects the booking's CURRENT
                 status, which can have moved on to COMPLETED since, so it can't safely
                 be used to say which path a past resolution took. Generic wording only. */}
-            <Text style={styles.sectionTitle}>{OUTCOME_LABELS[dispute.status] ?? dispute.status}</Text>
+            <Text style={styles.bannerBody}>{OUTCOME_LABELS[dispute.status] ?? dispute.status}</Text>
             {dispute.status === 'RESOLVED_REFUND' && dispute.refundAmountCents != null ? (
-              <Text style={styles.value}>Refunded ${(dispute.refundAmountCents / 100).toFixed(2)}</Text>
+              <Text style={styles.bannerStrong}>Refunded ${(dispute.refundAmountCents / 100).toFixed(2)}</Text>
             ) : null}
-            {dispute.resolutionNotes ? <Text style={styles.bodyText}>{dispute.resolutionNotes}</Text> : null}
+            {dispute.resolutionNotes ? <Text style={styles.bannerBody}>{dispute.resolutionNotes}</Text> : null}
             {dispute.resolvedByAdmin ? (
-              <Text style={styles.value}>Resolved by {dispute.resolvedByAdmin.firstName} · {dispute.resolvedByAdmin.email}</Text>
+              <Text style={styles.caption}>Resolved by {dispute.resolvedByAdmin.firstName} · {dispute.resolvedByAdmin.email}</Text>
             ) : null}
-            {dispute.resolvedAt ? <Text style={styles.value}>{new Date(dispute.resolvedAt).toLocaleString()}</Text> : null}
-          </View>
+            {dispute.resolvedAt ? <Text style={styles.caption}>{new Date(dispute.resolvedAt).toLocaleString()}</Text> : null}
+          </>
+        ) : null}
+      </Card>
+
+      <GroupLabel>Report</GroupLabel>
+      <RowGroup>
+        <ListRow icon="user" label={dispute.raisedByUser.firstName} value={dispute.raisedByUser.email} />
+        <ListRow icon="calendar" label="Filed" value={new Date(dispute.createdAt).toLocaleString()} />
+      </RowGroup>
+      <Card shadow={false} padding={space.xxl}>
+        <Text style={styles.body}>{dispute.description}</Text>
+      </Card>
+
+      <GroupLabel>Booking</GroupLabel>
+      <RowGroup>
+        <ListRow icon="activity" label="Status" right={<Text style={styles.value}>{dispute.booking.status}</Text>} />
+        <ListRow icon="credit-card" label="Payment status" right={<Text style={styles.value}>{dispute.booking.paymentStatus}</Text>} />
+        <ListRow icon="dollar-sign" label="Total" right={<Text style={styles.value}>${Number(dispute.booking.totalPrice).toFixed(2)}</Text>} />
+      </RowGroup>
+
+      <GroupLabel>Photos</GroupLabel>
+      <Card shadow={false} padding={space.xxl} contentStyle={styles.stack}>
+        {!hasPickupPhotos && !hasReturnPhotos ? (
+          <Text style={styles.body}>No before or after photos available.</Text>
         ) : (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Resolve this dispute</Text>
-            <View style={styles.chipsColumn}>
-              {getResolutionOptions(dispute.booking.status === 'COMPLETED').map((option) => {
-                const isSelected = resolution === option.value
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                    onPress={() => handleSelectResolution(option.value)}
-                    disabled={busy}
-                  >
-                    <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>{option.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            {resolution === 'RESOLVED_REFUND' ? (
-              <>
-                <Text style={styles.sectionTitle}>
-                  {dispute.booking.status === 'COMPLETED' ? 'Deposit charge amount' : 'Refund amount'}
-                </Text>
-                <Text style={styles.bodyText}>
-                  Up to the {dispute.booking.status === 'COMPLETED' ? 'deposit' : 'booking total'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'}.
-                </Text>
-                <TextInput
-                  value={refundAmountInput}
-                  onChangeText={setRefundAmountInput}
-                  editable={!busy}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={theme.textMuted}
-                  style={[styles.input, refundExceedsTotal ? styles.inputError : null]}
-                />
-                {refundExceedsTotal ? (
-                  <Text style={styles.errorNote}>
-                    You cannot {dispute.booking.status === 'COMPLETED' ? 'charge' : 'refund'} more than the {dispute.booking.status === 'COMPLETED' ? 'deposit' : 'total'} amount of ${Number(refundCapAmount).toFixed(2)}.
-                  </Text>
-                ) : null}
-              </>
-            ) : null}
-
-            <Text style={styles.sectionTitle}>Resolution notes</Text>
-            <TextInput
-              value={notes}
-              onChangeText={setNotes}
-              editable={!busy}
-              multiline
-              maxLength={1000}
-              placeholder="Explain the decision — this is stored on the dispute record."
-              placeholderTextColor={theme.textMuted}
-              style={styles.input}
-            />
-
-            <TouchableOpacity style={styles.submitButton} onPress={handleResolve} disabled={busy}>
-              {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit resolution</Text>}
-            </TouchableOpacity>
-          </View>
+          <>
+            <Text style={styles.eyebrow}>Before (pickup)</Text>
+            {hasPickupPhotos ? photoStrip(dispute.booking.pickupPhotos) : <Text style={styles.body}>No before photos available.</Text>}
+            <Text style={styles.eyebrow}>After (return)</Text>
+            {hasReturnPhotos ? photoStrip(dispute.booking.returnPhotos) : <Text style={styles.body}>No after photos available.</Text>}
+          </>
         )}
+      </Card>
 
-        <View style={styles.card}>
-          <TouchableOpacity onPress={handleToggleAuditTrail} style={styles.auditToggle} activeOpacity={0.7}>
-            <View style={styles.auditToggleLeft}>
-              <Text style={styles.sectionTitle}>Audit trail</Text>
-              {events && events.length > 0 ? (
-                <View style={styles.auditCountBadge}>
-                  <Text style={styles.auditCountText}>{events.length}</Text>
-                </View>
-              ) : null}
+      {isActive ? (
+        <>
+          <GroupLabel>Resolve this dispute</GroupLabel>
+          <View style={styles.chips}>
+            {getResolutionOptions(isDepositCapture).map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                active={resolution === option.value}
+                onPress={busy ? undefined : () => handleSelectResolution(option.value)}
+              />
+            ))}
+          </View>
+
+          {resolution === 'RESOLVED_REFUND' ? (
+            <View style={styles.stack}>
+              <TextField
+                label={isDepositCapture ? 'Deposit charge amount' : 'Refund amount'}
+                value={refundAmountInput}
+                onChangeText={setRefundAmountInput}
+                editable={!busy}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                variant="boxed"
+                error={
+                  refundExceedsTotal
+                    ? `You cannot ${isDepositCapture ? 'charge' : 'refund'} more than the ${isDepositCapture ? 'deposit' : 'total'} amount of $${Number(refundCapAmount).toFixed(2)}.`
+                    : undefined
+                }
+              />
+              <Text style={styles.caption}>
+                Up to the {isDepositCapture ? 'deposit' : 'booking total'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {isDepositCapture ? 'charge' : 'refund'}.
+              </Text>
             </View>
-            <Text style={styles.auditChevron}>{auditExpanded ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-
-          {auditExpanded ? (
-            eventsLoading ? (
-              <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
-            ) : !events || events.length === 0 ? (
-              <Text style={styles.bodyText}>No events recorded for this booking.</Text>
-            ) : (
-              <View style={styles.chipsColumn}>
-                {events.map((event) => {
-                  const accentColor = eventAccentColor(event.type)
-                  const metadataEntries = formatMetadataEntries(event.metadata)
-                  const eventDate = new Date(event.createdAt)
-
-                  return (
-                    <View key={event.id} style={styles.auditRow}>
-                      <View style={styles.auditHeaderRow}>
-                        <View style={styles.auditTypeRow}>
-                          <View style={[styles.auditDot, { backgroundColor: accentColor }]} />
-                          <Text style={[styles.auditEventType, { color: accentColor }]}>
-                            {EVENT_LABELS[event.type] ?? event.type.replace(/_/g, ' ')}
-                          </Text>
-                        </View>
-                        <Text style={styles.auditTime}>
-                          {eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                          {'  '}
-                          {eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.auditActor}>
-                        {event.actorId ? `Actor · ${event.actorId}` : 'System · automated'}
-                      </Text>
-
-                      {metadataEntries ? (
-                        <View style={styles.auditMetadataBox}>
-                          {metadataEntries.map((entry) => (
-                            <View key={entry.key} style={styles.auditMetadataRow}>
-                              <Text style={styles.auditMetadataKey}>{entry.key}</Text>
-                              <Text style={styles.auditMetadataValue} numberOfLines={2}>
-                                {entry.value}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-                    </View>
-                  )
-                })}
-              </View>
-            )
           ) : null}
-        </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+
+          <TextField
+            label="Resolution notes"
+            value={notes}
+            onChangeText={setNotes}
+            editable={!busy}
+            multiline
+            maxLength={1000}
+            placeholder="Explain the decision — this is stored on the dispute record."
+          />
+        </>
+      ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: auditExpanded }}
+        onPress={handleToggleAuditTrail}
+        style={({ pressed }) => [styles.auditToggle, pressed ? styles.pressed : null]}
+      >
+        <GroupLabel>Audit trail</GroupLabel>
+        {events && events.length > 0 ? <Badge label={String(events.length)} variant="surface" /> : null}
+        <View style={styles.flex} />
+        <Feather name={auditExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={colors.mutedAlt} />
+      </Pressable>
+
+      {auditExpanded ? (
+        eventsLoading ? (
+          <ActivityIndicator color={colors.greenText} />
+        ) : !events || events.length === 0 ? (
+          <Text style={styles.body}>No events recorded for this booking.</Text>
+        ) : (
+          <View>
+            {events.map((event, index) => {
+              const metadataEntries = formatMetadataEntries(event.metadata)
+              const eventDate = new Date(event.createdAt)
+              const last = index === events.length - 1
+              return (
+                <View key={event.id} style={styles.event}>
+                  <View style={styles.rail}>
+                    <View style={[styles.dot, { backgroundColor: eventAccentColor(event.type) }]} />
+                    {!last ? <View style={styles.line} /> : null}
+                  </View>
+                  <View style={[styles.eventBody, !last ? styles.eventGap : null]}>
+                    <View style={styles.bannerRow}>
+                      <Text style={styles.eventType}>{EVENT_LABELS[event.type] ?? event.type.replace(/_/g, ' ')}</Text>
+                      <Text style={styles.caption}>
+                        {eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}{'  '}
+                        {eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <Text style={styles.caption}>{event.actorId ? `Actor · ${event.actorId}` : 'System · automated'}</Text>
+                    {metadataEntries ? (
+                      <Card shadow={false} padding={space.md} contentStyle={styles.metaBox}>
+                        {metadataEntries.map((entry) => (
+                          <View key={entry.key} style={styles.metaRow}>
+                            <Text style={styles.metaKey}>{entry.key}</Text>
+                            <Text style={styles.metaValue} numberOfLines={2}>{entry.value}</Text>
+                          </View>
+                        ))}
+                      </Card>
+                    ) : null}
+                  </View>
+                </View>
+              )
+            })}
+          </View>
+        )
+      ) : null}
+    </Screen>
   )
 }
 
+const DOT = 12
+
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  backLink: { marginBottom: 10 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800', textTransform: 'uppercase' },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius.sm,
-    padding: 18,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    ...theme.shadowMdElevation,
-    gap: 8,
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  content: { gap: space.lg },
+  flex: { flex: 1 },
+  pressed: { opacity: 0.7 },
+  stack: { gap: space.sm },
+  banner: { gap: space.sm },
+  bannerLime: { backgroundColor: colors.lime },
+  bannerTan: { backgroundColor: colors.tan },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.lg },
+  bannerTitle: { ...type.section, color: colors.ink, flex: 1 },
+  bannerBody: { ...type.bodySm, color: colors.ink },
+  bannerStrong: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink },
+  body: { ...type.bodySm, color: colors.muted },
+  caption: { ...type.caption, color: colors.mutedAlt },
+  eyebrow: { ...type.eyebrow, color: colors.mutedAlt },
+  value: { ...type.label, color: colors.ink },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  photoRow: { gap: space.md },
+  photoThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.thumb,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    backgroundColor: colors.tan,
   },
-  sectionTitle: { color: theme.text, fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 8 },
-  bodyText: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  photoGroupLabel: { color: theme.textMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
-  photoRow: { gap: 10, paddingRight: 8, paddingBottom: 4 },
-  photoThumb: { width: 120, height: 120, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-  label: { color: theme.textMuted, fontSize: 14, flex: 1 },
-  value: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  chipsColumn: { gap: 10 },
-  auditToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  auditToggleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  auditCountBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    backgroundColor: theme.primarySurface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  auditCountText: { color: theme.primaryDeep, fontSize: 11, fontWeight: '900' },
-  auditChevron: { color: theme.textMuted, fontSize: 12 },
-  auditRow: {
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.surfaceSubdued,
-    padding: 12,
-    gap: 6,
-  },
-  auditHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  auditTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 1,
-  },
-  auditDot: { width: 8, height: 8, borderRadius: 4 },
-  auditEventType: { fontSize: 13, fontWeight: '800', textTransform: 'capitalize', flexShrink: 1 },
-  auditTime: { color: theme.textMuted, fontSize: 12, fontWeight: '600' },
-  auditActor: { color: theme.textMuted, fontSize: 12 },
-  auditMetadataBox: {
-    marginTop: 4,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    gap: 4,
-  },
-  auditMetadataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  auditMetadataKey: { color: theme.textMuted, fontSize: 12, fontWeight: '700' },
-  auditMetadataValue: {
-    color: theme.text,
-    fontSize: 12,
-    fontFamily: fonts.mono,
-    flexShrink: 1,
-    textAlign: 'right',
-  },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.surfaceSubdued,
-  },
-  chipSelected: { backgroundColor: theme.primarySurface },
-  chipText: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  chipTextSelected: { color: theme.primaryDeep, fontWeight: '900' },
-  input: {
-    minHeight: 100,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
-    fontSize: 15,
-    textAlignVertical: 'top',
-  },
-  inputError: {
-    borderColor: theme.danger,
-  },
-  errorNote: {
-    color: theme.danger,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 6,
-  },
-  submitButton: {
-    backgroundColor: theme.primary,
-    minHeight: 54,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
+  auditToggle: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 },
+  event: { flexDirection: 'row', gap: space.lg },
+  rail: { width: DOT, alignItems: 'center' },
+  dot: { width: DOT, height: DOT, borderRadius: DOT / 2, borderWidth: border.thin, borderColor: colors.ink, marginTop: 4 },
+  line: { flex: 1, width: border.thin, backgroundColor: colors.ink, marginVertical: 2 },
+  eventBody: { flex: 1, gap: 4 },
+  eventGap: { paddingBottom: space.xxl },
+  eventType: { ...type.label, color: colors.ink, flex: 1 },
+  metaBox: { gap: 4, marginTop: 4 },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: space.lg },
+  metaKey: { ...type.caption, fontFamily: fonts.bold, color: colors.mutedAlt },
+  metaValue: { ...type.caption, fontFamily: fonts.mono, color: colors.ink, flexShrink: 1, textAlign: 'right' },
 })

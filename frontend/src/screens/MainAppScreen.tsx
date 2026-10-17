@@ -20,7 +20,7 @@ import MyProfileScreen from './MyProfileScreen'
 import SearchScreen from './SearchScreen'
 import { colors } from '../theme/colors'
 import { border, radius } from '../theme/tokens'
-import { fonts } from '../theme/typography'
+import { fonts, type } from '../theme/typography'
 import ScreenBackground from '../components/ScreenBackground'
 import HardShadow from '../components/mockup/HardShadow'
 import Badge from '../components/mockup/Badge'
@@ -352,8 +352,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   navLabel: {
-    fontSize: 11,
-    lineHeight: 13,
+    ...type.tab,
   },
   fabSlot: {
     position: 'absolute',

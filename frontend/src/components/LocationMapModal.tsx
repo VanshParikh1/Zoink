@@ -1,8 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Image, Modal, StyleSheet, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { ResumableZoom, type ResumableZoomRefType } from 'react-native-zoom-toolkit'
-import { theme } from '../theme/colors'
+import { colors } from '../theme/colors'
+import { border, space } from '../theme/tokens'
+import Badge from './mockup/Badge'
+import Button from './mockup/Button'
+import IconButton from './mockup/IconButton'
+import MapPin from './mockup/MapPin'
 import { TILE_SIZE, buildTileGrid, toTileFloat, tileFloatToLatLon } from '../utils/mapTiles'
 import MapAttribution from './MapAttribution'
 
@@ -30,6 +37,7 @@ export default function LocationMapModal({ visible, latitude, longitude, onClose
   // UI thread, so it stays smooth). This only gets re-anchored when the modal reopens.
   const [anchor, setAnchor] = useState<Coords>({ latitude, longitude })
   const zoomRef = useRef<ResumableZoomRefType>(null)
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     if (visible) {
@@ -85,23 +93,22 @@ export default function LocationMapModal({ visible, latitude, longitude, onClose
               </View>
             </ResumableZoom>
 
-            <View style={styles.circle} pointerEvents="none" />
+            <MapPin size={44} />
 
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Text style={styles.closeText}>Close</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.hint} pointerEvents="none">
-              Pinch to zoom, drag to position
-            </Text>
+            <View style={[styles.topBar, { top: insets.top + space.sm }]} pointerEvents="box-none">
+              <View pointerEvents="none">
+                <Badge label="Pinch to zoom, drag to position" variant="lime" />
+              </View>
+              <IconButton accessibilityLabel="Close map" onPress={onClose}>
+                <Feather name="x" size={22} color={colors.ink} />
+              </IconButton>
+            </View>
 
             <MapAttribution style={styles.attribution} />
           </View>
 
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.setLocationBtn} onPress={handleConfirm}>
-              <Text style={styles.setLocationText}>Set location</Text>
-            </TouchableOpacity>
+          <View style={[styles.footer, { paddingBottom: insets.bottom + space.sm }]}>
+            <Button label="Set location" onPress={handleConfirm} />
           </View>
         </View>
       </GestureHandlerRootView>
@@ -111,67 +118,28 @@ export default function LocationMapModal({ visible, latitude, longitude, onClose
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  screen: { flex: 1, backgroundColor: theme.screen },
-  mapArea: { flex: 1, overflow: 'hidden', backgroundColor: theme.surfaceSubdued },
-  circle: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    width: 44,
-    height: 44,
-    marginTop: -22,
-    marginLeft: -22,
-    borderRadius: 22,
-    backgroundColor: theme.primary,
-    opacity: 0.35,
-    borderWidth: 2,
-    borderColor: theme.primaryDeep,
+  screen: { flex: 1, backgroundColor: colors.bg },
+  mapArea: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: colors.tan,
+    borderBottomWidth: border.base,
+    borderBottomColor: colors.ink,
   },
-  closeBtn: {
+  topBar: {
     position: 'absolute',
-    top: 60,
-    right: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: theme.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  closeText: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  hint: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.textOnPrimary,
-    backgroundColor: theme.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    left: space.xxl,
+    right: space.xxl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   attribution: {
     bottom: 12,
   },
   footer: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 24,
-    backgroundColor: theme.screen,
-  },
-  setLocationBtn: {
-    width: '100%',
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    minHeight: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  setLocationText: {
-    color: theme.textOnPrimary,
-    fontSize: 16,
-    fontWeight: '900',
-    textTransform: 'lowercase',
+    paddingHorizontal: space.screen,
+    paddingTop: space.lg,
+    backgroundColor: colors.surface,
   },
 })

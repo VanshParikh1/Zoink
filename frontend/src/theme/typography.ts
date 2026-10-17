@@ -18,5 +18,6 @@ export const type = {
   caption: { fontFamily: fonts.regular, fontSize: 12, letterSpacing: 0, lineHeight: 17 },
   price: { fontFamily: fonts.bold, fontSize: 14, letterSpacing: 0, lineHeight: 18, color: colors.greenText },
   button: { fontFamily: fonts.black, fontSize: 17, letterSpacing: -0.3, lineHeight: 21 },
+  tab: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0, lineHeight: 13 },
   eyebrow: { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 0.6, lineHeight: 14, textTransform: 'uppercase' },
 } satisfies Record<string, TextStyle>

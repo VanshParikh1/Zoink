@@ -1,10 +1,9 @@
 import React from 'react'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { ActivityIndicator, View } from 'react-native'
 import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
-import { theme } from '../theme/colors'
+import LoadingGate from '../components/mockup/LoadingGate'
 import { getPendingReviews } from '../services/reviewsApi'
 
 // Screens
@@ -100,9 +99,7 @@ function VerifiedAppStack() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen }}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <LoadingGate />
     )
   }
 
@@ -171,9 +168,7 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
   // Don't render anything until we've checked SecureStore and the fonts are in
   if (isLoading || !fontsReady) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen }}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <LoadingGate />
     )
   }
 

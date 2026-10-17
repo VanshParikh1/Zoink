@@ -1,9 +1,16 @@
 import React, { useState } from 'react'
-import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
+import { Image, StyleSheet, useWindowDimensions, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
+import { StatusBar } from 'expo-status-bar'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { fitContainer, Gallery } from 'react-native-zoom-toolkit'
 import { RootStackParamList } from '../navigation'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import IconButton from '../components/mockup/IconButton'
+import Badge from '../components/mockup/Badge'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'PhotoViewer'>
@@ -31,12 +38,17 @@ export default function PhotoViewerScreen() {
   const route = useRoute<ScreenRoute>()
   const { photos, initialIndex } = route.params
   const [index, setIndex] = useState(initialIndex)
+  const insets = useSafeAreaInsets()
 
   return (
     <View style={styles.screen}>
-      <TouchableOpacity style={styles.closeBtn} onPress={() => nav.goBack()}>
-        <Text style={styles.closeText}>Close</Text>
-      </TouchableOpacity>
+      <StatusBar style="light" />
+      <View style={[styles.topBar, { top: insets.top + space.sm }]} pointerEvents="box-none">
+        {photos.length > 1 ? <Badge label={`${index + 1} of ${photos.length}`} variant="surface" size={13} /> : <View />}
+        <IconButton accessibilityLabel="Close photos" onPress={() => nav.goBack()}>
+          <Feather name="x" size={22} color={colors.ink} />
+        </IconButton>
+      </View>
 
       <View style={styles.galleryContainer}>
         <Gallery
@@ -47,40 +59,20 @@ export default function PhotoViewerScreen() {
           renderItem={(item: string) => <FullImagePage uri={item} />}
         />
       </View>
-
-      {photos.length > 1 ? (
-        <Text style={styles.counter}>
-          {index + 1} / {photos.length}
-        </Text>
-      ) : null}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#000000' },
+  screen: { flex: 1, backgroundColor: colors.ink },
   galleryContainer: { flex: 1 },
-  closeBtn: {
+  topBar: {
     position: 'absolute',
-    top: 60,
-    right: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
+    left: space.xxl,
+    right: space.xxl,
     zIndex: 10,
-  },
-  closeText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
-  counter: {
-    position: 'absolute',
-    bottom: 50,
-    alignSelf: 'center',
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
 })

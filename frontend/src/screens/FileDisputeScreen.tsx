@@ -1,14 +1,22 @@
 import React, { useState } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, StyleSheet, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { createDispute } from '../services/disputesApi'
 import { DisputeReason } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
+import InkCard from '../components/mockup/InkCard'
+import TextField from '../components/mockup/TextField'
+import Button from '../components/mockup/Button'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileDispute'>
@@ -55,107 +63,121 @@ export default function FileDisputeScreen() {
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <BackButton style={styles.backLink} />
-
-          <Text style={styles.title}>Report a problem</Text>
-          {listingTitle ? <Text style={styles.subtitle}>{listingTitle}</Text> : null}
-          <Text style={styles.copy}>
-            Let us know what happened with this booking. Our team will review your report and follow up on a resolution.
-          </Text>
-
-          <View style={styles.card}>
-            <Text style={styles.label}>What went wrong?</Text>
-            <View style={styles.chipsColumn}>
-              {REASON_OPTIONS.map((option) => {
-                const isSelected = reason === option.value
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                    onPress={() => setReason(option.value)}
-                    disabled={busy}
-                  >
-                    <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>{option.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            <Text style={styles.label}>Details</Text>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              editable={!busy}
-              multiline
-              maxLength={1000}
-              placeholder="Describe what happened, including any relevant dates or details."
-              placeholderTextColor={theme.textMuted}
-              style={styles.input}
-            />
+    <Screen
+      keyboardAvoiding
+      header={<ScreenHeader title="Report a problem" back />}
+      contentStyle={styles.content}
+      footer={<Button label="Submit report" onPress={handleSubmit} loading={busy} />}
+    >
+      {listingTitle ? (
+        <Card shadow={false} padding={space.lg} contentStyle={styles.summary}>
+          <View style={styles.summaryIcon}>
+            <Feather name="package" size={22} color={colors.ink} />
           </View>
+          <View style={styles.flex}>
+            <Text style={styles.summaryTitle} numberOfLines={2}>{listingTitle}</Text>
+            <Text style={styles.caption}>This booking</Text>
+          </View>
+        </Card>
+      ) : null}
 
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={busy}>
-            {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit report</Text>}
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+      <View style={styles.field}>
+        <Text style={styles.label}>What went wrong?</Text>
+        <View style={styles.chips}>
+          {REASON_OPTIONS.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              active={reason === option.value}
+              onPress={busy ? undefined : () => setReason(option.value)}
+            />
+          ))}
+        </View>
+      </View>
+
+      <TextField
+        label="Details"
+        value={description}
+        onChangeText={setDescription}
+        editable={!busy}
+        multiline
+        maxLength={1000}
+        placeholder="Describe what happened, including any relevant dates or details."
+      />
+
+      {/* From disputeService / cleanupJob: an admin resolves the dispute, and
+          both the deposit auto-release and the owner payout skip a booking
+          whose dispute is OPEN or UNDER_REVIEW. No review time is set in code. */}
+      <InkCard title="What happens next">
+        <NextStep icon="shield" text="The Zoink team reviews your report and decides the outcome." />
+        <NextStep icon="lock" text="The deposit stays on hold while the report is open." />
+        <NextStep icon="clock" text="The owner's payout waits until it's resolved." />
+        <NextStep icon="alert-circle" text={`After a return, reports must come in within ${DEPOSIT_HOLD_HOURS}h.`} />
+      </InkCard>
+    </Screen>
+  )
+}
+
+function NextStep({ icon, text }: { icon: React.ComponentProps<typeof Feather>['name']; text: string }) {
+  return (
+    <View style={styles.step}>
+      <Feather name={icon} size={16} color={colors.green} style={styles.stepIcon} />
+      <Text style={styles.stepText}>{text}</Text>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  backLink: { marginBottom: 10 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800' },
-  copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: 8,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.border,
-    gap: 12,
+  content: {
+    gap: space.xxl,
   },
-  label: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  chipsColumn: { gap: 10 },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.surfaceSubdued,
+  flex: {
+    flex: 1,
   },
-  chipSelected: {
-    backgroundColor: theme.primarySurface,
-    borderColor: theme.primary,
+  summary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
   },
-  chipText: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
-  chipTextSelected: { color: theme.primaryDeep, fontWeight: '900' },
-  input: {
-    minHeight: 120,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: 'transparent',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
-    fontSize: 15,
-    textAlignVertical: 'top',
-  },
-  submitButton: {
-    backgroundColor: theme.primary,
-    minHeight: 54,
-    borderRadius: 8,
+  summaryIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.thumb,
+    backgroundColor: colors.tan,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
+  summaryTitle: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  caption: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  field: {
+    gap: space.sm,
+  },
+  label: {
+    ...type.labelSm,
+    color: colors.ink,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  step: {
+    flexDirection: 'row',
+    gap: space.md,
+  },
+  stepIcon: {
+    marginTop: 2,
+  },
+  stepText: {
+    ...type.bodySm,
+    color: colors.onInkMuted,
+    flex: 1,
+  },
 })

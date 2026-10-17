@@ -1,14 +1,19 @@
 import React, { useState } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, StyleSheet, Text, View } from 'react-native'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createReport } from '../services/reportsApi'
 import { ReportReason, ReportTargetType } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
+import TextField from '../components/mockup/TextField'
+import Button from '../components/mockup/Button'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileReport'>
@@ -68,109 +73,72 @@ export default function FileReportScreen() {
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <BackButton style={styles.backLink} />
+    <Screen
+      keyboardAvoiding
+      header={<ScreenHeader title={REPORT_TITLES[targetType]} back />}
+      contentStyle={styles.content}
+      footer={<Button label="Submit report" onPress={handleSubmit} loading={busy} />}
+    >
+      {targetLabel ? (
+        <Card shadow={false} padding={space.lg}>
+          <Text style={styles.target} numberOfLines={3}>{targetLabel}</Text>
+        </Card>
+      ) : null}
 
-          <Text style={styles.title}>{REPORT_TITLES[targetType]}</Text>
-          {targetLabel ? <Text style={styles.subtitle}>{targetLabel}</Text> : null}
-          <Text style={styles.copy}>
-            Let us know what's wrong. Our team will review your report — this is separate from booking disputes.
-          </Text>
+      <Text style={styles.copy}>
+        Let us know what's wrong. Our team will review your report — this is separate from booking disputes.
+      </Text>
 
-          <View style={styles.card}>
-            <Text style={styles.label}>What's the issue?</Text>
-            <View style={styles.chipsColumn}>
-              {REASON_OPTIONS.map((option) => {
-                const isSelected = reason === option.value
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[styles.chip, isSelected ? styles.chipSelected : null]}
-                    onPress={() => setReason(option.value)}
-                    disabled={busy}
-                  >
-                    <Text style={[styles.chipText, isSelected ? styles.chipTextSelected : null]}>{option.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            <Text style={styles.label}>Details (optional)</Text>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              editable={!busy}
-              multiline
-              maxLength={1000}
-              placeholder="Add any details that could help us review this."
-              placeholderTextColor={theme.textMuted}
-              style={styles.input}
+      <View style={styles.field}>
+        <Text style={styles.label}>What's the issue?</Text>
+        <View style={styles.chips}>
+          {REASON_OPTIONS.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              active={reason === option.value}
+              onPress={busy ? undefined : () => setReason(option.value)}
             />
-          </View>
+          ))}
+        </View>
+      </View>
 
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={busy}>
-            {busy ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit report</Text>}
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+      <TextField
+        label="Details (optional)"
+        value={description}
+        onChangeText={setDescription}
+        editable={!busy}
+        multiline
+        maxLength={1000}
+        placeholder="Add any details that could help us review this."
+      />
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 24, paddingTop: 64, paddingBottom: 40, gap: 16 },
-  backLink: { marginBottom: 10 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.primary, fontSize: 15, fontWeight: '800' },
-  copy: { color: theme.textMuted, fontSize: 15, lineHeight: 22 },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius.sm,
-    padding: 18,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    ...theme.shadowMdElevation,
-    gap: 12,
+  content: {
+    gap: space.xxl,
   },
-  label: { color: theme.text, fontSize: 15, fontWeight: '900' },
-  chipsColumn: { gap: 10 },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.surfaceSubdued,
+  target: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
   },
-  chipSelected: {
-    backgroundColor: theme.primarySurface,
+  copy: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
   },
-  chipText: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  chipTextSelected: { color: theme.primaryDeep, fontWeight: '900' },
-  input: {
-    minHeight: 120,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.screen,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
-    fontSize: 15,
-    textAlignVertical: 'top',
+  field: {
+    gap: space.sm,
   },
-  submitButton: {
-    backgroundColor: theme.primary,
-    minHeight: 54,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
+  label: {
+    ...type.labelSm,
+    color: colors.ink,
   },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
 })

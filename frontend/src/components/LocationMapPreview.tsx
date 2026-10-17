@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react'
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { theme } from '../theme/colors'
+import { Image, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import Badge from './mockup/Badge'
+import MapPin from './mockup/MapPin'
 import { TILE_SIZE, buildTileGrid } from '../utils/mapTiles'
 import MapAttribution from './MapAttribution'
 
@@ -52,11 +55,11 @@ export default function LocationMapPreview({
           style={{ position: 'absolute', left: tile.left, top: tile.top, width: TILE_SIZE, height: TILE_SIZE }}
         />
       ))}
-      <View style={styles.circle} pointerEvents="none" />
+      <MapPin size={108} />
       {hint ? (
-        <Text style={styles.hint} pointerEvents="none">
-          {hint}
-        </Text>
+        <View style={styles.hint} pointerEvents="none">
+          <Badge label={hint} variant="lime" />
+        </View>
       ) : null}
       <MapAttribution />
     </TouchableOpacity>
@@ -66,34 +69,15 @@ export default function LocationMapPreview({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    borderRadius: 12,
+    borderRadius: radius.card,
     overflow: 'hidden',
-    backgroundColor: theme.surfaceSubdued,
-    borderWidth: 2,
-    borderColor: theme.primary,
-  },
-  circle: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    width: 108,
-    height: 108,
-    marginTop: -54,
-    marginLeft: -54,
-    borderRadius: 54,
-    backgroundColor: theme.primary,
-    opacity: 0.3,
+    backgroundColor: colors.tan,
+    borderWidth: border.base,
+    borderColor: colors.ink,
   },
   hint: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    fontSize: 11,
-    fontWeight: '700',
-    color: theme.textOnPrimary,
-    backgroundColor: theme.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    top: space.sm,
+    left: space.sm,
   },
 })

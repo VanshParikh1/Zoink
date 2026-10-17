@@ -1,6 +1,7 @@
 import React from 'react'
 import { Linking, StyleSheet, Text, TouchableOpacity, ViewStyle } from 'react-native'
 import { usingMapTiler } from '../utils/mapTiles'
+import { fonts } from '../theme/typography'
 
 // MapTiler's free tier requires visible "© MapTiler © OpenStreetMap contributors"
 // attribution; when no key is configured, tiles fall back to raw OpenStreetMap (see
@@ -10,7 +11,13 @@ const ATTRIBUTION_URL = usingMapTiler ? 'https://www.maptiler.com/copyright/' : 
 
 export default function MapAttribution({ style }: { style?: ViewStyle }) {
   return (
-    <TouchableOpacity style={[styles.attribution, style]} onPress={() => Linking.openURL(ATTRIBUTION_URL)}>
+    <TouchableOpacity
+      style={[styles.attribution, style]}
+      onPress={() => Linking.openURL(ATTRIBUTION_URL)}
+      accessibilityRole="link"
+      accessibilityLabel={ATTRIBUTION_TEXT}
+      hitSlop={{ top: 12, bottom: 6, left: 6, right: 6 }}
+    >
       <Text style={styles.attributionText}>{ATTRIBUTION_TEXT}</Text>
     </TouchableOpacity>
   )
@@ -25,7 +32,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     borderRadius: 3,
   },
+  // Below the type scale on purpose: the tile licence credit has to fit along
+  // the bottom of a small preview without covering the map.
   attributionText: {
+    fontFamily: fonts.regular,
     fontSize: 9,
     color: 'rgba(0,0,0,0.6)',
   },
