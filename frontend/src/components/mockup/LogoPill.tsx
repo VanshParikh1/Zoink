@@ -35,6 +35,9 @@ export default function LogoPill({ size = 'md', style }: Props) {
           width={Math.round(s.logoHeight * WORDMARK_ASPECT)}
           height={s.logoHeight}
           viewBox={WORDMARK_VIEWBOX}
+          // .svgrrc maps the asset's greens to this prop (falling back to the
+          // originals), so the wordmark matches the theme green here only.
+          fill={colors.green}
         />
       </View>
     </HardShadow>
