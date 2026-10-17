@@ -6,7 +6,7 @@ import { shadow, space } from '../../theme/tokens'
 // their content can scroll clear of it.
 export const TAB_BAR_PADDING = 6
 export const TAB_ITEM_MIN_HEIGHT = 52
-export const TAB_BAR_HEIGHT = TAB_ITEM_MIN_HEIGHT + TAB_BAR_PADDING * 2 // 64
+const TAB_BAR_HEIGHT = TAB_ITEM_MIN_HEIGHT + TAB_BAR_PADDING * 2 // 64
 export const TAB_BAR_SHADOW = shadow.sm // 4px solid offset
 export const TAB_BAR_GAP = space.sm // gap between the bar and the safe-area edge
 export const TAB_FAB_SIZE = 62

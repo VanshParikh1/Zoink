@@ -2,7 +2,6 @@ import { Dimensions, PixelRatio } from 'react-native'
 
 // The app is portrait-only, so this is fixed for the session.
 export const SCREEN_WIDTH = Dimensions.get('window').width
-export const SCREEN_HEIGHT = Dimensions.get('window').height
 
 // Listing photos are stored up to 1200x900 and avatars at 400x400; without a
 // delivery transformation every 56-90pt thumbnail downloaded the full stored

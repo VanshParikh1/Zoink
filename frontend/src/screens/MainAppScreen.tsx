@@ -21,7 +21,6 @@ import SearchScreen from './SearchScreen'
 import { colors } from '../theme/colors'
 import { border, radius } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
-import ScreenBackground from '../components/ScreenBackground'
 import HardShadow from '../components/mockup/HardShadow'
 import Badge from '../components/mockup/Badge'
 import {
@@ -217,7 +216,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   )
 
   return (
-    <ScreenBackground>
+    <View style={styles.screen}>
       <View
         style={styles.content}
         onLayout={(event) => {
@@ -299,11 +298,16 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
           </HardShadow>
         </View>
       </View>
-    </ScreenBackground>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  // Each tab paints its own mockup Screen; this only shows during the first layout.
+  screen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   content: {
     flex: 1,
     overflow: 'hidden',

@@ -3,9 +3,9 @@ import { Pressable, PressableProps, StyleProp, StyleSheet, View, ViewStyle } fro
 import { colors } from '../../theme/colors'
 import { shadow } from '../../theme/tokens'
 
-export type ShadowOffset = keyof typeof shadow | number
+type ShadowOffset = keyof typeof shadow | number
 
-export function resolveOffset(offset: ShadowOffset): number {
+function resolveOffset(offset: ShadowOffset): number {
   return typeof offset === 'number' ? offset : shadow[offset]
 }
 

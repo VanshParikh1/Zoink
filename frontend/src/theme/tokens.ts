@@ -7,4 +7,3 @@ export const shadow = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8, xxl: 10 }
 
 export const space = { xs: 6, sm: 8, md: 10, lg: 12, xl: 14, xxl: 16, screen: 20 }
 
-export const tokens = { border, radius, shadow, space }

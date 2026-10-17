@@ -20,7 +20,7 @@ function getProjectId() {
   )
 }
 
-export async function registerForPushNotificationsAsync() {
+async function registerForPushNotificationsAsync() {
   if (Platform.OS === 'web') {
     return null
   }
