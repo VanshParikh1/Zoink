@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN } from '@zoink/shared'
 
 /**
  * Handoff / "Zoink It" schemas.
@@ -26,7 +27,7 @@ export const PhaseEnum = z.enum(['pickup', 'return'])
 
 /**
  * POST /:id/pickup/initiate  and  POST /:id/return/initiate
- * Body: array of 2–3 Cloudinary photo URLs.
+ * Body: array of HANDOFF_PHOTOS_MIN–HANDOFF_PHOTOS_MAX Cloudinary photo URLs.
  */
 export const InitiateHandoffSchema = z.object({
   params: z.object({
@@ -35,8 +36,8 @@ export const InitiateHandoffSchema = z.object({
   body: z.object({
     photos: z
       .array(z.string().url('Each photo must be a valid URL.'))
-      .min(2, 'photos must contain 2 to 3 URLs.')
-      .max(3, 'photos must contain 2 to 3 URLs.'),
+      .min(HANDOFF_PHOTOS_MIN, `photos must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`)
+      .max(HANDOFF_PHOTOS_MAX, `photos must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`),
   }),
 })
 
@@ -68,13 +69,13 @@ export const UploadHandoffPhotosSchema = z.object({
       phase: PhaseEnum,
       photoUrls: z
         .array(z.string().url('Each photo must be a valid URL.'))
-        .min(2, 'photoUrls must contain 2 to 3 URLs.')
-        .max(3, 'photoUrls must contain 2 to 3 URLs.')
+        .min(HANDOFF_PHOTOS_MIN, `photoUrls must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`)
+        .max(HANDOFF_PHOTOS_MAX, `photoUrls must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`)
         .optional(),
       photos: z
         .array(z.string().url('Each photo must be a valid URL.'))
-        .min(2, 'photos must contain 2 to 3 URLs.')
-        .max(3, 'photos must contain 2 to 3 URLs.')
+        .min(HANDOFF_PHOTOS_MIN, `photos must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`)
+        .max(HANDOFF_PHOTOS_MAX, `photos must contain ${HANDOFF_PHOTOS_MIN} to ${HANDOFF_PHOTOS_MAX} URLs.`)
         .optional(),
     })
     .refine((data) => data.photoUrls !== undefined || data.photos !== undefined, {

@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { DEPOSIT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
@@ -29,10 +29,8 @@ import { dailyPriceLabel } from '../components/mockup/listingFormat'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
 
-// Mirrors InitiateHandoffSchema in backend/src/schemas/handoff.schema.ts
-// (photos .min(2).max(3)) — keep in sync.
-const MIN_PHOTOS = 2
-const MAX_PHOTOS = 3
+const MIN_PHOTOS = HANDOFF_PHOTOS_MIN
+const MAX_PHOTOS = HANDOFF_PHOTOS_MAX
 const VISIBLE_PHOTOS = 3
 const ITEM_THUMB = 52
 const PHOTO_THUMB = 30
@@ -108,7 +106,7 @@ export default function ZoinkItScreen() {
   const existingPhotos = booking ? (mode === 'pickup' ? booking.pickupPhotos : booking.returnPhotos) ?? [] : []
   const needsFirstSubmission = isUploader && booking?.status === startStatus
   const showPickerUI = needsFirstSubmission || editing
-  const isPickerValid = pickerUris.length === 2 || pickerUris.length === 3
+  const isPickerValid = pickerUris.length >= MIN_PHOTOS && pickerUris.length <= MAX_PHOTOS
   const otherParty = booking
     ? booking.ownerId === user?.id
       ? booking.renter
@@ -226,8 +224,8 @@ export default function ZoinkItScreen() {
   // photo. launchCameraAsync captures one frame per call, so each press appends
   // to pickerUris until the uploader has the 2-3 shots the flow requires.
   async function capturePhoto() {
-    if (pickerUris.length >= 3) {
-      Alert.alert('Maximum reached', 'You can take up to 3 photos. Clear one to retake.')
+    if (pickerUris.length >= MAX_PHOTOS) {
+      Alert.alert('Maximum reached', `You can take up to ${MAX_PHOTOS} photos. Clear one to retake.`)
       return
     }
 
@@ -248,7 +246,7 @@ export default function ZoinkItScreen() {
       })
 
       if (result.canceled) return
-      setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, 3))
+      setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, MAX_PHOTOS))
     } catch {
       Alert.alert('Camera error', 'Could not open the camera right now.')
     }

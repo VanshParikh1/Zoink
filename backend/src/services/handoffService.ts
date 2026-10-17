@@ -4,9 +4,12 @@ import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '.
 import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse } from './bookingService'
 import { notifyUser } from './notificationService'
 import { capturePaymentIntent } from './paymentService'
+import { ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 
 export type HandoffPhase = 'pickup' | 'return'
-const CONFIRM_WINDOW_MS = Number(process.env.ZOINK_TAP_WINDOW_MS ?? 5 * 60 * 1000)
+// The same window the stale-tap cleanup and the app's countdown use. No env
+// override: it's a contract term (see config/bookingWindows.ts).
+const CONFIRM_WINDOW_MS = ZOINK_TAP_WINDOW_MS
 
 function isWithinConfirmWindow(left?: Date | null, right?: Date | null) {
   if (!left || !right) return false

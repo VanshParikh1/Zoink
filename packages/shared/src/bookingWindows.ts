@@ -10,3 +10,8 @@ export const DEPOSIT_HOLD_HOURS = 24
 // party's tap before it no longer counts (see backend handoffService and
 // cleanupJob.cleanupStaleHandoffs).
 export const ZOINK_TAP_WINDOW_MS = 5 * 60 * 1000
+
+// How many handoff photos the uploader must submit at pickup and at return
+// (enforced by backend schemas/handoff.schema.ts).
+export const HANDOFF_PHOTOS_MIN = 2
+export const HANDOFF_PHOTOS_MAX = 3
