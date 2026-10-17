@@ -1,23 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import ProfileCard from '../components/ProfileCard'
 import { RootStackParamList } from '../navigation'
 import { getPublicProfile } from '../services/usersApi'
 import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import ProfileHeader, { overallRating } from '../components/mockup/ProfileHeader'
+import Card from '../components/mockup/Card'
+import Badge from '../components/mockup/Badge'
+import Button from '../components/mockup/Button'
+import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -46,140 +45,159 @@ export default function PublicProfileScreen() {
     loadProfile()
   }, [loadProfile])
 
+  // Presented as a modal: a page sheet on iOS (nothing under it to clear),
+  // full screen on Android (Screen's usual status-bar inset applies).
+  const sheet = Platform.OS === 'ios'
+  const header = (
+    <View style={sheet ? styles.sheetTop : null}>
+      <ScreenHeader title="Profile" back />
+    </View>
+  )
+
   if (loading) {
     return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <Screen scroll={false} edgeToEdgeTop={sheet} header={header} contentStyle={styles.centered}>
+        <ActivityIndicator size="large" color={colors.greenText} />
+      </Screen>
     )
   }
 
   if (!profile) return null
 
   const isSelf = profile.id === user?.id
+  const name = `${profile.firstName} ${profile.lastName}`
+  const reputation = profile.reputation
+  const rating = overallRating(profile)
+  const reviewCount = reputation?.reviewsReceivedCount ?? 0
+  // Only demo data carries review text; the real API sends aggregates.
+  const highlights = profile.reviewHighlights?.slice(0, 3) ?? []
 
   return (
-    <ScreenBackground>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <ProfileCard profile={profile} />
+    <Screen edgeToEdgeTop={sheet} header={header} contentStyle={styles.content}>
+      <ProfileHeader
+        profile={profile}
+        caption={profile.verificationStatus === 'VERIFIED' ? 'Verified student' : 'Student'}
+      />
 
-        {!isSelf && (
-          <View style={styles.safetyRow}>
-            <TouchableOpacity
-              style={styles.reportLink}
-              onPress={() =>
-                nav.navigate('FileReport', {
-                  targetType: 'USER',
-                  targetId: profile.id,
-                  targetLabel: `${profile.firstName} ${profile.lastName}`,
-                })
-              }
-            >
-              <Text style={styles.reportLinkText}>Report this user</Text>
-            </TouchableOpacity>
-            <Text style={styles.safetyDivider}>·</Text>
-            <TouchableOpacity
-              style={styles.reportLink}
-              onPress={() =>
-                // Pop to the root: whatever led here (their listing, a thread
-                // with them) is hidden once they're blocked.
-                confirmBlockUser(
-                  { id: profile.id, name: `${profile.firstName} ${profile.lastName}` },
-                  () => nav.popToTop(),
-                )
-              }
-            >
-              <Text style={styles.reportLinkText}>Block this user</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
-    </ScreenBackground>
+      <View style={styles.sectionHead}>
+        <GroupLabel>Reviews</GroupLabel>
+        {rating ? (
+          <Badge label={`${rating} · ${reviewCount} review${reviewCount === 1 ? '' : 's'}`} icon={<Stars value={Number(rating)} />} />
+        ) : null}
+      </View>
+      {highlights.length > 0 ? (
+        highlights.map((highlight) => (
+          <Card key={highlight.id} shadow={false} padding={space.xxl} contentStyle={styles.review}>
+            <Text style={styles.reviewQuote}>"{highlight.quote}"</Text>
+            <Text style={styles.reviewLabel}>{highlight.label}</Text>
+          </Card>
+        ))
+      ) : (
+        <Text style={styles.empty}>{reviewCount === 0 ? 'No reviews yet.' : `${reviewCount} review${reviewCount === 1 ? '' : 's'} so far.`}</Text>
+      )}
+
+      <GroupLabel>As a lender</GroupLabel>
+      <RowGroup>
+        <ListRow icon="check-square" label="Accuracy" right={<Score value={reputation?.lenderAccuracyAvg} />} />
+        <ListRow icon="box" label="Condition" right={<Score value={reputation?.lenderConditionAvg} />} />
+        {/* lenderCommunicationAvg is the "Pickup Experience" score (scoreC for RENTER-role reviews). */}
+        <ListRow icon="map-pin" label="Pickup experience" right={<Score value={reputation?.lenderCommunicationAvg} />} />
+      </RowGroup>
+
+      <GroupLabel>As a borrower</GroupLabel>
+      <RowGroup>
+        <ListRow icon="clock" label="Reliability" right={<Score value={reputation?.renterReliabilityAvg} />} />
+        <ListRow icon="heart" label="Care" right={<Score value={reputation?.renterCareAvg} />} />
+        <ListRow icon="message-circle" label="Communication" right={<Score value={reputation?.renterCommunicationAvg} />} />
+      </RowGroup>
+
+      {!isSelf ? (
+        <View style={styles.safety}>
+          <Button
+            label="Report this user"
+            variant="link"
+            onPress={() =>
+              nav.navigate('FileReport', {
+                targetType: 'USER',
+                targetId: profile.id,
+                targetLabel: name,
+              })
+            }
+          />
+          <Button
+            label="Block this user"
+            variant="link"
+            onPress={() =>
+              // Pop to the root: whatever led here (their listing, a thread
+              // with them) is hidden once they're blocked.
+              confirmBlockUser({ id: profile.id, name }, () => nav.popToTop())
+            }
+          />
+        </View>
+      ) : null}
+    </Screen>
   )
 }
 
+/** Five Feather stars, the first `value` (rounded) in ink. */
+function Stars({ value }: { value: number }) {
+  const filled = Math.round(value)
+  return (
+    <View style={styles.stars}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Feather key={n} name="star" size={12} color={n <= filled ? colors.ink : colors.mutedAlt} />
+      ))}
+    </View>
+  )
+}
+
+function Score({ value }: { value: number | null | undefined }) {
+  return <Text style={styles.score}>{value == null ? 'New' : `${value.toFixed(1)} / 5`}</Text>
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 18, paddingTop: theme.header.stackTop, paddingBottom: 32 },
-  loadingScreen: {
-    flex: 1,
-    backgroundColor: theme.screen,
-    justifyContent: 'center',
+  sheetTop: {
+    paddingTop: space.screen,
+  },
+  centered: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.surface,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: theme.border,
-    marginBottom: 16,
+  content: {
+    gap: space.lg,
   },
-  backButtonText: {
-    color: theme.text,
-    fontWeight: '800',
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  eyebrow: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 8,
+  stars: {
+    flexDirection: 'row',
+    gap: 1,
   },
-  title: {
-    ...theme.type.screenTitle,
+  review: {
+    gap: space.sm,
   },
-  subtitle: {
-    color: theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 10,
-    marginBottom: 18,
+  reviewQuote: {
+    ...type.bodySm,
+    color: colors.ink,
   },
-  panel: {
-    backgroundColor: theme.surface,
-    borderRadius: 24,
-    padding: 18,
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: theme.border,
+  reviewLabel: {
+    ...type.caption,
+    color: colors.mutedAlt,
   },
-  panelTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 12,
+  empty: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
   },
-  note: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 10,
+  score: {
+    ...type.label,
+    color: colors.greenText,
   },
-  safetyRow: {
+  safety: {
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 20,
-  },
-  safetyDivider: {
-    color: theme.textMuted,
-    fontSize: 13,
-  },
-  reportLink: {
-    paddingVertical: 8,
-  },
-  reportLinkText: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
+    gap: space.xxl,
+    marginTop: space.lg,
   },
 })

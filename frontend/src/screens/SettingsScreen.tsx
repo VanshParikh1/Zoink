@@ -1,15 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, Text } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { TERMS_VERSION } from '@zoink/shared'
@@ -17,10 +7,13 @@ import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
 import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotificationPreferences } from '../services/usersApi'
 import { BlockedUser, NotificationPreferences } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import ZoinkButton from '../components/ZoinkButton'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Card from '../components/mockup/Card'
+import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { formatLongDate } from '../utils/formatDate'
 import Constants from 'expo-constants'
 
@@ -154,201 +147,151 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScreenBackground>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <BackButton style={styles.backLink} />
-          <Text style={styles.title}>Settings</Text>
-        </View>
+    <Screen header={<ScreenHeader title="Settings" back />} contentStyle={styles.content}>
+      {loading ? (
+        <ActivityIndicator size="large" color={colors.greenText} style={styles.loading} />
+      ) : (
+        <>
+          {error ? (
+            <Card shadow={false} padding={space.xxl} contentStyle={styles.problem}>
+              <Text style={styles.problemText}>{error}</Text>
+            </Card>
+          ) : null}
 
-        {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={theme.primary} />
-          </View>
-        ) : (
-          <>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <GroupLabel>Account</GroupLabel>
+          <RowGroup>
+            <ListRow icon="mail" label="Email" value={email ?? '—'} />
+          </RowGroup>
 
-            {/* Account */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Account</Text>
-              <View style={styles.readRow}>
-                <Text style={styles.readLabel}>Email</Text>
-                <Text style={styles.readValue}>{email ?? '—'}</Text>
-              </View>
-              <ZoinkButton label="Log out" variant="inset" onPress={logout} style={{ marginTop: 14 }} />
-              <ZoinkButton
-                label="Delete account"
-                variant="danger"
-                onPress={confirmDelete}
-                isLoading={deleting}
-                style={{ marginTop: 10 }}
-              />
-            </View>
-
-            {/* Notifications */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Notifications</Text>
-              {NOTIFICATION_ROWS.map((row, index) => (
-                <View
-                  key={row.key}
-                  style={[styles.toggleRow, index === NOTIFICATION_ROWS.length - 1 && styles.toggleRowLast]}
-                >
-                  <View style={styles.toggleTextWrap}>
-                    <Text style={styles.toggleLabel}>{row.label}</Text>
-                    <Text style={styles.toggleHint}>{row.hint}</Text>
-                  </View>
+          <GroupLabel>Notifications</GroupLabel>
+          <RowGroup>
+            {NOTIFICATION_ROWS.map((row) => (
+              <ListRow
+                key={row.key}
+                label={row.label}
+                value={row.hint}
+                right={
                   <Switch
                     value={prefs ? prefs[row.key] : true}
                     onValueChange={(value) => togglePref(row.key, value)}
                     disabled={!prefs || savingKey === row.key}
-                    trackColor={{ true: theme.primary, false: theme.border }}
+                    trackColor={{ false: colors.tan, true: colors.green }}
+                    ios_backgroundColor={colors.tan}
+                    accessibilityLabel={row.label}
                   />
-                </View>
-              ))}
-              <Text style={styles.footnote}>
-                Verification and account-security alerts are always sent.
-              </Text>
-            </View>
+                }
+              />
+            ))}
+          </RowGroup>
+          <Text style={styles.footnote}>Verification and account-security alerts are always sent.</Text>
 
-            {/* Blocked users */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Blocked users</Text>
-              {blocks.length === 0 ? (
-                <Text style={styles.toggleHint}>
-                  You haven't blocked anyone. You can block someone from their profile or from a conversation.
-                </Text>
-              ) : (
-                blocks.map((blocked, index) => (
-                  <View key={blocked.id} style={[styles.toggleRow, index === blocks.length - 1 && styles.toggleRowLast]}>
-                    <View style={styles.toggleTextWrap}>
-                      <Text style={styles.toggleLabel}>{blocked.firstName} {blocked.lastName}</Text>
-                      <Text style={styles.toggleHint}>Blocked {formatLongDate(blocked.blockedAt)}</Text>
-                    </View>
-                    <TouchableOpacity
+          <GroupLabel>Blocked users</GroupLabel>
+          {blocks.length === 0 ? (
+            <Card shadow={false} padding={space.xxl}>
+              <Text style={styles.muted}>
+                You haven't blocked anyone. You can block someone from their profile or from a conversation.
+              </Text>
+            </Card>
+          ) : (
+            <RowGroup>
+              {blocks.map((blocked) => (
+                <ListRow
+                  key={blocked.id}
+                  icon="slash"
+                  label={`${blocked.firstName} ${blocked.lastName}`}
+                  value={`Blocked ${formatLongDate(blocked.blockedAt)}`}
+                  loading={unblockingId === blocked.id}
+                  right={
+                    <Pressable
                       onPress={() => confirmUnblock(blocked)}
                       disabled={unblockingId === blocked.id}
+                      hitSlop={10}
                       accessibilityRole="button"
                       accessibilityLabel={`Unblock ${blocked.firstName} ${blocked.lastName}`}
                     >
-                      {unblockingId === blocked.id ? (
-                        <ActivityIndicator color={theme.primary} />
-                      ) : (
-                        <Text style={styles.unblockText}>Unblock</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </View>
+                      <Text style={styles.link}>Unblock</Text>
+                    </Pressable>
+                  }
+                />
+              ))}
+            </RowGroup>
+          )}
 
-            {/* Legal */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Legal</Text>
-              <TouchableOpacity
-                style={[styles.linkRow, styles.linkRowLast]}
-                onPress={() => nav.navigate('TermsAcceptance', { mode: 'view' })}
-              >
-                <Text style={styles.linkRowText}>Terms of Service &amp; Privacy Policy</Text>
-                <Text style={styles.linkRowChevron}>›</Text>
-              </TouchableOpacity>
-              <Text style={styles.footnote}>
-                {termsAcceptedAt
+          <GroupLabel>Legal</GroupLabel>
+          <RowGroup>
+            <ListRow
+              icon="file-text"
+              label="Terms of Service & Privacy Policy"
+              value={
+                termsAcceptedAt
                   ? `Accepted Terms v${TERMS_VERSION} on ${formatLongDate(termsAcceptedAt)}`
-                  : 'You have not yet accepted the current Terms.'}
-              </Text>
-            </View>
+                  : 'You have not yet accepted the current Terms.'
+              }
+              onPress={() => nav.navigate('TermsAcceptance', { mode: 'view' })}
+            />
+          </RowGroup>
 
-            {/* Support */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Support</Text>
-              <Text style={styles.readValue}>Questions or something not working?</Text>
-              <TouchableOpacity style={styles.linkRow} onPress={() => openUrl(`mailto:${SUPPORT_EMAIL}`)}>
-                <Text style={styles.linkRowText}>{SUPPORT_EMAIL}</Text>
-                <Text style={styles.linkRowChevron}>›</Text>
-              </TouchableOpacity>
-            </View>
+          <GroupLabel>Support</GroupLabel>
+          <RowGroup>
+            <ListRow
+              icon="help-circle"
+              label="Questions or something not working?"
+              value={SUPPORT_EMAIL}
+              onPress={() => openUrl(`mailto:${SUPPORT_EMAIL}`)}
+            />
+          </RowGroup>
 
-            {/* About */}
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>About</Text>
-              <View style={styles.readRow}>
-                <Text style={styles.readLabel}>Version</Text>
-                <Text style={styles.readValue}>
-                  {APP_VERSION}
-                  {APP_BUILD ? ` (${APP_BUILD})` : ''}
-                </Text>
-              </View>
-            </View>
-          </>
-        )}
+          <GroupLabel>About</GroupLabel>
+          <RowGroup>
+            <ListRow icon="info" label="Version" right={<Text style={styles.value}>{APP_VERSION}{APP_BUILD ? ` (${APP_BUILD})` : ''}</Text>} />
+            {/* Dev-only entry to the mockup component gallery; never in release builds. */}
+            {__DEV__ ? <ListRow icon="grid" label="Design gallery (dev)" onPress={() => nav.navigate('DesignGallery')} /> : null}
+          </RowGroup>
 
-        {/* Dev-only entry to the mockup component gallery; never in release builds. */}
-        {__DEV__ ? (
-          <TouchableOpacity style={styles.panel} onPress={() => nav.navigate('DesignGallery')}>
-            <Text style={styles.panelTitle}>Design gallery (dev)</Text>
-          </TouchableOpacity>
-        ) : null}
-      </ScrollView>
-    </ScreenBackground>
+          <RowGroup style={styles.dangerGroup}>
+            <ListRow icon="log-out" label="Log out" danger onPress={logout} right={null} />
+            <ListRow icon="trash-2" label="Delete account" danger onPress={confirmDelete} loading={deleting} right={null} />
+          </RowGroup>
+        </>
+      )}
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 18, paddingBottom: 120 },
-  header: { paddingTop: theme.header.stackTop, paddingBottom: 8 },
-  backLink: { marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  loadingBox: { paddingVertical: 80, alignItems: 'center' },
-  errorText: {
-    color: theme.colors.danger,
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 12,
+  content: {
+    gap: space.sm,
   },
-  panel: {
-    backgroundColor: theme.primarySurface,
-    borderRadius: theme.radius.md,
-    padding: 18,
-    marginTop: 14,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
+  loading: {
+    marginTop: 80,
   },
-  panelTitle: { color: theme.text, fontSize: 18, fontWeight: '900', marginBottom: 6 },
-  readRow: { paddingVertical: 12 },
-  readLabel: {
-    color: theme.primaryDeep,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 4,
+  problem: {
+    backgroundColor: colors.tan,
   },
-  readValue: { color: theme.text, fontSize: 15, fontWeight: '600', lineHeight: 21 },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(78, 168, 34, 0.28)',
+  problemText: {
+    ...type.bodySm,
+    color: colors.danger,
   },
-  toggleRowLast: { borderBottomWidth: 0 },
-  toggleTextWrap: { flex: 1 },
-  toggleLabel: { color: theme.text, fontSize: 15, fontWeight: '800' },
-  toggleHint: { color: theme.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
-  footnote: { color: theme.textMuted, fontSize: 12, fontWeight: '600', marginTop: 12 },
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(78, 168, 34, 0.28)',
+  footnote: {
+    ...type.caption,
+    color: colors.mutedAlt,
+    marginLeft: space.xs,
   },
-  linkRowLast: { borderBottomWidth: 0 },
-  unblockText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800', textDecorationLine: 'underline' },
-  linkRowText: { color: theme.text, fontSize: 15, fontWeight: '700' },
-  linkRowChevron: { color: theme.textMuted, fontSize: 20, fontWeight: '700' },
+  muted: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
+  },
+  link: {
+    ...type.label,
+    color: colors.greenText,
+    textDecorationLine: 'underline',
+  },
+  value: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.mutedAlt,
+  },
+  dangerGroup: {
+    marginTop: space.xxl,
+  },
 })

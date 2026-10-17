@@ -18,12 +18,16 @@ type Props = {
   subtitle?: string
   /** Replaces the deposit badge (e.g. a booking status). */
   badge?: { label: string; variant: BadgeVariant }
+  /** Muted line between the title and the price line (e.g. renter and dates). */
+  caption?: string
+  /** Under the row, inside the card (e.g. inline actions). */
+  children?: React.ReactNode
   onPress: () => void
   style?: StyleProp<ViewStyle>
 }
 
 /** One listing row: photo, title, price (and distance when the data has it), deposit badge. */
-export default function ListingCard({ listing, subtitle, badge, onPress, style }: Props) {
+export default function ListingCard({ listing, subtitle, badge, caption, children, onPress, style }: Props) {
   const { priceLine, deposit, imageUrl, accessibilityLabel } = listingDisplay(listing)
 
   return (
@@ -34,24 +38,32 @@ export default function ListingCard({ listing, subtitle, badge, onPress, style }
       radius={radius.cardLg}
       style={style}
       accessibilityRole="button"
-      accessibilityLabel={subtitle || badge ? [listing.title, subtitle, badge?.label].filter(Boolean).join(', ') : accessibilityLabel}
+      accessibilityLabel={subtitle || badge || caption ? [listing.title, caption, subtitle, badge?.label].filter(Boolean).join(', ') : accessibilityLabel}
     >
-      <View style={styles.card}>
-        <Thumb
-          size={THUMB}
-          source={imageUrl ? { uri: fillImageUrl(imageUrl, { width: THUMB, height: THUMB }) } : undefined}
-          initials={categoryAbbreviation(listing.category)}
-          initialsSize={17}
-        />
-        <View style={styles.middle}>
-          <Text style={styles.title} numberOfLines={1}>
-            {listing.title}
-          </Text>
-          <Text style={type.price} numberOfLines={1}>
-            {subtitle ?? priceLine}
-          </Text>
+      <View style={[styles.card, children ? styles.cardWithFooter : null]}>
+        <View style={styles.row}>
+          <Thumb
+            size={THUMB}
+            source={imageUrl ? { uri: fillImageUrl(imageUrl, { width: THUMB, height: THUMB }) } : undefined}
+            initials={categoryAbbreviation(listing.category)}
+            initialsSize={17}
+          />
+          <View style={styles.middle}>
+            <Text style={styles.title} numberOfLines={1}>
+              {listing.title}
+            </Text>
+            {caption ? (
+              <Text style={styles.caption} numberOfLines={1}>
+                {caption}
+              </Text>
+            ) : null}
+            <Text style={type.price} numberOfLines={1}>
+              {subtitle ?? priceLine}
+            </Text>
+          </View>
+          {badge ? <Badge label={badge.label} variant={badge.variant} /> : deposit ? <Badge label={deposit} variant="lime" /> : null}
         </View>
-        {badge ? <Badge label={badge.label} variant={badge.variant} /> : deposit ? <Badge label={deposit} variant="lime" /> : null}
+        {children}
       </View>
     </HardShadow>
   )
@@ -61,7 +73,7 @@ export default function ListingCard({ listing, subtitle, badge, onPress, style }
 export function ListingCardSkeleton({ style }: { style?: StyleProp<ViewStyle> }) {
   return (
     <HardShadow offset="md" radius={radius.cardLg} style={style}>
-      <View style={styles.card} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={[styles.card, styles.row]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <View style={styles.skeletonThumb} />
         <View style={styles.middle}>
           <View style={[styles.skeletonLine, styles.skeletonTitle]} />
@@ -74,18 +86,27 @@ export function ListingCardSkeleton({ style }: { style?: StyleProp<ViewStyle> })
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.lg,
     padding: space.md,
     borderRadius: radius.cardLg,
     borderWidth: border.base,
     borderColor: colors.ink,
     backgroundColor: colors.surface,
   },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+  },
+  cardWithFooter: {
+    gap: space.md,
+  },
   middle: {
     flex: 1,
     gap: 4,
+  },
+  caption: {
+    ...type.caption,
+    color: colors.mutedAlt,
   },
   title: {
     ...type.body,

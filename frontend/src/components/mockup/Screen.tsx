@@ -1,5 +1,5 @@
 import React from 'react'
-import { Animated, KeyboardAvoidingView, Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native'
+import { Animated, KeyboardAvoidingView, Platform, RefreshControlProps, StyleProp, StyleSheet, View, ViewStyle } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '../../theme/colors'
@@ -19,6 +19,8 @@ type Props = {
   /** Receives the scroll offset (native driver), for headers that react to scrolling. */
   scrollY?: Animated.Value
   contentStyle?: StyleProp<ViewStyle>
+  /** Pull-to-refresh for the scrolling variant. */
+  refreshControl?: React.ReactElement<RefreshControlProps>
 }
 
 export default function Screen({
@@ -31,6 +33,7 @@ export default function Screen({
   edgeToEdgeTop = false,
   scrollY,
   contentStyle,
+  refreshControl,
 }: Props) {
   const insets = useSafeAreaInsets()
   // Without a footer the content itself has to clear the bottom inset.
@@ -41,6 +44,7 @@ export default function Screen({
       style={styles.flex}
       onScroll={scrollY ? Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true }) : undefined}
       scrollEventThrottle={16}
+      refreshControl={refreshControl}
       contentContainerStyle={[styles.content, { paddingBottom: contentBottom }, contentStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}

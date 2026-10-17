@@ -3,37 +3,38 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  Image,
-  KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
   Linking,
 } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
 import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import ProfileCard from '../components/ProfileCard'
 import { useAuth } from '../context/AuthContext'
-import { useIsTabActive, useTabLoad } from '../context/MainTabContext'
+import { useIsTabActive, useMainTab, useTabLoad } from '../context/MainTabContext'
 import { PAYOUT_STATUS_MAX_AGE_MS } from '../config/polling'
 import { RootStackParamList } from '../navigation'
 import { getMyProfile, updateMyProfile, uploadMyAvatar, getStripeConnectStatus, onboardStripeConnect, StripeConnectStatus } from '../services/usersApi'
 import { MyProfile } from '../types'
-import { theme } from '../theme/colors'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
 import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
-import ZoinkButton from '../components/ZoinkButton'
-import ScreenBackground from '../components/ScreenBackground'
-import DismissKeyboardView from '../components/DismissKeyboardView'
-import ZoinkLogo from '../components/ZoinkLogo'
-import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import ProfileHeader from '../components/mockup/ProfileHeader'
+import Card from '../components/mockup/Card'
+import InkCard from '../components/mockup/InkCard'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
+import { universityFromEmail } from '../utils/university'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -56,6 +57,8 @@ async function getPromptSeen(key: string) {
 export default function MyProfileScreen() {
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
+  // Pushed as a standalone route (not one of the main tabs) it gets a back button.
+  const insideTabs = useMainTab() !== null
   const { user, logout } = useAuth()
   const [profile, setProfile] = useState<MyProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -71,6 +74,7 @@ export default function MyProfileScreen() {
     phone: '',
     bio: '',
   })
+  const [formErrors, setFormErrors] = useState<{ firstName?: string; lastName?: string }>({})
   const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null)
 
   const syncForm = useCallback((nextProfile: MyProfile) => {
@@ -180,10 +184,12 @@ export default function MyProfileScreen() {
   }
 
   async function handleSave() {
-    if (!form.firstName.trim() || !form.lastName.trim()) {
-      Alert.alert('Missing details', 'First and last name are required.')
-      return
+    const nextErrors = {
+      firstName: form.firstName.trim() ? undefined : 'First name is required.',
+      lastName: form.lastName.trim() ? undefined : 'Last name is required.',
     }
+    setFormErrors(nextErrors)
+    if (nextErrors.firstName || nextErrors.lastName) return
 
     try {
       setSaving(true)
@@ -214,19 +220,35 @@ export default function MyProfileScreen() {
     }
   }
 
+  function setField(key: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [key]: value }))
+    if (key === 'firstName' || key === 'lastName') {
+      setFormErrors((current) => (current[key] ? { ...current, [key]: undefined } : current))
+    }
+  }
+
+  function go(action: () => void) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    action()
+  }
+
+  const header = <ScreenHeader title="Profile" back={!insideTabs} />
+
   if (loading) {
     return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <Screen scroll={false} header={header} contentStyle={styles.centered}>
+        <ActivityIndicator size="large" color={colors.greenText} />
+      </Screen>
     )
   }
 
   if (!profile) {
     return (
-      <View style={styles.loadingScreen}>
-        <Text style={styles.errorText}>{error || 'Profile not found.'}</Text>
-      </View>
+      <Screen scroll={false} header={header}>
+        <Card shadow={false} padding={space.xxl} contentStyle={styles.problem}>
+          <Text style={styles.problemText}>{error || 'Profile not found.'}</Text>
+        </Card>
+      </Screen>
     )
   }
 
@@ -240,553 +262,200 @@ export default function MyProfileScreen() {
     }
     : profile
 
-  const initials = `${profile.firstName?.[0] ?? ''}${profile.lastName?.[0] ?? ''}`.toUpperCase() || '?'
+  const university = universityFromEmail(profile.email)
+  const verified = profile.verificationStatus === 'VERIFIED' ? 'Verified student' : 'Student'
+  const caption = university ? `${university} · ${verified}` : verified
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance + 16 }]}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {
-              setRefreshing(true)
-              loadProfile(true)
-            }} tintColor={theme.primary} colors={[theme.primary]} />}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={{ ...styles.header, marginBottom: -35, marginTop: -10 }}>
-              <View style={styles.headerInner}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={styles.headerTitle}>Profile</Text>
-                  <ZoinkLogo size={75} style={{ marginBottom: 20, marginRight: 5 }} />
-                </View>
-              </View>
-            </View>
+    <Screen
+      keyboardAvoiding
+      header={header}
+      contentStyle={[styles.content, { paddingBottom: tabBarClearance + space.xxl }]}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            setRefreshing(true)
+            loadProfile(true)
+          }}
+          tintColor={colors.greenText}
+          colors={[colors.green]}
+        />
+      }
+    >
+      {showProfilePrompt ? (
+        <InkCard title="Make your Zoink profile memorable" body="Add a photo, a short bio, and clean details so people feel good renting from you.">
+          <Button label="Got it" variant="secondary" size="sm" onPress={() => go(dismissProfilePrompt)} style={styles.inkAction} />
+        </InkCard>
+      ) : null}
 
-            {showProfilePrompt ? (
-              <View style={styles.promptCard}>
-                <Text style={styles.promptTitle}>Make your Zoink profile memorable</Text>
-                <Text style={styles.promptBody}>
-                  Add a photo, a short bio, and clean details so people feel good renting from you.
-                </Text>
-                <TouchableOpacity
-                  style={styles.promptButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    dismissProfilePrompt()
-                  }}
-                >
-                  <Text style={styles.promptButtonText}>Got it</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
+      <ProfileHeader profile={displayProfile} caption={caption} onAvatarPress={() => go(handlePickAvatar)} avatarBusy={uploading}>
+        {!editing ? <Button label="Edit profile" variant="secondary" onPress={() => go(() => setEditing(true))} /> : null}
+      </ProfileHeader>
 
-            <ProfileCard profile={displayProfile} />
-
-            <View style={styles.panel}>
-              <View style={styles.panelHeaderRow}>
-                <Text style={styles.panelTitle}>Profile basics</Text>
-                {!editing ? (
-                  <TouchableOpacity
-                    style={styles.editLink}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                      setEditing(true)
-                    }}
-                  >
-                    <Text style={styles.editLinkText}>Edit</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-
-              <View style={styles.avatarSection}>
-                <TouchableOpacity
-                  style={styles.avatarTap}
-                  activeOpacity={0.8}
-                  disabled={uploading}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    handlePickAvatar()
-                  }}
-                >
-                  {profile.avatarUrl ? (
-                    <Image source={{ uri: fillImageUrl(profile.avatarUrl, { width: 88, height: 88 }) }} style={styles.avatarLarge} />
-                  ) : (
-                    <View style={styles.avatarLargeFallback}>
-                      <Text style={styles.avatarLargeFallbackText}>{initials}</Text>
-                    </View>
-                  )}
-                  <View style={styles.avatarEditBadge}>
-                    <Text style={styles.avatarEditBadgeText}>✎</Text>
-                  </View>
-                </TouchableOpacity>
-                <Text style={styles.avatarHint}>{uploading ? 'Uploading photo…' : 'Tap to change photo'}</Text>
-              </View>
-
-              <View style={styles.divider} />
-
-              {editing ? (
-                <>
-                  <Text style={styles.label}>First name</Text>
-                  <TextInput
-                    value={form.firstName}
-                    onChangeText={(value) => setForm((current) => ({ ...current, firstName: value }))}
-                    style={styles.input}
-                    placeholder="First name"
-                    placeholderTextColor={theme.textDisabled}
-                    maxLength={50}
-                  />
-
-                  <Text style={styles.label}>Last name</Text>
-                  <TextInput
-                    value={form.lastName}
-                    onChangeText={(value) => setForm((current) => ({ ...current, lastName: value }))}
-                    style={styles.input}
-                    placeholder="Last name"
-                    placeholderTextColor={theme.textDisabled}
-                    maxLength={50}
-                  />
-
-                  <Text style={styles.label}>Phone</Text>
-                  <TextInput
-                    value={form.phone}
-                    onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
-                    style={styles.input}
-                    placeholder="Optional contact number"
-                    placeholderTextColor={theme.textDisabled}
-                    keyboardType="phone-pad"
-                  />
-
-                  <Text style={styles.label}>Quote or bio</Text>
-                  <TextInput
-                    value={form.bio}
-                    onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))}
-                    style={[styles.input, styles.bioInput]}
-                    placeholder="Add a quick line that feels like you"
-                    placeholderTextColor={theme.textDisabled}
-                    multiline
-                    maxLength={300}
-                  />
-
-                  <View style={styles.actionPair}>
-                    <ZoinkButton
-                      label="Cancel"
-                      variant="inset"
-                      onPress={() => {
-                        syncForm(profile)
-                        setEditing(false)
-                      }}
-                      style={{ flex: 1 }}
-                    />
-                    <ZoinkButton
-                      label="Save changes"
-                      variant="stamped"
-                      onPress={handleSave}
-                      isLoading={saving}
-                      style={{ flex: 1 }}
-                    />
-                  </View>
-                </>
-              ) : (
-                <View>
-                  <View style={styles.readRow}>
-                    <Text style={styles.readLabel}>Name</Text>
-                    <Text style={styles.readValue}>{profile.firstName} {profile.lastName}</Text>
-                  </View>
-                  <View style={styles.readRow}>
-                    <Text style={styles.readLabel}>Phone</Text>
-                    <Text style={styles.readValue}>{profile.phone || 'Not set'}</Text>
-                  </View>
-                  <View style={[styles.readRow, styles.readRowLast]}>
-                    <Text style={styles.readLabel}>Bio</Text>
-                    <Text style={styles.readValue}>{profile.bio || 'Not set'}</Text>
-                  </View>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Manage your Zoink account</Text>
-              <View style={styles.quickActionRow}>
-                <TouchableOpacity
-                  style={styles.quickActionButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    nav.navigate('MyListings')
-                  }}
-                >
-                  <Text style={styles.quickActionButtonText}>My listings</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickActionButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    nav.navigate('BookingHistory')
-                  }}
-                >
-                  <Text style={styles.quickActionButtonText}>My bookings</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.quickActionRow}>
-                <TouchableOpacity
-                  style={styles.quickActionButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    nav.navigate('BookingRequests')
-                  }}
-                >
-                  <Text style={styles.quickActionButtonText}>Requests</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickActionButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    nav.navigate('MainApp', { tab: 'Inbox' })
-                  }}
-                >
-                  <Text style={styles.quickActionButtonText}>Inbox</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.quickActionRow}>
-                <TouchableOpacity
-                  style={styles.quickActionButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                    nav.navigate('Settings')
-                  }}
-                >
-                  <Text style={styles.quickActionButtonText}>Settings</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {user?.role === 'ADMIN' ? (
-              <View style={styles.panel}>
-                <Text style={styles.panelTitle}>Admin</Text>
-                <View style={styles.quickActionRow}>
-                  <TouchableOpacity
-                    style={styles.quickActionButton}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                      nav.navigate('AdminDisputes')
-                    }}
-                  >
-                    <Text style={styles.quickActionButtonText}>Review disputes</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.quickActionButton}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                      nav.navigate('AdminReports')
-                    }}
-                  >
-                    <Text style={styles.quickActionButtonText}>Review reports</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : null}
-
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Payouts</Text>
-              {!stripeStatus?.connected ? (
-                <>
-                  <Text style={styles.note}>
-                    Connect Stripe to start accepting bookings and receive payouts from your rentals.
-                  </Text>
-                  <ZoinkButton
-                    label="Set up payouts"
-                    variant="stamped"
-                    onPress={handleSetupPayouts}
-                    isLoading={saving}
-                  />
-                </>
-              ) : stripeStatus.payoutsEnabled ? (
-                <View style={styles.stripeStatusRow}>
-                  <View style={styles.stripeStatusIcon}>
-                    <Text style={styles.stripeStatusIconText}>✓</Text>
-                  </View>
-                  <Text style={styles.stripeReadyText}>Ready to accept bookings</Text>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.note}>
-                    Stripe account under review. Finish any remaining details in Stripe to enable payouts.
-                  </Text>
-                  <ZoinkButton
-                    label={stripeStatus.detailsSubmitted ? 'Refresh payout status' : 'Finish payout setup'}
-                    variant="stamped"
-                    onPress={stripeStatus.detailsSubmitted ? () => refreshStripeStatus(true) : handleSetupPayouts}
-                    isLoading={saving}
-                  />
-                </>
-              )}
-            </View>
-
-            <ZoinkButton
-              label="Sign out"
-              variant="danger"
-              onPress={logout}
-              style={{ marginTop: 4 }}
+      {editing ? (
+        <Card shadow={false} padding={space.xxl} contentStyle={styles.form}>
+          <TextField
+            label="First name"
+            value={form.firstName}
+            onChangeText={(value) => setField('firstName', value)}
+            placeholder="First name"
+            maxLength={50}
+            error={formErrors.firstName}
+          />
+          <TextField
+            label="Last name"
+            value={form.lastName}
+            onChangeText={(value) => setField('lastName', value)}
+            placeholder="Last name"
+            maxLength={50}
+            error={formErrors.lastName}
+          />
+          <TextField
+            label="Phone"
+            value={form.phone}
+            onChangeText={(value) => setField('phone', value)}
+            placeholder="Optional contact number"
+            keyboardType="phone-pad"
+          />
+          <TextField
+            label="Quote or bio"
+            value={form.bio}
+            onChangeText={(value) => setField('bio', value)}
+            placeholder="Add a quick line that feels like you"
+            multiline
+            maxLength={300}
+          />
+          <View style={styles.formActions}>
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => {
+                syncForm(profile)
+                setFormErrors({})
+                setEditing(false)
+              }}
+              style={styles.flex}
             />
+            <Button label="Save" onPress={handleSave} loading={saving} style={styles.flex} />
+          </View>
+        </Card>
+      ) : (
+        <>
+          <GroupLabel>Details</GroupLabel>
+          <RowGroup>
+            <ListRow icon="mail" label="Email" value={profile.email} />
+            <ListRow icon="phone" label="Phone" value={profile.phone || 'Not set'} />
+          </RowGroup>
+        </>
+      )}
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+      <GroupLabel>Payouts</GroupLabel>
+      {!stripeStatus?.connected ? (
+        <Card shadow={false} padding={space.xxl} contentStyle={styles.banner}>
+          <Text style={styles.bannerText}>Connect Stripe to start accepting bookings and receive payouts from your rentals.</Text>
+          <Button label="Set up payouts" onPress={handleSetupPayouts} loading={saving} />
+        </Card>
+      ) : stripeStatus.payoutsEnabled ? (
+        <Card shadow={false} padding={space.xxl} contentStyle={[styles.successBody, styles.bannerRow]}>
+          <Feather name="check-circle" size={20} color={colors.ink} />
+          <Text style={styles.bannerTitle}>Ready to accept bookings</Text>
+        </Card>
+      ) : (
+        <Card shadow={false} padding={space.xxl} contentStyle={styles.banner}>
+          <Text style={styles.bannerText}>Stripe account under review. Finish any remaining details in Stripe to enable payouts.</Text>
+          <Button
+            label={stripeStatus.detailsSubmitted ? 'Refresh payout status' : 'Finish payout setup'}
+            onPress={stripeStatus.detailsSubmitted ? () => refreshStripeStatus(true) : handleSetupPayouts}
+            loading={saving}
+          />
+        </Card>
+      )}
+
+      <GroupLabel>Your Zoink</GroupLabel>
+      <RowGroup>
+        <ListRow icon="package" label="My listings" onPress={() => go(() => nav.navigate('MyListings'))} />
+        <ListRow icon="calendar" label="My bookings" onPress={() => go(() => nav.navigate('BookingHistory'))} />
+        <ListRow icon="inbox" label="Requests" onPress={() => go(() => nav.navigate('BookingRequests'))} />
+        <ListRow icon="message-square" label="Inbox" onPress={() => go(() => nav.navigate('MainApp', { tab: 'Inbox' }))} />
+        <ListRow icon="settings" label="Settings" onPress={() => go(() => nav.navigate('Settings'))} />
+      </RowGroup>
+
+      {user?.role === 'ADMIN' ? (
+        <>
+          <GroupLabel>Admin</GroupLabel>
+          <RowGroup>
+            <ListRow icon="shield" label="Review disputes" onPress={() => go(() => nav.navigate('AdminDisputes'))} />
+            <ListRow icon="flag" label="Review reports" onPress={() => go(() => nav.navigate('AdminReports'))} />
+          </RowGroup>
+        </>
+      ) : null}
+
+      <RowGroup style={styles.dangerGroup}>
+        <ListRow icon="log-out" label="Sign out" danger onPress={logout} right={null} />
+      </RowGroup>
+
+      {error ? (
+        <Card shadow={false} padding={space.xxl} style={styles.problemCard} contentStyle={styles.problem}>
+          <Text style={styles.problemText}>{error}</Text>
+        </Card>
+      ) : null}
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingTop: theme.header.tabTop,
-    paddingBottom: 16,
-    zIndex: 10,
-    // Cancel the ScrollView content's 18px horizontal padding so headerInner's
-    // 24px is the effective inset — matches "Messages" on the Inbox screen.
-    marginHorizontal: -18,
-  },
-  headerInner: {
-    paddingHorizontal: 24,
-  },
-  headerTitle: {
-    ...theme.type.screenTitle,
-    marginBottom: 4,
-    letterSpacing: -0.5,
-  },
-  container: { flex: 1 },
-  content: { paddingHorizontal: 18 },
-  loadingScreen: {
-    flex: 1,
-    backgroundColor: theme.screen,
-    justifyContent: 'center',
+  centered: {
     alignItems: 'center',
-    paddingHorizontal: 24,
+    justifyContent: 'center',
   },
-  promptCard: {
-    backgroundColor: theme.primarySurface,
-    borderRadius: theme.radius.md,
-    padding: 18,
-    marginBottom: 16,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
+  content: {
+    gap: space.lg,
   },
-  promptTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-    lineHeight: 24,
-  },
-  promptBody: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  promptButton: {
+  inkAction: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.primary,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
   },
-  promptButtonText: {
-    color: theme.textOnPrimary,
-    fontSize: 13,
-    fontWeight: '800',
+  form: {
+    gap: space.xxl,
   },
-  actionPair: { flexDirection: 'row', gap: 10, marginTop: 18 },
-  panel: {
-    backgroundColor: theme.primarySurface,
-    borderRadius: theme.radius.md,
-    padding: 18,
-    marginTop: 14,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-  },
-  panelHeaderRow: {
+  formActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
+    gap: space.md,
   },
-  panelTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  editLink: {
-    backgroundColor: theme.primary,
-    borderRadius: theme.radius.pill,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  editLinkText: {
-    color: theme.textOnPrimary,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  avatarTap: {
-    position: 'relative',
-  },
-  avatarLarge: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-  },
-  avatarLargeFallback: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: theme.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-  },
-  avatarLargeFallbackText: {
-    color: theme.textOnPrimary,
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  avatarEditBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: theme.hard.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  avatarEditBadgeText: {
-    color: theme.primary,
-    fontSize: 13,
-  },
-  avatarHint: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 10,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(78, 168, 34, 0.28)',
-    marginVertical: 18,
-  },
-  label: {
-    color: theme.text,
-    fontSize: 13,
-    fontWeight: '800',
-    marginBottom: 8,
-    marginTop: 6,
-  },
-  input: {
-    backgroundColor: theme.surface,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    color: theme.text,
-    fontSize: 15,
-  },
-  bioInput: {
-    minHeight: 110,
-    textAlignVertical: 'top',
-  },
-  readRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(78, 168, 34, 0.28)',
-  },
-  readRowLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 0,
-  },
-  readLabel: {
-    color: theme.primaryDeep,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 4,
-  },
-  readValue: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 21,
-  },
-  quickActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  quickActionButton: {
+  flex: {
     flex: 1,
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    paddingVertical: 14,
-    alignItems: 'center',
   },
-  quickActionButtonText: {
-    color: theme.primaryDeep,
-    fontSize: 14,
-    fontWeight: '800',
+  banner: {
+    gap: space.lg,
   },
-  note: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 10,
-  },
-  stripeStatusRow: {
+  bannerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: space.md,
   },
-  stripeStatusIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
+  bannerText: {
+    ...type.bodySm,
+    color: colors.muted,
   },
-  stripeStatusIconText: {
-    color: theme.textOnPrimary,
-    fontSize: 15,
-    fontWeight: '900',
+  bannerTitle: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
   },
-  stripeReadyText: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: '900',
+  successBody: {
+    backgroundColor: colors.lime,
   },
-  errorText: {
-    color: theme.colors.danger,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 14,
+  dangerGroup: {
+    marginTop: space.xxl,
+  },
+  problemCard: {
+    marginTop: space.sm,
+  },
+  problem: {
+    backgroundColor: colors.tan,
+  },
+  problemText: {
+    ...type.bodySm,
+    color: colors.danger,
   },
 })
