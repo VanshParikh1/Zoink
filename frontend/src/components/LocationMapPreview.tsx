@@ -47,6 +47,8 @@ export default function LocationMapPreview({
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       onPress={onPress}
       disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : 'image'}
+      accessibilityLabel={onPress ? 'Pickup area map. Opens the full-screen map to adjust the spot' : 'Approximate pickup area map'}
     >
       {tiles.map((tile) => (
         <Image

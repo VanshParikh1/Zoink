@@ -205,7 +205,7 @@ export default function SettingsScreen() {
                     <Pressable
                       onPress={() => confirmUnblock(blocked)}
                       disabled={unblockingId === blocked.id}
-                      hitSlop={10}
+                      hitSlop={14}
                       accessibilityRole="button"
                       accessibilityLabel={`Unblock ${blocked.firstName} ${blocked.lastName}`}
                     >

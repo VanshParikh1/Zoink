@@ -328,6 +328,7 @@ export default function ConversationThreadScreen() {
         <Pressable
           // Long-press to report — only the other person's messages.
           disabled={isMine}
+          accessibilityRole={isMine ? 'text' : 'button'}
           onLongPress={() => openMessageMenu(message)}
           delayLongPress={350}
           accessibilityHint={isMine ? undefined : 'Long press to report this message'}

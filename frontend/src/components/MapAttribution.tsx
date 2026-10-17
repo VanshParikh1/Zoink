@@ -16,7 +16,7 @@ export default function MapAttribution({ style }: { style?: ViewStyle }) {
       onPress={() => Linking.openURL(ATTRIBUTION_URL)}
       accessibilityRole="link"
       accessibilityLabel={ATTRIBUTION_TEXT}
-      hitSlop={{ top: 12, bottom: 6, left: 6, right: 6 }}
+      hitSlop={{ top: 18, bottom: 16, left: 8, right: 8 }}
     >
       <Text style={styles.attributionText}>{ATTRIBUTION_TEXT}</Text>
     </TouchableOpacity>

@@ -190,7 +190,7 @@ export default function SearchScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
                   setQuery('')
                 }}
-                hitSlop={12}
+                hitSlop={14}
                 accessibilityRole="button"
                 accessibilityLabel="Clear search"
               >

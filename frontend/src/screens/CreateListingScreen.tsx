@@ -334,7 +334,7 @@ export default function CreateListingScreen() {
             returnKeyType="search"
             leftIcon={<Feather name="search" size={18} color={colors.mutedAlt} />}
             rightAccessory={
-              <Pressable onPress={searchLocation} disabled={locationSearching} hitSlop={12} accessibilityRole="button" accessibilityLabel="Search">
+              <Pressable onPress={searchLocation} disabled={locationSearching} hitSlop={14} accessibilityRole="button" accessibilityLabel="Search">
                 <Text style={styles.go}>{locationSearching ? '…' : 'Go'}</Text>
               </Pressable>
             }
