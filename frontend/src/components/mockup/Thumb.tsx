@@ -8,11 +8,13 @@ type Props = {
   size?: number
   source?: ImageSourcePropType
   initials?: string
+  /** Defaults to 36% of size. */
+  initialsSize?: number
   style?: StyleProp<ViewStyle>
 }
 
-export default function Thumb({ size = 56, source, initials, style }: Props) {
-  const fontSize = Math.round(size * 0.36)
+export default function Thumb({ size = 56, source, initials, initialsSize, style }: Props) {
+  const fontSize = initialsSize ?? Math.round(size * 0.36)
   return (
     <View style={[styles.thumb, { width: size, height: size }, style]}>
       {source ? (

@@ -1,124 +1,39 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import {
-  Animated,
-  Dimensions,
-  FlatList,
-  Keyboard,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Image,
-} from 'react-native'
-import { ScrollView as GestureHandlerScrollView } from 'react-native-gesture-handler'
+import { Animated, FlatList, Keyboard, Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
-import { useNavigation, useFocusEffect } from '@react-navigation/native'
+import Feather from '@expo/vector-icons/Feather'
+import { RouteProp, useNavigation, useFocusEffect, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { theme } from '../theme/colors'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { type } from '../theme/typography'
+import { LISTING_CATEGORIES } from '../config/categories'
 import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
-import SearchBar from '../components/SearchBar'
-import StateCard from '../components/StateCard'
 import { ListingBrowseItem } from '../types'
 import { browseListings, getNearbyListings } from '../services/listingsApi'
 import { useTabLoad } from '../context/MainTabContext'
 import { isBlockedThisSession } from '../services/blockedUsers'
-import ScreenBackground from '../components/ScreenBackground'
-import RatingPill from '../components/RatingPill'
-import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import TextField from '../components/mockup/TextField'
+import CategoryChips from '../components/mockup/CategoryChips'
+import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
+import StatePanel from '../components/mockup/StatePanel'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
+type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
 
-const SCREEN_WIDTH = Dimensions.get('window').width
-const CATEGORIES = ['All', 'Electronics', 'Tools', 'Sports', 'Outdoors', 'Audio/Video', 'Cameras', 'Clothing', 'Books', 'Other']
+const CATEGORIES = ['All', ...LISTING_CATEGORIES]
+const SKELETON_COUNT = 3
 
 // Global in-memory cache for recently viewed items across the session
 let sessionRecentlyViewed: ListingBrowseItem[] = []
 
-function MiniProfile({ owner }: { owner: ListingBrowseItem['owner'] }) {
-  const name = `${owner.firstName} ${owner.lastName}`
-  const initials = `${owner.firstName?.[0] || ''}${owner.lastName?.[0] || ''}`.toUpperCase()
-  return (
-    <View style={styles.miniProfile}>
-      <View style={styles.miniAvatar}>
-        <Text style={styles.miniAvatarText}>{initials}</Text>
-      </View>
-      <Text style={styles.miniName}>
-        {name}
-        {owner.verificationStatus === 'VERIFIED' ? (
-          <Text style={styles.verifiedTick}> {"\u2713"}</Text>
-        ) : null}
-      </Text>
-    </View>
-  )
-}
-
-function GlassCardVertical({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
-  const imageUrl = item.images?.[0]?.url
-  return (
-    <View style={styles.glassCardVerticalWrap}>
-      <TouchableOpacity style={styles.glassCardVertical} activeOpacity={0.75} onPress={onPress}>
-        <View style={styles.glassThumbnailLarge}>
-          {imageUrl ? (
-            <Image source={{ uri: fillImageUrl(imageUrl, { width: (SCREEN_WIDTH - 48) * 0.75, height: (SCREEN_WIDTH - 48) * 0.75 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
-          ) : (
-            <Text style={styles.glassThumbnailFallbackText}>{item.category || '📦'}</Text>
-          )}
-          <View style={[styles.availabilityBadge, item.isAvailable ? styles.badgeAvailable : styles.badgeUnavailable]}>
-            <Text style={[styles.badgeText, item.isAvailable ? styles.badgeTextAvailable : styles.badgeTextUnavailable]}>
-              {item.isAvailable ? 'Available' : 'Paused'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.glassCardBody}>
-          <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
-          <MiniProfile owner={item.owner} />
-          <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
-
-          <View style={styles.glassCardFooter}>
-            <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)} <Text style={styles.glassPriceUnit}>/ day</Text></Text>
-            <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </View>
-  )
-}
-
-function GlassCardHorizontal({ item, onPress }: { item: ListingBrowseItem; onPress: () => void }) {
-  const imageUrl = item.images?.[0]?.url
-  return (
-    <View style={styles.glassCardHorizontalWrap}>
-      <TouchableOpacity style={styles.glassCardHorizontal} activeOpacity={0.75} onPress={onPress}>
-        <View style={styles.glassThumbnailSmall}>
-          {imageUrl ? (
-            <Image source={{ uri: fillImageUrl(imageUrl, { width: 64, height: 64 }) }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
-          ) : (
-            <Text style={styles.glassThumbnailFallbackTextSmall}>{item.category || '📦'}</Text>
-          )}
-        </View>
-
-        <View style={styles.glassRowMiddle}>
-          <Text style={styles.glassTitle} numberOfLines={1}>{item.title}</Text>
-          <MiniProfile owner={item.owner} />
-          <RatingPill avgRating={item.avgRating} reviewCount={item.reviewCount} />
-        </View>
-
-        <View style={styles.glassRowRight}>
-          <Text style={styles.glassPrice}>${Number(item.dailyPrice).toFixed(0)}</Text>
-          <Text style={styles.glassDistance}>{(item.distanceKm || 0).toFixed(1)} km</Text>
-        </View>
-      </TouchableOpacity>
-    </View>
-  )
-}
-
 export default function SearchScreen() {
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
+  const route = useRoute<MainAppRoute>()
   const [query, setQuery] = useState('')
   const [isResultsState, setIsResultsState] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('All')
@@ -126,9 +41,21 @@ export default function SearchScreen() {
   const [trending, setTrending] = useState<ListingBrowseItem[]>([])
   const [recent, setRecent] = useState<ListingBrowseItem[]>([])
   const [results, setResults] = useState<ListingBrowseItem[]>([])
+  // True from the moment a search is scheduled until its results land, so the
+  // list shows skeletons instead of flashing "Nothing found" in between.
+  const [searching, setSearching] = useState(false)
 
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
+
+  // Home's category chips hand off here with the category to show.
+  const requestedCategory = route.params?.searchCategory
+  useEffect(() => {
+    if (requestedCategory) {
+      setSelectedCategory(requestedCategory)
+      nav.setParams({ searchCategory: undefined })
+    }
+  }, [requestedCategory, nav])
 
   // Trending needs a location fix and a wide browse, so it waits until the
   // Search tab is first opened rather than running behind Home at launch.
@@ -191,6 +118,8 @@ export default function SearchScreen() {
     }
 
     if (hasText) {
+      setSearching(true)
+      const done = () => setSearching(false)
       const timer = setTimeout(() => {
         Location.getLastKnownPositionAsync().then(loc => {
           browseListings({
@@ -200,16 +129,17 @@ export default function SearchScreen() {
             lng: loc?.coords?.longitude,
             // See trending-fetch comment above — don't let distance silently filter out results.
             radius: 5000,
-          }).then(res => setResults(res.items)).catch(console.error)
+          }).then(res => setResults(res.items)).catch(console.error).finally(done)
         }).catch(() => {
           browseListings({
             query: query.trim() || undefined,
             category: selectedCategory === 'All' ? undefined : selectedCategory,
-          }).then(res => setResults(res.items)).catch(console.error)
+          }).then(res => setResults(res.items)).catch(console.error).finally(done)
         })
       }, 300)
       return () => clearTimeout(timer)
     } else {
+      setSearching(false)
       setResults([])
     }
   }, [query, selectedCategory, isResultsState, fadeAnim, translateAnim])
@@ -228,379 +158,139 @@ export default function SearchScreen() {
     nav.navigate('ListingDetail', { listingId: item.id })
   }
 
-  const renderCategoryChips = () => (
-    <GestureHandlerScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.chipsScroll}
-      contentContainerStyle={styles.chipsContainer}
-      keyboardShouldPersistTaps="handled"
-    >
-      {CATEGORIES.map((cat) => {
-        const isSelected = selectedCategory === cat
-        return (
-          <TouchableOpacity
-            key={cat}
-            activeOpacity={0.75}
-            style={[styles.glassChip, isSelected ? styles.glassChipSelected : styles.glassChipUnselected]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-              setSelectedCategory(cat)
-            }}
-          >
-            <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
-              {cat}
-            </Text>
-          </TouchableOpacity>
-        )
-      })}
-    </GestureHandlerScrollView>
+  const renderSection = (title: string, items: ListingBrowseItem[]) => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.list}>
+        {items.map((item) => (
+          <ListingCard key={item.id} listing={item} onPress={() => handleListingPress(item)} />
+        ))}
+      </View>
+    </View>
   )
 
   const renderHeaderComponent = () => (
-    <View>
-      <View style={styles.header}>
-        <View style={styles.headerInner}>
-          <Text style={styles.headerTitle}>Discover</Text>
-          <SearchBar value={query} onChange={setQuery} />
-        </View>
+    <View style={styles.header}>
+      <View style={styles.padded}>
+        <Text style={styles.title}>Discover</Text>
+        <TextField
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search items, tools, rides..."
+          accessibilityLabel="Search listings"
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+          onFocus={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})}
+          leftIcon={<Feather name="search" size={18} color={colors.mutedAlt} />}
+          rightAccessory={
+            query.length > 0 ? (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  setQuery('')
+                }}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
+                <Feather name="x-circle" size={18} color={colors.mutedAlt} />
+              </Pressable>
+            ) : null
+          }
+        />
       </View>
 
-      {renderCategoryChips()}
+      <CategoryChips
+        categories={CATEGORIES}
+        selected={selectedCategory}
+        onSelect={(cat) => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          setSelectedCategory(cat)
+        }}
+      />
 
       {!isResultsState && (
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: translateAnim }] }}>
-          {trending.length > 0 && (
-            <>
-              <Text style={styles.sectionHeader}>TRENDING NEAR YOU</Text>
-              <GestureHandlerScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.horizontalScrollContent}
-                snapToInterval={(SCREEN_WIDTH - 48) * 0.75 + 16}
-                decelerationRate="fast"
-              >
-                {trending.map((item) => (
-                  <GlassCardVertical key={item.id} item={item} onPress={() => handleListingPress(item)} />
-                ))}
-              </GestureHandlerScrollView>
-            </>
-          )}
-
-          {recent.length > 0 && (
-            <>
-              <Text style={[styles.sectionHeader, { marginTop: 32 }]}>RECENTLY VIEWED</Text>
-              <View style={styles.verticalRowsContainer}>
-                {recent.map((item) => (
-                  <GlassCardHorizontal key={item.id} item={item} onPress={() => handleListingPress(item)} />
-                ))}
-              </View>
-            </>
-          )}
+        <Animated.View style={[styles.padded, { opacity: fadeAnim, transform: [{ translateY: translateAnim }] }]}>
+          {trending.length > 0 ? renderSection('Trending near you', trending) : null}
+          {recent.length > 0 ? renderSection('Recently viewed', recent) : null}
         </Animated.View>
       )}
     </View>
   )
 
   return (
-    <ScreenBackground>
+    <Screen scroll={false} contentStyle={styles.screenContent}>
       <FlatList
-        data={isResultsState ? results : []}
+        data={isResultsState && !searching ? results : []}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeaderComponent()}
         ListEmptyComponent={
           isResultsState ? (
-            <View style={styles.emptyStateWrap}>
-              <StateCard
-                eyebrow="NO MATCHES"
-                title="Nothing found"
-                body={selectedCategory !== 'All' ? `No ${selectedCategory.toLowerCase()} listings match this search yet.` : 'Try a different search term or category.'}
-              />
+            <View style={styles.padded}>
+              {searching ? (
+                <View style={styles.list}>
+                  {Array.from({ length: SKELETON_COUNT }, (_, i) => (
+                    <ListingCardSkeleton key={i} />
+                  ))}
+                </View>
+              ) : (
+                <StatePanel
+                  title="Nothing found"
+                  body={selectedCategory !== 'All' ? `No ${selectedCategory.toLowerCase()} listings match this search yet.` : 'Try a different search term or category.'}
+                />
+              )}
             </View>
           ) : null
         }
         renderItem={({ item }) => (
-          <View style={styles.resultRow}>
-            <GlassCardHorizontal item={item} onPress={() => handleListingPress(item)} />
+          <View style={styles.padded}>
+            <ListingCard listing={item} onPress={() => handleListingPress(item)} />
           </View>
         )}
-        contentContainerStyle={[styles.idleContent, { paddingBottom: tabBarClearance + 16 }]}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
+        ItemSeparatorComponent={Separator}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       />
-    </ScreenBackground>
+    </Screen>
   )
 }
 
+function Separator() {
+  return <View style={styles.separator} />
+}
+
 const styles = StyleSheet.create({
-  header: {
-    paddingTop: theme.header.tabTop,
-    paddingBottom: 12,
-    zIndex: 10,
-  },
-  headerInner: {
+  screenContent: {
     paddingHorizontal: 0,
+    paddingBottom: 0,
   },
-  headerTitle: {
-    ...theme.type.screenTitle,
-    paddingHorizontal: 24,
-    marginBottom: 4,
-    letterSpacing: -0.5,
+  header: {
+    gap: space.lg,
+    marginBottom: space.lg,
   },
-  contentArea: {
-    flex: 1,
+  padded: {
+    paddingHorizontal: space.screen,
   },
-  idleContent: {
-    paddingTop: 16,
+  title: {
+    ...type.h1,
+    color: colors.ink,
+    marginBottom: space.lg,
   },
-  emptyStateWrap: {
-    paddingHorizontal: 24,
-    paddingTop: 8,
+  section: {
+    gap: space.lg,
+    marginTop: space.lg,
   },
-  sectionHeader: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    paddingHorizontal: 24,
-    marginBottom: 16,
-    textTransform: 'uppercase',
+  sectionTitle: {
+    ...type.section,
+    color: colors.ink,
   },
-  horizontalScrollContent: {
-    paddingHorizontal: 24,
-    gap: 16,
+  list: {
+    gap: space.lg,
   },
   separator: {
-    height: 1,
-    backgroundColor: theme.border,
-    marginHorizontal: 24,
-    marginVertical: 4,
-  },
-
-  /* --- Listing cards (neobrutalist, matches Home) --- */
-  glassCardVerticalWrap: {
-    width: (SCREEN_WIDTH - 48) * 0.75,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-  },
-  glassCardVertical: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    overflow: 'hidden',
-    padding: 16,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
-  },
-  glassThumbnailLarge: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.surfaceSubdued,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  glassThumbnailFallbackText: {
-    color: theme.primary,
-    fontWeight: '900',
-    fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 8,
-  },
-  availabilityBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: theme.hard.borderThin,
-  },
-  badgeAvailable: {
-    backgroundColor: theme.primarySurface,
-    borderColor: theme.hard.ink,
-  },
-  badgeUnavailable: {
-    backgroundColor: theme.surfaceSubdued,
-    borderColor: theme.hard.ink,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  badgeTextAvailable: {
-    color: theme.primary,
-  },
-  badgeTextUnavailable: {
-    color: theme.textDisabled,
-  },
-  glassCardBody: {
-    flex: 1,
-    gap: 8,
-  },
-  glassTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  glassCardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-  },
-  glassPrice: {
-    color: theme.primaryDeep,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  glassPriceUnit: {
-    color: theme.textDisabled,
-    fontSize: 12,
-    fontWeight: '300',
-  },
-  glassDistance: {
-    color: theme.textDisabled,
-    fontSize: 13,
-    fontWeight: '300',
-  },
-
-  /* --- Horizontal listing cards (neobrutalist, matches Home) --- */
-  verticalRowsContainer: {
-    paddingHorizontal: 24,
-    gap: 12,
-  },
-  resultRow: {
-    paddingHorizontal: 24,
-  },
-  glassCardHorizontalWrap: {
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-  },
-  glassCardHorizontal: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
-  },
-  glassThumbnailSmall: {
-    width: 64,
-    height: 64,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.surfaceSubdued,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  glassThumbnailFallbackTextSmall: {
-    color: theme.primary,
-    fontWeight: '900',
-    fontSize: 11,
-    textAlign: 'center',
-    paddingHorizontal: 4,
-  },
-  glassRowMiddle: {
-    flex: 1,
-    gap: 4,
-  },
-  glassRowRight: {
-    paddingLeft: 12,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 4,
-  },
-
-  /* --- Chips --- */
-  chipsScroll: {
-    flexGrow: 0,
-    marginBottom: 20,
-    marginTop: 8,
-  },
-  chipsContainer: {
-    paddingHorizontal: 24,
-    gap: 8,
-    flexDirection: 'row',
-  },
-  glassChip: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: theme.radius.pill,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-  },
-  glassChipSelected: {
-    backgroundColor: theme.primary,
-  },
-  glassChipUnselected: {
-    backgroundColor: theme.surface,
-  },
-  chipTextSelected: {
-    color: theme.textOnPrimary,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  chipTextUnselected: {
-    color: theme.text,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-
-  /* --- Mini Profile --- */
-  miniProfile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  miniAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: theme.surfaceSubdued,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.hard.ink,
-  },
-  miniAvatarText: {
-    color: theme.text,
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  miniName: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: '400',
-  },
-  verifiedTick: {
-    color: theme.primary,
-    fontWeight: '600',
-  },
-  resultsContainer: {
-    flex: 1,
-  },
-  resultsListContent: {
-    paddingHorizontal: 24,
-    gap: 12,
-    paddingBottom: 120,
-    paddingTop: 16,
+    height: space.lg,
   },
 })
-

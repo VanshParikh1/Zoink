@@ -56,7 +56,7 @@ export type RootStackParamList = {
   TermsAcceptance: { mode: 'register' | 'update' | 'view'; pendingRegistration?: PendingRegistration; initialTab?: 'terms' | 'privacy' }
   VerifyEmail: undefined
   VerificationGate: undefined
-  MainApp: { tab?: 'Home' | 'Search' | 'Inbox' | 'MyProfile' } | undefined
+  MainApp: { tab?: 'Home' | 'Search' | 'Inbox' | 'MyProfile'; searchCategory?: string } | undefined
   CreateListing: undefined
   ListingDetail: { listingId: string }
   EditListing: { listingId: string }

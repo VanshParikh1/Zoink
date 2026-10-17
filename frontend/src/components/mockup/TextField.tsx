@@ -7,6 +7,8 @@ import { fonts, type } from '../../theme/typography'
 type Props = Omit<TextInputProps, 'style'> & {
   label?: string
   leftIcon?: React.ReactNode
+  /** Trailing element inside the field, e.g. a clear button. */
+  rightAccessory?: React.ReactNode
   error?: string
   /** Short numeric fields: radius 14 and bold text. */
   variant?: 'pill' | 'boxed'
@@ -14,7 +16,7 @@ type Props = Omit<TextInputProps, 'style'> & {
 }
 
 const TextField = forwardRef<TextInput, Props>(function TextField(
-  { label, leftIcon, error, variant = 'pill', style, ...inputProps },
+  { label, leftIcon, rightAccessory, error, variant = 'pill', style, ...inputProps },
   ref
 ) {
   const boxed = variant === 'boxed'
@@ -31,6 +33,7 @@ const TextField = forwardRef<TextInput, Props>(function TextField(
           {...inputProps}
           style={[styles.input, boxed ? styles.inputBoxed : null]}
         />
+        {rightAccessory}
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
