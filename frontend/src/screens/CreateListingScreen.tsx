@@ -27,6 +27,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
 import { theme } from '../theme/colors'
+import { LISTING_CATEGORIES } from '../config/categories'
 import ZoinkButton from '../components/ZoinkButton'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
@@ -45,17 +46,7 @@ type FormData = {
   city: string
 }
 
-const CATEGORIES = [
-  'Electronics',
-  'Tools',
-  'Sports',
-  'Outdoors',
-  'Audio/Video',
-  'Cameras',
-  'Clothing',
-  'Books',
-  'Other',
-]
+const CATEGORIES = LISTING_CATEGORIES
 
 const DEFAULT_CITY = 'Toronto'
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }

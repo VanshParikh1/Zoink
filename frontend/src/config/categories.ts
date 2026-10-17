@@ -1,5 +1,4 @@
-// The listing categories the app offers. CreateListingScreen keeps its own
-// copy of this list for now; keep the two in sync.
+// The listing categories the app offers (create/edit forms, browse chips).
 export const LISTING_CATEGORIES = [
   'Electronics',
   'Tools',

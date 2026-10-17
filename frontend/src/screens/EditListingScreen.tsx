@@ -26,6 +26,7 @@ import {
 import { Listing } from '../types'
 import ZoinkLogo from '../components/ZoinkLogo'
 import { theme } from '../theme/colors'
+import { LISTING_CATEGORIES } from '../config/categories'
 import ScreenBackground from '../components/ScreenBackground'
 import DismissKeyboardView from '../components/DismissKeyboardView'
 import BackButton from '../components/BackButton'
@@ -34,17 +35,7 @@ import { fillImageUrl } from '../utils/cloudinaryImage'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
 
-const CATEGORIES = [
-  'Electronics',
-  'Tools',
-  'Sports',
-  'Outdoors',
-  'Audio/Video',
-  'Cameras',
-  'Clothing',
-  'Books',
-  'Other',
-]
+const CATEGORIES = LISTING_CATEGORIES
 
 export default function EditListingScreen() {
   const nav = useNavigation<Nav>()
