@@ -1,19 +1,20 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
+import { StatusBar } from 'expo-status-bar'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -23,17 +24,37 @@ import { usePolling } from '../hooks/usePolling'
 import { THREAD_DETAILS_POLL_MS, THREAD_MESSAGES_POLL_MS } from '../config/polling'
 import { Message, ConversationDetail } from '../types'
 import { useAuth } from '../context/AuthContext'
-import { theme } from '../theme/colors'
-import StateCard from '../components/StateCard'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { border, radius, shadow, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import ScreenBackground from '../components/mockup/ScreenBackground'
+import IconButton from '../components/mockup/IconButton'
+import Card from '../components/mockup/Card'
+import Badge from '../components/mockup/Badge'
+import Button from '../components/mockup/Button'
+import Thumb from '../components/mockup/Thumb'
+import HardShadow from '../components/mockup/HardShadow'
+import StatePanel from '../components/mockup/StatePanel'
+import { bookingStatusBadge } from '../components/mockup/bookingStatus'
+import { dailyPriceLabel } from '../components/mockup/listingFormat'
 import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import DismissKeyboardView from '../components/DismissKeyboardView'
+import { initialsOf } from '../utils/initials'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
+
+const AVATAR = 42
+const LISTING_THUMB = 44
+const SEND_SIZE = 48
+const INPUT_MIN_HEIGHT = 46
+const INPUT_MAX_LINES = 4
+const INPUT_PADDING_V = 10
+const BUBBLE_RADIUS = 20
+const BUBBLE_TAIL = 6
+const DAY_MS = 24 * 60 * 60 * 1000
 
 // A poll that was already in flight when a message was sent can return that
 // message too; keep one copy per id.
@@ -41,6 +62,54 @@ function appendNew(current: Message[], incoming: Message[]) {
   const seen = new Set(current.map((message) => message.id))
   const fresh = incoming.filter((message) => !seen.has(message.id))
   return fresh.length > 0 ? [...current, ...fresh] : current
+}
+
+type Row =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'message'; key: string; message: Message; isMine: boolean; groupStart: boolean; groupEnd: boolean }
+
+/** "Today", "Yesterday", "Oct 20" (plus the year when it isn't this year). Upper-cased by type.eyebrow. */
+function dayLabel(date: Date) {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  if (date.getTime() >= startOfToday) return 'Today'
+  if (date.getTime() >= startOfToday - DAY_MS) return 'Yesterday'
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  })
+}
+
+/**
+ * Day separators plus sender groups: consecutive messages from the same person
+ * on the same day form one group, and only its last bubble gets the tail
+ * corner and the time.
+ */
+function buildRows(messages: Message[], myId: string | undefined): Row[] {
+  const rows: Row[] = []
+  let lastDay = ''
+  messages.forEach((message, index) => {
+    const date = new Date(message.createdAt)
+    const day = date.toDateString()
+    const prev = messages[index - 1]
+    const next = messages[index + 1]
+    if (day !== lastDay) {
+      rows.push({ kind: 'day', key: `day-${day}`, label: dayLabel(date) })
+      lastDay = day
+    }
+    const sameAsPrev = Boolean(prev) && prev.senderId === message.senderId && new Date(prev.createdAt).toDateString() === day
+    const sameAsNext = Boolean(next) && next.senderId === message.senderId && new Date(next.createdAt).toDateString() === day
+    rows.push({
+      kind: 'message',
+      key: message.id,
+      message,
+      isMine: message.senderId === myId,
+      groupStart: !sameAsPrev,
+      groupEnd: !sameAsNext,
+    })
+  })
+  return rows
 }
 
 export default function ConversationThreadScreen() {
@@ -55,13 +124,15 @@ export default function ConversationThreadScreen() {
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
   const latestMessageId = useRef<string | undefined>(undefined)
-  const listRef = useRef<FlatList<Message>>(null)
+  const listRef = useRef<FlatList<Row>>(null)
   // Tracks whether the user is scrolled near the bottom already, so an
   // incoming message doesn't yank them away from history they're reading.
   // Starts true so the very first load (fresh open, or reopening into
   // unread messages) always lands on the newest message.
   const isNearBottomRef = useRef(true)
+  const hasScrolledRef = useRef(false)
 
   const loadMessages = useCallback(async (incremental = false) => {
     try {
@@ -123,6 +194,20 @@ export default function ConversationThreadScreen() {
   usePolling(pollMessages, THREAD_MESSAGES_POLL_MS, isFocused)
   usePolling(loadConversation, THREAD_DETAILS_POLL_MS, isFocused)
 
+  // The composer drops its safe-area padding while the keyboard is up (the
+  // keyboard already covers the home indicator). iOS gets the "will" events so
+  // the padding changes together with the keyboard animation.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true))
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
+
   async function handleSend() {
     const trimmed = body.trim()
     if (!trimmed) return
@@ -144,6 +229,8 @@ export default function ConversationThreadScreen() {
     }
   }
 
+  const rows = useMemo(() => buildRows(messages, user?.id), [messages, user?.id])
+
   const isOwner = Boolean(conversation && conversation.ownerId === user?.id)
   const isRenter = Boolean(conversation && conversation.renterId === user?.id)
   // Backend returns in-flight bookings (PENDING/ACCEPTED/ACTIVE) newest-updated
@@ -157,8 +244,7 @@ export default function ConversationThreadScreen() {
   // Lender header CTA: review-before-accept stays intact — this only routes to
   // BookingDetailScreen, it never one-tap-accepts.
   const showApproveCta = isOwner && activeBooking?.status === 'PENDING'
-  const headerTitle = listing?.title ?? route.params.title ?? 'Conversation'
-  const headerImageUrl = listing?.images?.[0]?.url ?? null
+  const listingImageUrl = listing?.images?.[0]?.url ?? null
   // The other participant in this thread — owner sees the renter, renter sees
   // the owner. Mirrors the "who am I talking to" line in InboxScreen.
   const otherParty = conversation
@@ -169,14 +255,15 @@ export default function ConversationThreadScreen() {
   const otherPartyName = otherParty
     ? [otherParty.firstName, otherParty.lastName].filter(Boolean).join(' ')
     : null
-  // Shown only when there's an in-flight booking that neither the Approve nor
-  // the Pay button already speaks to.
-  const contextLabel = (() => {
-    if (!activeBooking || showApproveCta || needsPayment || awaitingPayment) return null
-    if (activeBooking.status === 'ACCEPTED') return 'Rental accepted'
-    if (activeBooking.status === 'ACTIVE') return 'Rental in progress'
-    return null
-  })()
+  // The API doesn't send the other person's university, only their
+  // verification status.
+  const otherPartyCaption = otherParty
+    ? `${otherParty.verificationStatus && otherParty.verificationStatus !== 'VERIFIED' ? 'Student' : 'Verified student'} · ${
+        isOwner ? 'renter' : 'owner'
+      }`
+    : null
+  const statusBadge = activeBooking ? bookingStatusBadge(activeBooking.status) : null
+  const canSend = body.trim().length > 0 && !sending
 
   function openSafetyMenu() {
     if (!otherParty) return
@@ -227,272 +314,438 @@ export default function ConversationThreadScreen() {
     }
   }
 
+  function renderRow({ item }: { item: Row }) {
+    if (item.kind === 'day') {
+      return (
+        <View style={styles.dayWrap}>
+          <Text style={styles.dayPill}>{item.label}</Text>
+        </View>
+      )
+    }
+    const { message, isMine, groupStart, groupEnd } = item
+    return (
+      <View style={[styles.messageRow, isMine ? styles.mineRow : styles.theirsRow, { marginTop: groupStart ? space.md : 4 }]}>
+        <Pressable
+          // Long-press to report — only the other person's messages.
+          disabled={isMine}
+          onLongPress={() => openMessageMenu(message)}
+          delayLongPress={350}
+          accessibilityHint={isMine ? undefined : 'Long press to report this message'}
+          style={({ pressed }) => [
+            styles.bubble,
+            isMine ? styles.mine : styles.theirs,
+            groupEnd ? (isMine ? styles.mineTail : styles.theirsTail) : null,
+            pressed ? styles.bubblePressed : null,
+          ]}
+        >
+          <Text style={[styles.bubbleText, isMine && styles.mineText]}>{message.body}</Text>
+        </Pressable>
+        {groupEnd ? (
+          <Text style={styles.time}>
+            {new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </Text>
+        ) : null}
+      </View>
+    )
+  }
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
+      <View style={styles.loading}>
+        <ScreenBackground />
+        <ActivityIndicator size="large" color={colors.greenText} />
         <Text style={styles.loadingText}>Loading the conversation...</Text>
       </View>
     )
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
-      >
-        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-          <View style={styles.headerTop}>
-            <BackButton onPress={() => nav.goBack()} />
-
+    <View style={styles.screen}>
+      <ScreenBackground />
+      <StatusBar style="dark" />
+      {/*
+        Keyboard: iOS pads the whole column by the keyboard height so the
+        composer sits right on the keyboard; Android already resizes the window
+        (softwareKeyboardLayoutMode "resize"), so it only adjusts the height.
+        The list re-pins to the newest message whenever its height changes.
+      */}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <DismissKeyboardView>
+          <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
+            <IconButton accessibilityLabel="Go back" onPress={() => nav.goBack()}>
+              <Feather name="chevron-left" size={24} color={colors.ink} />
+            </IconButton>
+            <Thumb
+              size={AVATAR}
+              style={styles.avatar}
+              initials={otherParty ? initialsOf(otherParty) : undefined}
+              source={otherParty?.avatarUrl ? { uri: fillImageUrl(otherParty.avatarUrl, { width: AVATAR * 2, height: AVATAR * 2 }) } : undefined}
+            />
             <View style={styles.headerText}>
-              <Text style={styles.panelTitle} numberOfLines={2}>{headerTitle}</Text>
-              {otherPartyName ? (
-                <Text style={styles.headerParty} numberOfLines={1}>{otherPartyName}</Text>
-              ) : null}
+              <Text style={styles.headerName} numberOfLines={1}>
+                {otherPartyName ?? route.params.title ?? 'Conversation'}
+              </Text>
+              {otherPartyCaption ? <Text style={styles.headerCaption} numberOfLines={1}>{otherPartyCaption}</Text> : null}
             </View>
-
-            {headerImageUrl ? (
-              <Image source={{ uri: fillImageUrl(headerImageUrl, { width: 56, height: 56 }) }} style={styles.headerThumb} />
-            ) : (
-              <View style={[styles.headerThumb, styles.headerThumbPlaceholder]}>
-                <Feather name="image" size={16} color={theme.textDisabled} />
-              </View>
-            )}
-
             {otherParty ? (
-              <TouchableOpacity
-                style={styles.menuButton}
-                onPress={openSafetyMenu}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityRole="button"
-                accessibilityLabel="More options: report or block this user"
-              >
-                <Feather name="more-vertical" size={22} color={theme.text} />
-              </TouchableOpacity>
+              <IconButton accessibilityLabel="More options: report or block this user" onPress={openSafetyMenu}>
+                <Feather name="more-vertical" size={20} color={colors.ink} />
+              </IconButton>
             ) : null}
           </View>
 
-          <View style={styles.panel}>
-            <View style={styles.panelActions}>
-              <TouchableOpacity
-                style={styles.panelButton}
-                activeOpacity={0.85}
-                disabled={!conversation}
-                onPress={() => nav.navigate('ListingDetail', { listingId: conversation!.listingId })}
+          {listing && conversation ? (
+            <Card shadow="sm" padding={space.lg} style={styles.pinned} contentStyle={styles.pinnedContent}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View listing: ${listing.title}`}
+                onPress={() => nav.navigate('ListingDetail', { listingId: conversation.listingId })}
+                style={({ pressed }) => [styles.pinnedRow, pressed ? styles.pinnedPressed : null]}
               >
-                <Text style={styles.panelButtonText} numberOfLines={1}>View listing</Text>
-              </TouchableOpacity>
+                <Thumb
+                  size={LISTING_THUMB}
+                  style={styles.listingThumb}
+                  source={listingImageUrl ? { uri: fillImageUrl(listingImageUrl, { width: LISTING_THUMB * 2, height: LISTING_THUMB * 2 }) } : undefined}
+                />
+                <View style={styles.pinnedText}>
+                  <Text style={styles.pinnedTitle} numberOfLines={1}>{listing.title}</Text>
+                  <Text style={styles.pinnedPrice} numberOfLines={1}>{dailyPriceLabel(listing.dailyPrice)}</Text>
+                </View>
+                {statusBadge ? <Badge label={statusBadge.label} variant={statusBadge.variant} /> : null}
+              </Pressable>
 
-              {showApproveCta ? (
-                <TouchableOpacity
-                  style={styles.panelButton}
-                  activeOpacity={0.85}
-                  onPress={() => nav.navigate('BookingDetail', { bookingId: activeBooking!.id })}
-                >
-                  <Text style={styles.panelButtonText} numberOfLines={1}>Approve rental</Text>
-                </TouchableOpacity>
+              {showApproveCta || needsPayment ? (
+                <View style={styles.pinnedActions}>
+                  {showApproveCta ? (
+                    <Button
+                      label="Approve rental"
+                      size="sm"
+                      onPress={() => nav.navigate('BookingDetail', { bookingId: activeBooking!.id })}
+                      style={styles.pinnedAction}
+                    />
+                  ) : null}
+                  {needsPayment ? (
+                    <Button
+                      label="Pay now"
+                      size="sm"
+                      onPress={() => nav.navigate('Pay', { bookingId: conversation.acceptedUnpaidBookingId! })}
+                      style={styles.pinnedAction}
+                    />
+                  ) : null}
+                </View>
               ) : null}
+              {awaitingPayment ? <WaitingOnPaymentBadge /> : null}
+            </Card>
+          ) : null}
 
-              {needsPayment && conversation ? (
-                <TouchableOpacity
-                  style={styles.panelButton}
-                  activeOpacity={0.85}
-                  onPress={() => nav.navigate('Pay', { bookingId: conversation.acceptedUnpaidBookingId! })}
-                >
-                  <Text style={styles.panelButtonText} numberOfLines={1}>Pay now</Text>
-                </TouchableOpacity>
-              ) : null}
+          {error ? (
+            <View style={styles.stateWrap}>
+              <StatePanel
+                title="This conversation couldn't load"
+                body={error}
+                action={{
+                  label: 'Try again',
+                  variant: 'primary',
+                  onPress: () => {
+                    setLoading(true)
+                    loadMessages()
+                  },
+                }}
+              />
             </View>
-
-            {awaitingPayment ? <WaitingOnPaymentBadge style={styles.panelStatusBadge} /> : null}
-            {contextLabel ? <Text style={styles.contextLabel}>{contextLabel}</Text> : null}
-          </View>
-        </View>
-
-        {error ? (
-          <View style={styles.stateWrap}>
-            <StateCard
-              tone="error"
-              eyebrow="THREAD ISSUE"
-              title="This conversation couldn't load"
-              body={error}
-              actionLabel="Try again"
-              onAction={() => {
-                setLoading(true)
-                loadMessages()
+          ) : (
+            <FlatList
+              ref={listRef}
+              data={rows}
+              keyExtractor={(item) => item.key}
+              renderItem={renderRow}
+              style={styles.flex}
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              onScroll={(e) => {
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+                const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
+                isNearBottomRef.current = distanceFromBottom < 120
               }}
-              secondaryActionLabel="Go back"
-              onSecondaryAction={() => nav.goBack()}
-            />
-          </View>
-        ) : (
-          <FlatList
-            ref={listRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            onScroll={(e) => {
-              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-              const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
-              isNearBottomRef.current = distanceFromBottom < 120
-            }}
-            scrollEventThrottle={100}
-            onContentSizeChange={() => {
-              if (isNearBottomRef.current) {
-                listRef.current?.scrollToEnd({ animated: true })
-              }
-            }}
-            ListEmptyComponent={
-              <View style={styles.stateWrap}>
-                <StateCard
-                  eyebrow="START THE THREAD"
+              scrollEventThrottle={100}
+              onContentSizeChange={() => {
+                if (isNearBottomRef.current) {
+                  // The first jump is instant: an animated one reports
+                  // mid-scroll offsets that would clear isNearBottomRef before
+                  // the pinned card / keyboard resize re-pins the list.
+                  listRef.current?.scrollToEnd({ animated: hasScrolledRef.current })
+                  hasScrolledRef.current = true
+                }
+              }}
+              // The keyboard opening shrinks the list from the bottom; without
+              // this the newest messages would slide under the composer.
+              // Deferred a frame so the list has its new height first.
+              onLayout={() => {
+                if (isNearBottomRef.current) {
+                  requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }))
+                }
+              }}
+              ListEmptyComponent={
+                <StatePanel
                   title="No messages yet"
                   body="Send the first note to confirm dates, pickup details, or anything else before the booking moves forward."
                 />
-              </View>
-            }
-            renderItem={({ item }) => {
-              const isMine = item.senderId === user?.id
-              return (
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  // Long-press to report — only the other person's messages.
-                  disabled={isMine}
-                  onLongPress={() => openMessageMenu(item)}
-                  delayLongPress={350}
-                  accessibilityHint={isMine ? undefined : 'Long press to report this message'}
-                  style={[styles.bubble, isMine ? styles.myBubble : styles.theirBubble]}
-                >
-                  <Text style={[styles.bubbleText, isMine && styles.myBubbleText]}>{item.body}</Text>
-                  <Text style={[styles.timeText, isMine && styles.myBubbleText]}>
-                    {new Date(item.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </Text>
-                </TouchableOpacity>
-              )
-            }}
-          />
-        )}
+              }
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </DismissKeyboardView>
 
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 18) }]}>
-          <TextInput
-            value={body}
-            onChangeText={setBody}
-            placeholder="Write a message"
-            placeholderTextColor={theme.textDisabled}
-            style={styles.input}
-            maxLength={2000}
-          />
-          <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={sending}>
-            <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
-          </TouchableOpacity>
-          {sendError ? <Text style={styles.sendError}>{sendError}</Text> : null}
-      </View>
+        <View style={[styles.composer, { paddingBottom: keyboardOpen ? space.sm : insets.bottom + space.sm }]}>
+          {sendError ? (
+            <Pressable accessibilityRole="button" onPress={handleSend} disabled={sending} style={styles.sendErrorWrap}>
+              <Text style={styles.sendError}>Not sent: tap to retry</Text>
+              <Text style={styles.sendErrorReason} numberOfLines={2}>{sendError}</Text>
+            </Pressable>
+          ) : null}
+          <View style={[styles.composerRow, sending ? styles.sending : null]}>
+            <TextInput
+              value={body}
+              onChangeText={setBody}
+              placeholder="Write a message"
+              placeholderTextColor={colors.mutedAlt}
+              style={styles.input}
+              multiline
+              maxLength={2000}
+            />
+            <HardShadow
+              pressable
+              offset="xs"
+              radius={SEND_SIZE / 2}
+              disabled={!canSend}
+              onPress={handleSend}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+              accessibilityState={{ disabled: !canSend, busy: sending }}
+            >
+              <View style={[styles.send, !canSend ? styles.sendDisabled : null]}>
+                <Feather name="arrow-up" size={22} color={canSend ? colors.ink : colors.mutedAlt} />
+              </View>
+            </HardShadow>
+          </View>
+        </View>
       </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  loadingText: { marginTop: 12, color: theme.textMuted, fontSize: 15 },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    backgroundColor: theme.primarySurface,
-    // Bold neobrutalist outline, flush to the screen top (no radius / margin)
-    // so it reads as part of the screen chrome, not a floating card.
-    borderWidth: theme.hard.border,
-    borderTopWidth: 0,
-    borderColor: theme.hard.ink,
+  screen: {
+    flex: 1,
+    backgroundColor: colors.bg,
   },
-  headerTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerText: { flex: 1 },
-  headerThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
+  flex: {
+    flex: 1,
   },
-  headerThumbPlaceholder: {
-    alignItems: 'center',
+  loading: {
+    flex: 1,
     justifyContent: 'center',
-    backgroundColor: theme.screen,
-  },
-  menuButton: { paddingHorizontal: 2, paddingVertical: 6 },
-  headerParty: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 2 },
-  panel: { marginTop: 12 },
-  panelTitle: { ...theme.type.sectionTitle, fontSize: 18, lineHeight: 22 },
-  panelActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  panelButton: {
-    flexGrow: 1,
-    flexBasis: '30%',
-    minWidth: 104,
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    paddingVertical: 12,
     alignItems: 'center',
+    gap: space.lg,
+    backgroundColor: colors.bg,
   },
-  panelButtonText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
-  contextLabel: { color: theme.textMuted, fontSize: 13, fontWeight: '700', marginTop: 12 },
-  panelStatusBadge: { marginTop: 12 },
-  listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, gap: 10, flexGrow: 1 },
-  stateWrap: { paddingVertical: 8 },
-  bubble: {
-    maxWidth: '82%',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
+  loadingText: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
   },
-  myBubble: { alignSelf: 'flex-end', backgroundColor: theme.primary },
-  theirBubble: { alignSelf: 'flex-start', backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
-  bubbleText: { color: theme.text, fontSize: 15, lineHeight: 20 },
-  myBubbleText: { color: theme.textOnPrimary },
-  timeText: { color: theme.textDisabled, fontSize: 11, marginTop: 8 },
-  composer: {
+  header: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    backgroundColor: theme.surface,
+    alignItems: 'center',
+    gap: space.md,
+    paddingHorizontal: space.xxl,
+    paddingBottom: space.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: border.base,
+    borderBottomColor: colors.ink,
+  },
+  avatar: {
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: AVATAR / 2,
+    backgroundColor: colors.lime,
+  },
+  headerText: {
+    flex: 1,
+  },
+  headerName: {
+    ...type.button,
+    letterSpacing: -0.4,
+    color: colors.ink,
+  },
+  headerCaption: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  pinned: {
+    marginTop: space.lg,
+    marginHorizontal: space.xxl,
+  },
+  pinnedContent: {
+    gap: space.md,
+  },
+  pinnedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+  },
+  pinnedPressed: {
+    opacity: 0.7,
+  },
+  listingThumb: {
+    borderRadius: 10,
+  },
+  pinnedText: {
+    flex: 1,
+  },
+  pinnedTitle: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  pinnedPrice: {
+    ...type.labelSm,
+    color: colors.greenText,
+  },
+  pinnedActions: {
+    flexDirection: 'row',
+    gap: space.md,
+  },
+  pinnedAction: {
+    flex: 1,
+  },
+  stateWrap: {
+    padding: space.xxl,
+  },
+  listContent: {
+    flexGrow: 1,
+    paddingHorizontal: space.xxl,
+    paddingTop: space.sm,
+    paddingBottom: space.xxl,
+  },
+  dayWrap: {
+    alignItems: 'center',
+    marginTop: space.xxl,
+    marginBottom: space.xs,
+  },
+  dayPill: {
+    ...type.eyebrow,
+    color: colors.ink,
+    backgroundColor: colors.surface,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    paddingHorizontal: space.md,
+    paddingVertical: 4,
+  },
+  messageRow: {
+    maxWidth: '78%',
+  },
+  mineRow: {
+    alignSelf: 'flex-end',
+    alignItems: 'flex-end',
+  },
+  theirsRow: {
+    alignSelf: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  bubble: {
+    paddingHorizontal: space.xl,
+    paddingVertical: space.md,
+    borderRadius: BUBBLE_RADIUS,
+  },
+  mine: {
+    backgroundColor: colors.ink,
+  },
+  // The theirs bubble's border counts toward its padding, so both bubbles
+  // have the same outer size for the same text.
+  theirs: {
+    backgroundColor: colors.surface,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    paddingHorizontal: space.xl - border.thin,
+    paddingVertical: space.md - border.thin,
+  },
+  mineTail: {
+    borderBottomRightRadius: BUBBLE_TAIL,
+  },
+  theirsTail: {
+    borderBottomLeftRadius: BUBBLE_TAIL,
+  },
+  bubblePressed: {
+    opacity: 0.8,
+  },
+  bubbleText: {
+    ...type.bodySm,
+    color: colors.ink,
+  },
+  mineText: {
+    color: colors.onInk,
+  },
+  time: {
+    ...type.caption,
+    color: colors.mutedAlt,
+    marginTop: 4,
+    marginHorizontal: space.xs,
+  },
+  composer: {
+    gap: space.xs,
+    paddingHorizontal: space.xxl,
+    paddingTop: space.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: border.base,
+    borderTopColor: colors.ink,
+  },
+  composerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: space.md,
+  },
+  sending: {
+    opacity: 0.6,
   },
   input: {
+    ...type.bodySm,
     flex: 1,
-    backgroundColor: theme.screen,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
+    color: colors.ink,
+    backgroundColor: colors.bg,
+    borderWidth: border.base,
+    borderColor: colors.ink,
+    borderRadius: INPUT_MIN_HEIGHT / 2,
+    minHeight: INPUT_MIN_HEIGHT,
+    maxHeight: type.bodySm.lineHeight * INPUT_MAX_LINES + INPUT_PADDING_V * 2 + border.base * 2,
+    paddingHorizontal: space.xxl,
+    paddingTop: INPUT_PADDING_V,
+    paddingBottom: INPUT_PADDING_V,
+    textAlignVertical: 'top',
   },
-  sendButton: {
-    minWidth: 72,
-    borderRadius: 16,
-    backgroundColor: theme.primary,
+  send: {
+    width: SEND_SIZE,
+    height: SEND_SIZE,
+    borderRadius: SEND_SIZE / 2,
+    backgroundColor: colors.green,
+    borderWidth: border.base,
+    borderColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
   },
-  sendText: { color: theme.textOnPrimary, fontWeight: '900', fontSize: 14 },
+  sendDisabled: {
+    backgroundColor: colors.tan,
+  },
+  sendErrorWrap: {
+    alignSelf: 'flex-start',
+  },
   sendError: {
-    color: theme.colors.danger,
-    fontSize: 13,
-    fontWeight: '700',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    backgroundColor: theme.surface,
+    ...type.labelSm,
+    color: colors.danger,
+  },
+  sendErrorReason: {
+    ...type.caption,
+    color: colors.mutedAlt,
   },
 })
-

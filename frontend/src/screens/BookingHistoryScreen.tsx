@@ -14,7 +14,7 @@ import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
 import StatePanel from '../components/mockup/StatePanel'
-import { BadgeVariant } from '../components/mockup/Badge'
+import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -26,28 +26,6 @@ function formatDate(dateStr: string) {
 
 function formatDateRange(startDate: string, endDate: string) {
   return `${formatDate(startDate)} – ${formatDate(endDate)}`
-}
-
-/** Badge per status: lime = live, green = done, surface = waiting, tan = closed. */
-function statusBadge(status: Booking['status']): { label: string; variant: BadgeVariant } {
-  switch (status) {
-    case 'PENDING':
-      return { label: 'Pending', variant: 'surface' }
-    case 'ACCEPTED':
-      return { label: 'Accepted', variant: 'surface' }
-    case 'CONFIRMED':
-    case 'PICKUP_PENDING':
-    case 'ACTIVE':
-    case 'RETURN_PENDING':
-      return { label: 'Active', variant: 'lime' }
-    case 'COMPLETED':
-      return { label: 'Completed', variant: 'green' }
-    case 'DECLINED':
-      return { label: 'Denied', variant: 'tan' }
-    case 'CANCELLED':
-    default:
-      return { label: 'Cancelled', variant: 'tan' }
-  }
 }
 
 export default function BookingHistoryScreen() {
@@ -122,7 +100,7 @@ export default function BookingHistoryScreen() {
             // The booking's listing snapshot has no deposit; the status badge replaces it anyway.
             listing={{ ...item.listing, depositAmount: '0' }}
             subtitle={formatDateRange(item.startDate, item.endDate)}
-            badge={statusBadge(item.status)}
+            badge={bookingStatusBadge(item.status)}
             onPress={() =>
               section.key === 'active'
                 ? nav.navigate('ActiveRental', { bookingId: item.id })
