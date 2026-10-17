@@ -14,11 +14,14 @@ type Props = {
   loading?: boolean
   disabled?: boolean
   leftIcon?: React.ReactNode
+  /** Compact 40pt height for inline actions (not used for the zoink variant). */
+  size?: 'md' | 'sm'
   accessibilityLabel?: string
   style?: StyleProp<ViewStyle>
 }
 
 const MIN_TARGET = 48
+const SMALL_HEIGHT = 40
 
 type VariantSpec = {
   height: number
@@ -67,9 +70,11 @@ export default function Button({
   disabled = false,
   leftIcon,
   accessibilityLabel,
+  size = 'md',
   style,
 }: Props) {
   const spec = VARIANTS[variant]
+  const height = size === 'sm' && variant !== 'zoink' ? SMALL_HEIGHT : spec.height
   const inactive = disabled || loading
   const isLink = variant === 'link'
   // Loading keeps the variant's look; only disabled switches to the tan state.
@@ -79,7 +84,8 @@ export default function Button({
     <View
       style={[
         styles.box,
-        isLink ? styles.linkBox : { height: spec.height },
+        isLink ? styles.linkBox : { height },
+        size === 'sm' && !isLink ? styles.smallBox : null,
         spec.box,
         disabled && !isLink ? styles.disabledBox : null,
       ]}
@@ -114,7 +120,7 @@ export default function Button({
         offset={spec.shadow.offset}
         color={spec.shadow.color}
         radius={radius.pill}
-        hitSlop={slopFor(spec.height)}
+        hitSlop={slopFor(height)}
         style={style}
       >
         {content}
@@ -127,7 +133,7 @@ export default function Button({
       {...a11y}
       onPress={onPress}
       disabled={inactive}
-      hitSlop={slopFor(spec.height)}
+      hitSlop={slopFor(height)}
       style={({ pressed }) => [pressed && !inactive ? styles.pressed : null, isLink ? styles.linkWrap : null, style]}
     >
       {content}
@@ -143,6 +149,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 24,
     borderRadius: radius.pill,
+  },
+  smallBox: {
+    paddingHorizontal: 16,
   },
   linkBox: {
     minHeight: 44,

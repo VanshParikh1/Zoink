@@ -12,11 +12,20 @@ function formatDollars(amount: string | number): string {
   return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`
 }
 
+/** "$24 / day" */
+export function dailyPriceLabel(dailyPrice: string | number): string {
+  return `${formatDollars(dailyPrice)} / day`
+}
+
+/** "1.2 km", only when the API already computed a distance; never estimated here. */
+export function distanceLabel(distanceKm: number | null | undefined): string | null {
+  return typeof distanceKm === 'number' ? `${distanceKm.toFixed(1)} km` : null
+}
+
 /** Everything a listing card shows as text, plus its screen-reader summary. */
 export function listingDisplay(listing: ListingCardData) {
-  const price = `${formatDollars(listing.dailyPrice)} / day`
-  // Only when the API already computed one; never estimated here.
-  const distance = typeof listing.distanceKm === 'number' ? `${listing.distanceKm.toFixed(1)} km` : null
+  const price = dailyPriceLabel(listing.dailyPrice)
+  const distance = distanceLabel(listing.distanceKm)
   // Deposits are optional; "0" means none.
   const deposit = Number(listing.depositAmount) > 0 ? `${formatDollars(listing.depositAmount)} held` : null
 

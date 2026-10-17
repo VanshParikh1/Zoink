@@ -14,6 +14,8 @@ type Props = {
   footer?: React.ReactNode
   scroll?: boolean
   keyboardAvoiding?: boolean
+  /** Content starts at the very top (under the status bar), e.g. a full-bleed hero. */
+  edgeToEdgeTop?: boolean
   contentStyle?: StyleProp<ViewStyle>
 }
 
@@ -24,6 +26,7 @@ export default function Screen({
   footer,
   scroll = true,
   keyboardAvoiding = false,
+  edgeToEdgeTop = false,
   contentStyle,
 }: Props) {
   const insets = useSafeAreaInsets()
@@ -44,7 +47,7 @@ export default function Screen({
   )
 
   const body = (
-    <View style={[styles.flex, { paddingTop: insets.top + space.sm }]}>
+    <View style={[styles.flex, { paddingTop: edgeToEdgeTop ? 0 : insets.top + space.sm }]}>
       {header ? <View style={styles.header}>{header}</View> : null}
       {content}
       {footer ? <View style={[styles.footer, { paddingBottom: insets.bottom + space.sm }]}>{footer}</View> : null}

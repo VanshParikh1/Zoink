@@ -20,10 +20,11 @@ const TextField = forwardRef<TextInput, Props>(function TextField(
   ref
 ) {
   const boxed = variant === 'boxed'
+  const multiline = !!inputProps.multiline
   return (
     <View style={[styles.wrap, style]}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <View style={[styles.field, boxed ? styles.boxed : null, error ? styles.fieldError : null]}>
+      <View style={[styles.field, boxed ? styles.boxed : null, multiline ? styles.fieldMultiline : null, error ? styles.fieldError : null]}>
         {leftIcon}
         <TextInput
           ref={ref}
@@ -31,7 +32,7 @@ const TextField = forwardRef<TextInput, Props>(function TextField(
           selectionColor={colors.greenText}
           accessibilityLabel={inputProps.accessibilityLabel ?? label}
           {...inputProps}
-          style={[styles.input, boxed ? styles.inputBoxed : null]}
+          style={[styles.input, boxed ? styles.inputBoxed : null, multiline ? styles.inputMultiline : null]}
         />
         {rightAccessory}
       </View>
@@ -65,6 +66,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.thumb,
     paddingHorizontal: 14,
   },
+  // Multiline: grows with the text, card radius instead of a pill.
+  fieldMultiline: {
+    height: undefined,
+    minHeight: 110,
+    alignItems: 'flex-start',
+    borderRadius: radius.card,
+    paddingVertical: 12,
+  },
   fieldError: {
     borderColor: colors.danger,
   },
@@ -77,6 +86,11 @@ const styles = StyleSheet.create({
     color: colors.ink,
     paddingVertical: 0,
     includeFontPadding: false,
+  },
+  inputMultiline: {
+    height: undefined,
+    minHeight: 84,
+    textAlignVertical: 'top',
   },
   inputBoxed: {
     fontFamily: fonts.bold,

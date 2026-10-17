@@ -1,45 +1,61 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import {
-  View,
-  Text,
-  ScrollView,
-  Image,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
   ActivityIndicator,
-  Share,
-  Dimensions,
+  Alert,
   FlatList,
+  Image,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
 import { getListing, setAvailability, deleteListing } from '../services/listingsApi'
 import { openConversation } from '../services/conversationsApi'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
-import ZoinkLogo from '../components/ZoinkLogo'
-import { theme } from '../theme/colors'
-import ZoinkButton from '../components/ZoinkButton'
-import HardBlock from '../components/HardBlock'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import ScreenBackground from '../components/ScreenBackground'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import { categoryAbbreviation } from '../config/categories'
+import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import IconButton from '../components/mockup/IconButton'
+import Badge from '../components/mockup/Badge'
+import Card from '../components/mockup/Card'
+import Thumb from '../components/mockup/Thumb'
+import HardShadow from '../components/mockup/HardShadow'
+import { dailyPriceLabel, distanceLabel, listingDisplay } from '../components/mockup/listingFormat'
 import LocationMapPreview from '../components/LocationMapPreview'
-import RatingPill from '../components/RatingPill'
-import { fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window')
+// Hero photo area: about 30% of the screen, clamped for very small and very
+// tall phones. The status-bar inset is added on top (the hero runs under it).
+const HERO_MIN = 220
+const HERO_MAX = 280
+const HERO_SCREEN_SHARE = 0.29
+const NO_PHOTO_THUMB = 132
+const AVATAR = 40
+
+function initialsOf(firstName?: string, lastName?: string) {
+  return `${firstName?.[0] ?? ''}${lastName?.[0] ?? ''}`.toUpperCase() || '?'
+}
 
 export default function ListingDetailScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<Route>()
   const insets = useSafeAreaInsets()
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions()
   const { user } = useAuth()
   const listingId = route.params.listingId
 
@@ -138,335 +154,335 @@ export default function ListingDetailScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
+        <ActivityIndicator size="large" color={colors.greenText} />
       </View>
     )
   }
 
   if (!listing) return null
 
-  const hasImages = listing.images.length > 0
+  const photos = listing.images
+  const heroHeight = Math.min(HERO_MAX, Math.max(HERO_MIN, Math.round(windowHeight * HERO_SCREEN_SHARE))) + insets.top
+  const { deposit } = listingDisplay(listing)
+  // "$X / day · Category", plus the distance only when the API sent one.
+  const distanceKm = (listing as { distanceKm?: number | null }).distanceKm
+  const priceWithCategory = [dailyPriceLabel(listing.dailyPrice), listing.category, distanceLabel(distanceKm)]
+    .filter(Boolean)
+    .join(' · ')
+  const owner = listing.owner
 
-  return (
-    <ScreenBackground>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.floatingRow}>
-          <HardBlock radius={theme.radius.pill} offset={theme.hard.offset.sm} style={styles.floatingBtnWrap} contentStyle={styles.floatingBtn}>
-            <TouchableOpacity
-              accessibilityLabel="Go back"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                nav.goBack()
-              }}
+  const hero = (
+    <View style={[styles.hero, { height: heroHeight }]}>
+      {photos.length > 0 ? (
+        <FlatList
+          data={photos}
+          keyExtractor={(item) => item.id}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(event) => {
+            setActiveImg(Math.round(event.nativeEvent.contentOffset.x / windowWidth))
+          }}
+          renderItem={({ item, index }) => (
+            <Pressable
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`Photo ${index + 1} of ${photos.length}, open full screen`}
+              onPress={() =>
+                nav.navigate('PhotoViewer', {
+                  photos: photos.map((img) => img.url),
+                  initialIndex: index,
+                })
+              }
             >
-              <Feather name="arrow-left" size={20} color={theme.hard.ink} />
-            </TouchableOpacity>
-          </HardBlock>
-          <HardBlock radius={theme.radius.pill} offset={theme.hard.offset.sm} style={styles.floatingBtnWrap} contentStyle={styles.floatingBtn}>
-            <TouchableOpacity
-              accessibilityLabel="Share this listing"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                handleShare()
-              }}
-            >
-              <Feather name="share" size={18} color={theme.text} />
-            </TouchableOpacity>
-          </HardBlock>
-        </View>
-
-        <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.lg} style={styles.contentWrap} contentStyle={styles.content}>
-          {hasImages ? (
-            <View style={styles.carouselContainer}>
-              <FlatList
-                style={{ width: SCREEN_WIDTH - 80 }}
-                data={listing.images}
-                keyExtractor={(item) => item.id}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(event) => {
-                  const idx = Math.round(event.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 80))
-                  setActiveImg(idx)
-                }}
-                renderItem={({ item, index }) => (
-                  <View style={{ width: SCREEN_WIDTH - 80 }}>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      onPress={() =>
-                        nav.navigate('PhotoViewer', {
-                          photos: listing.images.map((img) => img.url),
-                          initialIndex: index,
-                        })
-                      }
-                    >
-                      <Image source={{ uri: limitImageUrl(item.url, { width: SCREEN_WIDTH - 80 }) }} style={styles.carouselImage} resizeMode="cover" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+              <Image
+                source={{ uri: fillImageUrl(item.url, { width: windowWidth, height: heroHeight }) }}
+                style={{ width: windowWidth, height: heroHeight }}
+                resizeMode="cover"
               />
-
-              {listing.images.length > 1 && (
-                <View style={styles.dotRow}>
-                  {listing.images.map((_, index) => (
-                    <View key={index} style={[styles.dot, index === activeImg && styles.dotActive]} />
-                  ))}
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.noImageBox}>
-              <ZoinkLogo size={60} style={styles.noImageLogo} />
-              <Text style={styles.noImageText}>No photos yet</Text>
-            </View>
+            </Pressable>
           )}
-          <View style={styles.badgeRow}>
-            <View style={[styles.badge, listing.isAvailable ? styles.badgeAvail : styles.badgeUnavail]}>
-              <Text style={[styles.badgeText, !listing.isAvailable && styles.badgeTextUnavailable]}>
-                {listing.isAvailable ? 'Available' : 'Unavailable'}
-              </Text>
-            </View>
-            <Text style={styles.category}>{listing.category}</Text>
-          </View>
-
-          <Text style={styles.title}>{listing.title}</Text>
-          <Text style={styles.price}>
-            ${Number(listing.dailyPrice).toFixed(2)}
-            <Text style={styles.perDay}> / day</Text>
-          </Text>
-
-          <Text style={styles.location}>{listing.city}</Text>
-
-          <RatingPill
-            avgRating={listing.avgRating}
-            reviewCount={listing.reviewCount}
-            style={styles.ratingPill}
-          />
-
-          {listing.latitude != null && listing.longitude != null && (
-            <View style={styles.mapWrap}>
-              <LocationMapPreview
-                latitude={listing.latitude}
-                longitude={listing.longitude}
-                height={140}
-                zoom={13}
-                hint={null}
-              />
-              <Text style={styles.mapCaption}>General area</Text>
-            </View>
-          )}
-
-          <Text style={styles.sectionTitle}>About this item</Text>
-          <Text style={styles.description}>{listing.description}</Text>
-
-          <Text style={styles.sectionTitle}>Listed by</Text>
-          <View style={styles.ownerCardWrap}>
-            <TouchableOpacity
-              style={styles.ownerCard}
-              activeOpacity={0.9}
-              onPress={() => nav.navigate('PublicProfile', { userId: listing.owner.id })}
-            >
-              {listing.owner.avatarUrl ? (
-                <Image source={{ uri: fillImageUrl(listing.owner.avatarUrl, { width: 48, height: 48 }) }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarInitial}>
-                    {listing.owner.firstName?.[0]?.toUpperCase() ?? '?'}
-                  </Text>
-                </View>
-              )}
-
-              <View>
-                <Text style={styles.ownerName}>
-                  {listing.owner.firstName} {listing.owner.lastName}
-                </Text>
-                {listing.owner.verificationStatus === 'VERIFIED' && (
-                  <Text style={styles.verified}>Verified student</Text>
-                )}
-                <Text style={styles.profileHint}>Tap to view profile card</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {!isOwner && (
-            <TouchableOpacity style={styles.reportLink} onPress={handleReport}>
-              <Text style={styles.reportLinkText}>Report this listing</Text>
-            </TouchableOpacity>
-          )}
-
-          {isOwner && (
-            <View style={styles.ownerActions}>
-              <Text style={styles.sectionTitle}>Manage listing</Text>
-
-              <ZoinkButton
-                label="Edit details"
-                variant="inset"
-                onPress={() => nav.navigate('EditListing', { listingId: listing.id })}
-                style={{ marginBottom: 12 }}
-              />
-
-              <ZoinkButton
-                label={listing.isAvailable ? 'Mark as unavailable' : 'Mark as available'}
-                variant={listing.isAvailable ? 'inset' : 'stamped'}
-                onPress={handleToggleAvailability}
-                isLoading={toggling}
-                style={{ marginBottom: 12 }}
-              />
-
-              <ZoinkButton
-                label="Delete listing"
-                variant="danger"
-                onPress={handleDelete}
-              />
-            </View>
-          )}
-        </HardBlock>
-      </ScrollView>
-
-      {!isOwner && (
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View>
-            <Text style={styles.footerPrice}>
-              ${Number(listing.dailyPrice).toFixed(2)}
-              <Text style={styles.footerPerDay}>/day</Text>
-            </Text>
-            <Text style={styles.footerCity}>{listing.city}</Text>
-          </View>
-
-          <View style={styles.footerActions}>
-            <ZoinkButton 
-              label="Message" 
-              variant="stampedOutline" 
-              onPress={handleMessageOwner}
-              style={{ flex: 1 }}
+        />
+      ) : (
+        <View style={[styles.noPhotos, { paddingTop: insets.top }]}>
+          <HardShadow offset="xl" radius={30}>
+            <Thumb
+              size={NO_PHOTO_THUMB}
+              initials={categoryAbbreviation(listing.category)}
+              initialsSize={38}
+              style={styles.noPhotoThumb}
             />
-
-            <ZoinkButton 
-              label={listing.isAvailable ? 'Request' : 'Unavailable'} 
-              variant="stamped" 
-              onPress={() => nav.navigate('BookingRequest', { listingId: listing.id })}
-              disabled={!listing.isAvailable}
-              style={{ flex: 1 }}
-            />
-          </View>
+          </HardShadow>
         </View>
       )}
 
-    </ScreenBackground>
+      <View style={[styles.heroControls, { top: insets.top + space.sm }]} pointerEvents="box-none">
+        <IconButton
+          accessibilityLabel="Go back"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+            nav.goBack()
+          }}
+        >
+          <Feather name="chevron-left" size={24} color={colors.ink} />
+        </IconButton>
+        <View style={styles.heroRight} pointerEvents="box-none">
+          {photos.length > 1 ? (
+            <Badge label={`${activeImg + 1} of ${photos.length} photos`} variant="surface" size={13} />
+          ) : null}
+          <IconButton
+            accessibilityLabel="Share this listing"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              handleShare()
+            }}
+          >
+            <Feather name="share" size={18} color={colors.ink} />
+          </IconButton>
+        </View>
+      </View>
+    </View>
+  )
+
+  const footer = !isOwner ? (
+    <View style={styles.footer}>
+      <View style={styles.footerPriceBlock}>
+        <Text style={styles.footerPrice}>${Number(listing.dailyPrice).toFixed(2)}/day</Text>
+        <Text style={styles.footerCity}>{listing.city}</Text>
+      </View>
+      <Button
+        label={listing.isAvailable ? 'Request' : 'Unavailable'}
+        onPress={() => nav.navigate('BookingRequest', { listingId: listing.id })}
+        disabled={!listing.isAvailable}
+        style={styles.footerButton}
+      />
+    </View>
+  ) : undefined
+
+  return (
+    <Screen edgeToEdgeTop contentStyle={styles.screenContent} footer={footer}>
+      {hero}
+
+      <View style={styles.body}>
+        <Badge
+          label={listing.isAvailable ? 'Available' : 'Unavailable'}
+          variant={listing.isAvailable ? 'green' : 'surface'}
+        />
+        <Text style={styles.title}>{listing.title}</Text>
+        <Text style={styles.priceLine}>
+          {priceWithCategory}
+        </Text>
+
+        <Card shadow={false} padding={space.lg}>
+          <View style={styles.ownerRow}>
+            <Pressable
+              style={styles.ownerTap}
+              onPress={() => nav.navigate('PublicProfile', { userId: owner.id })}
+              accessibilityRole="button"
+              accessibilityLabel={`Listed by ${owner.firstName} ${owner.lastName}, view profile`}
+            >
+              <Thumb
+                size={AVATAR}
+                source={owner.avatarUrl ? { uri: fillImageUrl(owner.avatarUrl, { width: AVATAR, height: AVATAR }) } : undefined}
+                initials={initialsOf(owner.firstName, owner.lastName)}
+                initialsSize={15}
+                style={styles.avatar}
+              />
+              <View style={styles.ownerText}>
+                <Text style={styles.ownerName} numberOfLines={1}>
+                  {owner.firstName} {owner.lastName}
+                </Text>
+                {owner.verificationStatus === 'VERIFIED' ? (
+                  <Text style={styles.caption}>Verified student</Text>
+                ) : null}
+                {listing.reviewCount > 0 && listing.avgRating != null ? (
+                  <View style={styles.ratingRow}>
+                    <Feather name="star" size={12} color={colors.ink} />
+                    <Text style={styles.caption}>
+                      {listing.avgRating.toFixed(1)} · {listing.reviewCount} {listing.reviewCount === 1 ? 'review' : 'reviews'}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </Pressable>
+            {!isOwner ? <Button label="Message" variant="secondary" size="sm" onPress={handleMessageOwner} /> : null}
+          </View>
+        </Card>
+
+        <Card shadow={false} padding={space.lg}>
+          <View style={styles.depositRow}>
+            <Feather name="lock" size={18} color={colors.ink} />
+            <Text style={styles.depositLabel}>Deposit</Text>
+            {deposit ? (
+              <Text style={styles.depositValue}>{deposit}</Text>
+            ) : (
+              <Text style={styles.depositNone}>No deposit</Text>
+            )}
+          </View>
+        </Card>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About this item</Text>
+          <Text style={styles.bodyText}>{listing.description}</Text>
+        </View>
+
+        {listing.latitude != null && listing.longitude != null ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>General area</Text>
+            <LocationMapPreview latitude={listing.latitude} longitude={listing.longitude} height={140} zoom={13} hint={null} />
+            <Text style={styles.caption}>{listing.city}</Text>
+          </View>
+        ) : null}
+
+        {!isOwner ? (
+          <Button label="Report this listing" variant="link" onPress={handleReport} />
+        ) : (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Manage listing</Text>
+            <Button
+              label="Edit details"
+              variant="secondary"
+              onPress={() => nav.navigate('EditListing', { listingId: listing.id })}
+            />
+            <Button
+              label={listing.isAvailable ? 'Mark as unavailable' : 'Mark as available'}
+              variant="secondary"
+              onPress={handleToggleAvailability}
+              loading={toggling}
+            />
+            <Button label="Delete listing" variant="secondary" onPress={handleDelete} />
+          </View>
+        )}
+      </View>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  carouselContainer: { position: 'relative', marginBottom: 20 },
-  carouselImage: { width: '100%', height: 240, borderRadius: theme.radius.md, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  dotRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    position: 'absolute',
-    bottom: 12,
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  screenContent: { paddingHorizontal: 0 },
+  hero: {
     width: '100%',
-    gap: 6,
+    backgroundColor: colors.green,
+    borderBottomWidth: border.base,
+    borderBottomColor: colors.ink,
+    overflow: 'hidden',
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(252,255,252,0.45)' },
-  dotActive: { backgroundColor: theme.textOnPrimary, width: 18 },
-  noImageBox: { height: 180, backgroundColor: theme.surfaceSubdued, borderRadius: theme.radius.md, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  noImageLogo: { marginBottom: 12 },
-  noImageText: { color: theme.textMuted, fontSize: 16 },
-  floatingRow: {
+  noPhotos: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noPhotoThumb: {
+    borderRadius: 30,
+  },
+  heroControls: {
+    position: 'absolute',
+    left: space.xxl,
+    right: space.xxl,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 50,
-    marginBottom: 20,
-    marginHorizontal: 16,
   },
-  floatingBtnWrap: {},
-  floatingBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.cardBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contentWrap: {
-    marginHorizontal: 16,
-    marginBottom: 40,
-  },
-  content: {
-    padding: 24,
-    backgroundColor: theme.cardBackground,
-  },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  badge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  badgeAvail: { backgroundColor: theme.primarySurface },
-  badgeUnavail: { backgroundColor: theme.colors.dangerSurface },
-  badgeText: { fontSize: 12, fontWeight: '900', color: theme.text },
-  badgeTextUnavailable: { color: theme.colors.danger },
-  category: { fontSize: 12, color: theme.textMuted, fontWeight: '700' },
-  title: { ...theme.type.screenTitle, marginBottom: 6 },
-  price: { fontSize: 26, fontWeight: '900', color: theme.primary, marginBottom: 4 },
-  perDay: { fontSize: 16, fontWeight: '400', color: theme.textMuted },
-  location: { fontSize: 14, color: theme.textMuted, marginBottom: 20 },
-  ratingPill: { marginBottom: 20 },
-  mapWrap: { marginBottom: 20 },
-  mapCaption: { fontSize: 12, color: theme.textMuted, marginTop: 6, fontWeight: '600' },
-  sectionTitle: { fontSize: 16, fontWeight: '900', color: theme.text, marginTop: 24, marginBottom: 10 },
-  description: { fontSize: 15, color: theme.textMuted, lineHeight: 22 },
-  ownerCardWrap: {
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-  },
-  ownerCard: {
+  heroRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    padding: 16,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
+    gap: space.sm,
   },
-  avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.primary,
+  body: {
+    padding: space.screen,
+    gap: space.lg,
+  },
+  title: {
+    ...type.h1,
+    color: colors.ink,
+  },
+  priceLine: {
+    ...type.price,
+    fontSize: type.body.fontSize,
+    lineHeight: 20,
+  },
+  ownerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
+    gap: space.lg,
   },
-  avatarInitial: { color: theme.textOnPrimary, fontSize: 20, fontWeight: '900' },
-  ownerName: { fontSize: 15, fontWeight: '800', color: theme.text },
-  verified: { fontSize: 12, color: theme.primary, marginTop: 2, fontWeight: '800' },
-  profileHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, fontWeight: '700' },
-  reportLink: { alignSelf: 'flex-start', marginTop: 12, paddingVertical: 4 },
-  reportLinkText: { color: theme.textMuted, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' },
-  ownerActions: { marginTop: 8 },
+  ownerTap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+  },
+  avatar: {
+    borderRadius: AVATAR / 2,
+    backgroundColor: colors.lime,
+  },
+  ownerText: {
+    flex: 1,
+    gap: 2,
+  },
+  ownerName: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  caption: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  depositRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  depositLabel: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    flex: 1,
+  },
+  depositValue: {
+    ...type.bodySm,
+    fontFamily: fonts.black,
+    color: colors.ink,
+  },
+  depositNone: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
+  },
+  section: {
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  sectionTitle: {
+    ...type.section,
+    color: colors.ink,
+  },
+  bodyText: {
+    ...type.body,
+    color: colors.muted,
+  },
   footer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: theme.surface,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderTopWidth: theme.hard.border,
-    borderTopColor: theme.hard.ink,
+    gap: space.lg,
   },
-  footerPrice: { fontSize: 20, fontWeight: '900', color: theme.text },
-  footerPerDay: { fontSize: 14, fontWeight: '400', color: theme.textMuted },
-  footerCity: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
-  footerActions: {
-    flexDirection: 'row',
-    gap: 8,
+  footerPriceBlock: {
+    gap: 2,
+  },
+  footerPrice: {
+    ...type.button,
+    color: colors.ink,
+  },
+  footerCity: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  footerButton: {
     flex: 1,
-    marginLeft: 20,
-    justifyContent: 'flex-end',
   },
 })
-
