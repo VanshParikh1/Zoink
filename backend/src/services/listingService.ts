@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma'
+import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { Prisma } from '@prisma/client'
 import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
@@ -485,7 +486,8 @@ export async function deleteListing(id: string, ownerId: string) {
 // ── Add image to listing ──────────────────────────────────────────────────────
 
 // Matches the create-listing screen's limit.
-export const MAX_LISTING_IMAGES = 8
+// Defined in @zoink/shared so the app's photo counter uses the same cap.
+export const MAX_LISTING_IMAGES = LISTING_PHOTOS_MAX
 
 // Runs BEFORE the file is sent to Cloudinary, so nobody can push files into
 // Zoink's Cloudinary account through a listing they don't own, and a listing

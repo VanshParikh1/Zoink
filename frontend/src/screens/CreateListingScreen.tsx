@@ -1,39 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import LocationMapPreview from '../components/LocationMapPreview'
-import LocationMapModal from '../components/LocationMapModal'
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import * as ImagePicker from 'expo-image-picker'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
-import { theme } from '../theme/colors'
-import { LISTING_CATEGORIES } from '../config/categories'
-import ZoinkButton from '../components/ZoinkButton'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import LocationMapPreview from '../components/LocationMapPreview'
+import LocationMapModal from '../components/LocationMapModal'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
-type Step = 1 | 2 | 3 | 4 | 5
 
 type FormData = {
   title: string
@@ -46,24 +32,17 @@ type FormData = {
   city: string
 }
 
-const CATEGORIES = LISTING_CATEGORIES
-
 const DEFAULT_CITY = 'Toronto'
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
-const TOTAL_STEPS = 5
+const MIN_PHOTOS = 1
 
 type LocationStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
 
-function getProgress(step: Step) {
-  return (step / TOTAL_STEPS) * 100
-}
-
 export default function CreateListingScreen() {
   const nav = useNavigation<Nav>()
-  const insets = useSafeAreaInsets()
-  const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
   const [photos, setPhotos] = useState<string[]>([])
+  const [errors, setErrors] = useState<ListingFormErrors>({})
   const [formData, setFormData] = useState<FormData>({
     title: '',
     category: '',
@@ -125,12 +104,18 @@ export default function CreateListingScreen() {
     }
   }
 
+  // The wizard asked for location when its location step opened. With one
+  // page, only use it automatically when permission is already granted, so
+  // opening the form never pops a permission prompt; otherwise the user taps
+  // "Use my current location".
   useEffect(() => {
-    if (step === 4 && locationStatus === 'idle') {
-      refreshLocation(!formData.city.trim() || formData.city === DEFAULT_CITY)
-    }
+    Location.getForegroundPermissionsAsync()
+      .then((permission) => {
+        if (permission.status === 'granted') refreshLocation(true)
+      })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step])
+  }, [])
 
   function useCurrentLocation() {
     setPinOverride(null)
@@ -157,16 +142,14 @@ export default function CreateListingScreen() {
     }
   }
 
-  const progressFillStyle = useMemo(
-    () => ({ width: `${getProgress(step)}%` as const }),
-    [step]
-  )
   const parsedDailyPrice = useMemo(() => Number.parseFloat(formData.dailyPrice || '0') || 0, [formData.dailyPrice])
   const parsedItemValue = useMemo(() => Number.parseFloat(formData.itemValue || '0') || 0, [formData.itemValue])
   const parsedDeposit = useMemo(() => Number.parseFloat(formData.deposit || '0') || 0, [formData.deposit])
 
   function updateForm<K extends keyof FormData>(key: K, value: FormData[K]) {
     setFormData((current) => ({ ...current, [key]: value }))
+    // Editing a field clears its own error; the rest wait for the next submit.
+    setErrors((current) => (key in current ? { ...current, [key]: undefined } : current))
   }
 
   async function handlePickPhoto() {
@@ -187,90 +170,43 @@ export default function CreateListingScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
       const nextUri = result.assets[0].uri
-      setPhotos((current) => (current.includes(nextUri) ? current : [...current, nextUri].slice(0, 8)))
+      setPhotos((current) => (current.includes(nextUri) ? current : [...current, nextUri].slice(0, LISTING_PHOTOS_MAX)))
+      setErrors((current) => ({ ...current, photos: undefined }))
     } catch {
       Alert.alert('Photo picker error', 'Could not open your photo library right now.')
     }
   }
 
   function removePhoto(uri: string) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
     setPhotos((current) => current.filter((photo) => photo !== uri))
   }
 
-  function handleBack() {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-    if (step === 1) {
-      nav.goBack()
-      return
+  // The wizard's per-step checks, all at once: same rules, one message per
+  // field, shown under that field.
+  function validate(): ListingFormErrors {
+    const next: ListingFormErrors = {}
+    if (photos.length < MIN_PHOTOS) next.photos = 'Add at least one photo of your item.'
+    if (!formData.title.trim()) next.title = 'Add a name for your item.'
+    if (!formData.category) next.category = 'Pick a category.'
+    if (!formData.description.trim()) next.description = 'Write a short description.'
+
+    if (!formData.dailyPrice.trim()) next.dailyPrice = 'Add a daily price.'
+    else if (Number.isNaN(parsedDailyPrice) || parsedDailyPrice <= 0) next.dailyPrice = 'Daily price must be a positive number.'
+
+    if (formData.deposit.trim() && (Number.isNaN(parsedDeposit) || parsedDeposit < 0)) {
+      next.deposit = 'Deposit must be zero or more.'
     }
-    setStep((current) => (current - 1) as Step)
-  }
-
-  function handleContinue() {
-    if (step === 1) {
-      if (!formData.title.trim() || !formData.category || !formData.description.trim()) {
-        Alert.alert('Missing details', 'Add a name, pick a category, and write a short description first.')
-        return
-      }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-      setStep(2)
-      return
-    }
-
-    if (step === 2) {
-      if (!formData.dailyPrice.trim()) {
-        Alert.alert('Missing price', 'Add a daily price before continuing.')
-        return
-      }
-
-      if (Number.isNaN(parsedDailyPrice) || parsedDailyPrice <= 0) {
-        Alert.alert('Invalid price', 'Daily price must be a positive number.')
-        return
-      }
-
-      if (formData.deposit.trim() && (Number.isNaN(parsedDeposit) || parsedDeposit < 0)) {
-        Alert.alert('Invalid deposit', 'Deposit must be zero or more.')
-        return
-      }
-
-      if (formData.itemValue.trim() && (Number.isNaN(parsedItemValue) || parsedItemValue < 0)) {
-        Alert.alert('Invalid item value', 'Item value must be zero or more.')
-        return
-      }
-
-      if (formData.deposit.trim() && !formData.itemValue.trim()) {
-        Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
-        return
-      }
-
-      if (formData.deposit.trim() && formData.itemValue.trim() && parsedDeposit > parsedItemValue) {
-        Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
-        return
-      }
-
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-      setStep(3)
-      return
+    if (formData.itemValue.trim() && (Number.isNaN(parsedItemValue) || parsedItemValue < 0)) {
+      next.itemValue = 'Item value must be zero or more.'
+    } else if (formData.deposit.trim() && !formData.itemValue.trim()) {
+      next.itemValue = "Add the item's value so we can validate your deposit amount."
+    } else if (formData.deposit.trim() && formData.itemValue.trim() && parsedDeposit > parsedItemValue) {
+      next.deposit = 'You cannot set the deposit amount greater than the item value.'
     }
 
-    if (step === 3) {
-      if (photos.length === 0) {
-        Alert.alert('Photo required', 'Add at least one photo of your item before continuing.')
-        return
-      }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-      setStep(4)
-      return
-    }
-
-    if (step === 4) {
-      if (!formData.city.trim()) {
-        Alert.alert('Location required', 'Add a city so renters can find your item.')
-        return
-      }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-      setStep(5)
-    }
+    if (!formData.city.trim()) next.city = 'Add a city so renters can find your item.'
+    return next
   }
 
   async function geocodeTypedCity() {
@@ -288,6 +224,13 @@ export default function CreateListingScreen() {
 
   async function handleGoLive() {
     if (loading) return
+
+    const nextErrors = validate()
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      return
+    }
 
     setLoading(true)
 
@@ -327,774 +270,129 @@ export default function CreateListingScreen() {
     }
   }
 
-  function renderStepOne() {
-    return (
-      <View style={styles.stepBody}>
-        <Text style={styles.stepEyebrow}>STEP 1</Text>
-        <Text style={styles.header}>Start with the basics</Text>
-        <Text style={styles.subheader}>Name it clearly, pick the right category, and add a quick description.</Text>
+  const hasErrors = Object.values(errors).some(Boolean)
+  const mapCoords = effectiveCoords ?? DEFAULT_COORDS
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Item name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Sony a7III Camera"
-            placeholderTextColor={theme.textDisabled}
-            value={formData.title}
-            onChangeText={(value) => updateForm('title', value)}
-            maxLength={80}
-            returnKeyType="next"
+  return (
+    <Screen
+      keyboardAvoiding
+      header={<ListingFormHeader title="Your stuff earns while you're in class." onBack={() => nav.goBack()} />}
+      footer={
+        <View style={styles.footer}>
+          {hasErrors ? <Text style={styles.error}>Fix the highlighted fields to list your item.</Text> : null}
+          <Button label="List it" onPress={handleGoLive} loading={loading} />
+        </View>
+      }
+    >
+      <ListingForm
+        photos={photos.map((uri) => ({ key: uri, uri, onRemove: () => removePhoto(uri) }))}
+        photoMin={MIN_PHOTOS}
+        photoMax={LISTING_PHOTOS_MAX}
+        onAddPhoto={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+          handlePickPhoto()
+        }}
+        title={formData.title}
+        onTitle={(v) => updateForm('title', v)}
+        category={formData.category}
+        onCategory={(v) => updateForm('category', v)}
+        description={formData.description}
+        onDescription={(v) => updateForm('description', v)}
+        dailyPrice={formData.dailyPrice}
+        onDailyPrice={(v) => updateForm('dailyPrice', v)}
+        deposit={formData.deposit}
+        onDeposit={(v) => updateForm('deposit', v)}
+        itemValue={formData.itemValue}
+        onItemValue={(v) => updateForm('itemValue', v)}
+        errors={errors}
+      >
+        <View style={styles.field}>
+          <Text style={styles.label}>Availability</Text>
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleText}>{formData.availableNow ? 'Live as soon as you list it' : 'Keep paused for now'}</Text>
+            <Switch
+              value={formData.availableNow}
+              onValueChange={(value) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                updateForm('availableNow', value)
+              }}
+              trackColor={{ false: colors.tan, true: colors.green }}
+              ios_backgroundColor={colors.tan}
+              accessibilityLabel="Available now"
+            />
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Pickup area</Text>
+          <Text style={styles.caption}>Help renters find your item. Only the city is shown publicly.</Text>
+          <TextField
+            placeholder="Search a place, e.g. University of Toronto"
+            value={locationQuery}
+            onChangeText={setLocationQuery}
+            onSubmitEditing={searchLocation}
+            returnKeyType="search"
+            leftIcon={<Feather name="search" size={18} color={colors.mutedAlt} />}
+            rightAccessory={
+              <Pressable onPress={searchLocation} disabled={locationSearching} hitSlop={12} accessibilityRole="button" accessibilityLabel="Search">
+                <Text style={styles.go}>{locationSearching ? '…' : 'Go'}</Text>
+              </Pressable>
+            }
+            error={locationSearchError || undefined}
           />
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Category</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipsScroll}
-            contentContainerStyle={styles.chipsContainer}
-          >
-            {CATEGORIES.map((category) => {
-              const isSelected = formData.category === category
-              return (
-                <TouchableOpacity
-                  key={category}
-                  activeOpacity={0.75}
-                  style={[styles.chip, isSelected ? styles.chipSelected : styles.chipUnselected]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                    updateForm('category', category)
-                  }}
-                >
-                  <Text style={isSelected ? styles.chipTextSelected : styles.chipTextUnselected}>
-                    {category}
-                  </Text>
-                </TouchableOpacity>
-              )
-            })}
-          </ScrollView>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Short description</Text>
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            placeholder="What is it, what condition is it in, and what should renters know?"
-            placeholderTextColor={theme.textDisabled}
-            value={formData.description}
-            onChangeText={(value) => updateForm('description', value)}
-            multiline
-            textAlignVertical="top"
-            maxLength={1000}
-          />
-        </View>
-      </View>
-    )
-  }
-
-  function renderStepTwo() {
-    return (
-      <View style={styles.stepBody}>
-        <Text style={styles.stepEyebrow}>STEP 2</Text>
-        <Text style={styles.header}>Set your pricing</Text>
-        <Text style={styles.subheader}>Keep it simple now. You can always fine-tune pricing and photos later.</Text>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Daily price</Text>
-          <View style={styles.priceCard}>
-            <Text style={styles.pricePrefix}>$</Text>
-            <TextInput
-              style={styles.priceInput}
-              placeholder="0"
-              placeholderTextColor={theme.textDisabled}
-              value={formData.dailyPrice}
-              onChangeText={(value) => updateForm('dailyPrice', value)}
-              keyboardType="decimal-pad"
-            />
-          </View>
-        </View>
-
-        <View style={styles.twoColumnRow}>
-          <View style={[styles.fieldGroup, styles.twoColumnField]}>
-            <Text style={styles.label}>Item value</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={formData.deposit.trim() ? '0' : 'Optional'}
-              placeholderTextColor={theme.textDisabled}
-              value={formData.itemValue}
-              onChangeText={(value) => updateForm('itemValue', value)}
-              keyboardType="decimal-pad"
-            />
-          </View>
-
-          <View style={[styles.fieldGroup, styles.twoColumnField]}>
-            <Text style={styles.label}>Deposit</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Optional"
-              placeholderTextColor={theme.textDisabled}
-              value={formData.deposit}
-              onChangeText={(value) => updateForm('deposit', value)}
-              keyboardType="decimal-pad"
-            />
-          </View>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Available now</Text>
-          <View style={styles.toggleCard}>
-            <Text style={styles.toggleLabel}>{formData.availableNow ? 'Live on publish' : 'Keep paused'}</Text>
-            <View style={styles.toggleSwitchWrap}>
-              <Switch
-                value={formData.availableNow}
-                onValueChange={(value) => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                  updateForm('availableNow', value)
-                }}
-                trackColor={{ false: theme.surfaceSubdued, true: theme.primary }}
-                thumbColor={formData.availableNow ? theme.textOnPrimary : theme.text}
-                ios_backgroundColor={theme.surfaceSubdued}
-                style={styles.toggleSwitch}
-              />
-            </View>
-          </View>
-        </View>
-      </View>
-    )
-  }
-
-  function renderStepThree() {
-    return (
-      <View style={styles.stepBody}>
-        <Text style={styles.stepEyebrow}>STEP 3</Text>
-        <Text style={styles.header}>Add photos</Text>
-        <Text style={styles.subheader}>At least one photo is required. Items with clear photos rent 3x faster.</Text>
-
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Photos ({photos.length}/8)</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.photoRow}
-          >
-            {photos.map((uri) => (
-              <View key={uri} style={styles.photoCard}>
-                <Image source={{ uri }} style={styles.photoPreview} />
-                <TouchableOpacity 
-                  style={styles.photoRemove} 
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
-                    removePhoto(uri)
-                  }}
-                >
-                  <Text style={styles.photoRemoveText}>x</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-
-            {photos.length < 8 ? (
-              <TouchableOpacity 
-                style={[styles.addPhotoCard, photos.length === 0 && styles.addPhotoCardRequired]} 
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-                  handlePickPhoto()
-                }}
-              >
-                <Text style={styles.addPhotoIcon}>+</Text>
-                <Text style={styles.addPhotoText}>{photos.length === 0 ? 'Add photo *' : 'Add more'}</Text>
-              </TouchableOpacity>
-            ) : null}
-          </ScrollView>
-        </View>
-
-        {photos.length === 0 && (
-          <View style={styles.warningBanner}>
-            <Text style={styles.warningText}>You need at least 1 photo to continue</Text>
-          </View>
-        )}
-      </View>
-    )
-  }
-
-  function renderStepFour() {
-    return (
-      <View style={styles.stepBody}>
-        <Text style={styles.stepEyebrow}>STEP 4</Text>
-        <Text style={styles.header}>Set your location</Text>
-        <Text style={styles.subheader}>Help renters find your item. Only the city is shown publicly.</Text>
-
-        <View style={styles.mapCard}>
-          <View style={styles.locationSearchRow}>
-            <TextInput
-              style={styles.locationSearchInput}
-              placeholder="Search a place, e.g. University of Toronto"
-              placeholderTextColor={theme.textDisabled}
-              value={locationQuery}
-              onChangeText={setLocationQuery}
-              onSubmitEditing={searchLocation}
-              returnKeyType="search"
-            />
-            <TouchableOpacity
-              style={styles.locationSearchButton}
-              onPress={searchLocation}
-              disabled={locationSearching}
-            >
-              {locationSearching ? (
-                <ActivityIndicator size="small" color={theme.textOnPrimary} />
-              ) : (
-                <Text style={styles.locationSearchButtonText}>Go</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-          {locationSearchError ? <Text style={styles.locationSearchError}>{locationSearchError}</Text> : null}
-
-          <LocationMapPreview
-            latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
-            longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
-            onPress={() => setMapModalVisible(true)}
-          />
-          <Text style={styles.mapCaption}>
+          <LocationMapPreview latitude={mapCoords.latitude} longitude={mapCoords.longitude} onPress={() => setMapModalVisible(true)} />
+          <Text style={styles.caption}>
             {locationStatus === 'loading' && !effectiveCoords
               ? 'Finding your location… tap the map or search to set it manually.'
               : locationStatus === 'denied' && !effectiveCoords
-              ? 'Location permission denied — tap the map or search to set your spot.'
-              : 'Tap the map to fine-tune the exact spot renters will see.'}
+                ? 'Location permission denied — tap the map or search to set your spot.'
+                : 'Tap the map to fine-tune the exact spot renters will see.'}
           </Text>
-
-          {pinOverride ? (
-            <View style={styles.locationLinksRow}>
-              <TouchableOpacity onPress={useCurrentLocation}>
-                <Text style={styles.locationLink}>Use my current location</Text>
-              </TouchableOpacity>
-            </View>
+          {pinOverride || !deviceCoords ? (
+            <Button label="Use my current location" variant="link" onPress={useCurrentLocation} />
           ) : null}
         </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>City *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Toronto"
-            placeholderTextColor={theme.textDisabled}
-            value={formData.city}
-            onChangeText={(value) => updateForm('city', value)}
-            maxLength={60}
-            returnKeyType="done"
-          />
-        </View>
-
-        <LocationMapModal
-          visible={mapModalVisible}
-          latitude={(effectiveCoords ?? DEFAULT_COORDS).latitude}
-          longitude={(effectiveCoords ?? DEFAULT_COORDS).longitude}
-          onClose={() => setMapModalVisible(false)}
-          onConfirm={setPinOverride}
+        <TextField
+          label="City"
+          placeholder="e.g. Toronto"
+          value={formData.city}
+          onChangeText={(value) => updateForm('city', value)}
+          maxLength={60}
+          returnKeyType="done"
+          error={errors.city}
         />
-      </View>
-    )
-  }
+      </ListingForm>
 
-  function renderStepFive() {
-    return (
-      <View style={styles.stepBody}>
-        <Text style={styles.stepEyebrow}>STEP 5</Text>
-        <Text style={styles.header}>Review before you go live</Text>
-        <Text style={styles.subheader}>This is the snapshot renters will see first.</Text>
-
-        <View style={styles.reviewCard}>
-          <View style={styles.reviewThumb}>
-            {photos[0] ? (
-              <Image source={{ uri: photos[0] }} style={styles.reviewImage} />
-            ) : (
-              <Text style={styles.reviewThumbText}>No photo</Text>
-            )}
-          </View>
-
-          <View style={styles.reviewBody}>
-            <Text style={styles.reviewName}>{formData.title.trim() || 'Untitled item'}</Text>
-            <View style={styles.reviewMetaRow}>
-              <Text style={styles.reviewCategory}>{formData.category || 'No category'}</Text>
-              <Text style={styles.reviewAvailability}>
-                {formData.availableNow ? 'Available now' : 'Starts paused'}
-              </Text>
-            </View>
-            <Text style={styles.reviewPrice}>${parsedDailyPrice.toFixed(2)} / day</Text>
-            <Text style={styles.reviewDeposit}>
-              Item value: {formData.itemValue.trim() ? `$${parsedItemValue.toFixed(2)}` : 'None'}
-            </Text>
-            <Text style={styles.reviewDeposit}>
-              Deposit: {formData.deposit.trim() ? `$${parsedDeposit.toFixed(2)}` : 'None'}
-            </Text>
-            <Text style={styles.reviewLocation}>{formData.city}</Text>
-            <Text style={styles.reviewDescription}>{formData.description.trim()}</Text>
-            <Text style={styles.reviewPhotoCount}>{photos.length} photo{photos.length !== 1 ? 's' : ''} attached</Text>
-          </View>
-        </View>
-      </View>
-    )
-  }
-
-  return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <ScreenBackground>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={{ flex: 1 }}>
-            <View style={styles.topBar}>
-              <BackButton onPress={handleBack} />
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, progressFillStyle]} />
-              </View>
-            </View>
-
-            <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.content}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {step === 1 ? renderStepOne() : null}
-              {step === 2 ? renderStepTwo() : null}
-              {step === 3 ? renderStepThree() : null}
-              {step === 4 ? renderStepFour() : null}
-              {step === 5 ? renderStepFive() : null}
-            </ScrollView>
-
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-              {step < 5 ? (
-                <ZoinkButton
-                  label={'Continue \u2192'}
-                  onPress={handleContinue}
-                />
-              ) : (
-                <ZoinkButton
-                  label="Go live"
-                  onPress={handleGoLive} 
-                  isLoading={loading} 
-                />
-              )}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </ScreenBackground>
-    </TouchableWithoutFeedback>
+      <LocationMapModal
+        visible={mapModalVisible}
+        latitude={mapCoords.latitude}
+        longitude={mapCoords.longitude}
+        onClose={() => setMapModalVisible(false)}
+        onConfirm={setPinOverride}
+      />
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  keyboardWrap: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  topBar: {
-    paddingTop: theme.header.stackTop,
-    paddingHorizontal: 24,
-    paddingBottom: 18,
-    gap: 18,
-  },
-  progressTrack: {
-    height: 3,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: theme.primary,
-    borderRadius: 999,
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-  },
-  stepBody: {
-    paddingTop: 6,
-  },
-  stepEyebrow: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 12,
-  },
-  header: {
-    ...theme.type.screenTitle,
-  },
-  subheader: {
-    color: theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 10,
-    marginBottom: 26,
-  },
-  fieldGroup: {
-    marginBottom: 22,
-  },
-  mapCard: {
-    marginBottom: 22,
-  },
-  mapCaption: {
-    color: theme.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 8,
-  },
-  locationLinksRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    marginTop: 8,
-  },
-  locationLink: {
-    color: theme.primaryDeep,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  locationSearchRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  locationSearchInput: {
-    flex: 1,
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.text,
-    fontSize: 14,
-  },
-  locationSearchButton: {
-    minWidth: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.primary,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-  },
-  locationSearchButtonText: {
-    color: theme.textOnPrimary,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  locationSearchError: {
-    color: theme.colors.danger,
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  label: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: theme.text,
-    fontSize: 15,
-  },
-  descriptionInput: {
-    minHeight: 132,
-    textAlignVertical: 'top',
-  },
-  chipsScroll: {
-    flexGrow: 0,
-  },
-  chipsContainer: {
-    gap: 8,
-    flexDirection: 'row',
-    paddingRight: 24,
-  },
-  chip: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  chipSelected: {
-    backgroundColor: theme.primary,
-  },
-  chipUnselected: {
-    backgroundColor: theme.surfaceSubdued,
-  },
-  chipTextSelected: {
-    color: theme.textOnPrimary,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  chipTextUnselected: {
-    color: theme.textMuted,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  priceCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.cardBackground,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    minHeight: 72,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  pricePrefix: {
-    color: theme.textMuted,
-    fontSize: 24,
-    fontWeight: '700',
-    marginRight: 10,
-  },
-  priceInput: {
-    flex: 1,
-    color: theme.primary,
-    fontSize: 28,
-    fontWeight: '900',
-    paddingVertical: 14,
-  },
-  twoColumnRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  twoColumnField: {
-    flex: 1,
-  },
-  toggleCard: {
-    minHeight: 56,
-    backgroundColor: theme.cardBackground,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    borderRadius: 8,
-    paddingHorizontal: 14,
+  footer: { gap: space.sm },
+  field: { gap: space.sm },
+  label: { ...type.labelSm, color: colors.ink },
+  caption: { ...type.caption, color: colors.mutedAlt },
+  error: { ...type.caption, color: colors.danger, textAlign: 'center' },
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    gap: space.md,
+    paddingHorizontal: space.xxl,
+    minHeight: 52,
+    borderRadius: radius.pill,
+    borderWidth: border.base,
+    borderColor: colors.ink,
+    backgroundColor: colors.surface,
   },
-  toggleLabel: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-    marginRight: 10,
-    flex: 1,
-  },
-  toggleSwitchWrap: {
-    minHeight: 40,
-    justifyContent: 'center',
-  },
-  toggleSwitch: {
-    alignSelf: 'center',
-  },
-  reviewCard: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.cardBorder,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  reviewThumb: {
-    height: 176,
-    borderRadius: 16,
-    backgroundColor: theme.surfaceSubdued,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  reviewImage: {
-    width: '100%',
-    height: '100%',
-  },
-  reviewThumbIcon: {
-    fontSize: 42,
-    marginBottom: 10,
-  },
-  reviewThumbText: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  reviewBody: {
-    gap: 10,
-  },
-  reviewName: {
-    color: theme.text,
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  reviewMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  reviewCategory: {
-    color: theme.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  reviewAvailability: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  reviewPrice: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  reviewDeposit: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  reviewDescription: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  photoRow: {
-    gap: 12,
-    paddingRight: 24,
-  },
-  photoCard: {
-    width: 120,
-    height: 120,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: theme.surfaceSubdued,
-  },
-  photoPreview: {
-    width: '100%',
-    height: '100%',
-  },
-  photoRemove: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(4, 15, 15, 0.78)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoRemoveText: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  addPhotoCard: {
-    width: 120,
-    height: 120,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surfaceSubdued,
-  },
-  addPhotoIcon: {
-    color: theme.primary,
-    fontSize: 28,
-    fontWeight: '400',
-    marginBottom: 6,
-  },
-  addPhotoText: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  footer: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  continueButton: {
-    width: '100%',
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    minHeight: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  continueButtonText: {
-    color: theme.textOnPrimary,
-    fontSize: 16,
-    fontWeight: '900',
-    textTransform: 'lowercase',
-  },
-  goLiveButton: {
-    width: '100%',
-    backgroundColor: theme.primary,
-    borderRadius: 12,
-    minHeight: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goLiveButtonText: {
-    color: theme.textOnPrimary,
-    fontSize: 16,
-    fontWeight: '900',
-    textTransform: 'lowercase',
-  },
-  warningBanner: {
-    backgroundColor: 'rgba(239, 165, 68, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 165, 68, 0.3)',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 4,
-  },
-  warningText: {
-    color: '#B45309',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  addPhotoCardRequired: {
-    borderColor: theme.primary,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-  },
-  reviewLocation: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  reviewPhotoCount: {
-    color: theme.primary,
-    fontSize: 13,
-    fontWeight: '800',
-  },
+  toggleText: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink, flex: 1 },
+  go: { ...type.label, fontFamily: fonts.black, color: colors.greenText },
 })

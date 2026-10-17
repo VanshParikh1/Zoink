@@ -6,7 +6,7 @@ import HardShadow from './HardShadow'
 
 type Props = {
   children: React.ReactNode
-  radius?: 'card' | 'cardLg'
+  radius?: 'card' | 'cardLg' | 'hero'
   /** Shadow offset token, or false for none. */
   shadow?: keyof typeof shadows | false
   padding?: number

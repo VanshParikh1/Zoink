@@ -19,3 +19,6 @@ export const ZOINK_TAP_WINDOW_MS = 5 * 60 * 1000
 // (enforced by backend schemas/handoff.schema.ts).
 export const HANDOFF_PHOTOS_MIN = 2
 export const HANDOFF_PHOTOS_MAX = 3
+
+// Most photos one listing can have (enforced by backend listingService).
+export const LISTING_PHOTOS_MAX = 8

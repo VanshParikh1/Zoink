@@ -1,37 +1,45 @@
 import React, { useCallback, useState } from 'react'
-import {
-  View,
-  Text,
-  FlatList,
-  Image,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  RefreshControl,
-} from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { FlatList, LayoutChangeEvent, RefreshControl, StyleSheet, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
 import { getMyListings } from '../services/listingsApi'
 import { getIncomingRequests } from '../services/bookingsApi'
 import { Booking, Listing } from '../types'
-import ZoinkLogo from '../components/ZoinkLogo'
-import ZoinkFullLogo from '../components/ZoinkFullLogo'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import { fillImageUrl } from '../utils/cloudinaryImage'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import IconButton from '../components/mockup/IconButton'
+import ListingGridCard from '../components/mockup/ListingGridCard'
+import StatePanel from '../components/mockup/StatePanel'
+import { BadgeVariant } from '../components/mockup/Badge'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
+// Same grid as Home: two equal columns sized from the list's measured width.
+const GRID_COLUMNS = 2
+const COLUMN_GAP = space.lg
+const ROW_GAP = space.xl
+const SKELETON_COUNT = 4
+
+function statusBadge(listing: Listing, activeBooking?: Booking): { label: string; variant: BadgeVariant } {
+  if (activeBooking) return { label: 'Rented out', variant: 'green' }
+  return listing.isAvailable ? { label: 'Active', variant: 'lime' } : { label: 'Paused', variant: 'surface' }
+}
+
 export default function MyListingsScreen() {
   const nav = useNavigation<Nav>()
+  const insets = useSafeAreaInsets()
   const [listings, setListings] = useState<Listing[]>([])
   const [activeBookingsByListing, setActiveBookingsByListing] = useState<Record<string, Booking>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [listWidth, setListWidth] = useState(0)
+  const cellWidth = listWidth ? Math.floor((listWidth - COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS) : 0
 
   const fetchListings = useCallback(async () => {
     try {
@@ -64,169 +72,82 @@ export default function MyListingsScreen() {
     fetchListings()
   }
 
-  const renderItem = ({ item }: { item: Listing }) => {
-    const imageUrl = item.images[0]?.url
-    const activeBooking = activeBookingsByListing[item.id]
-
-    return (
-      <View style={styles.cardWrap}>
-        <TouchableOpacity
-          style={[styles.card, activeBooking && styles.activeCard]}
-          onPress={() =>
-            activeBooking
-              ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
-              : nav.navigate('ListingDetail', { listingId: item.id })
-          }
-        >
-          {imageUrl ? (
-            <Image source={{ uri: fillImageUrl(imageUrl, { width: 70, height: 70 }) }} style={styles.image} />
-          ) : (
-            <View style={[styles.image, styles.imageFallback]}>
-              <ZoinkFullLogo width={80} height={24} />
-            </View>
-          )}
-
-          <View style={styles.cardContent}>
-            <Text style={styles.title} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <Text style={styles.price}>${Number(item.dailyPrice).toFixed(2)} / day</Text>
-            <View style={styles.statusRow}>
-              <View style={[styles.statusDot, item.isAvailable ? styles.availDot : styles.unavailDot]} />
-              <Text style={styles.statusText}>{item.isAvailable ? 'Available' : 'Unavailable'}</Text>
-            </View>
-            {activeBooking ? (
-              <TouchableOpacity
-                style={styles.activeBadge}
-                onPress={() => nav.navigate('ActiveRental', { bookingId: activeBooking.id })}
-              >
-                <Text style={styles.activeBadgeText}>Active Rental</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          <Text style={styles.arrow}>{'>'}</Text>
-        </TouchableOpacity>
-      </View>
-    )
-  }
-
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
-    )
-  }
-
   return (
-    <ScreenBackground>
-      <View style={styles.header}>
-        <View style={styles.backBtn}>
-          <BackButton />
-        </View>
-        <Text style={styles.headerTitle}>My Listings</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => nav.navigate('CreateListing')}>
-          <Text style={styles.addBtnText}>+ Add</Text>
-        </TouchableOpacity>
-      </View>
-
+    <Screen
+      scroll={false}
+      contentStyle={styles.screenContent}
+      header={
+        <ScreenHeader
+          title="My listings"
+          back
+          right={
+            <IconButton accessibilityLabel="List an item" onPress={() => nav.navigate('CreateListing')}>
+              <Feather name="plus" size={22} color={colors.ink} />
+            </IconButton>
+          }
+        />
+      }
+    >
       <FlatList
-        data={listings}
-        renderItem={renderItem}
+        data={loading && !refreshing ? [] : listings}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        numColumns={GRID_COLUMNS}
+        columnWrapperStyle={styles.gridRow}
+        onLayout={(e: LayoutChangeEvent) => setListWidth(e.nativeEvent.layout.width)}
+        renderItem={({ item }) => {
+          const activeBooking = activeBookingsByListing[item.id]
+          return cellWidth > 0 ? (
+            <ListingGridCard
+              listing={item}
+              width={cellWidth}
+              badge={statusBadge(item, activeBooking)}
+              onPress={() =>
+                activeBooking
+                  ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
+                  : nav.navigate('ListingDetail', { listingId: item.id })
+              }
+            />
+          ) : null
+        }}
+        ItemSeparatorComponent={Separator}
+        contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />
         }
         ListEmptyComponent={
-          error ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyErrorTitle}>Your listings couldn't load</Text>
-              <Text style={styles.emptyText}>{error}</Text>
-              <TouchableOpacity style={styles.btn} onPress={fetchListings}>
-                <Text style={styles.btnText}>Try again</Text>
-              </TouchableOpacity>
+          loading ? (
+            <View style={styles.skeletonGrid}>
+              {cellWidth > 0
+                ? Array.from({ length: SKELETON_COUNT }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)
+                : null}
             </View>
+          ) : error ? (
+            <StatePanel
+              title="Your listings couldn't load"
+              body={error}
+              action={{ label: 'Try again', onPress: fetchListings, variant: 'primary' }}
+            />
           ) : (
-            <View style={styles.empty}>
-              <ZoinkLogo size={60} style={styles.emptyLogo} />
-              <Text style={styles.emptyTitle}>You have not listed anything yet.</Text>
-              <Text style={styles.emptyText}>Post your first item to start getting requests from nearby students.</Text>
-              <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('CreateListing')}>
-                <Text style={styles.btnText}>Create your first listing</Text>
-              </TouchableOpacity>
-            </View>
+            <StatePanel
+              title="You have not listed anything yet."
+              body="Post your first item to start getting requests from nearby students."
+              action={{ label: 'List an item', onPress: () => nav.navigate('CreateListing'), variant: 'primary' }}
+            />
           )
         }
+        showsVerticalScrollIndicator={false}
       />
-    </ScreenBackground>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { flex: 1, backgroundColor: theme.screen, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    paddingTop: theme.header.stackTop,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-  },
-  headerTitle: { ...theme.type.screenTitle },
-  backBtn: { width: 60 },
-  addBtn: { width: 60, alignItems: 'flex-end' },
-  addBtnText: { color: theme.primary, fontSize: 16, fontWeight: '900' },
-  list: { padding: 20 },
-  cardWrap: {
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.hard.ink,
-    marginBottom: 16,
-  },
-  card: {
-    flexDirection: 'row',
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.sm,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    marginRight: theme.hard.offset.sm,
-    marginBottom: theme.hard.offset.sm,
-  },
-  activeCard: {
-    backgroundColor: theme.primarySurface,
-  },
-  image: { width: 70, height: 70, borderRadius: theme.radius.sm, backgroundColor: theme.primarySurface, borderWidth: theme.hard.borderThin, borderColor: theme.hard.ink },
-  imageFallback: { alignItems: 'center', justifyContent: 'center' },
-  cardContent: { flex: 1, marginLeft: 16 },
-  title: { fontSize: 18, fontWeight: '800', color: theme.text, marginBottom: 4 },
-  price: { fontSize: 15, color: theme.primaryDeep, fontWeight: '900', marginBottom: 6 },
-  statusRow: { flexDirection: 'row', alignItems: 'center' },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  availDot: { backgroundColor: theme.primary },
-  unavailDot: { backgroundColor: theme.colors.danger },
-  statusText: { fontSize: 12, color: theme.textMuted },
-  activeBadge: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    borderRadius: 999,
-    backgroundColor: theme.primarySurface,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  activeBadgeText: { color: theme.primaryDeep, fontSize: 11, fontWeight: '900' },
-  arrow: { fontSize: 24, color: theme.primary, marginLeft: 8 },
-  empty: { marginTop: 100, alignItems: 'center' },
-  emptyLogo: { marginBottom: 18 },
-  emptyTitle: { color: theme.text, fontSize: 20, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
-  emptyErrorTitle: { color: theme.colors.danger, fontSize: 20, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
-  emptyText: { color: theme.textMuted, fontSize: 16, marginBottom: 20, textAlign: 'center', lineHeight: 22, maxWidth: 280 },
-  btn: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  btnText: { color: theme.textOnPrimary, fontWeight: '900' },
-})
+function Separator() {
+  return <View style={styles.separator} />
+}
 
+const styles = StyleSheet.create({
+  screenContent: { paddingBottom: 0 },
+  gridRow: { gap: COLUMN_GAP },
+  skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: COLUMN_GAP, rowGap: ROW_GAP },
+  separator: { height: ROW_GAP },
+})

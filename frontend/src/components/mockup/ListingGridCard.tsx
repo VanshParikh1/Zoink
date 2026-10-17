@@ -6,7 +6,7 @@ import { fonts, type } from '../../theme/typography'
 import { fillImageUrl } from '../../utils/cloudinaryImage'
 import { categoryAbbreviation } from '../../config/categories'
 import HardShadow from './HardShadow'
-import Badge from './Badge'
+import Badge, { BadgeVariant } from './Badge'
 import { listingDisplay, ListingCardData } from './listingFormat'
 
 const SHADOW = shadow.md
@@ -17,12 +17,14 @@ type Props = {
   listing: ListingCardData
   /** Total width of the grid cell, hard shadow included. */
   width: number
+  /** Replaces the deposit badge on the photo (e.g. a listing status). */
+  badge?: { label: string; variant: BadgeVariant }
   onPress: () => void
   style?: StyleProp<ViewStyle>
 }
 
 /** Vertical listing card for grids and carousels: square photo, two-line title, price. */
-function ListingGridCard({ listing, width, onPress, style }: Props) {
+function ListingGridCard({ listing, width, badge, onPress, style }: Props) {
   const { priceLine, deposit, imageUrl, accessibilityLabel } = listingDisplay(listing)
   // The shadow sits in HardShadow's right/bottom padding, so the card itself
   // is the cell width minus the offset.
@@ -37,7 +39,7 @@ function ListingGridCard({ listing, width, onPress, style }: Props) {
       radius={radius.cardLg}
       style={[{ width }, style]}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={badge ? `${accessibilityLabel}, ${badge.label}` : accessibilityLabel}
     >
       <View style={styles.card}>
         <View style={[styles.imageBox, { height: imageSide + border.base }]}>
@@ -51,7 +53,11 @@ function ListingGridCard({ listing, width, onPress, style }: Props) {
           ) : (
             <Text style={styles.fallbackTag}>{categoryAbbreviation(listing.category)}</Text>
           )}
-          {deposit ? <Badge label={deposit} variant="lime" style={styles.depositBadge} /> : null}
+          {badge ? (
+            <Badge label={badge.label} variant={badge.variant} style={styles.depositBadge} />
+          ) : deposit ? (
+            <Badge label={deposit} variant="lime" style={styles.depositBadge} />
+          ) : null}
         </View>
         <View style={styles.body}>
           <Text style={styles.title} numberOfLines={TITLE_LINES}>

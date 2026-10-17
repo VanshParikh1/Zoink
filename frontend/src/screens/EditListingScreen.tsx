@@ -1,41 +1,25 @@
 import React, { useCallback, useState } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
-import {
-  getListing,
-  updateListing,
-  uploadListingImage,
-  deleteListingImage,
-} from '../services/listingsApi'
+import { getListing, updateListing, uploadListingImage, deleteListingImage } from '../services/listingsApi'
 import { Listing } from '../types'
-import ZoinkLogo from '../components/ZoinkLogo'
-import { theme } from '../theme/colors'
-import { LISTING_CATEGORIES } from '../config/categories'
-import ScreenBackground from '../components/ScreenBackground'
-import DismissKeyboardView from '../components/DismissKeyboardView'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { type } from '../theme/typography'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
 
-const CATEGORIES = LISTING_CATEGORIES
+const PHOTO = 72
 
 export default function EditListingScreen() {
   const nav = useNavigation<Nav>()
@@ -54,6 +38,7 @@ export default function EditListingScreen() {
   const [itemValue, setItemValue] = useState('')
   const [deposit, setDeposit] = useState('')
   const [city, setCity] = useState('')
+  const [errors, setErrors] = useState<ListingFormErrors>({})
 
   useFocusEffect(
     useCallback(() => {
@@ -83,38 +68,32 @@ export default function EditListingScreen() {
   )
 
   async function handleSave() {
-    if (!title.trim() || !description.trim() || !category || !dailyPrice || !city.trim()) {
-      Alert.alert('Missing fields', 'Please fill in all required fields.')
-      return
-    }
+    // Same rules as before; each message now shows under its field.
+    const next: ListingFormErrors = {}
+    if (!title.trim()) next.title = 'Add a name for your item.'
+    if (!description.trim()) next.description = 'Write a short description.'
+    if (!category) next.category = 'Pick a category.'
+    if (!city.trim()) next.city = 'Add a city so renters can find your item.'
 
     const price = parseFloat(dailyPrice)
-    if (isNaN(price) || price <= 0) {
-      Alert.alert('Invalid price', 'Daily price must be a positive number.')
-      return
-    }
+    if (!dailyPrice) next.dailyPrice = 'Add a daily price.'
+    else if (isNaN(price) || price <= 0) next.dailyPrice = 'Daily price must be a positive number.'
 
     const parsedDeposit = deposit.trim() ? parseFloat(deposit) : 0
     if (deposit.trim() && (isNaN(parsedDeposit) || parsedDeposit < 0)) {
-      Alert.alert('Invalid deposit', 'Deposit must be zero or more.')
-      return
+      next.deposit = 'Deposit must be zero or more.'
     }
-
     const parsedItemValue = itemValue.trim() ? parseFloat(itemValue) : 0
     if (itemValue.trim() && (isNaN(parsedItemValue) || parsedItemValue < 0)) {
-      Alert.alert('Invalid item value', 'Item value must be zero or more.')
-      return
+      next.itemValue = 'Item value must be zero or more.'
+    } else if (deposit.trim() && !itemValue.trim()) {
+      next.itemValue = "Add the item's value so we can validate your deposit amount."
+    } else if (deposit.trim() && itemValue.trim() && parsedDeposit > parsedItemValue) {
+      next.deposit = 'You cannot set the deposit amount greater than the item value.'
     }
 
-    if (deposit.trim() && !itemValue.trim()) {
-      Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
-      return
-    }
-
-    if (deposit.trim() && itemValue.trim() && parsedDeposit > parsedItemValue) {
-      Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
-      return
-    }
+    setErrors(next)
+    if (Object.keys(next).length > 0) return
 
     setSaving(true)
 
@@ -190,217 +169,63 @@ export default function EditListingScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={colors.greenText} />
       </View>
     )
   }
 
+  const hasErrors = Object.values(errors).some(Boolean)
+  // Editing a field clears its own error; the rest wait for the next save.
+  const edit = (field: keyof ListingFormErrors, set: (v: string) => void) => (v: string) => {
+    set(v)
+    setErrors((current) => (current[field] ? { ...current, [field]: undefined } : current))
+  }
+
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <BackButton style={styles.backBtn} />
-
-        <ZoinkLogo size={40} style={styles.logo} />
-        <Text style={styles.header}>Edit Listing</Text>
-
-        <Text style={styles.label}>Photos</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
-          {listing?.images.map((img) => (
-            <View key={img.id} style={styles.photoWrapper}>
-              <Image source={{ uri: fillImageUrl(img.url, { width: 90, height: 90 }) }} style={styles.photoThumb} />
-              <TouchableOpacity style={styles.photoRemove} onPress={() => handleRemovePhoto(img.id)}>
-                <Text style={styles.photoRemoveText}>X</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-
-          <TouchableOpacity style={styles.addPhoto} onPress={handleAddPhoto} disabled={uploadingImg}>
-            {uploadingImg ? (
-              <ActivityIndicator color={theme.primary} />
-            ) : (
-              <>
-                <Text style={styles.addPhotoIcon}>+</Text>
-                <Text style={styles.addPhotoLabel}>Add</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-
-        <Text style={styles.label}>Title <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={styles.input}
-          value={title}
-          onChangeText={setTitle}
-          placeholderTextColor={theme.textDisabled}
-          maxLength={80}
-        />
-
-        <Text style={styles.label}>Description <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={[styles.input, styles.textarea]}
-          value={description}
-          onChangeText={setDescription}
-          placeholderTextColor={theme.textDisabled}
-          multiline
-          numberOfLines={4}
-          maxLength={1000}
-        />
-
-        <Text style={styles.label}>Category <Text style={styles.req}>*</Text></Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[styles.chip, category === cat && styles.chipActive]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <Text style={styles.label}>Daily Price (CAD) <Text style={styles.req}>*</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={dailyPrice}
-            onChangeText={setDailyPrice}
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
+    <Screen
+      keyboardAvoiding
+      header={<ListingFormHeader title="Edit listing" onBack={() => nav.goBack()} />}
+      footer={
+        <View style={styles.footer}>
+          {hasErrors ? <Text style={styles.error}>Fix the highlighted fields to save.</Text> : null}
+          <Button label="Save changes" onPress={handleSave} loading={saving} />
         </View>
-
-        <Text style={styles.label}>Item value <Text style={styles.optional}>(optional)</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={itemValue}
-            onChangeText={setItemValue}
-            placeholder={deposit.trim() ? '0' : 'Optional'}
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        <Text style={styles.label}>Deposit <Text style={styles.optional}>(optional)</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={deposit}
-            onChangeText={setDeposit}
-            placeholder="0"
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        <Text style={styles.label}>City <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={styles.input}
-          value={city}
-          onChangeText={setCity}
-          placeholderTextColor={theme.textDisabled}
-          maxLength={60}
-        />
-
-        <TouchableOpacity
-          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+      }
+    >
+      <ListingForm
+        photos={(listing?.images ?? []).map((image) => ({
+          key: image.id,
+          uri: fillImageUrl(image.url, { width: PHOTO, height: PHOTO }) ?? image.url,
+          onRemove: () => handleRemovePhoto(image.id),
+        }))}
+        // Edit never required a photo; the backend caps every listing at LISTING_PHOTOS_MAX.
+        photoMin={0}
+        photoMax={LISTING_PHOTOS_MAX}
+        onAddPhoto={handleAddPhoto}
+        addingPhoto={uploadingImg}
+        title={title}
+        onTitle={edit('title', setTitle)}
+        category={category}
+        onCategory={edit('category', setCategory)}
+        description={description}
+        onDescription={edit('description', setDescription)}
+        dailyPrice={dailyPrice}
+        onDailyPrice={edit('dailyPrice', setDailyPrice)}
+        deposit={deposit}
+        onDeposit={edit('deposit', setDeposit)}
+        itemValue={itemValue}
+        onItemValue={edit('itemValue', setItemValue)}
+        errors={errors}
+      >
+        <TextField label="City" placeholder="e.g. Toronto" value={city} onChangeText={edit('city', setCity)} maxLength={60} error={errors.city} />
+      </ListingForm>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { paddingHorizontal: 24, paddingTop: theme.header.stackTop },
-  backBtn: { marginBottom: 16 },
-  logo: { marginBottom: 16 },
-  header: { ...theme.type.screenTitle, marginBottom: 24 },
-  label: { fontSize: 14, fontWeight: '800', color: theme.text, marginBottom: 6, marginTop: 18 },
-  req: { color: theme.primary },
-  optional: { color: theme.textMuted, fontWeight: '400' },
-  input: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    color: theme.text,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    fontSize: 15,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 7,
-    elevation: 1,
-  },
-  textarea: { height: 110, textAlignVertical: 'top', paddingTop: 13 },
-  chip: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    backgroundColor: theme.surface,
-  },
-  chipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipText: { fontSize: 13, color: theme.textMuted, fontWeight: '700' },
-  chipTextActive: { color: theme.textOnPrimary },
-  priceRow: { flexDirection: 'row', alignItems: 'center' },
-  currency: { fontSize: 20, color: theme.primary, marginRight: 8, fontWeight: '900' },
-  photoScroll: { marginTop: 4 },
-  photoWrapper: { position: 'relative', marginRight: 10 },
-  photoThumb: { width: 90, height: 90, borderRadius: 12 },
-  photoRemove: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(4,15,15,0.75)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoRemoveText: { color: theme.text, fontSize: 11, fontWeight: '900' },
-  addPhoto: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-  },
-  addPhotoIcon: { fontSize: 24, color: theme.primary },
-  addPhotoLabel: { fontSize: 11, color: theme.textMuted, marginTop: 2 },
-  saveBtn: {
-    backgroundColor: theme.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: theme.textOnPrimary, fontSize: 17, fontWeight: '900' },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
+  footer: { gap: space.sm },
+  error: { ...type.caption, color: colors.danger, textAlign: 'center' },
 })
-
