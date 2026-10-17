@@ -1,6 +1,5 @@
 import React from 'react'
 import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native'
-import { ListingBrowseItem } from '../../types'
 import { colors } from '../../theme/colors'
 import { border, radius, space } from '../../theme/tokens'
 import { fonts, type } from '../../theme/typography'
@@ -9,38 +8,19 @@ import { categoryAbbreviation } from '../../config/categories'
 import HardShadow from './HardShadow'
 import Thumb from './Thumb'
 import Badge from './Badge'
+import { listingDisplay, ListingCardData } from './listingFormat'
 
 const THUMB = 62
 
-/** Whole dollars when the amount is whole, otherwise cents: "$24", "$12.50". */
-function formatDollars(amount: string | number): string {
-  const n = Number(amount)
-  return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`
-}
-
 type Props = {
-  listing: Pick<ListingBrowseItem, 'title' | 'category' | 'dailyPrice' | 'depositAmount' | 'images'> & {
-    distanceKm?: number | null
-  }
+  listing: ListingCardData
   onPress: () => void
   style?: StyleProp<ViewStyle>
 }
 
 /** One listing row: photo, title, price (and distance when the data has it), deposit badge. */
 export default function ListingCard({ listing, onPress, style }: Props) {
-  const imageUrl = listing.images?.[0]?.url
-  const price = `${formatDollars(listing.dailyPrice)} / day`
-  const distance = typeof listing.distanceKm === 'number' ? `${listing.distanceKm.toFixed(1)} km` : null
-  const deposit = Number(listing.depositAmount) > 0 ? formatDollars(listing.depositAmount) : null
-
-  const a11yLabel = [
-    listing.title,
-    `${formatDollars(listing.dailyPrice)} per day`,
-    distance ? `${distance} away` : null,
-    deposit ? `${deposit} deposit held` : null,
-  ]
-    .filter(Boolean)
-    .join(', ')
+  const { priceLine, deposit, imageUrl, accessibilityLabel } = listingDisplay(listing)
 
   return (
     <HardShadow
@@ -50,7 +30,7 @@ export default function ListingCard({ listing, onPress, style }: Props) {
       radius={radius.cardLg}
       style={style}
       accessibilityRole="button"
-      accessibilityLabel={a11yLabel}
+      accessibilityLabel={accessibilityLabel}
     >
       <View style={styles.card}>
         <Thumb
@@ -64,11 +44,10 @@ export default function ListingCard({ listing, onPress, style }: Props) {
             {listing.title}
           </Text>
           <Text style={type.price} numberOfLines={1}>
-            {price}
-            {distance ? ` · ${distance}` : ''}
+            {priceLine}
           </Text>
         </View>
-        {deposit ? <Badge label={`${deposit} held`} variant="lime" /> : null}
+        {deposit ? <Badge label={deposit} variant="lime" /> : null}
       </View>
     </HardShadow>
   )

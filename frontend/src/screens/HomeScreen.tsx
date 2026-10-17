@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { FlatList, LayoutChangeEvent, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import Feather from '@expo/vector-icons/Feather'
@@ -21,7 +21,7 @@ import TextField from '../components/mockup/TextField'
 import CategoryChips from '../components/mockup/CategoryChips'
 import Card from '../components/mockup/Card'
 import IconButton from '../components/mockup/IconButton'
-import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
+import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -29,7 +29,13 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 5000
 const HOME_CATEGORIES = ['All', ...LISTING_CATEGORIES]
-const SKELETON_COUNT = 3
+const SKELETON_COUNT = 4
+
+// Listing grid: two equal columns. Each cell includes its card's hard-shadow
+// padding, so the right column's shadow lands inside the screen gutter.
+const GRID_COLUMNS = 2
+const COLUMN_GAP = space.lg
+const ROW_GAP = space.xl
 
 // "Need it once? Zoink it." in h1 (32) measures about 280pt, so it fits on one
 // line on a 375pt phone (335pt inside the gutters). Anything narrower drops to
@@ -57,6 +63,10 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [listWidth, setListWidth] = useState(0)
+  const cellWidth = listWidth
+    ? Math.floor((listWidth - space.screen * 2 - COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS)
+    : 0
 
   const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
     try {
@@ -191,10 +201,10 @@ export default function HomeScreen() {
   )
 
   const emptyState = loading ? (
-    <View style={styles.list}>
-      {Array.from({ length: SKELETON_COUNT }, (_, i) => (
-        <ListingCardSkeleton key={i} />
-      ))}
+    <View style={styles.skeletonGrid}>
+      {cellWidth > 0
+        ? Array.from({ length: SKELETON_COUNT }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)
+        : null}
     </View>
   ) : error ? (
     <StatePanel
@@ -211,17 +221,21 @@ export default function HomeScreen() {
       <FlatList
         data={loading ? [] : listings}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.padded}>
-            <ListingCard
+        numColumns={GRID_COLUMNS}
+        columnWrapperStyle={styles.gridRow}
+        onLayout={(e: LayoutChangeEvent) => setListWidth(e.nativeEvent.layout.width)}
+        renderItem={({ item }) =>
+          cellWidth > 0 ? (
+            <ListingGridCard
               listing={item}
+              width={cellWidth}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
                 nav.navigate('ListingDetail', { listingId: item.id })
               }}
             />
-          </View>
-        )}
+          ) : null
+        }
         ItemSeparatorComponent={Separator}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />}
         contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
@@ -307,10 +321,17 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: space.xs,
   },
-  list: {
-    gap: space.lg,
+  gridRow: {
+    paddingHorizontal: space.screen,
+    gap: COLUMN_GAP,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: COLUMN_GAP,
+    rowGap: ROW_GAP,
   },
   separator: {
-    height: space.lg,
+    height: ROW_GAP,
   },
 })

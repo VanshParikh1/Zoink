@@ -21,8 +21,31 @@ import PriceTable from '../components/mockup/PriceTable'
 import LogoPill from '../components/mockup/LogoPill'
 import HighlightText from '../components/mockup/HighlightText'
 import Thumb from '../components/mockup/Thumb'
+import ListingGridCard from '../components/mockup/ListingGridCard'
+import { ListingCardData } from '../components/mockup/listingFormat'
 
 const CATEGORIES = ['All', 'Cameras', 'Tools', 'Outdoors']
+
+const SAMPLE_PHOTO = 'https://images.unsplash.com/photo-1589003077984-894e133dabab?auto=format&fit=crop&w=1200&q=80'
+
+const GRID_SAMPLES: { key: string; listing: ListingCardData }[] = [
+  {
+    key: 'photo',
+    listing: { title: 'JBL PartyBox speaker', category: 'Audio/Video', dailyPrice: '24', depositAmount: '0', distanceKm: 1.2, images: [{ id: 'g1', url: SAMPLE_PHOTO, order: 0 }] },
+  },
+  {
+    key: 'no-photo',
+    listing: { title: 'Cordless drill', category: 'Tools', dailyPrice: '9.5', depositAmount: '0', distanceKm: null, images: [] },
+  },
+  {
+    key: 'deposit',
+    listing: { title: 'Sony a6400 camera', category: 'Cameras', dailyPrice: '38', depositAmount: '150', distanceKm: 3.4, images: [{ id: 'g2', url: SAMPLE_PHOTO, order: 0 }] },
+  },
+  {
+    key: 'long-title',
+    listing: { title: 'Heat gun + soldering station with spare tips, stand and a carry case', category: 'Tools', dailyPrice: '8', depositAmount: '14', distanceKm: 94, images: [] },
+  },
+]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -39,6 +62,8 @@ export default function DesignGalleryScreen() {
   const [otpDone, setOtpDone] = useState<string | null>(null)
   const [presses, setPresses] = useState(0)
   const [email, setEmail] = useState('')
+  const [gridWidth, setGridWidth] = useState(0)
+  const gridCell = gridWidth ? Math.floor((gridWidth - space.lg) / 2) : 0
 
   const pressed = () => setPresses((n) => n + 1)
 
@@ -233,6 +258,17 @@ export default function DesignGalleryScreen() {
         </View>
       </Section>
 
+      <Section title="ListingGridCard">
+        <View style={styles.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+          {gridCell > 0
+            ? GRID_SAMPLES.map((sample) => (
+                <ListingGridCard key={sample.key} listing={sample.listing} width={gridCell} onPress={pressed} />
+              ))
+            : null}
+          {gridCell > 0 ? <ListingGridCard.Skeleton width={gridCell} /> : null}
+        </View>
+      </Section>
+
       <Section title="Thumb">
         <View style={styles.row}>
           <Thumb size={40} />
@@ -262,6 +298,12 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: space.lg,
+    rowGap: space.xl,
   },
   ink: {
     color: colors.ink,
