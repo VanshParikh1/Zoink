@@ -2,10 +2,10 @@ import React, { useMemo, useRef, useState } from 'react'
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
@@ -14,9 +14,14 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { TERMS_TEXT, TERMS_VERSION, PRIVACY_TEXT, PRIVACY_VERSION } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { border, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Button from '../components/mockup/Button'
+import Card from '../components/mockup/Card'
+import Chip from '../components/mockup/Chip'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'TermsAcceptance'>
 type ScreenRoute = RouteProp<RootStackParamList, 'TermsAcceptance'>
@@ -156,16 +161,32 @@ function MarkdownDocument({ markdown }: { markdown: string }) {
   )
 }
 
+function Checkbox({ checked, onPress, label }: { checked: boolean; onPress: () => void; label: string }) {
+  return (
+    <Pressable
+      style={styles.checkboxRow}
+      onPress={onPress}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+    >
+      <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+        {checked ? <Feather name="check" size={14} color={colors.ink} /> : null}
+      </View>
+      <Text style={styles.checkboxLabel}>{label}</Text>
+    </Pressable>
+  )
+}
+
 export default function TermsAcceptanceScreen() {
   const navigation = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
-  const { mode, pendingRegistration } = route.params
+  const { mode, pendingRegistration, initialTab } = route.params
   const { register, acceptTerms } = useAuth()
 
   const isInteractive = mode === 'register' || mode === 'update'
   const isView = mode === 'view'
 
-  const [tab, setTab] = useState<Tab>('terms')
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'terms')
   const [scrolledTerms, setScrolledTerms] = useState(isView)
   const [scrolledPrivacy, setScrolledPrivacy] = useState(isView)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
@@ -230,48 +251,73 @@ export default function TermsAcceptanceScreen() {
     navigation.navigate('Register', { pendingRegistration })
   }
 
+  const footnote = (
+    <Text style={styles.versionFootnote}>
+      Terms v{TERMS_VERSION} · Privacy v{PRIVACY_VERSION} · effective {TERMS_EFFECTIVE_DATE}
+    </Text>
+  )
+
   return (
-    <ScreenBackground>
-      <View style={styles.container}>
+    <Screen
+      glow="topLeft"
+      scroll={false}
+      header={
         <View style={styles.header}>
-          {mode === 'register' ? (
-            <BackButton onPress={handleBack} style={styles.backLink} />
-          ) : mode === 'view' ? (
-            <BackButton style={styles.backLink} />
-          ) : (
-            <View style={styles.backSpacer} />
-          )}
-          <Text style={styles.title}>
-            {mode === 'update' ? "We've updated our terms" : mode === 'view' ? 'Terms & Privacy' : 'Terms & Privacy'}
-          </Text>
+          <ScreenHeader
+            title={mode === 'update' ? "We've updated our terms" : 'Terms & Privacy'}
+            back={mode !== 'update'}
+            onBack={mode === 'register' ? handleBack : undefined}
+          />
           {mode === 'update' ? (
             <Text style={styles.subtitle}>
               Please review the changes below and accept to keep using Zoink.
             </Text>
           ) : null}
         </View>
+      }
+      footer={
+        !isView ? (
+          <View style={styles.footer}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[styles.tabButton, tab === 'terms' && styles.tabButtonActive]}
-            onPress={() => switchTab('terms')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.tabText, tab === 'terms' && styles.tabTextActive]}>
-              Terms of Service {scrolledTerms ? '✓' : ''}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabButton, tab === 'privacy' && styles.tabButtonActive]}
-            onPress={() => switchTab('privacy')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.tabText, tab === 'privacy' && styles.tabTextActive]}>
-              Privacy Policy {scrolledPrivacy ? '✓' : ''}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <Checkbox
+              checked={agreedToTerms}
+              onPress={() => setAgreedToTerms((v) => !v)}
+              label="I have read and agree to the Terms of Service and Privacy Policy"
+            />
+            <Checkbox
+              checked={confirmedAge}
+              onPress={() => setConfirmedAge((v) => !v)}
+              label="I confirm I am 18 years of age or older"
+            />
 
+            <Button
+              label={submitting ? 'Please wait…' : !bothScrolled ? 'Scroll to continue' : 'Accept and continue'}
+              onPress={handleAccept}
+              disabled={!canAccept}
+            />
+
+            {footnote}
+          </View>
+        ) : (
+          footnote
+        )
+      }
+    >
+      <View style={styles.tabRow}>
+        <Chip
+          label={`Terms of Service ${scrolledTerms ? '✓' : ''}`.trim()}
+          active={tab === 'terms'}
+          onPress={() => switchTab('terms')}
+        />
+        <Chip
+          label={`Privacy Policy ${scrolledPrivacy ? '✓' : ''}`.trim()}
+          active={tab === 'privacy'}
+          onPress={() => switchTab('privacy')}
+        />
+      </View>
+
+      <Card shadow={false} padding={0} style={styles.cardWrap} contentStyle={styles.card}>
         <ScrollView
           ref={scrollViewRef}
           style={styles.scroll}
@@ -282,139 +328,54 @@ export default function TermsAcceptanceScreen() {
         >
           <MarkdownDocument markdown={tab === 'terms' ? TERMS_TEXT : PRIVACY_TEXT} />
         </ScrollView>
-
-        {!isView ? (
-          <View style={styles.footer}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
-            <TouchableOpacity
-              style={styles.checkboxRow}
-              onPress={() => setAgreedToTerms((v) => !v)}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
-                {agreedToTerms ? <Feather name="check" size={14} color={theme.textOnPrimary} /> : null}
-              </View>
-              <Text style={styles.checkboxLabel}>
-                I have read and agree to the Terms of Service and Privacy Policy
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.checkboxRow}
-              onPress={() => setConfirmedAge((v) => !v)}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.checkbox, confirmedAge && styles.checkboxChecked]}>
-                {confirmedAge ? <Feather name="check" size={14} color={theme.textOnPrimary} /> : null}
-              </View>
-              <Text style={styles.checkboxLabel}>I confirm I am 18 years of age or older</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.button, !canAccept && styles.buttonDisabled]}
-              onPress={handleAccept}
-              disabled={!canAccept}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.buttonText}>
-                {submitting ? 'Please wait…' : !bothScrolled ? 'Scroll to continue' : 'Accept and continue'}
-              </Text>
-            </TouchableOpacity>
-
-            <Text style={styles.versionFootnote}>
-              Terms v{TERMS_VERSION} · Privacy v{PRIVACY_VERSION} · effective {TERMS_EFFECTIVE_DATE}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.footer}>
-            <Text style={styles.versionFootnote}>
-              Terms v{TERMS_VERSION} · Privacy v{PRIVACY_VERSION} · effective {TERMS_EFFECTIVE_DATE}
-            </Text>
-          </View>
-        )}
-      </View>
-    </ScreenBackground>
+      </Card>
+    </Screen>
   )
 }
 
 const mdStyles = StyleSheet.create({
-  h1: { fontSize: 22, fontWeight: '900', color: theme.text, marginBottom: 6, marginTop: 4 },
-  h2: { fontSize: 18, fontWeight: '900', color: theme.text, marginBottom: 4, marginTop: 14 },
-  h3: { fontSize: 16, fontWeight: '800', color: theme.text, marginBottom: 4, marginTop: 10 },
-  paragraph: { fontSize: 14, lineHeight: 21, color: theme.textSecondary },
-  paragraphBold: { fontSize: 14, lineHeight: 21, color: theme.text, fontWeight: '800' },
-  listRow: { flexDirection: 'row', gap: 8, paddingLeft: 4, marginBottom: 2 },
-  bullet: { fontSize: 14, color: theme.primaryDeep, lineHeight: 21 },
+  h1: { ...type.section, color: colors.ink, marginBottom: space.xs, marginTop: 4 },
+  h2: { ...type.body, fontFamily: fonts.black, color: colors.ink, marginBottom: 4, marginTop: space.xl },
+  h3: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink, marginBottom: 4, marginTop: space.md },
+  paragraph: { ...type.bodySm, color: colors.muted },
+  paragraphBold: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink },
+  listRow: { flexDirection: 'row', gap: space.sm, paddingLeft: 4, marginBottom: 2 },
+  bullet: { ...type.bodySm, color: colors.greenText },
   quoteBlock: {
-    borderLeftWidth: 3,
-    borderLeftColor: theme.primary,
-    backgroundColor: theme.primarySurface,
-    borderRadius: 8,
-    padding: 10,
-    marginVertical: 6,
+    borderLeftWidth: border.thick,
+    borderLeftColor: colors.green,
+    backgroundColor: colors.bg,
+    borderRadius: space.sm,
+    padding: space.md,
+    marginVertical: space.xs,
   },
-  quoteText: { fontSize: 13, lineHeight: 19, color: theme.textSecondary, fontStyle: 'italic' },
-  quoteTextBold: { fontSize: 13, lineHeight: 19, color: theme.text, fontStyle: 'italic', fontWeight: '800' },
-  spacer: { height: 6 },
+  quoteText: { ...type.caption, color: colors.muted },
+  quoteTextBold: { ...type.caption, fontFamily: fonts.bold, color: colors.ink },
+  spacer: { height: space.xs },
 })
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: theme.header.stackTop },
-  header: { paddingHorizontal: 20, marginBottom: 10 },
-  backLink: { marginBottom: 10 },
-  backSpacer: { height: 10 },
-  title: { ...theme.type.screenTitle, fontSize: 24 },
-  subtitle: { color: theme.textMuted, fontSize: 14, marginTop: 4, lineHeight: 20 },
-  tabRow: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    backgroundColor: theme.surfaceSubdued,
-    borderRadius: 14,
-    padding: 4,
-    gap: 4,
-    marginBottom: 10,
-  },
-  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
-  tabButtonActive: { backgroundColor: theme.surface },
-  tabText: { fontSize: 13, fontWeight: '700', color: theme.textMuted },
-  tabTextActive: { color: theme.text },
-  scroll: {
-    flex: 1,
-    marginHorizontal: 20,
-    backgroundColor: theme.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  scrollContent: { padding: 16, paddingBottom: 24 },
-  footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 24 },
-  error: { color: theme.danger, fontSize: 13, fontWeight: '700', marginBottom: 8 },
-  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  header: { gap: space.xs },
+  subtitle: { ...type.bodySm, color: colors.mutedAlt },
+  tabRow: { flexDirection: 'row', gap: space.md, marginBottom: space.lg },
+  cardWrap: { flex: 1 },
+  card: { flex: 1, overflow: 'hidden' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: space.xxl, paddingBottom: space.xxl + space.sm },
+  footer: { gap: space.lg },
+  error: { ...type.labelSm, color: colors.danger },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: space.lg, minHeight: 44 },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: theme.border,
+    width: 24,
+    height: 24,
+    borderRadius: space.xs,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.surface,
+    backgroundColor: colors.surface,
   },
-  checkboxChecked: { backgroundColor: theme.primary, borderColor: theme.primaryDeep },
-  checkboxLabel: { flex: 1, fontSize: 14, color: theme.text, fontWeight: '600', lineHeight: 19 },
-  button: {
-    backgroundColor: theme.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 6,
-    borderBottomWidth: 4,
-    borderBottomColor: theme.primaryDeep,
-    borderRightWidth: 2,
-    borderRightColor: theme.primaryDeep,
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
-  versionFootnote: { textAlign: 'center', color: theme.textDisabled, fontSize: 12, fontWeight: '600', marginTop: 12 },
+  checkboxChecked: { backgroundColor: colors.green },
+  checkboxLabel: { ...type.labelSm, flex: 1, color: colors.ink },
+  versionFootnote: { ...type.caption, textAlign: 'center', color: colors.mutedAlt },
 })

@@ -53,7 +53,7 @@ export type PendingRegistration = {
 export type RootStackParamList = {
   Login: undefined
   Register: { pendingRegistration?: PendingRegistration; errorMessage?: string } | undefined
-  TermsAcceptance: { mode: 'register' | 'update' | 'view'; pendingRegistration?: PendingRegistration }
+  TermsAcceptance: { mode: 'register' | 'update' | 'view'; pendingRegistration?: PendingRegistration; initialTab?: 'terms' | 'privacy' }
   VerifyEmail: undefined
   VerificationGate: undefined
   MainApp: { tab?: 'Home' | 'Search' | 'Inbox' | 'MyProfile' } | undefined

@@ -22,3 +22,14 @@ export const UNIVERSITY_LABELS: Record<University, string> = {
   MCMASTER: 'McMaster University',
   WATERLOO: 'University of Waterloo',
 }
+
+// Short display names for compact UI (e.g. the sign-up universities card).
+export const UNIVERSITY_SHORT_LABELS: Record<University, string> = {
+  UOFT: 'UofT',
+  TMU: 'TMU',
+  LAURIER: 'Laurier',
+  YORK: 'York',
+  ONTARIO_TECH: 'Ontario Tech',
+  MCMASTER: 'McMaster',
+  WATERLOO: 'Waterloo',
+}

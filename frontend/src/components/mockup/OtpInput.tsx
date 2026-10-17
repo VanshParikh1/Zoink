@@ -12,6 +12,8 @@ type Props = {
   onChange: (code: string) => void
   onComplete?: (code: string) => void
   autoFocus?: boolean
+  /** Danger borders on every box. */
+  error?: boolean
   style?: StyleProp<ViewStyle>
 }
 
@@ -21,7 +23,7 @@ type Props = {
  * menu; iOS also offers the emailed code above the keyboard (oneTimeCode).
  * Anything that isn't a digit is dropped, so pasting "123 456" works too.
  */
-export default function OtpInput({ value, onChange, onComplete, autoFocus, style }: Props) {
+export default function OtpInput({ value, onChange, onComplete, autoFocus, error = false, style }: Props) {
   const inputRef = useRef<TextInput>(null)
   const [focused, setFocused] = useState(false)
   const current = Math.min(value.length, LENGTH - 1)
@@ -37,7 +39,7 @@ export default function OtpInput({ value, onChange, onComplete, autoFocus, style
       {Array.from({ length: LENGTH }, (_, i) => {
         const isCurrent = focused && i === current
         const box = (
-          <View style={[styles.box, isCurrent ? styles.boxCurrent : null]}>
+          <View style={[styles.box, isCurrent ? styles.boxCurrent : null, error ? styles.boxError : null]}>
             <Text style={styles.digit}>{value[i] ?? ''}</Text>
           </View>
         )
@@ -97,6 +99,9 @@ const styles = StyleSheet.create({
   },
   boxCurrent: {
     backgroundColor: colors.lime,
+  },
+  boxError: {
+    borderColor: colors.danger,
   },
   digit: {
     fontFamily: fonts.black,

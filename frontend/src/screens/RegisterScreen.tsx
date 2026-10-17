@@ -1,23 +1,18 @@
 import React, { useState } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Modal,
-} from 'react-native'
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { University, UNIVERSITY_DOMAINS, UNIVERSITY_LABELS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
-import ZoinkLogo from '../components/ZoinkLogo'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Register'>
 type ScreenRoute = RouteProp<RootStackParamList, 'Register'>
@@ -37,6 +32,7 @@ function emailMatchesUniversity(email: string, university: University | null): b
 export default function RegisterScreen() {
   const navigation = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
+  const insets = useSafeAreaInsets()
   const pending = route.params?.pendingRegistration
 
   const [firstName, setFirstName] = useState(pending?.firstName ?? '')
@@ -80,292 +76,198 @@ export default function RegisterScreen() {
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView
-            contentContainerStyle={styles.inner}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Header & Logo */}
-            <Text style={styles.kicker}>join zoink</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={styles.title}>Create account</Text>
-              <ZoinkLogo size={75} style={{ marginTop: -30, marginRight: 1 }} />
-            </View>
-            <Text style={styles.subtitle}>
-              Use your university email to unlock the student marketplace.
+    <>
+      <Screen
+        glow="topLeft"
+        keyboardAvoiding
+        footer={
+          <View style={styles.footer}>
+            <Button label="Continue" onPress={handleRegister} />
+            <Text style={styles.switchText} onPress={() => navigation.navigate('Login')} accessibilityRole="link">
+              Already have an account? <Text style={styles.switchLink}>Sign in</Text>
             </Text>
+            <LegalCaption
+              onTerms={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'terms' })}
+              onPrivacy={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'privacy' })}
+            />
+          </View>
+        }
+      >
+        <View style={styles.content}>
+          <AuthIntro />
 
-            {/* Form */}
-            <View style={styles.form}>
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+          <View style={styles.form}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
 
-              <View style={styles.row}>
-                <TextInput
-                  style={[styles.input, styles.halfInput]}
-                  placeholder="First name"
-                  placeholderTextColor={theme.textDisabled}
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  maxLength={50}
-                />
-                <TextInput
-                  style={[styles.input, styles.halfInput]}
-                  placeholder="Last name"
-                  placeholderTextColor={theme.textDisabled}
-                  value={lastName}
-                  onChangeText={setLastName}
-                  maxLength={50}
+            <TextField
+              label="Student email"
+              placeholder={university ? `Student email (@${UNIVERSITY_DOMAINS[university]})` : 'University email'}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              value={email}
+              onChangeText={setEmail}
+            />
+
+            {/* Opens the picker; the field itself is display-only. */}
+            <Pressable
+              onPress={() => setPickerVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel={university ? `University, ${UNIVERSITY_LABELS[university]}` : 'Choose your university'}
+            >
+              <View pointerEvents="none">
+                <TextField
+                  label="University"
+                  placeholder="University"
+                  value={university ? UNIVERSITY_LABELS[university] : ''}
+                  editable={false}
+                  leftIcon={<Feather name="book-open" size={18} color={colors.mutedAlt} />}
                 />
               </View>
+            </Pressable>
 
-              <TouchableOpacity
-                style={styles.input}
-                onPress={() => setPickerVisible(true)}
-                activeOpacity={0.75}
-              >
-                <Text style={university ? styles.selectValue : styles.selectPlaceholder}>
-                  {university ? UNIVERSITY_LABELS[university] : 'University'}
-                </Text>
-              </TouchableOpacity>
-
-              <TextInput
-                style={styles.input}
-                placeholder={university ? `Student email (@${UNIVERSITY_DOMAINS[university]})` : 'University email'}
-                placeholderTextColor={theme.textDisabled}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
+            <View style={styles.row}>
+              <TextField
+                label="First name"
+                placeholder="First name"
+                value={firstName}
+                onChangeText={setFirstName}
+                maxLength={50}
+                style={styles.half}
               />
-              <TextInput
-                style={styles.input}
-                placeholder="Phone number"
-                placeholderTextColor={theme.textDisabled}
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={setPhone}
+              <TextField
+                label="Last name"
+                placeholder="Last name"
+                value={lastName}
+                onChangeText={setLastName}
+                maxLength={50}
+                style={styles.half}
               />
-              <TextInput
-                style={styles.input}
-                placeholder="Password (min 8 characters)"
-                placeholderTextColor={theme.textDisabled}
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-
-              {/* Tactile stamped button */}
-              <TouchableOpacity
-                style={styles.button}
-                onPress={handleRegister}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.buttonText}>Continue</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.7}>
-                <Text style={styles.link}>
-                  Already have an account?{' '}
-                  <Text style={styles.linkBold}>Sign in</Text>
-                </Text>
-              </TouchableOpacity>
             </View>
 
-          </ScrollView>
-        </KeyboardAvoidingView>
-
-        <Modal
-          visible={pickerVisible}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setPickerVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Choose your university</Text>
-              {UNIVERSITY_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={styles.modalRow}
-                  onPress={() => {
-                    setUniversity(option)
-                    setPickerVisible(false)
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.modalRowText}>{UNIVERSITY_LABELS[option]}</Text>
-                  {university === option ? <Text style={styles.modalRowCheck}>✓</Text> : null}
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={styles.modalCancel}
-                onPress={() => setPickerVisible(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <TextField
+              label="Phone number"
+              placeholder="Phone number"
+              keyboardType="phone-pad"
+              textContentType="telephoneNumber"
+              value={phone}
+              onChangeText={setPhone}
+            />
+            <TextField
+              label="Password"
+              placeholder="Password (min 8 characters)"
+              secureTextEntry
+              textContentType="newPassword"
+              value={password}
+              onChangeText={setPassword}
+            />
           </View>
-        </Modal>
-      </ScreenBackground>
-    </DismissKeyboardView>
+
+          <UniversitiesCard />
+        </View>
+      </Screen>
+
+      <Modal
+        visible={pickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { paddingBottom: insets.bottom + space.screen }]}>
+            <Text style={styles.modalTitle}>Choose your university</Text>
+            {UNIVERSITY_OPTIONS.map((option) => (
+              <Pressable
+                key={option}
+                style={({ pressed }) => [styles.modalRow, pressed ? styles.modalRowPressed : null]}
+                onPress={() => {
+                  setUniversity(option)
+                  setPickerVisible(false)
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: university === option }}
+              >
+                <Text style={styles.modalRowText}>{UNIVERSITY_LABELS[option]}</Text>
+                {university === option ? <Feather name="check" size={18} color={colors.greenText} /> : null}
+              </Pressable>
+            ))}
+            <Button label="Cancel" variant="secondary" onPress={() => setPickerVisible(false)} style={styles.modalCancel} />
+          </View>
+        </View>
+      </Modal>
+    </>
   )
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  inner: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 40,
-  },
-  logo: {
-    marginBottom: 16,
-    alignSelf: 'center',
-  },
-  kicker: {
-    color: theme.primaryDeep,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-  },
-  title: {
-    ...theme.type.screenTitle,
-    marginBottom: 8,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: theme.textMuted,
-    lineHeight: 22,
+  content: {
+    gap: space.screen,
+    paddingTop: space.sm,
   },
   form: {
-    width: '100%',
-    marginTop: 16,
-  },
-  error: {
-    color: theme.danger,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 16,
+    gap: space.lg,
   },
   row: {
     flexDirection: 'row',
-    gap: 12,
+    gap: space.lg,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    fontSize: 16,
-    marginBottom: 12,
-    backgroundColor: theme.surface,
-    color: theme.text,
-  },
-  halfInput: {
+  half: {
     flex: 1,
   },
-  selectPlaceholder: {
-    fontSize: 16,
-    color: theme.textDisabled,
+  error: {
+    ...type.labelSm,
+    color: colors.danger,
   },
-  selectValue: {
-    fontSize: 16,
-    color: theme.text,
+  footer: {
+    gap: space.md,
+  },
+  switchText: {
+    ...type.bodySm,
+    color: colors.mutedAlt,
+    textAlign: 'center',
+  },
+  switchLink: {
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    textDecorationLine: 'underline',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.scrim,
     justifyContent: 'flex-end',
   },
   modalCard: {
-    backgroundColor: theme.surface,
-    borderTopLeftRadius: theme.radius.lg,
-    borderTopRightRadius: theme.radius.lg,
-    borderTopWidth: theme.hard.border,
-    borderLeftWidth: theme.hard.border,
-    borderRightWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    padding: 24,
-    paddingBottom: 36,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.hero,
+    borderTopRightRadius: radius.hero,
+    borderTopWidth: border.base,
+    borderLeftWidth: border.base,
+    borderRightWidth: border.base,
+    borderColor: colors.ink,
+    paddingHorizontal: space.screen,
+    paddingTop: space.screen,
   },
   modalTitle: {
-    color: theme.text,
-    fontSize: 20,
-    fontWeight: '900',
-    marginBottom: 12,
+    ...type.section,
+    color: colors.ink,
+    marginBottom: space.sm,
   },
   modalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
+    minHeight: 48,
+    borderBottomWidth: 1.5,
+    borderBottomColor: colors.divider,
+  },
+  modalRowPressed: {
+    backgroundColor: colors.tan,
   },
   modalRowText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.text,
-  },
-  modalRowCheck: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: theme.primary,
+    ...type.label,
+    color: colors.ink,
   },
   modalCancel: {
-    marginTop: 12,
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  modalCancelText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: theme.textMuted,
-  },
-  // Tactile stamped style
-  button: {
-    backgroundColor: theme.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 24,
-    borderBottomWidth: 4,
-    borderBottomColor: theme.primaryDeep,
-    borderRightWidth: 2,
-    borderRightColor: theme.primaryDeep,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: theme.textOnPrimary,
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 0.2,
-  },
-  link: {
-    textAlign: 'center',
-    color: theme.textMuted,
-    fontSize: 14,
-  },
-  linkBold: {
-    fontWeight: '900',
-    color: theme.primary,
+    marginTop: space.xxl,
   },
 })

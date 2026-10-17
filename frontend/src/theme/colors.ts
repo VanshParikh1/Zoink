@@ -36,6 +36,7 @@ export const colors = {
   divider: 'rgba(4, 15, 15, 0.14)',
   onInk: '#FFF9EF',
   onInkMuted: '#E5DCCB',
+  scrim: 'rgba(4, 15, 15, 0.5)',
 }
 
 export const theme = {
