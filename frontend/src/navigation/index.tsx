@@ -80,6 +80,7 @@ export type RootStackParamList = {
   Settings: undefined
   PublicProfile: { userId: string }
   ConversationThread: { conversationId: string; title?: string }
+  DesignGallery: undefined
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -152,6 +153,14 @@ function VerifiedAppStack() {
         component={TermsAcceptanceScreen}
         initialParams={{ mode: 'view' }}
       />
+      {/* Dev-only. __DEV__ is false in release bundles, so Metro drops this
+          branch and the require with it; the gallery never ships. */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DesignGallery"
+          getComponent={() => require('../screens/DesignGalleryScreen').default}
+        />
+      ) : null}
     </Stack.Navigator>
   )
 }

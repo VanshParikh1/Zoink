@@ -282,6 +282,13 @@ export default function SettingsScreen() {
             </View>
           </>
         )}
+
+        {/* Dev-only entry to the mockup component gallery; never in release builds. */}
+        {__DEV__ ? (
+          <TouchableOpacity style={styles.panel} onPress={() => nav.navigate('DesignGallery')}>
+            <Text style={styles.panelTitle}>Design gallery (dev)</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
     </ScreenBackground>
   )
