@@ -6,6 +6,7 @@ import { RootStackParamList } from '../navigation'
 import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { theme } from '../theme/colors'
+import { fonts } from '../theme/typography'
 import ScreenBackground from '../components/ScreenBackground'
 import BackButton from '../components/BackButton'
 import DismissKeyboardView from '../components/DismissKeyboardView'
@@ -552,7 +553,7 @@ const styles = StyleSheet.create({
   auditMetadataValue: {
     color: theme.text,
     fontSize: 12,
-    fontFamily: 'Courier',
+    fontFamily: fonts.mono,
     flexShrink: 1,
     textAlign: 'right',
   },

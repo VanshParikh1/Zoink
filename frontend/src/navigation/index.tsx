@@ -156,11 +156,11 @@ function VerifiedAppStack() {
   )
 }
 
-export default function Navigation() {
+export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
   const { user, isLoading } = useAuth()
 
-  // Don't render anything until we've checked SecureStore
-  if (isLoading) {
+  // Don't render anything until we've checked SecureStore and the fonts are in
+  if (isLoading || !fontsReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen }}>
         <ActivityIndicator size="large" color={theme.primary} />

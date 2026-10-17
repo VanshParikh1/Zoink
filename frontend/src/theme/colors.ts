@@ -1,40 +1,56 @@
+import { fonts } from './fonts'
+
 export const colors = {
   // Matched to logo — grass green, not neon
   green: '#6DD832',          // primary — the exact logo green
-  greenDeep: '#4EA822',      // pressed states, borders, button floors
+  greenDeep: '#248232',      // green text/icons, pressed states, button floors (= greenText)
   greenDark: '#3A7D19',      // deep shadow, heavy button base
-  greenSoft: '#96E85A',      // highlights, soft accents
+  greenSoft: '#C8FF59',      // highlights, soft accents (= lime)
   greenSurface: '#F2FAE8',   // faint tint for bg surfaces
 
   white: '#FFFFFF',
-  gray50: '#F6F6F7',
-  gray100: '#F1F1F1',
-  gray200: '#E3E3E3',
+  gray50: '#F4EDE1',         // = bg
+  gray100: '#E5DCCB',        // = tan
+  gray200: '#E5DCCB',        // = tan
   gray300: '#C9C9C9',
-  gray500: '#6D7175',
-  gray700: '#3A3C3E',
-  gray900: '#1A1A1A',
+  gray500: '#555D55',        // = mutedAlt
+  gray700: '#2D3A3A',        // = muted
+  gray900: '#040F0F',        // = ink
 
   danger: '#D72C0D',
   warning: '#FFC453',
   dangerSurface: '#FFF4F4',
   warningSurface: '#FFF5EA',
 
-  inkBase: '#1A1A1A',
+  inkBase: '#040F0F',
+
+  // Mockup palette
+  ink: '#040F0F',
+  lime: '#C8FF59',
+  greenText: '#248232',
+  bg: '#F4EDE1',
+  surface: '#FFF9EF',
+  tan: '#E5DCCB',
+  muted: '#2D3A3A',
+  mutedAlt: '#555D55',
+  divider: 'rgba(4, 15, 15, 0.14)',
+  onInk: '#FFF9EF',
+  onInkMuted: '#E5DCCB',
 }
 
 export const theme = {
   colors,
 
   screen: colors.gray50,
-  surface: colors.white,
-  surfaceRaised: colors.white,
+  surface: colors.surface,
+  surfaceRaised: colors.surface,
   surfaceSubdued: colors.gray100,
 
-  border: colors.gray200,
+  border: colors.divider,
   borderFocus: colors.green,
-  borderSubdued: colors.gray100,
-  borderBottom: colors.gray200,
+  borderSubdued: colors.divider,
+  borderBottom: colors.divider,
+  divider: colors.divider,
 
   shadow: 'rgba(0, 0, 0, 0.08)',
   shadowMd: 'rgba(0, 0, 0, 0.12)',
@@ -44,15 +60,17 @@ export const theme = {
   textSecondary: colors.gray700,
   textMuted: colors.gray500,
   textDisabled: colors.gray300,
-  textOnPrimary: '#1A3A08',  // dark green — readable on #6DD832
+  textOnPrimary: colors.ink,  // readable on #6DD832
+  onInk: colors.onInk,
+  onInkMuted: colors.onInkMuted,
 
   primary: colors.green,
   primaryDeep: colors.greenDeep,
   primaryLight: colors.greenSoft,
   primarySurface: colors.greenSurface,
 
-  cardBorder: colors.gray200,
-  cardBackground: colors.white,
+  cardBorder: colors.divider,
+  cardBackground: colors.surface,
   cardShadow: '0px 1px 3px rgba(0,0,0,0.08), 0px 1px 2px rgba(0,0,0,0.06)',
 
   // Grass-green wash pulled toward the landing page's radial glows
@@ -123,13 +141,15 @@ export const theme = {
   // body copy, and caption pulls from here instead of picking its own size/
   // weight/line-height per screen.
   type: {
-    screenTitle: { fontSize: 28, fontWeight: '900' as const, lineHeight: 34, color: colors.gray900 },
-    sectionTitle: { fontSize: 16, fontWeight: '900' as const, lineHeight: 20, color: colors.gray900 },
-    body: { fontSize: 15, fontWeight: '400' as const, lineHeight: 22, color: colors.gray900 },
-    bodyMuted: { fontSize: 15, fontWeight: '400' as const, lineHeight: 22, color: colors.gray500 },
-    label: { fontSize: 14, fontWeight: '700' as const, lineHeight: 18, color: colors.gray900 },
-    caption: { fontSize: 12, fontWeight: '700' as const, lineHeight: 16, color: colors.gray500 },
-    eyebrow: { fontSize: 11, fontWeight: '800' as const, letterSpacing: 1.3, textTransform: 'uppercase' as const, color: colors.gray500 },
+    // Family carries the weight (Android ignores fontWeight on custom fonts),
+    // so these presets set fontFamily and never fontWeight.
+    screenTitle: { fontFamily: fonts.black, fontSize: 28, lineHeight: 34, color: colors.gray900 },
+    sectionTitle: { fontFamily: fonts.black, fontSize: 16, lineHeight: 20, color: colors.gray900 },
+    body: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: colors.gray900 },
+    bodyMuted: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: colors.gray500 },
+    label: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18, color: colors.gray900 },
+    caption: { fontFamily: fonts.bold, fontSize: 12, lineHeight: 16, color: colors.gray500 },
+    eyebrow: { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 1.3, textTransform: 'uppercase' as const, color: colors.gray500 },
   },
 
   // Shared vertical rhythm for screen headers, so a title sits at the same

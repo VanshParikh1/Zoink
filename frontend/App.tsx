@@ -4,6 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AuthProvider } from './src/context/AuthContext'
 import Navigation from './src/navigation'
 import { StripeProvider } from '@stripe/stripe-react-native'
+import { useFonts, FiraSans_400Regular, FiraSans_700Bold, FiraSans_900Black } from '@expo-google-fonts/fira-sans'
+import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono'
 import { STRIPE_PUBLISHABLE_KEY } from './src/config/stripe'
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN
@@ -18,6 +20,15 @@ if (sentryDsn) {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    FiraSans_400Regular,
+    FiraSans_700Bold,
+    FiraSans_900Black,
+    FiraMono_700Bold,
+  })
+  // A failed load falls back to the system font rather than hanging on the spinner.
+  if (fontError) console.error('Failed to load fonts', fontError)
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -26,7 +37,7 @@ export default function App() {
           urlScheme="zoink"
         >
           <AuthProvider>
-            <Navigation />
+            <Navigation fontsReady={fontsLoaded || !!fontError} />
           </AuthProvider>
         </StripeProvider>
       </SafeAreaProvider>
