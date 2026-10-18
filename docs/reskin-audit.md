@@ -251,3 +251,72 @@ Expo SDK `~54.0.33`, React Native 0.81.5, React 19.1.
    - `pushNotifications.ts` has an Android notification channel branch. The other `Platform.OS === 'web'` branches (AuthContext, MyProfile, api.ts) are not styling.
 8. **`Dimensions.get('window')` read at module load** (6 places, for example `ZoinkItScreen` `RIPPLE_SIZE` and the `SCREEN_WIDTH` constants). Sizes go stale on Android split-screen or fold, and on rotation.
 9. **`Modal` sheets** (`AdminReports` transparent slide, `BookingDetail` photos, Register picker) don't draw under the status or nav bar on Android edge-to-edge unless `statusBarTranslucent` / `navigationBarTranslucent` are set. Expect color bands at the edges.
+
+---
+
+## Done (2026-10-18)
+
+Everything above was the starting audit. This section records where the reskin landed on `design/mockup-reskin` (`bebd512..HEAD`). iOS was checked in the simulator in demo mode; **Android has not been run yet** (see `docs/reskin-dev.md` §5).
+
+### Screens reskinned
+
+Every screen and modal now renders the mockup `Screen` (or, for full-bleed layouts, the mockup primitives directly):
+
+- **Auth:** Login, Register (and its university picker), Terms acceptance (register / update / view), Verification gate, Verify email.
+- **Browse:** Home (2-column grid), Search, Listing detail, Booking request (date picker).
+- **Rent:** Checkout (Pay), Zoink It handoff, Booking detail (status timeline), Rentals list, Active rental.
+- **Lend:** Create listing, Edit listing, My listings.
+- **Messages:** Inbox, Conversation thread.
+- **Profile & account:** My profile (including the edit form and Stripe payouts panel), Public profile, Settings (including notification preferences and blocked users).
+- **Owner:** Incoming requests (inline Accept / Decline).
+- **Trust & safety:** Report a problem (dispute), Report user/listing/message, admin Dispute queue, Dispute detail and Report queue (including its resolve sheet).
+- **Utility:** Photo viewer, map preview and full-screen map picker, boot loading gates, tab bar, a new top-level error boundary, and the dev-only Design gallery.
+
+Screenshots are in `docs/reskin-shots/`. Native `Alert.alert` dialogs (about 70 calls) and the iOS action sheets stay platform-styled.
+
+### New shared components (`frontend/src/components/mockup/`)
+
+| Component | What it is |
+|---|---|
+| `Screen`, `ScreenHeader`, `ScreenBackground` | Page shell: safe areas, optional footer, keyboard avoiding, pull-to-refresh, hatch + glow backdrop |
+| `Button` (primary / zoink / secondary / link), `IconButton`, `Chip`, `CategoryChips` | Controls with 48pt targets |
+| `Card`, `InkCard`, `HardShadow`, `StatePanel` | Surfaces, the single ink explainer card, solid offset shadow, empty/error panel |
+| `Badge`, `bookingStatus.ts`, `adminStatus.ts` | Pills, plus one status→badge mapping for bookings, disputes and reports |
+| `TextField`, `OtpInput`, `ListingForm` | Form inputs and the shared create/edit listing form |
+| `ListingCard`, `ListingGridCard`, `Thumb`, `PriceTable`, `Timeline` | Listing rows/grid cards, image/initials thumb, money breakdown, booking timeline |
+| `RowGroup` / `ListRow`, `ProfileHeader` | Settings-style row lists; profile avatar + name + stats |
+| `LogoPill`, `HighlightText`, `AuthEntry` | Brand pieces |
+| `MapPin`, `LoadingGate`, `ErrorBoundary` | Map area marker, boot spinner, crash fallback |
+| `tabBarMetrics.ts`, `listingFormat.ts` | Tab bar clearance, listing price/distance formatting |
+
+Removed as dead: `ProfileCard`, `ZoinkButton`, `ZoinkLogo`, `BackButton`, `HardBlock`, `StateCard`, the legacy `ScreenBackground`, the old `theme` object and its colour aliases, and the `expo-blur` dependency.
+
+### Constants moved to `@zoink/shared`
+
+Backend and app now read one value instead of each keeping a copy:
+
+- `bookingWindows.ts`: `DEPOSIT_HOLD_HOURS` (24), `PAYOUT_HOLD_HOURS` (24), `ZOINK_TAP_WINDOW_MS` (5 min), `HANDOFF_PHOTOS_MIN` / `HANDOFF_PHOTOS_MAX` (2 / 3), `LISTING_PHOTOS_MAX` (8).
+- `commission.ts`: `COMMISSION_TIERS`, `getCommissionRate`, `calculateCommission`, `calculateOwnerPayout` (used by the backend and by Lend's payout preview).
+
+### Token changes (`theme/colors.ts`)
+
+| Token | Before → after | Why |
+|---|---|---|
+| `greenText` | `#248232` → `#1F702B` | 4.18:1 on bg and 4.15:1 on lime, under 4.5:1 for small text. Now 5.29 on bg, 5.88 on surface, 5.25 on lime, 4.52 on tan. |
+| `danger` | `#D72C0D` → `#BA260B` | 3.63:1 on the tan "problem" cards. Now 5.36 on bg, 5.95 on surface, 4.58 on tan. |
+
+The type scale gained `type.tab` (11/13, tab labels). No preset sets `fontWeight`; the Fira family carries the weight.
+
+### Safety fixes made along the way
+
+- **Demo mode is gated at build time** (`config/demoModeGate.ts`): it needs `__DEV__` *and* `EXPO_PUBLIC_DEMO_MODE === 'true'`, and every mock-module `require` carries the same guard. Before this, a local release build on a machine whose `frontend/.env` set the flag would have shipped demo mode. Covered by `npm test` in `frontend/`.
+- **Booking detail rental dates** are formatted in UTC; they had shown a day early in Ontario.
+
+### Open product questions
+
+1. **Commission:** the code charges tiered 15% / 12.5% / 10% by daily rate (`COMMISSION_TIERS`); the business plan says a flat 15%. One of them needs to change.
+2. **Rentals isn't a tab.** It's reached from Home → Bookings or Profile → My bookings. The mockup tab bar has no slot for it.
+3. **Insurance is forced off.** `bookingService` hardcodes `insuranceOptIn = false` and asserts the fee is zero (terms.md §12, legal OPEN-ITEMS B1). The pricing code and the DB columns still exist.
+4. **Unread is boolean only.** The API sends `unread: true/false` per conversation, so the Inbox shows a "New" badge instead of a count.
+5. **No offline banner or toasts.** Errors surface through native alerts; there's no network-status UI.
+6. **Accepted version mismatches:** `npx expo install --check` wants `@stripe/stripe-react-native` 0.50.3 (installed 0.62.0) and `@sentry/react-native` ~7.2 (installed 8.21). Both are kept on purpose (see `claude/playstore-prep-status.md`).
