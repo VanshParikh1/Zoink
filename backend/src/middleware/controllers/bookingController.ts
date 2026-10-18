@@ -1,5 +1,4 @@
 import { Request, Response } from 'express'
-import { BookingStatus } from '@prisma/client'
 import * as bookingService from '../../services/bookingService'
 import * as handoffService from '../../services/handoffService'
 import { uploadImage } from '../../utils/cloudinary'
@@ -44,7 +43,7 @@ export const getIncomingRequests = asyncHandler(async (req: Request, res: Respon
   return res.json(bookings)
 })
 
-async function transitionBooking(req: Request, res: Response, status: BookingStatus) {
+async function transitionBooking(req: Request, res: Response, status: bookingService.DirectBookingTransition) {
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string
 

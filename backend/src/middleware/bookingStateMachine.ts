@@ -1,13 +1,16 @@
 import { BookingStatus } from '@prisma/client'
 import { ConflictError } from '../utils/errors'
 
+// Every move goes through its handoff step: CONFIRMED reaches ACTIVE only via
+// PICKUP_PENDING (photos, both taps, rent captured), and ACTIVE reaches
+// COMPLETED only via RETURN_PENDING.
 const allowedTransitions: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['ACCEPTED', 'DECLINED', 'CANCELLED'],
   ACCEPTED: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['PICKUP_PENDING', 'ACTIVE', 'CANCELLED'],
+  CONFIRMED: ['PICKUP_PENDING', 'CANCELLED'],
   DECLINED: [],
   PICKUP_PENDING: ['ACTIVE', 'CANCELLED'],
-  ACTIVE: ['RETURN_PENDING', 'COMPLETED'],
+  ACTIVE: ['RETURN_PENDING'],
   RETURN_PENDING: ['COMPLETED'],
   COMPLETED: [],
   CANCELLED: [],

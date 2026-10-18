@@ -810,7 +810,12 @@ export async function getIncomingRequests(ownerId: string): Promise<BookingRespo
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
 }
 
-export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: BookingStatus): Promise<BookingResponse> {
+/** The moves a client can ask for directly. ACTIVE and COMPLETED only happen
+ *  through the handoff (handoffService.confirmHandoff), which captures the rent
+ *  and records both taps; there's no route that skips it. */
+export type DirectBookingTransition = 'ACCEPTED' | 'DECLINED' | 'CONFIRMED' | 'CANCELLED'
+
+export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: DirectBookingTransition): Promise<BookingResponse> {
   if (nextStatus === BookingStatus.CONFIRMED) {
     return confirmBookingPayment(bookingId, actorId)
   }
@@ -831,7 +836,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     throw new ForbiddenError('You do not have access to this booking.')
   }
 
-  if (nextStatus === 'ACCEPTED' || nextStatus === 'DECLINED' || nextStatus === 'ACTIVE' || nextStatus === 'COMPLETED') {
+  if (nextStatus === 'ACCEPTED' || nextStatus === 'DECLINED') {
     if (!isOwner) {
       throw new ForbiddenError('You do not have access to this booking.')
     }
@@ -866,145 +871,16 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     }
   }
 
-  if (nextStatus !== 'COMPLETED') {
-    const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
-      if (nextStatus === 'ACCEPTED') {
-        await lockListing(tx, booking.listingId)
-        await ensureNoOverlap(booking.listingId, booking.id, tx)
-      }
-
-      const result = await tx.booking.updateMany({
-        where: { id: booking.id, version: booking.version },
-        data: {
-          status: nextStatus,
-          version: { increment: 1 },
-        },
-      })
-
-      if (result.count !== 1) {
-        throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
-      }
-
-      const eventMetadata: Record<string, string> = { from: booking.status, to: nextStatus }
-      if (nextStatus === 'DECLINED') {
-        eventMetadata.reason = 'manual_decline'
-      }
-      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, eventMetadata)
-
-      // Accepting one request reserves the dates for it, so any other still-
-      // PENDING request on the same listing that overlaps those dates can no
-      // longer be honored — auto-decline it rather than leaving it to fail
-      // later when someone tries to accept it. These do NOT revive if the
-      // just-accepted booking is later cancelled (see handleCancellationPayment).
-      const autoRejected: { id: string; renterId: string }[] = []
-      if (nextStatus === 'ACCEPTED') {
-        const overlapping = await tx.booking.findMany({
-          where: {
-            listingId: booking.listingId,
-            id: { not: booking.id },
-            status: 'PENDING',
-            startDate: { lte: booking.endDate },
-            endDate: { gte: booking.startDate },
-          },
-          select: { id: true, renterId: true },
-        })
-
-        // Each one is declined only if it is still PENDING: one the renter
-        // just cancelled (or another accept already moved) is left alone
-        // instead of being overwritten with an illegal ->DECLINED transition.
-        for (const candidate of overlapping) {
-          const declined = await tx.booking.updateMany({
-            where: { id: candidate.id, status: 'PENDING' },
-            data: { status: 'DECLINED', version: { increment: 1 } },
-          })
-          if (declined.count === 1) autoRejected.push(candidate)
-        }
-
-        if (autoRejected.length > 0) {
-          await tx.bookingEvent.createMany({
-            data: autoRejected.map((rejected) => ({
-              bookingId: rejected.id,
-              actorId,
-              type: BookingEventType.STATUS_CHANGE,
-              metadata: { from: 'PENDING', to: 'DECLINED', reason: 'overlap_auto_reject' },
-            })),
-          })
-        }
-      }
-
-      const updated = await tx.booking.findUniqueOrThrow({
-        where: { id: booking.id },
-        select: bookingSelect as any,
-      })
-
-      return { updated, autoRejected }
-    })
-
-    if (nextStatus === 'CANCELLED') {
-      await handleCancellationPayment(booking, actorId)
-      // Zoink can't charge a cancellation fee (terms.md §9), so a per-user
-      // count is the only signal available for the suspension right in §15
-      // against someone who cancels repeatedly. Attributed to whichever party
-      // actually triggered this transition. See legal/OPEN-ITEMS.md B7.
-      await prisma.user.update({
-        where: { id: actorId },
-        data: { cancellationCount: { increment: 1 } },
-      }).catch((error) => {
-        console.error('[transitionBookingStatus] Failed to increment cancellationCount for user', actorId, error)
-      })
-    }
-
+  const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
     if (nextStatus === 'ACCEPTED') {
-      void notifyUser({
-        userId: booking.renterId,
-        type: 'BOOKING_ACCEPTED',
-        title: 'Booking accepted',
-        body: `${booking.listing.title} was approved by the owner.`,
-        data: { bookingId: booking.id, listingId: booking.listingId },
-      })
-
-      for (const rejected of autoRejected) {
-        void notifyUser({
-          userId: rejected.renterId,
-          type: 'BOOKING_DECLINED',
-          title: 'Booking declined',
-          body: `${booking.listing.title} was booked for those dates by another renter.`,
-          data: { bookingId: rejected.id, listingId: booking.listingId },
-        })
-      }
+      await lockListing(tx, booking.listingId)
+      await ensureNoOverlap(booking.listingId, booking.id, tx)
     }
 
-    if (nextStatus === 'DECLINED') {
-      void notifyUser({
-        userId: booking.renterId,
-        type: 'BOOKING_DECLINED',
-        title: 'Booking declined',
-        body: `${booking.listing.title} was declined.`,
-        data: { bookingId: booking.id, listingId: booking.listingId },
-      })
-    }
-
-    if (nextStatus === 'CANCELLED') {
-      const recipientId = isOwner ? booking.renterId : booking.ownerId
-      void notifyUser({
-        userId: recipientId,
-        type: 'BOOKING_CANCELLED',
-        title: 'Booking cancelled',
-        body: `${booking.listing.title} is no longer scheduled for those dates.`,
-        data: { bookingId: booking.id, listingId: booking.listingId },
-      })
-    }
-
-    return toBookingResponse(updated, actorId)
-  }
-
-  const completed = await prisma.$transaction(async (tx) => {
     const result = await tx.booking.updateMany({
       where: { id: booking.id, version: booking.version },
       data: {
         status: nextStatus,
-        completedAt: new Date(),
-        paymentStatus: booking.paymentStatus === PaymentStatus.CAPTURED ? PaymentStatus.PAYOUT_PENDING : booking.paymentStatus,
         version: { increment: 1 },
       },
     })
@@ -1013,38 +889,117 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
       throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
     }
 
-    await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
-      from: booking.status,
-      to: nextStatus,
-    })
+    const eventMetadata: Record<string, string> = { from: booking.status, to: nextStatus }
+    if (nextStatus === 'DECLINED') {
+      eventMetadata.reason = 'manual_decline'
+    }
+    await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, eventMetadata)
 
-    await createReviewObligationsForCompletedBooking(tx, booking)
+    // Accepting one request reserves the dates for it, so any other still-
+    // PENDING request on the same listing that overlaps those dates can no
+    // longer be honored — auto-decline it rather than leaving it to fail
+    // later when someone tries to accept it. These do NOT revive if the
+    // just-accepted booking is later cancelled (see handleCancellationPayment).
+    const autoRejected: { id: string; renterId: string }[] = []
+    if (nextStatus === 'ACCEPTED') {
+      const overlapping = await tx.booking.findMany({
+        where: {
+          listingId: booking.listingId,
+          id: { not: booking.id },
+          status: 'PENDING',
+          startDate: { lte: booking.endDate },
+          endDate: { gte: booking.startDate },
+        },
+        select: { id: true, renterId: true },
+      })
 
-    return tx.booking.findUniqueOrThrow({
+      // Each one is declined only if it is still PENDING: one the renter
+      // just cancelled (or another accept already moved) is left alone
+      // instead of being overwritten with an illegal ->DECLINED transition.
+      for (const candidate of overlapping) {
+        const declined = await tx.booking.updateMany({
+          where: { id: candidate.id, status: 'PENDING' },
+          data: { status: 'DECLINED', version: { increment: 1 } },
+        })
+        if (declined.count === 1) autoRejected.push(candidate)
+      }
+
+      if (autoRejected.length > 0) {
+        await tx.bookingEvent.createMany({
+          data: autoRejected.map((rejected) => ({
+            bookingId: rejected.id,
+            actorId,
+            type: BookingEventType.STATUS_CHANGE,
+            metadata: { from: 'PENDING', to: 'DECLINED', reason: 'overlap_auto_reject' },
+          })),
+        })
+      }
+    }
+
+    const updated = await tx.booking.findUniqueOrThrow({
       where: { id: booking.id },
       select: bookingSelect as any,
     })
+
+    return { updated, autoRejected }
   })
 
-  void notifyUser({
-    userId: booking.renterId,
-    type: 'BOOKING_ACCEPTED',
-    title: 'Rental completed',
-    body: `Your rental for ${booking.listing.title} has been marked complete.`,
-    data: { bookingId: booking.id, listingId: booking.listingId },
-  })
+  if (nextStatus === 'CANCELLED') {
+    await handleCancellationPayment(booking, actorId)
+    // Zoink can't charge a cancellation fee (terms.md §9), so a per-user
+    // count is the only signal available for the suspension right in §15
+    // against someone who cancels repeatedly. Attributed to whichever party
+    // actually triggered this transition. See legal/OPEN-ITEMS.md B7.
+    await prisma.user.update({
+      where: { id: actorId },
+      data: { cancellationCount: { increment: 1 } },
+    }).catch((error) => {
+      console.error('[transitionBookingStatus] Failed to increment cancellationCount for user', actorId, error)
+    })
+  }
 
-  if (booking.ownerId !== booking.renterId) {
+  if (nextStatus === 'ACCEPTED') {
     void notifyUser({
-      userId: booking.ownerId,
+      userId: booking.renterId,
       type: 'BOOKING_ACCEPTED',
-      title: 'Rental completed',
-      body: `${booking.listing.title} has been marked complete.`,
+      title: 'Booking accepted',
+      body: `${booking.listing.title} was approved by the owner.`,
+      data: { bookingId: booking.id, listingId: booking.listingId },
+    })
+
+    for (const rejected of autoRejected) {
+      void notifyUser({
+        userId: rejected.renterId,
+        type: 'BOOKING_DECLINED',
+        title: 'Booking declined',
+        body: `${booking.listing.title} was booked for those dates by another renter.`,
+        data: { bookingId: rejected.id, listingId: booking.listingId },
+      })
+    }
+  }
+
+  if (nextStatus === 'DECLINED') {
+    void notifyUser({
+      userId: booking.renterId,
+      type: 'BOOKING_DECLINED',
+      title: 'Booking declined',
+      body: `${booking.listing.title} was declined.`,
       data: { bookingId: booking.id, listingId: booking.listingId },
     })
   }
 
-  return toBookingResponse(completed, actorId)
+  if (nextStatus === 'CANCELLED') {
+    const recipientId = isOwner ? booking.renterId : booking.ownerId
+    void notifyUser({
+      userId: recipientId,
+      type: 'BOOKING_CANCELLED',
+      title: 'Booking cancelled',
+      body: `${booking.listing.title} is no longer scheduled for those dates.`,
+      data: { bookingId: booking.id, listingId: booking.listingId },
+    })
+  }
+
+  return toBookingResponse(updated, actorId)
 }
 
 async function ensureOwnerStripeAccount(ownerId: string) {

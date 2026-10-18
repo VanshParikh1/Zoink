@@ -8,9 +8,12 @@ test('allows valid booking transitions', () => {
   assert.doesNotThrow(() => assertBookingTransition('PENDING', 'CANCELLED'))
   assert.doesNotThrow(() => assertBookingTransition('ACCEPTED', 'CONFIRMED'))
   assert.doesNotThrow(() => assertBookingTransition('ACCEPTED', 'CANCELLED'))
-  assert.doesNotThrow(() => assertBookingTransition('CONFIRMED', 'ACTIVE'))
+  assert.doesNotThrow(() => assertBookingTransition('CONFIRMED', 'PICKUP_PENDING'))
   assert.doesNotThrow(() => assertBookingTransition('CONFIRMED', 'CANCELLED'))
-  assert.doesNotThrow(() => assertBookingTransition('ACTIVE', 'COMPLETED'))
+  assert.doesNotThrow(() => assertBookingTransition('PICKUP_PENDING', 'ACTIVE'))
+  assert.doesNotThrow(() => assertBookingTransition('PICKUP_PENDING', 'CANCELLED'))
+  assert.doesNotThrow(() => assertBookingTransition('ACTIVE', 'RETURN_PENDING'))
+  assert.doesNotThrow(() => assertBookingTransition('RETURN_PENDING', 'COMPLETED'))
 })
 
 test('rejects invalid booking transitions', () => {
@@ -21,4 +24,12 @@ test('rejects invalid booking transitions', () => {
   assert.throws(() => assertBookingTransition('CANCELLED', 'ACTIVE'), invalid)
   assert.throws(() => assertBookingTransition('COMPLETED', 'CANCELLED'), invalid)
   assert.throws(() => assertBookingTransition('ACCEPTED', 'ACTIVE'), invalid)
+})
+
+test('no handoff step can be skipped', () => {
+  const invalid = (error: unknown) => error instanceof InvalidBookingTransitionError
+  assert.throws(() => assertBookingTransition('CONFIRMED', 'ACTIVE'), invalid)
+  assert.throws(() => assertBookingTransition('ACTIVE', 'COMPLETED'), invalid)
+  assert.throws(() => assertBookingTransition('ACTIVE', 'CANCELLED'), invalid)
+  assert.throws(() => assertBookingTransition('RETURN_PENDING', 'CANCELLED'), invalid)
 })
