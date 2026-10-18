@@ -12,6 +12,7 @@
 import test, { beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
+import { torontoDayKey } from '@zoink/shared'
 import { truncateAllTables, createTestUser, createTestListing, getTestPrisma, disconnectTestPrisma, getApp } from './setup'
 
 let user: { id: string; token: string }
@@ -137,5 +138,53 @@ describe('unknown fields are refused, not dropped', () => {
     const res = await as(user.token).post(`/conversations/${conversationId}/messages`).send({ body: 'Hello' })
     assert.equal(res.status, 201, JSON.stringify(res.body))
     assertUnknownField(await as(user.token).post(`/conversations/${conversationId}/messages`).send({ body: 'Hi', senderId: owner.id }), 'senderId')
+  })
+})
+
+describe('bounds the app already keeps to', () => {
+  // A rental day as the app sends it: that calendar day at midnight UTC.
+  function rentalDay(offsetDays: number) {
+    const today = torontoDayKey()!
+    const date = new Date(`${today}T00:00:00.000Z`)
+    date.setUTCDate(date.getUTCDate() + offsetDays)
+    return date.toISOString()
+  }
+
+  test('a booking request cannot start on a day that has already gone', async () => {
+    const past = await as(user.token).post('/bookings').send({ listingId, startDate: rentalDay(-1), endDate: rentalDay(1) })
+    assert.equal(past.status, 400)
+    assert.equal(past.body.error, 'Pick a start date from today onwards.')
+    assert.equal(await getTestPrisma().booking.count(), 0)
+
+    const today = await as(user.token).post('/bookings').send({ listingId, startDate: rentalDay(0), endDate: rentalDay(1) })
+    assert.equal(today.status, 201, JSON.stringify(today.body))
+  })
+
+  test('a profile phone follows the sign-up rule and is stored the same way', async () => {
+    const bad = await as(user.token).patch('/users/me').send({ phone: 'call me maybe' })
+    assert.equal(bad.status, 400)
+    assert.match(bad.body.error, /10-digit Canadian phone number/)
+    assertValidationError(await as(user.token).patch('/users/me').send({ phone: '4'.repeat(31) }))
+
+    const ok = await as(user.token).patch('/users/me').send({ phone: '(416) 555-0199' })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    assert.equal((await getTestPrisma().user.findUniqueOrThrow({ where: { id: user.id } })).phone, '+14165550199')
+  })
+
+  test('passwords and browse filters are bounded', async () => {
+    const longRegister = await supertest(getApp())
+      .post('/auth/register')
+      .set('X-Real-IP', '198.18.0.2')
+      .send({ email: 'x@mail.utoronto.ca', password: 'p'.repeat(129) })
+    assert.ok(longRegister.body.issues.some((i: { path: string }) => i.path === 'body.password'), JSON.stringify(longRegister.body))
+    const longLogin = await supertest(getApp())
+      .post('/auth/login')
+      .set('X-Real-IP', '198.18.0.3')
+      .send({ email: 'x@mail.utoronto.ca', password: 'p'.repeat(1025) })
+    assertValidationError(longLogin)
+
+    assertValidationError(await as(user.token).get(`/listings?q=${'a'.repeat(101)}`))
+    assertValidationError(await as(user.token).get(`/listings?category=${'a'.repeat(41)}`))
+    assertValidationError(await as(user.token).get(`/listings?city=${'a'.repeat(61)}`))
   })
 })

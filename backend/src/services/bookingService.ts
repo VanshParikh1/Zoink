@@ -1,5 +1,5 @@
 import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
-import { cancellationCutoff, quoteRental, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
+import { cancellationCutoff, quoteRental, rentalDayKey, torontoDayKey, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
@@ -388,6 +388,12 @@ async function ensureNoOverlap(listingId: string, bookingId: string, db: Db = pr
 
 export async function createBooking(renterId: string, input: CreateBookingInput): Promise<BookingResponse> {
   ensureValidBookingDates(input.startDate, input.endDate)
+  // The app only offers today onwards; a request for a day already gone
+  // could otherwise be sent straight to the API.
+  const startDay = rentalDayKey(input.startDate)
+  if (startDay !== null && startDay < torontoDayKey()!) {
+    throw new BadRequestError('Pick a start date from today onwards.')
+  }
 
   const listing = await prisma.listing.findUnique({
     where: { id: input.listingId },

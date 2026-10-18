@@ -130,9 +130,9 @@ const optionalCoercedBoolean = z
 export const BrowseListingsQuerySchema = z
   .object({
     query: z.object({
-      q: z.string().optional(),
-      category: z.string().optional(),
-      city: z.string().optional(),
+      q: z.string().max(100, 'q cannot exceed 100 characters.').optional(),
+      category: z.string().max(40, 'category cannot exceed 40 characters.').optional(),
+      city: z.string().max(60, 'city cannot exceed 60 characters.').optional(),
       minPrice: optionalPriceFilter,
       maxPrice: optionalPriceFilter,
       latitude: z.coerce.number().min(-90).max(90).optional(),
