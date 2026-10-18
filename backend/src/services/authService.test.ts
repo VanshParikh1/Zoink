@@ -30,6 +30,9 @@ function stubHappyPathCollaborators(createSpy: (args: any) => void) {
     fn({
       $queryRaw: async () => [],
       verificationEmailSend: { findMany: async () => [], create: async () => ({ id: 'send-1' }) },
+      // Creating the account runs in its own transaction (replacing an
+      // unverified sign-up); route it to the stubbed create below.
+      user: { create: (args: any) => (prisma.user as any).create(args) },
     })
   ;(SESClient.prototype as any).send = async () => ({})
   ;(prisma.user as any).create = async (args: any) => {

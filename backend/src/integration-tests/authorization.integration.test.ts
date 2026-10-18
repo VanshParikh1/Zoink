@@ -346,18 +346,15 @@ describe('no token: 401 everywhere but the public routes', () => {
   })
 })
 
-// Routes that need a verified student (requireVerified). An unverified account
-// can still manage its own profile, block people and verify.
+// An account isn't active until its email is verified: it can verify, read and
+// delete itself, and release its push token on sign-out. Every other route
+// needs a verified student (requireVerified).
+const OPEN_TO_UNVERIFIED = new Set(['get /users/me', 'delete /users/me', 'post /users/me/push-token/release'])
 const VERIFIED_ROUTES: [string, string][] = AUTHED_ROUTES.filter(
-  ([, path]) =>
-    !path.startsWith('/users/me') &&
-    !path.startsWith('/admin') &&
-    !path.startsWith('/auth') &&
-    !path.startsWith('/stripe') &&
-    !path.endsWith('/block')
-).concat([['post', '/users/me/stripe-connect/onboard']])
+  ([method, path]) => !path.startsWith('/admin') && !path.startsWith('/auth') && !OPEN_TO_UNVERIFIED.has(`${method} ${path}`)
+)
 
-describe('an unverified account gets 403 on every student route', () => {
+describe('an unverified account gets 403 on every route but verification and its own account', () => {
   for (const [method, path] of VERIFIED_ROUTES) {
     test(`${method.toUpperCase()} ${path}`, async () => {
       const res = await (supertest(getApp()) as any)[method](path).set('Authorization', `Bearer ${unverified.token}`)

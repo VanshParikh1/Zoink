@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
+import { Prisma, VerificationStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import {
   BadRequestError,
@@ -11,6 +12,7 @@ import {
 } from '../utils/errors'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { hasPlusInLocalPart, normalizeEmail, PLUS_ADDRESS_MESSAGE } from '../utils/email'
+import { deleteUnverifiedAccounts } from './unverifiedAccounts'
 import type { University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,9 +119,12 @@ export async function registerUser(
     throw new BadRequestError(PLUS_ADDRESS_MESSAGE)
   }
 
-  // 2. Check if email already exists
-  const existing = await prisma.user.findUnique({ where: { email } })
-  if (existing) {
+  // 2. An address on a verified account is taken. One on an unverified sign-up
+  // isn't: that account was never active, and keeping it would let anyone who
+  // typed someone else's university email lock them out. This sign-up
+  // replaces it (step 5).
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true, verificationStatus: true } })
+  if (existing?.verificationStatus === VerificationStatus.VERIFIED) {
     throw new ConflictError('An account with this email already exists.')
   }
 
@@ -130,24 +135,38 @@ export async function registerUser(
   // 4. Hash password
   const passwordHash = await bcrypt.hash(password, 12)
 
-  // 5. Create user, stamping acceptance with a single timestamp so all three
-  // columns agree on exactly when consent was given.
+  // 5. Create the user, replacing an unverified sign-up for this address. The
+  // new account gets a new id, so a session from the old sign-up can't carry
+  // over into it once it's verified. Acceptance is stamped with a single
+  // timestamp so all three columns agree on exactly when consent was given.
   const acceptedAt = new Date()
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      firstName,
-      lastName,
-      phone,
-      university,
-      termsAcceptedAt: acceptedAt,
-      termsVersion: acceptedTermsVersion,
-      privacyAcceptedAt: acceptedAt,
-      privacyVersion: acceptedPrivacyVersion,
-      ageAttestedAt: ageAttested ? acceptedAt : null,
-    },
-  })
+  const data = {
+    email,
+    passwordHash,
+    firstName,
+    lastName,
+    phone,
+    university,
+    termsAcceptedAt: acceptedAt,
+    termsVersion: acceptedTermsVersion,
+    privacyAcceptedAt: acceptedAt,
+    privacyVersion: acceptedPrivacyVersion,
+    ageAttestedAt: ageAttested ? acceptedAt : null,
+  }
+  let user
+  try {
+    user = await prisma.$transaction(async (tx) => {
+      if (existing) await deleteUnverifiedAccounts(tx, { id: existing.id })
+      return tx.user.create({ data })
+    })
+  } catch (error) {
+    // Another sign-up for this address got there first, or the unverified
+    // account had activity and couldn't be replaced.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ConflictError('An account with this email already exists.')
+    }
+    throw error
+  }
 
   // 6. Generate and store OTP
   const code = generateOTP()

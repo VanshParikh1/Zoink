@@ -36,6 +36,7 @@ import reportsRouter from './routes/reports'
 import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
+import { requireVerified } from './middleware/requiredVerified'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
 import {
   cleanupStaleHandoffs,
@@ -45,6 +46,7 @@ import {
   purgeOldDisputesAndReports,
   purgeOldHandoffPhotos,
   purgeOldVerificationTokens,
+  purgeUnverifiedAccounts,
 } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
@@ -140,7 +142,7 @@ app.get('/stripe-refresh', (_req, res) => {
   sendStripeConnectRedirectPage(res, 'Payout setup needs another try', 'Your Stripe setup link expired. Open Zoink and start payout setup again.')
 })
 
-app.get('/stripe/connect/status', requireAuth, getStripeConnectStatus)
+app.get('/stripe/connect/status', requireAuth, requireVerified, getStripeConnectStatus)
 
 app.use('/auth', authRouter)
 app.use('/users', usersRouter)
@@ -161,7 +163,8 @@ if (process.env.NODE_ENV !== 'test') {
       const payouts = await releaseDuePayouts()
       const deposits = await releaseDueDeposits()
       const verificationCodes = await purgeOldVerificationTokens()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes })
+      const unverifiedAccounts = await purgeUnverifiedAccounts()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes, unverifiedAccounts })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

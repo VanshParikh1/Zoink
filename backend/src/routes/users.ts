@@ -38,24 +38,26 @@ const upload = multer({
   },
 })
 
-// Own profile
+// Own profile. An account isn't active until its email is verified: before
+// that it can read and delete itself, verify (routes/auth.ts) and release its
+// push token on sign-out, nothing else.
 router.get('/me', requireAuth, getMe)
-router.patch('/me', requireAuth, validate(UpdateMeSchema), updateMe)
+router.patch('/me', requireAuth, requireVerified, validate(UpdateMeSchema), updateMe)
 router.delete('/me', requireAuth, deleteMe)
-router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
-router.post('/me/accept-terms', requireAuth, acceptTerms)
-router.patch('/me/push-token', requireAuth, validate(UpdatePushTokenSchema), updatePushToken)
+router.patch('/me/notification-prefs', requireAuth, requireVerified, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
+router.post('/me/accept-terms', requireAuth, requireVerified, acceptTerms)
+router.patch('/me/push-token', requireAuth, requireVerified, validate(UpdatePushTokenSchema), updatePushToken)
 router.post('/me/push-token/release', requireAuthAllowingExpired, validate(ReleasePushTokenSchema), releasePushToken)
-router.post('/me/avatar', requireAuth, uploadLimiter, upload.single('avatar'), uploadAvatar)
+router.post('/me/avatar', requireAuth, requireVerified, uploadLimiter, upload.single('avatar'), uploadAvatar)
 // Payout onboarding creates a real Stripe Connect account — verified students only.
 router.post('/me/stripe-connect/onboard', requireAuth, requireVerified, onboardStripeConnect)
-router.get('/me/stripe-connect/status', requireAuth, getStripeConnectStatus)
-router.get('/me/blocks', requireAuth, getMyBlocks)
+router.get('/me/stripe-connect/status', requireAuth, requireVerified, getStripeConnectStatus)
+router.get('/me/blocks', requireAuth, requireVerified, getMyBlocks)
 
-// Blocking — auth only (not requireVerified), so an unverified account can
-// still cut off someone who is harassing it.
-router.post('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema), blockUser)
-router.delete('/:id/block', requireAuth, blockLimiter, validate(UserIdParamsSchema), unblockUser)
+// Blocking. Verified only, like everything else: an unverified account has no
+// conversations, listings or bookings, so nobody can reach it to block.
+router.post('/:id/block', requireAuth, requireVerified, blockLimiter, validate(UserIdParamsSchema), blockUser)
+router.delete('/:id/block', requireAuth, requireVerified, blockLimiter, validate(UserIdParamsSchema), unblockUser)
 
 // Public profile — must be verified to view others
 router.get('/:id', requireAuth, requireVerified, validate(UserIdParamsSchema), getPublicProfile)

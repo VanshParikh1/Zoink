@@ -3,6 +3,7 @@ import prisma from '../utils/prisma'
 import { cancelDepositPaymentIntent, toCents, transferPayout } from './paymentService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
+import { deleteUnverifiedAccounts } from './unverifiedAccounts'
 import { Sentry } from '../instrument'
 
 // The payment jobs below walk many bookings and call Stripe for each. One
@@ -334,6 +335,21 @@ export async function purgeOldVerificationTokens() {
     where: { createdAt: { lt: before } },
   })
   return { deleted: result.count, emailSendsDeleted: sends.count }
+}
+
+// An account that hasn't verified its email within a day of signing up is
+// deleted (owner decision, 2026-10-18), freeing the address. Signing up again
+// with the same email replaces it sooner (authService.registerUser).
+const UNVERIFIED_ACCOUNT_HOURS = 24
+
+/** Deletes accounts still unverified 24 hours after sign-up, with their codes,
+ *  blocks and notifications. Never touches a verified, admin, soft-deleted or
+ *  ever-active account (see unverifiedAccounts.ts). Idempotent: a repeat run,
+ *  or two runs at once, deletes nothing more. */
+export async function purgeUnverifiedAccounts() {
+  const before = new Date(Date.now() - UNVERIFIED_ACCOUNT_HOURS * 60 * 60 * 1000)
+  const deleted = await prisma.$transaction((tx) => deleteUnverifiedAccounts(tx, { createdAt: { lt: before } }))
+  return { deleted }
 }
 
 /** Deletes messages older than the retention window. Conversations and

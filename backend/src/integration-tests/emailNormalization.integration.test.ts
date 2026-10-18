@@ -57,6 +57,11 @@ describe('email normalization', () => {
 
   test('a case or whitespace variant of an existing address is the same account', async () => {
     assert.equal((await register('alice.smith@mail.utoronto.ca')).status, 201)
+    // An unverified sign-up would be replaced (unverifiedAccounts.integration.test.ts).
+    await getTestPrisma().user.update({
+      where: { email: 'alice.smith@mail.utoronto.ca' },
+      data: { verificationStatus: VerificationStatus.VERIFIED },
+    })
 
     const again = await register('ALICE.SMITH@mail.utoronto.ca')
     assert.equal(again.status, 409)
@@ -65,6 +70,14 @@ describe('email normalization', () => {
     const res = await login(' Alice.Smith@MAIL.utoronto.ca  ')
     assert.equal(res.status, 200, JSON.stringify(res.body))
     assert.equal(res.body.user.email, 'alice.smith@mail.utoronto.ca')
+  })
+
+  test('a case variant of an unverified sign-up replaces it: still one account', async () => {
+    assert.equal((await register('bob.jones@mail.utoronto.ca')).status, 201)
+    assert.equal((await register(' BOB.Jones@mail.utoronto.ca')).status, 201)
+    const rows = await getTestPrisma().user.findMany()
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].email, 'bob.jones@mail.utoronto.ca')
   })
 })
 
