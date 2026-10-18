@@ -2,6 +2,7 @@ import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import { DEMO_MODE } from '../config/demoMode'
+import { endsCurrentSession } from './sessionToken'
 
 const TOKEN_KEY = 'zoink_jwt'
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
@@ -24,6 +25,15 @@ let cachedToken: string | null | undefined // undefined = not loaded yet
 
 export function setApiToken(token: string | null) {
   cachedToken = token
+}
+
+// AuthContext registers this so a session the server no longer accepts (token
+// past its 30 days, account deleted) signs the user out instead of leaving
+// every screen failing with "No token provided.".
+let onSessionEnded: (() => void) | null = null
+
+export function setSessionEndedHandler(handler: (() => void) | null) {
+  onSessionEnded = handler
 }
 
 async function currentToken(): Promise<string | null> {
@@ -61,12 +71,20 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    // Only a 401 for the token still in use ends the session: not a wrong
+    // password at login (no token sent), and not a late reply to a request
+    // made before a fresh login. A burst of 401s from requests in flight ends
+    // it once, since the first clears cachedToken.
+    if (endsCurrentSession(error.response?.status, error.config?.headers?.Authorization, cachedToken)) {
       cachedToken = null
-      if (Platform.OS === 'web') {
-        localStorage.removeItem(TOKEN_KEY)
-      } else {
-        await SecureStore.deleteItemAsync(TOKEN_KEY)
+      try {
+        if (Platform.OS === 'web') {
+          localStorage.removeItem(TOKEN_KEY)
+        } else {
+          await SecureStore.deleteItemAsync(TOKEN_KEY)
+        }
+      } finally {
+        onSessionEnded?.()
       }
     }
 

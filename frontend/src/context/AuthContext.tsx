@@ -1,8 +1,9 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
-import { Platform } from 'react-native'
-import api, { setApiToken } from '../services/api'
+import { Alert, Platform } from 'react-native'
+import api, { setApiToken, setSessionEndedHandler } from '../services/api'
+import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { clearPushToken, syncPushToken } from '../services/pushNotifications'
 import type { University } from '@zoink/shared'
@@ -76,9 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (stored) {
           const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : tryParseJWT(stored)
           if (!payload) {
-            // e.g. a demo-mode token left behind after switching demo mode off.
-            // Drop it and start signed out instead of failing the launch.
-            console.warn('Stored session token could not be decoded; clearing it')
+            // e.g. a demo-mode token left behind after switching demo mode off,
+            // or a session past its expiry. Drop it and start signed out
+            // instead of opening the app "signed in" with every request failing.
+            console.warn('Stored session token is unusable or expired; clearing it')
             await deleteTokenAsync(TOKEN_KEY)
             setApiToken(null)
             return
@@ -97,6 +99,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadToken()
+  }, [])
+
+  // The server stopped accepting the session mid-use (token expired, account
+  // deleted): api.ts has already dropped the stored token; sign out here so
+  // navigation goes back to Login, and say why once.
+  useEffect(() => {
+    setSessionEndedHandler(() => {
+      delete api.defaults.headers.common['Authorization']
+      setToken(null)
+      setUser(null)
+      Alert.alert('Signed out', 'Your session has ended. Please log in again.')
+    })
+    return () => setSessionEndedHandler(null)
   }, [])
 
   useEffect(() => {
@@ -225,19 +240,21 @@ export function useAuth() {
   return ctx
 }
 
-// null when the token isn't a decodable JWT.
+// null when the token isn't a decodable JWT or has expired.
 function tryParseJWT(token: string): User | null {
-  try {
-    return parseJWT(token)
-  } catch {
-    return null
-  }
+  const json = decodeJwtPayload(token)
+  if (!json || isJwtExpired(json)) return null
+  return toUser(json)
 }
 
 // Decode JWT payload without a library — JWTs are just base64 encoded JSON
 function parseJWT(token: string): User {
-  const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-  const json = JSON.parse(atob(base64))
+  const json = decodeJwtPayload(token)
+  if (!json) throw new Error('Session token could not be decoded')
+  return toUser(json)
+}
+
+function toUser(json: Record<string, any>): User {
   return {
     id: json.userId,
     email: json.email ?? '',
