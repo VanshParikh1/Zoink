@@ -1,13 +1,36 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
 import jwt from 'jsonwebtoken'
 import { once } from 'events'
 import type { AddressInfo } from 'net'
+import type { Server } from 'http'
 import { buildGlobalLimiter, buildLimiter, clientIp, globalLimiter } from './rateLimiter'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret-for-rate-limiter-tests'
+
+// One listening server per app, reused for every request against it. Handing
+// supertest the bare app makes it bind a fresh ephemeral port per request, and
+// under the parallel unit-test run one of those connections occasionally hung
+// up (ECONNRESET) before the response arrived.
+const servers = new WeakMap<express.Express, Server>()
+const openServers: Server[] = []
+function client(app: express.Express) {
+  let server = servers.get(app)
+  if (!server) {
+    server = app.listen(0, '127.0.0.1')
+    servers.set(app, server)
+    openServers.push(server)
+  }
+  return request(server)
+}
+after(() => {
+  for (const server of openServers) {
+    server.closeAllConnections()
+    server.close()
+  }
+})
 
 function buildTestApp(limit: number) {
   const app = express()
@@ -24,7 +47,7 @@ test('rate limiter allows requests under the threshold', async () => {
   const app = buildTestApp(3)
 
   for (let i = 0; i < 3; i++) {
-    const res = await request(app).get('/ping')
+    const res = await client(app).get('/ping')
     assert.equal(res.status, 200)
   }
 })
@@ -33,11 +56,11 @@ test('rate limiter rejects with 429 and a Retry-After header once the threshold 
   const app = buildTestApp(3)
 
   for (let i = 0; i < 3; i++) {
-    const res = await request(app).get('/ping')
+    const res = await client(app).get('/ping')
     assert.equal(res.status, 200)
   }
 
-  const blocked = await request(app).get('/ping')
+  const blocked = await client(app).get('/ping')
   assert.equal(blocked.status, 429)
   assert.equal(blocked.body.error, 'Too many requests. Please try again later.')
   assert.ok(blocked.headers['retry-after'], 'expected a Retry-After header on a 429')
@@ -50,13 +73,13 @@ test('rate limiter keys authenticated requests by IP + userId, so one user canno
   const userB = tokenFor('user-b')
 
   // Exhaust user A's budget.
-  await request(app).get('/ping').set('Authorization', `Bearer ${userA}`)
-  await request(app).get('/ping').set('Authorization', `Bearer ${userA}`)
-  const userABlocked = await request(app).get('/ping').set('Authorization', `Bearer ${userA}`)
+  await client(app).get('/ping').set('Authorization', `Bearer ${userA}`)
+  await client(app).get('/ping').set('Authorization', `Bearer ${userA}`)
+  const userABlocked = await client(app).get('/ping').set('Authorization', `Bearer ${userA}`)
   assert.equal(userABlocked.status, 429)
 
   // User B, same test connection/IP, still has their own budget.
-  const userBResponse = await request(app).get('/ping').set('Authorization', `Bearer ${userB}`)
+  const userBResponse = await client(app).get('/ping').set('Authorization', `Bearer ${userB}`)
   assert.equal(userBResponse.status, 200)
 })
 
@@ -78,22 +101,22 @@ test('global limiter gives a signed-in user one budget across networks', async (
 
   const ips = ['203.0.113.1', '203.0.113.2', '198.51.100.3']
   for (const ip of ips) {
-    const res = await request(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', ip)
+    const res = await client(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', ip)
     assert.equal(res.status, 200)
   }
-  const blocked = await request(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', '192.0.2.9')
+  const blocked = await client(app).get('/ping').set('Authorization', `Bearer ${token}`).set('X-Forwarded-For', '192.0.2.9')
   assert.equal(blocked.status, 429, 'switching networks does not reset a signed-in budget')
 })
 
 test('global limiter counts anonymous callers per IP with the lower limit', async () => {
   const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
 
-  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 200)
-  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 429)
-  assert.equal((await request(app).get('/ping').set('X-Forwarded-For', '203.0.113.2')).status, 200, 'another IP has its own budget')
+  assert.equal((await client(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 200)
+  assert.equal((await client(app).get('/ping').set('X-Forwarded-For', '203.0.113.1')).status, 429)
+  assert.equal((await client(app).get('/ping').set('X-Forwarded-For', '203.0.113.2')).status, 200, 'another IP has its own budget')
 
   // A signed-in user on the exhausted IP is unaffected.
-  const signedIn = await request(app).get('/ping').set('Authorization', `Bearer ${tokenFor('user-on-busy-ip')}`).set('X-Forwarded-For', '203.0.113.1')
+  const signedIn = await client(app).get('/ping').set('Authorization', `Bearer ${tokenFor('user-on-busy-ip')}`).set('X-Forwarded-For', '203.0.113.1')
   assert.equal(signedIn.status, 200)
 })
 
@@ -101,8 +124,8 @@ test('global limiter treats a forged token as anonymous', async () => {
   const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
   const forged = jwt.sign({ userId: 'user-forged' }, 'not-the-server-secret')
 
-  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 200)
-  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 429)
+  assert.equal((await client(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 200)
+  assert.equal((await client(app).get('/ping').set('Authorization', `Bearer ${forged}`).set('X-Forwarded-For', '203.0.113.7')).status, 429)
 })
 
 test('production global limiter lets a signed-in user keep polling past the old 300-request cap', async () => {
@@ -134,8 +157,8 @@ test('global limiter treats a token signed with another HMAC algorithm as anonym
   const app = buildGlobalTestApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
   const hs512 = jwt.sign({ userId: 'user-hs512' }, process.env.JWT_SECRET!, { algorithm: 'HS512' })
 
-  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 200)
-  assert.equal((await request(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 429)
+  assert.equal((await client(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 200)
+  assert.equal((await client(app).get('/ping').set('Authorization', `Bearer ${hs512}`).set('X-Forwarded-For', '203.0.113.8')).status, 429)
 })
 
 // ── Client address behind Railway's edge (S1) ────────────────────────────────
@@ -153,8 +176,8 @@ function buildRailwayLikeApp(limiter: ReturnType<typeof buildGlobalLimiter>) {
   return app
 }
 
-function viaEdge(app: express.Express, client: string, extra: Record<string, string> = {}) {
-  return request(app).get('/ping').set('X-Forwarded-For', `${client}, ${EDGE}`).set('X-Real-IP', client).set(extra)
+function viaEdge(app: express.Express, clientAddress: string, extra: Record<string, string> = {}) {
+  return client(app).get('/ping').set('X-Forwarded-For', `${clientAddress}, ${EDGE}`).set('X-Real-IP', clientAddress).set(extra)
 }
 
 test('behind the edge, clients get their own budgets instead of sharing the edge address', async () => {
@@ -175,20 +198,20 @@ test('the limiter key follows X-Real-IP, not whatever the client put in X-Forwar
   // The edge keeps the client's own X-Forwarded-For entries ahead of its own;
   // rotating them must not buy a fresh budget.
   for (const spoofed of ['1.1.1.1', '2.2.2.2']) {
-    const res = await request(app).get('/ping').set('X-Forwarded-For', `${spoofed}, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
+    const res = await client(app).get('/ping').set('X-Forwarded-For', `${spoofed}, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
     assert.equal(res.status, 200)
   }
-  const blocked = await request(app).get('/ping').set('X-Forwarded-For', `3.3.3.3, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
+  const blocked = await client(app).get('/ping').set('X-Forwarded-For', `3.3.3.3, 203.0.113.20, ${EDGE}`).set('X-Real-IP', '203.0.113.20')
   assert.equal(blocked.status, 429)
 })
 
 test('an X-Real-IP that is not a single IP address falls back to req.ip', async () => {
   const app = buildRailwayLikeApp(buildGlobalLimiter({ windowMs: 60_000, authenticatedLimit: 5, anonymousLimit: 1 }))
 
-  const res = await request(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', 'not-an-ip')
+  const res = await client(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', 'not-an-ip')
   assert.equal(res.body.clientIp, EDGE)
   // Junk values can't be rotated into fresh budgets either.
-  const again = await request(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', '203.0.113.30, 203.0.113.31')
+  const again = await client(app).get('/ping').set('X-Forwarded-For', EDGE).set('X-Real-IP', '203.0.113.30, 203.0.113.31')
   assert.equal(again.status, 429)
 })
 
