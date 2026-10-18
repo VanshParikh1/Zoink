@@ -50,7 +50,7 @@ import {
 } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
-import { globalLimiter } from './middleware/rateLimiter'
+import { globalLimiter, payoutStatusLimiter } from './middleware/rateLimiter'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -142,7 +142,7 @@ app.get('/stripe-refresh', (_req, res) => {
   sendStripeConnectRedirectPage(res, 'Payout setup needs another try', 'Your Stripe setup link expired. Open Zoink and start payout setup again.')
 })
 
-app.get('/stripe/connect/status', requireAuth, requireVerified, getStripeConnectStatus)
+app.get('/stripe/connect/status', requireAuth, requireVerified, payoutStatusLimiter, getStripeConnectStatus)
 
 app.use('/auth', authRouter)
 app.use('/users', usersRouter)

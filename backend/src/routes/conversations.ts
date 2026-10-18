@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { messageLimiter } from '../middleware/rateLimiter'
+import { conversationOpenLimiter, messageLimiter } from '../middleware/rateLimiter'
 import { ConversationIdParamsSchema, GetMessagesSchema, OpenConversationSchema, SendMessageSchema } from '../schemas/conversation.schema'
 import {
   getConversationById,
@@ -17,7 +17,7 @@ const router = Router()
 
 router.use(requireAuth, requireVerified)
 
-router.post('/', validate(OpenConversationSchema), openConversation)
+router.post('/', conversationOpenLimiter, validate(OpenConversationSchema), openConversation)
 router.get('/me', getMyConversations)
 router.get('/:id', validate(ConversationIdParamsSchema), getConversationById)
 router.get('/:id/messages', validate(GetMessagesSchema), getConversationMessages)

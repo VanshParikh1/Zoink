@@ -188,3 +188,14 @@ export const disputeLimiter = buildUserLimiter('disputes', { windowMs: DAY, limi
 export const uploadLimiter = buildUserLimiter('uploads', { windowMs: HOUR, limit: 30 })
 // Blocking and unblocking share one budget.
 export const blockLimiter = buildUserLimiter('blocks', { windowMs: HOUR, limit: 30 })
+// Each of these calls Stripe: the Pay step's PaymentIntent and confirm, and
+// payout onboarding (a Connect account and account link). One budget, so one
+// account can't run up Stripe calls (and Stripe's rate limit for everyone).
+export const paymentLimiter = buildUserLimiter('payments', { windowMs: HOUR, limit: 30 })
+// Payout status reads the Connect account from Stripe; the Profile screen
+// loads it on every visit, hence a looser budget of its own.
+export const payoutStatusLimiter = buildUserLimiter('payout-status', { windowMs: HOUR, limit: 120 })
+// New listings show up for everyone browsing nearby.
+export const listingCreateLimiter = buildUserLimiter('listings', { windowMs: DAY, limit: 20 })
+// Opening a conversation with an owner.
+export const conversationOpenLimiter = buildUserLimiter('conversations', { windowMs: HOUR, limit: 60 })

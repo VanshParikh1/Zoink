@@ -4,7 +4,7 @@ import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { uploadLimiter } from '../middleware/rateLimiter'
+import { listingCreateLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -45,7 +45,7 @@ router.get('/', requireAuth, requireVerified, validate(BrowseListingsQuerySchema
 router.get('/categories', requireAuth, requireVerified, getListingCategories)
 router.get('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), getListing)
 
-router.post('/', requireAuth, requireVerified, validate(CreateListingSchema), createListing)
+router.post('/', requireAuth, requireVerified, listingCreateLimiter, validate(CreateListingSchema), createListing)
 router.patch('/:id', requireAuth, requireVerified, validate(UpdateListingSchema), updateListing)
 router.patch('/:id/availability', requireAuth, requireVerified, validate(ToggleAvailabilitySchema), toggleAvailability)
 router.delete('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), deleteListing)

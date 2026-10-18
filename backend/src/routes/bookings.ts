@@ -4,7 +4,7 @@ import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { bookingRequestLimiter, uploadLimiter } from '../middleware/rateLimiter'
+import { bookingRequestLimiter, paymentLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
 import {
   InitiateHandoffSchema,
@@ -66,8 +66,8 @@ router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
 router.get('/:id/photos', validate(HandoffBookingIdParamsSchema), getHandoffPhotos)
 router.get('/:id', validate(BookingIdParamsSchema), getBooking)
 router.patch('/:id/accept', validate(BookingIdParamsSchema), acceptBooking)
-router.post('/:id/payment-intent', validate(BookingIdParamsSchema), createBookingPaymentIntent)
-router.patch('/:id/confirm', validate(BookingIdParamsSchema), confirmBookingPayment)
+router.post('/:id/payment-intent', paymentLimiter, validate(BookingIdParamsSchema), createBookingPaymentIntent)
+router.patch('/:id/confirm', paymentLimiter, validate(BookingIdParamsSchema), confirmBookingPayment)
 router.patch('/:id/decline', validate(BookingIdParamsSchema), declineBooking)
 router.patch('/:id/cancel', validate(BookingIdParamsSchema), cancelBooking)
 
