@@ -162,7 +162,7 @@ export async function retrievePaymentIntent(paymentIntentId: string) {
  *  bookingService.transitionBookingStatus's CONFIRMED branch) — a payment
  *  method only becomes reusable off-session after that confirmation. */
 export async function createDepositPaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'depositAmount'>,
+  booking: Pick<Booking, 'id' | 'version' | 'depositAmount' | 'stripePaymentIntentId'>,
   stripeCustomerId: string,
   paymentMethodId: string
 ) {
@@ -188,7 +188,11 @@ export async function createDepositPaymentIntent(
       confirm: true,
       metadata: { bookingId: booking.id, purpose: 'deposit' },
     },
-    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.version}` }
+    // One deposit hold per rental authorization. This used to be keyed on the
+    // booking version, which webhooks bump: a confirm retried after a 409 (or
+    // a double tap racing the deposit's own amount_capturable_updated webhook)
+    // got a fresh key and put a second deposit hold on the renter's card.
+    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.stripePaymentIntentId}` }
   )
 }
 
@@ -280,6 +284,49 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
     booking.stripePaymentIntentId,
     {},
     { idempotencyKey: `cancel-${booking.id}-${booking.version}` }
+  )
+}
+
+/** Releases a booking's deposit hold. Keyed on the deposit PaymentIntent (it
+ *  can only ever be released once), never on the booking version, so it can't
+ *  collide with the rental PaymentIntent's own cancel key. A hold that is
+ *  already released (a retry after a crash, or Stripe expiring it) counts as
+ *  released rather than failing forever. */
+export async function cancelDepositPaymentIntent(booking: { id: string; stripeDepositPaymentIntentId: string }) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { id: booking.stripeDepositPaymentIntentId, status: 'canceled' }
+  }
+
+  try {
+    return await stripe.paymentIntents.cancel(
+      booking.stripeDepositPaymentIntentId,
+      {},
+      { idempotencyKey: `cancel-deposit-${booking.id}-${booking.stripeDepositPaymentIntentId}` }
+    )
+  } catch (error) {
+    const current = await stripe.paymentIntents.retrieve(booking.stripeDepositPaymentIntentId).catch(() => null)
+    if (current?.status === 'canceled') return current
+    throw error
+  }
+}
+
+/** Captures `amountCents` of a booking's deposit hold (a dispute resolved
+ *  against the renter). A deposit PaymentIntent is captured at most once, so
+ *  the key is the PaymentIntent itself. */
+export async function captureDepositPaymentIntent(
+  booking: { id: string; stripeDepositPaymentIntentId: string },
+  amountCents: number
+) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { id: booking.stripeDepositPaymentIntentId, status: 'succeeded', amount_received: amountCents }
+  }
+
+  return stripe.paymentIntents.capture(
+    booking.stripeDepositPaymentIntentId,
+    { amount_to_capture: amountCents },
+    { idempotencyKey: `capture-deposit-${booking.id}-${booking.stripeDepositPaymentIntentId}` }
   )
 }
 
