@@ -475,12 +475,18 @@ export async function setAvailability(id: string, ownerId: string, isAvailable: 
 
 // ── Delete listing ────────────────────────────────────────────────────────────
 
-export async function deleteListing(id: string, ownerId: string) {
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
+// Returns the deleted listing's photo URLs: privacy.md §7 says a deleted
+// listing's photos go with it, and the files live on Cloudinary.
+export async function deleteListing(id: string, ownerId: string): Promise<string[]> {
+  const existing = await prisma.listing.findUnique({
+    where: { id },
+    select: { ownerId: true, images: { select: { url: true } } },
+  })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   await prisma.listing.delete({ where: { id } })
+  return existing.images.map((image) => image.url)
 }
 
 // ── Add image to listing ──────────────────────────────────────────────────────

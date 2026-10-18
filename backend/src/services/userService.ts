@@ -119,14 +119,15 @@ export async function updateNotificationPreferences(
 // Booking/Review/Dispute/Report — those stay intact for the other party's
 // transaction history, now pointing at an anonymized row. The user's listings
 // are pulled from circulation. Idempotent: a second call on an already-deleted
-// row is a no-op.
-export async function deleteMe(userId: string): Promise<void> {
+// row is a no-op. Returns the profile photo URL the caller should delete from
+// Cloudinary (the row only drops the link to it), or null.
+export async function deleteMe(userId: string): Promise<{ avatarUrl: string | null }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, deletedAt: true },
+    select: { id: true, deletedAt: true, avatarUrl: true },
   })
   if (!user) throw new NotFoundError('User not found.')
-  if (user.deletedAt) return
+  if (user.deletedAt) return { avatarUrl: null }
 
   await prisma.$transaction([
     prisma.user.update({
@@ -151,6 +152,7 @@ export async function deleteMe(userId: string): Promise<void> {
       data: { isAvailable: false },
     }),
   ])
+  return { avatarUrl: user.avatarUrl }
 }
 
 // ── Public profile (safe fields only — no email, no phone) ───────────────────

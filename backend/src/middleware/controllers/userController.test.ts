@@ -131,7 +131,10 @@ test('updateNotificationPrefs returns the updated preferences', async () => {
 
 test('deleteMe responds 204 with no body', async () => {
   let calledWith: string | null = null
-  ;(userService as any).deleteMe = async (userId: string) => { calledWith = userId }
+  ;(userService as any).deleteMe = async (userId: string) => {
+    calledWith = userId
+    return { avatarUrl: null }
+  }
 
   const req: any = { userId: 'user-1' }
   const res = createMockResponse()
