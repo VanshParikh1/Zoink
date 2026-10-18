@@ -71,7 +71,6 @@ function halfUp(numerator: number, denominator: number) {
 // Every daily price from $0.01 to $1,000.00 (the listing schema's cap), for
 // every rental length up to the 7-day maximum: 700,000 quotes.
 test('property: every quote is whole cents and its lines add up exactly', () => {
-  let ties = 0
   for (let dailyCents = 1; dailyCents <= 100_000; dailyCents += 1) {
     const dailyPrice = dailyCents / 100
     for (let days = 1; days <= 7; days += 1) {
@@ -91,28 +90,25 @@ test('property: every quote is whole cents and its lines add up exactly', () => 
       // What the renter is charged at pickup is rent + HST, to the cent.
       assert.equal(cents(q.chargedAtPickup), totalCents + cents(q.hstAmount))
 
-      // Rounding: the binary-float formula matches exact half-up rounding,
-      // except that on an exact half cent it can land on either side.
+      // Rounding: commission and HST are exact half-up to the cent, including
+      // on an exact half cent (the float formula used to round some down).
       const rate = getCommissionRate(dailyPrice)
       const [num, den] = rate === 0.15 ? [15, 100] : rate === 0.125 ? [125, 1000] : [1, 10]
-      const exactCommission = halfUp(totalCents * num, den)
-      const exactHst = halfUp(totalCents * 13, 100)
-      const commissionDiff = Math.abs(cents(q.commissionAmount) - exactCommission)
-      const hstDiff = Math.abs(cents(q.hstAmount) - exactHst)
-      assert.ok(commissionDiff <= 1 && hstDiff <= 1)
-      if (commissionDiff === 1) {
-        assert.equal(((totalCents * num) % den) * 2, den, 'a 1-cent difference only happens on a half-cent tie')
-        ties += 1
-      }
-      if (hstDiff === 1) {
-        assert.equal(((totalCents * 13) % 100) * 2, 100, 'a 1-cent HST difference only happens on a half-cent tie')
-        ties += 1
-      }
+      assert.equal(cents(q.commissionAmount), halfUp(totalCents * num, den))
+      assert.equal(cents(q.hstAmount), halfUp(totalCents * 13, 100))
     }
   }
-  // How often float rounding and exact half-up disagree by a cent on a tie,
-  // across all 700,000 quotes (recorded in docs/hardening-log.md).
-  if (process.env.REPORT_ROUNDING_TIES) console.log(`half-cent ties rounded differently: ${ties}`)
+})
+
+test('an exact half cent rounds up', () => {
+  // $0.50 of rent at 13% HST is 6.5 cents; $1.00 at 12.5% is 12.5 cents. Both
+  // used to be products the float formula could round either way.
+  const q = quoteRental(0.5, 1)
+  assert.equal(q.hstAmount, 0.07)
+  assert.equal(calculateCommission(1, 30), 0.13)
+  assert.equal(calculateOwnerPayout(1, 30), 0.87)
+  // $20.50 x 1 day at 15%: 307.5 cents -> $3.08, payout $17.42.
+  assert.equal(calculateCommission(20.5, 20), 3.08)
 })
 
 test('roundCurrency rounds to the cent', () => {

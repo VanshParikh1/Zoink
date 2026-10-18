@@ -1,7 +1,7 @@
 // What a rental costs, shared so the request screen's preview is computed with
 // exactly the formulas the backend snapshots onto the booking
 // (bookingService.createBooking) and charges (paymentService).
-import { calculateCommission, calculateOwnerPayout } from './commission'
+import { applyRateHalfUp, calculateCommission, calculateOwnerPayout, dollarsToCents } from './commission'
 
 // Ontario HST, on the rental price only: not on the deposit (a hold, not a
 // sale) and not on insurance. Charged on top of what the renter pays; never
@@ -14,7 +14,7 @@ export function roundCurrency(value: number) {
 }
 
 export function calculateHst(rentalTotalPrice: number) {
-  return Math.round(rentalTotalPrice * HST_RATE * 100) / 100
+  return applyRateHalfUp(dollarsToCents(rentalTotalPrice), HST_RATE) / 100
 }
 
 export type RentalQuote = {

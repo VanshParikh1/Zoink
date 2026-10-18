@@ -22,10 +22,25 @@ export function getCommissionRate(dailyRate: number): number {
   return tier!.rate
 }
 
+/** Whole cents in a dollar amount that is already rounded to the cent. */
+export function dollarsToCents(value: number) {
+  return Math.round(value * 100)
+}
+
+/** `cents x rate`, rounded half-up to a whole cent in integer arithmetic. The
+ *  rate goes in as basis points (0.125 -> 1250), so an exact half cent always
+ *  rounds up; the float formula this replaced (Math.round(x * rate * 100))
+ *  rounded some exact half cents down, depending on how the product landed in
+ *  binary. */
+export function applyRateHalfUp(cents: number, rate: number) {
+  const basisPoints = Math.round(rate * 10_000)
+  return Math.floor((cents * basisPoints + 5_000) / 10_000)
+}
+
 export function calculateCommission(totalPrice: number, dailyRate: number) {
-  return Math.round(totalPrice * getCommissionRate(dailyRate) * 100) / 100
+  return applyRateHalfUp(dollarsToCents(totalPrice), getCommissionRate(dailyRate)) / 100
 }
 
 export function calculateOwnerPayout(totalPrice: number, dailyRate: number) {
-  return Math.round((totalPrice - calculateCommission(totalPrice, dailyRate)) * 100) / 100
+  return (dollarsToCents(totalPrice) - dollarsToCents(calculateCommission(totalPrice, dailyRate))) / 100
 }
