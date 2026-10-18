@@ -10,7 +10,6 @@ import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
 import { categoryAbbreviation } from '../config/categories'
-import { formatLongDate } from '../utils/formatDate'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
@@ -19,6 +18,7 @@ import Card from '../components/mockup/Card'
 import HardShadow from '../components/mockup/HardShadow'
 import TextField from '../components/mockup/TextField'
 import Thumb from '../components/mockup/Thumb'
+import { formatRentalDate } from '@zoink/shared'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -151,7 +151,7 @@ export default function ReviewPromptScreen() {
               {review.booking.listing.title}
             </Text>
             <Text style={styles.caption}>
-              {formatLongDate(review.booking.startDate)} – {formatLongDate(review.booking.endDate)}
+              {formatRentalDate(review.booking.startDate, 'long')} – {formatRentalDate(review.booking.endDate, 'long')}
             </Text>
           </View>
         </Card>

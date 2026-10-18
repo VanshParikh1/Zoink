@@ -21,6 +21,7 @@ import Card from '../components/mockup/Card'
 import Thumb from '../components/mockup/Thumb'
 import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
 import Timeline, { TimelineStep } from '../components/mockup/Timeline'
+import { formatDayOf, formatRentalDate } from '@zoink/shared'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -75,15 +76,15 @@ type ScreenRoute = RouteProp<RootStackParamList, 'BookingDetail'>
 const HOUR_MS = 60 * 60 * 1000
 const ITEM_THUMB = 52
 
+/** The Toronto day of a moment (requested, paid, handed off, paid out). */
 function shortDate(iso: string | null | undefined) {
-  if (!iso) return null
-  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  return iso ? formatDayOf(iso, 'weekday') : null
 }
 
-/** Rental start/end dates are calendar days stored as UTC midnight; read them in
- *  UTC so a timezone behind UTC doesn't show the previous day. */
+/** A rental's start or end day (see @zoink/shared dates.ts): a requested
+ *  calendar day never shifts, and a real handoff time shows its Toronto day. */
 function calendarDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return formatRentalDate(iso, 'weekday')
 }
 
 /** The later of two timestamps: a handoff is confirmed when the second tap lands. */

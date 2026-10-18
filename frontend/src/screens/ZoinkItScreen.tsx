@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS, rentalDayCount } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
@@ -35,10 +35,11 @@ const VISIBLE_PHOTOS = 3
 const ITEM_THUMB = 52
 const PHOTO_THUMB = 30
 const WINDOW_MINUTES = Math.round(ZOINK_TAP_WINDOW_MS / 60000)
-const DAY_MS = 24 * 60 * 60 * 1000
 
+/** Calendar days, inclusive. After pickup the start is the real handoff time,
+ *  which made the old millisecond count come out a day off. */
 function rentalDays(startIso: string, endIso: string) {
-  return Math.round((Date.parse(endIso) - Date.parse(startIso)) / DAY_MS) + 1
+  return rentalDayCount(startIso, endIso)
 }
 
 function formatRemaining(ms: number) {

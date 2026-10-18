@@ -6,10 +6,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useStripe } from '@stripe/stripe-react-native'
 import { RootStackParamList } from '../navigation'
 import { confirmBookingPayment, createBookingPaymentIntent, getBooking } from '../services/bookingsApi'
-import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
-import { formatLongDate } from '../utils/formatDate'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -158,7 +157,7 @@ export default function PayScreen() {
     { label: 'HST (13%)', value: money(booking.hstAmount) },
   ]
   const banner = bannerFor(booking.status)
-  const dateRange = `${formatLongDate(booking.startDate)} – ${formatLongDate(booking.endDate)}`
+  const dateRange = `${formatRentalDate(booking.startDate, 'long')} – ${formatRentalDate(booking.endDate, 'long')}`
   const payLabel = `Pay ${shortMoney(rentDue)}${hasDeposit ? ` + hold ${shortMoney(booking.depositAmount)}` : ''}`
 
   return (

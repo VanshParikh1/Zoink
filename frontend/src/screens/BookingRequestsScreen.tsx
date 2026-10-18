@@ -16,13 +16,14 @@ import Button from '../components/mockup/Button'
 import StatePanel from '../components/mockup/StatePanel'
 import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 import { sortBookingsLiveFirst } from '../utils/sortBookings'
+import { formatRentalDate } from '@zoink/shared'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const SKELETON_COUNT = 3
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return formatRentalDate(dateStr, 'short')
 }
 
 function formatDateRange(startDate: string, endDate: string) {

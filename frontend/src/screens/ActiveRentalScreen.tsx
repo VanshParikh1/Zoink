@@ -21,18 +21,22 @@ import Thumb from '../components/mockup/Thumb'
 import { ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { SCREEN_WIDTH, fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 import { initialsOf } from '../utils/initials'
+import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoink/shared'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
 
 function shortDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return formatRentalDate(value, 'short')
 }
 
+/** Calendar days until the due-back day, counted in Toronto. Counting
+ *  milliseconds to the stored end (midnight UTC, i.e. 8 PM the evening before
+ *  in Toronto) said "ends today" a day early every evening. */
 function daysLeft(endDate: string) {
-  const end = new Date(endDate).getTime()
-  const now = Date.now()
-  const days = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)))
+  const endKey = rentalDayKey(endDate)
+  const todayKey = torontoDayKey()
+  const days = endKey && todayKey ? Math.max(0, daysBetween(todayKey, endKey)) : 0
   if (days === 0) return 'ends today'
   if (days === 1) return '1 day left'
   return `${days} days left`

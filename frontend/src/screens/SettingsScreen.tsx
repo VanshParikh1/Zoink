@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react'
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, Text } from 'react-native'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { TERMS_VERSION } from '@zoink/shared'
+import { TERMS_VERSION, formatDayOf } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
 import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotificationPreferences } from '../services/usersApi'
@@ -14,7 +14,6 @@ import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import Card from '../components/mockup/Card'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
-import { formatLongDate } from '../utils/formatDate'
 import Constants from 'expo-constants'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -199,7 +198,7 @@ export default function SettingsScreen() {
                   key={blocked.id}
                   icon="slash"
                   label={`${blocked.firstName} ${blocked.lastName}`}
-                  value={`Blocked ${formatLongDate(blocked.blockedAt)}`}
+                  value={`Blocked ${formatDayOf(blocked.blockedAt, 'long')}`}
                   loading={unblockingId === blocked.id}
                   right={
                     <Pressable
@@ -224,7 +223,7 @@ export default function SettingsScreen() {
               label="Terms of Service & Privacy Policy"
               value={
                 termsAcceptedAt
-                  ? `Accepted Terms v${TERMS_VERSION} on ${formatLongDate(termsAcceptedAt)}`
+                  ? `Accepted Terms v${TERMS_VERSION} on ${formatDayOf(termsAcceptedAt, 'long')}`
                   : 'You have not yet accepted the current Terms.'
               }
               onPress={() => nav.navigate('TermsAcceptance', { mode: 'view' })}
