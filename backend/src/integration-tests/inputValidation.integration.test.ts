@@ -88,3 +88,54 @@ describe('dispute routes', () => {
     assert.equal((await as(user.token).get('/disputes')).status, 200)
   })
 })
+
+describe('unknown fields are refused, not dropped', () => {
+  function assertUnknownField(res: supertest.Response, field: string) {
+    assertValidationError(res)
+    assert.ok(
+      res.body.issues.some((i: { message: string }) => i.message.includes(field)),
+      `names ${field}: ${JSON.stringify(res.body.issues)}`
+    )
+  }
+
+  test('a profile update cannot carry role, verification or email, and changes nothing', async () => {
+    for (const extra of [{ role: 'ADMIN' }, { verificationStatus: 'VERIFIED' }, { email: 'other@mail.utoronto.ca' }]) {
+      assertUnknownField(await as(user.token).patch('/users/me').send({ bio: 'Changed', ...extra }), Object.keys(extra)[0])
+    }
+    const row = await getTestPrisma().user.findUniqueOrThrow({ where: { id: user.id } })
+    assert.equal(row.role, 'USER')
+    assert.equal(row.bio, null)
+    assert.equal((await as(user.token).patch('/users/me').send({ bio: 'Changed' })).status, 200, 'the known fields alone go through')
+  })
+
+  test('a listing cannot be created for someone else or with server-owned fields', async () => {
+    const listing = {
+      title: 'Camera',
+      description: 'A camera',
+      category: 'Electronics',
+      dailyPrice: 10,
+      latitude: 43.66,
+      longitude: -79.39,
+      city: 'Toronto',
+    }
+    assertUnknownField(await as(user.token).post('/listings').send({ ...listing, ownerId: owner.id }), 'ownerId')
+    assertUnknownField(await as(user.token).post('/listings').send({ ...listing, isAvailable: false, images: [] }), 'isAvailable')
+    assert.equal(await getTestPrisma().listing.count({ where: { title: 'Camera' } }), 0)
+  })
+
+  test('sign-up cannot carry a role', async () => {
+    const res = await supertest(getApp()).post('/auth/register').set('X-Real-IP', '198.18.0.1').send({ email: 'x@mail.utoronto.ca', role: 'ADMIN' })
+    assertUnknownField(res, 'role')
+  })
+
+  test('unknown query parameters are refused too', async () => {
+    assertUnknownField(await as(user.token).get('/listings?ownerId=abc'), 'ownerId')
+    assert.equal((await as(user.token).get('/listings?q=camera')).status, 200)
+  })
+
+  test('routes that validate params and body separately still take their body', async () => {
+    const res = await as(user.token).post(`/conversations/${conversationId}/messages`).send({ body: 'Hello' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assertUnknownField(await as(user.token).post(`/conversations/${conversationId}/messages`).send({ body: 'Hi', senderId: owner.id }), 'senderId')
+  })
+})

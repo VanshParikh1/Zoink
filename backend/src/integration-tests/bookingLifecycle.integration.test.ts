@@ -889,7 +889,7 @@ describe('full happy path via HTTP', () => {
     const res = await supertest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${renter.token}`)
-      .send({ listingId, startDate, endDate, message: 'Test booking', insuranceOptIn: false })
+      .send({ listingId, startDate, endDate, message: 'Test booking' })
 
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`)
     assert.equal(res.body.status, 'PENDING')
