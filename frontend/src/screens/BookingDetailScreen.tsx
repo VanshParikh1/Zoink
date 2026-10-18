@@ -80,6 +80,12 @@ function shortDate(iso: string | null | undefined) {
   return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+/** Rental start/end dates are calendar days stored as UTC midnight; read them in
+ *  UTC so a timezone behind UTC doesn't show the previous day. */
+function calendarDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 /** The later of two timestamps: a handoff is confirmed when the second tap lands. */
 function laterOf(a: string | null, b: string | null) {
   if (!a || !b) return null
@@ -121,9 +127,9 @@ function statusLineFor(booking: Booking) {
       return 'Accepted · pay to confirm'
     case 'CONFIRMED':
     case 'PICKUP_PENDING':
-      return `Pickup ${shortDate(booking.startDate)}`
+      return `Pickup ${calendarDate(booking.startDate)}`
     case 'ACTIVE':
-      return `Due back ${shortDate(booking.endDate)}`
+      return `Due back ${calendarDate(booking.endDate)}`
     case 'RETURN_PENDING':
       return 'Return in progress'
     case 'COMPLETED':
@@ -327,11 +333,11 @@ export default function BookingDetailScreen() {
       state: stateOf(2),
       caption: at('ACTIVE')
         ? joinCaption(shortDate(pickedUpAt), pickupPhotos.length ? `${pickupPhotos.length} photos` : null, rentCharged && 'rent charged')
-        : `Planned ${shortDate(booking.startDate)}`,
+        : `Planned ${calendarDate(booking.startDate)}`,
       current: {
         badge: booking.status === 'PICKUP_PENDING' ? 'Photos in' : 'Waiting for pickup',
         headline: `Meet ${otherParty.firstName} and Zoink It together`,
-        body: `Pickup ${shortDate(booking.startDate)}.`,
+        body: `Pickup ${calendarDate(booking.startDate)}.`,
       },
     },
     {
@@ -340,11 +346,11 @@ export default function BookingDetailScreen() {
       state: stateOf(3),
       caption: booking.status === 'COMPLETED'
         ? joinCaption(shortDate(returnedAt), returnPhotos.length ? `${returnPhotos.length} photos` : null)
-        : `Due ${shortDate(booking.endDate)}`,
+        : `Due ${calendarDate(booking.endDate)}`,
       current:
         booking.status === 'RETURN_PENDING'
           ? { badge: 'Return pending', headline: 'Both tap Zoink It to finish the return' }
-          : { badge: 'Rental in progress', headline: `Return by ${shortDate(booking.endDate)}` },
+          : { badge: 'Rental in progress', headline: `Return by ${calendarDate(booking.endDate)}` },
     },
     {
       key: 'claim',
@@ -471,7 +477,7 @@ export default function BookingDetailScreen() {
             </Text>
             <Text style={type.price}>{statusLineFor(booking)}</Text>
             <Text style={styles.caption}>
-              {shortDate(booking.startDate)} – {shortDate(booking.endDate)} · {isOwner ? 'Renter' : 'Owner'} {otherParty.firstName} {otherParty.lastName}
+              {calendarDate(booking.startDate)} – {calendarDate(booking.endDate)} · {isOwner ? 'Renter' : 'Owner'} {otherParty.firstName} {otherParty.lastName}
             </Text>
           </View>
         </Card>
