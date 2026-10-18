@@ -40,6 +40,8 @@ const TABLES = [
   'users',
 ]
 
+const DEMO_PHOTOS = ['sample', 'cld-sample', 'cld-sample-2', 'cld-sample-3', 'cld-sample-4', 'cld-sample-5', 'samples/landscapes/nature-mountains', 'samples/food/dessert']
+
 const CATEGORIES = ['Electronics', 'Tools', 'Sports', 'Outdoors', 'Kitchen', 'Books', 'Music', 'Gaming']
 
 export type BenchFixtures = {
@@ -165,7 +167,11 @@ export async function seed(): Promise<BenchFixtures> {
       reviewCount: i % 12,
     })
     for (let order = 0; order < 3; order += 1) {
-      images.push({ listingId: id, order, url: `https://res.cloudinary.com/zoinkbench/image/upload/v1/listings/l_${i}_${order}.jpg` })
+      // Real, public Cloudinary demo images so on-device scroll runs decode
+      // actual photos; a distinct version per listing keeps every URL (and
+      // cache entry) unique, like real uploads.
+      const photo = DEMO_PHOTOS[(i + order) % DEMO_PHOTOS.length]
+      images.push({ listingId: id, order, url: `https://res.cloudinary.com/demo/image/upload/v${1000 + i}/${photo}.jpg` })
     }
     const list = listingsByOwner.get(ownerId) ?? []
     list.push(id)
