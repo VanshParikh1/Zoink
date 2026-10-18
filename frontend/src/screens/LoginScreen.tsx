@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -11,10 +11,14 @@ import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
+import { markStartup } from '../utils/perfMarks'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
 export default function LoginScreen() {
+  useEffect(() => {
+    markStartup('login')
+  }, [])
   const navigation = useNavigation<Nav>()
   const { login } = useAuth()
 

@@ -33,6 +33,7 @@ import {
 } from '../components/mockup/tabBarMetrics'
 import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
 import { MainTab, MainTabProvider } from '../context/MainTabContext'
+import { markStartup } from '../utils/perfMarks'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
 // Five equal columns: Home, Search, the "+" slot, Inbox, Profile.
@@ -118,6 +119,10 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
     outputRange: [0, tabWidth, tabWidth * 3, tabWidth * 4],
     extrapolate: 'clamp',
   })
+
+  useEffect(() => {
+    markStartup('main-app')
+  }, [])
 
   useEffect(() => {
     if (contentWidth > 0 && scrollViewRef.current) {

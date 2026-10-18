@@ -20,6 +20,7 @@ import TextField from '../components/mockup/TextField'
 import CategoryChips from '../components/mockup/CategoryChips'
 import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
 import StatePanel from '../components/mockup/StatePanel'
+import { useScrollPerfProbe } from '../utils/perfMarks'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
@@ -37,6 +38,7 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('')
   const [isResultsState, setIsResultsState] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('All')
+  const scrollProbe = useScrollPerfProbe('search-list')
 
   const [trending, setTrending] = useState<ListingBrowseItem[]>([])
   const [recent, setRecent] = useState<ListingBrowseItem[]>([])
@@ -253,6 +255,7 @@ export default function SearchScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
+        {...scrollProbe}
       />
     </Screen>
   )

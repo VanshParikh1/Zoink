@@ -23,6 +23,7 @@ import Card from '../components/mockup/Card'
 import IconButton from '../components/mockup/IconButton'
 import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
+import { markStartup, useScrollPerfProbe } from '../utils/perfMarks'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -64,6 +65,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [listWidth, setListWidth] = useState(0)
+  const scrollProbe = useScrollPerfProbe('home-grid')
   const cellWidth = listWidth
     ? Math.floor((listWidth - space.screen * 2 - COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS)
     : 0
@@ -77,6 +79,7 @@ export default function HomeScreen() {
         radius: DEFAULT_RADIUS_KM,
       })
       setListings(data)
+      markStartup('home-content')
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
     } finally {
@@ -243,6 +246,7 @@ export default function HomeScreen() {
         ListEmptyComponent={<View style={styles.padded}>{emptyState}</View>}
         style={styles.flatList}
         showsVerticalScrollIndicator={false}
+        {...scrollProbe}
       />
     </Screen>
   )
