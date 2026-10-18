@@ -1,13 +1,9 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
-import type { BookingResponse, PendingReviewResponse, UserSummary } from '@zoink/shared'
+import { quoteRental, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
-import {
-  ensureValidBookingDates,
-  getRentalDays,
-  roundCurrency,
-} from './bookingUtils'
+import { ensureValidBookingDates, getRentalDays } from './bookingUtils'
 import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
 import { assertNotBlocked } from './blockService'
@@ -395,11 +391,12 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     throw new BadRequestError('Start and end dates are invalid.')
   }
 
-  const dailyPrice = Number(listing.dailyPrice)
-  const totalPrice = roundCurrency(dailyPrice * rentalDays)
-  const depositAmount = Number(listing.depositAmount)
-  const commissionAmount = calculateCommission(totalPrice, dailyPrice)
-  const ownerPayout = calculateOwnerPayout(totalPrice, dailyPrice)
+  // The same quote the request screen previews (@zoink/shared quoteRental).
+  const { totalPrice, depositAmount, commissionAmount, ownerPayout, hstAmount } = quoteRental(
+    Number(listing.dailyPrice),
+    rentalDays,
+    Number(listing.depositAmount)
+  )
   // Zoink offers no insurance product at launch (terms.md §12) — insuranceOptIn
   // is never read from client input (CreateBookingSchema doesn't even accept
   // it, see booking.schema.ts). Hardcoded false here rather than trusting a
@@ -411,7 +408,6 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   if (insuranceFee !== 0) {
     throw new Error('INSURANCE_FEE_MUST_BE_ZERO: Zoink offers no insurance product at launch.')
   }
-  const hstAmount = calculateHst(totalPrice)
 
   const trimmedMessage = input.message?.trim() || null
 

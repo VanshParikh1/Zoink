@@ -22,3 +22,8 @@ export const HANDOFF_PHOTOS_MAX = 3
 
 // Most photos one listing can have (enforced by backend listingService).
 export const LISTING_PHOTOS_MAX = 8
+
+// Longest rental, in calendar days. Card authorizations are only reliably held
+// for about a week, and the rent is authorized at payment and captured at
+// pickup (see backend bookingUtils.ensureValidBookingDates).
+export const MAX_RENTAL_DAYS = 7

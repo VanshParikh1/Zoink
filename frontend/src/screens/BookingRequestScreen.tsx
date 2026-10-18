@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing } from '../services/listingsApi'
 import { createBooking } from '../services/bookingsApi'
-import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
@@ -35,12 +35,6 @@ type CalendarDay = {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_COUNT = 2
-// Mirrors MAX_RENTAL_DAYS in backend/src/services/bookingUtils.ts — keep in sync.
-const MAX_RENTAL_DAYS = 7
-// Mirrors HST_RATE in backend/src/services/paymentService.ts — keep in sync.
-// This is a client-side preview only; the real hstAmount is snapshotted
-// server-side in createBooking() and is what actually gets charged.
-const HST_RATE = 0.13
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -149,12 +143,12 @@ export default function BookingRequestScreen() {
     [calendarMonth]
   )
   const rentalDays = useMemo(() => getRentalDays(startDate, endDate), [endDate, startDate])
-  const totalPrice = useMemo(
-    () => (listing && rentalDays > 0 ? Number((Number(listing.dailyPrice) * rentalDays).toFixed(2)) : 0),
+  // The same quote the server snapshots onto the booking when it's requested.
+  const quote = useMemo(
+    () => quoteRental(listing && rentalDays > 0 ? Number(listing.dailyPrice) : 0, Math.max(rentalDays, 0), Number(listing?.depositAmount ?? 0)),
     [listing, rentalDays]
   )
-  const depositAmount = Number(listing?.depositAmount ?? 0)
-  const hstAmount = useMemo(() => Number((totalPrice * HST_RATE).toFixed(2)), [totalPrice])
+  const { totalPrice, hstAmount, depositAmount } = quote
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return
@@ -390,7 +384,7 @@ export default function BookingRequestScreen() {
             ]}
             // Same split as Checkout: rent + HST is what's captured at pickup;
             // the deposit is a separate hold, never part of this total.
-            total={{ label: 'Charged at pickup', value: `$${(totalPrice + hstAmount).toFixed(2)}` }}
+            total={{ label: 'Charged at pickup', value: `$${quote.chargedAtPickup.toFixed(2)}` }}
             highlight="lime"
           />
         </Card>

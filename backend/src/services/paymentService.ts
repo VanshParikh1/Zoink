@@ -1,6 +1,7 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
 import {
   calculateCommission as sharedCalculateCommission,
+  calculateHst as sharedCalculateHst,
   calculateOwnerPayout as sharedCalculateOwnerPayout,
   getCommissionRate as sharedGetCommissionRate,
 } from '@zoink/shared'
@@ -11,14 +12,6 @@ import prisma from '../utils/prisma'
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
 const MIN_INSURANCE_FEE = Number(process.env.MIN_INSURANCE_FEE ?? 1)
 const MAX_INSURANCE_FEE = Number(process.env.MAX_INSURANCE_FEE ?? 50)
-
-// Ontario HST. Applied to the rental price only — not the deposit (a hold,
-// not a sale) and not insurance (a separate optional product). Charged on
-// top of what the borrower pays; it is never subtracted from totalPrice
-// before commission/ownerPayout are computed, so it has no effect on the
-// owner's earnings. The platform has no per-listing jurisdiction field
-// today, so this applies to every booking (see calculateHst callers).
-const HST_RATE = 0.13
 
 type StripeClient = any
 
@@ -85,8 +78,13 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
+// Ontario HST (13%, @zoink/shared HST_RATE) on the rental price only — not the
+// deposit (a hold, not a sale) and not insurance. Charged on top of what the
+// borrower pays; never subtracted from totalPrice before commission/ownerPayout
+// are computed, so it has no effect on the owner's earnings. The platform has
+// no per-listing jurisdiction field today, so this applies to every booking.
 export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
-  return Math.round(Number(rentalTotalPrice) * HST_RATE * 100) / 100
+  return sharedCalculateHst(Number(rentalTotalPrice))
 }
 
 // The commission tiers and math live in @zoink/shared (commission.ts) so the
