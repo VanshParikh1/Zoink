@@ -15,4 +15,15 @@ export function assertSafeProductionConfig(env: NodeJS.ProcessEnv = process.env)
         'Remove it from the production environment variables.'
     )
   }
+
+  // Every session token is an HS256 signature with this secret; a short one
+  // can be brute-forced offline from any token, which forges any account.
+  if ((env.JWT_SECRET ?? '').length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(
+      `Refusing to start: JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters in production ` +
+        '(e.g. `openssl rand -base64 48`). Changing it signs everyone out.'
+    )
+  }
 }
+
+export const MIN_JWT_SECRET_LENGTH = 32
