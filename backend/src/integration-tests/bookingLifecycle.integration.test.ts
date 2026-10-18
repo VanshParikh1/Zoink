@@ -34,6 +34,7 @@ import {
 import * as bookingService from '../services/bookingService'
 import * as handoffService from '../services/handoffService'
 import * as conversationService from '../services/conversationService'
+import * as paymentService from '../services/paymentService'
 import { PaymentStatus, BookingStatus } from '@prisma/client'
 
 // notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
@@ -652,7 +653,7 @@ describe('pickup handoff', () => {
     assert.equal(uploadEvents.length, 2, 'both the initial submission and the edit should be audit-logged')
   })
 
-  test('resubmitting photos after one party has already tapped does not clear that tap', async () => {
+  test('resubmitting photos after one party has already tapped does not clear that tap', async (t) => {
     const booking = await makeAcceptedBooking()
     const photos = [
       handoffPhotoUrl(booking.id, 'photo1'),
@@ -682,17 +683,24 @@ describe('pickup handoff', () => {
     )
 
     // The renter can still tap afterwards and complete the synchronized confirmation.
+    // (Placeholder PaymentIntent id, so the pickup capture is mocked.)
+    t.mock.method(paymentService, 'capturePaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded' }))
     const renterTap = await handoffService.confirmHandoff(booking.id, renter.id, 'pickup')
     assert.equal(renterTap.bothConfirmed, true, 'the pre-edit tap should still count toward synchronization')
   })
 
-  test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async () => {
+  test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async (t) => {
     const booking = await makeAcceptedBooking()
     const photos = [
       handoffPhotoUrl(booking.id, 'photo1'),
       handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
+
+    // The booking's PaymentIntent id is a placeholder, so the capture is
+    // mocked here; a failed capture blocks the pickup (pickupCapture tests)
+    // and the real-Stripe capture is covered by handoffRace.
+    const capture = t.mock.method(paymentService, 'capturePaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded' }))
 
     // Owner taps first
     const ownerTap = await handoffService.confirmHandoff(booking.id, owner.id, 'pickup')
@@ -707,12 +715,9 @@ describe('pickup handoff', () => {
     const db = getTestPrisma()
     const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(persisted.status, BookingStatus.ACTIVE)
-    // Payment should have been attempted to capture (CAPTURE_PENDING or CAPTURED or FAILED)
-    const pickupAcceptableStatuses: PaymentStatus[] = [PaymentStatus.CAPTURE_PENDING, PaymentStatus.CAPTURED, PaymentStatus.FAILED]
-    assert.ok(
-      pickupAcceptableStatuses.includes(persisted.paymentStatus),
-      `unexpected paymentStatus after pickup: ${persisted.paymentStatus}`
-    )
+    // Captured once, on the second tap; the webhook then moves it to CAPTURED.
+    assert.equal(capture.mock.callCount(), 1)
+    assert.equal(persisted.paymentStatus, PaymentStatus.CAPTURE_PENDING)
     // BookingEvents should include ZOINK_TAP events
     const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
     const tapEvents = events.filter((e: any) => e.type === 'ZOINK_TAP')
