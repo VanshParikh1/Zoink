@@ -256,13 +256,34 @@ export async function updateAvatar(userId: string, avatarUrl: string) {
 
 // ── Update Expo push token ───────────────────────────────────────────────────
 
+// One phone, one account: registering a device's token takes it off every
+// other account in the same transaction. A session can end without a sign-out
+// (expiry, or sign-out couldn't reach the server), and the next person to sign
+// in on that phone must not keep getting the previous account's notifications.
 export async function updateExpoPushToken(userId: string, expoPushToken: string | null) {
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data: { expoPushToken },
-    select: { id: true, expoPushToken: true },
-  })
+  const select = { id: true, expoPushToken: true }
+  if (expoPushToken === null) {
+    return prisma.user.update({ where: { id: userId }, data: { expoPushToken: null }, select })
+  }
+  const [, user] = await prisma.$transaction([
+    prisma.user.updateMany({
+      where: { expoPushToken, id: { not: userId } },
+      data: { expoPushToken: null },
+    }),
+    prisma.user.update({ where: { id: userId }, data: { expoPushToken }, select }),
+  ])
   return user
+}
+
+// Signing a phone out: clears the account's token only while it is still this
+// phone's, so signing out on an old phone doesn't silence the one the account
+// uses now.
+export async function releaseExpoPushToken(userId: string, expoPushToken: string) {
+  const result = await prisma.user.updateMany({
+    where: { id: userId, expoPushToken },
+    data: { expoPushToken: null },
+  })
+  return { released: result.count === 1 }
 }
 
 // ── Stripe Connect ────────────────────────────────────────────────────────────

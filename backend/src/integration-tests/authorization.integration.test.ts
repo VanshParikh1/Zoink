@@ -265,6 +265,7 @@ const AUTHED_ROUTES: [string, string][] = [
   ['patch', '/users/me/notification-prefs'],
   ['post', '/users/me/accept-terms'],
   ['patch', '/users/me/push-token'],
+  ['post', '/users/me/push-token/release'],
   ['post', '/users/me/avatar'],
   ['post', '/users/me/stripe-connect/onboard'],
   ['get', '/users/me/stripe-connect/status'],

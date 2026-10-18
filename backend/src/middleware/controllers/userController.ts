@@ -94,6 +94,14 @@ export const updatePushToken = asyncHandler(async (req: Request, res: Response) 
   return res.json(user)
 })
 
+// POST /users/me/push-token/release — sign-out from this phone (also accepted
+// with a lapsed session; see requireAuthAllowingExpired).
+export const releasePushToken = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const { expoPushToken } = req.body as { expoPushToken: string }
+  return res.json(await userService.releaseExpoPushToken(userId, expoPushToken))
+})
+
 // POST /users/me/stripe-connect/onboard
 export const onboardStripeConnect = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId

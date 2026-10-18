@@ -1,11 +1,11 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { BadRequestError } from '../utils/errors'
-import { requireAuth } from '../middleware/requireAuth'
+import { requireAuth, requireAuthAllowingExpired } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
 import { blockLimiter, uploadLimiter } from '../middleware/rateLimiter'
-import { UpdateMeSchema, UpdateNotificationPrefsSchema, UpdatePushTokenSchema, UserIdParamsSchema } from '../schemas/user.schema'
+import { ReleasePushTokenSchema, UpdateMeSchema, UpdateNotificationPrefsSchema, UpdatePushTokenSchema, UserIdParamsSchema } from '../schemas/user.schema'
 import {
   getMe,
   getPublicProfile,
@@ -13,6 +13,7 @@ import {
   updateNotificationPrefs,
   deleteMe,
   updatePushToken,
+  releasePushToken,
   uploadAvatar,
   onboardStripeConnect,
   getStripeConnectStatus,
@@ -44,6 +45,7 @@ router.delete('/me', requireAuth, deleteMe)
 router.patch('/me/notification-prefs', requireAuth, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
 router.post('/me/accept-terms', requireAuth, acceptTerms)
 router.patch('/me/push-token', requireAuth, validate(UpdatePushTokenSchema), updatePushToken)
+router.post('/me/push-token/release', requireAuthAllowingExpired, validate(ReleasePushTokenSchema), releasePushToken)
 router.post('/me/avatar', requireAuth, uploadLimiter, upload.single('avatar'), uploadAvatar)
 // Payout onboarding creates a real Stripe Connect account — verified students only.
 router.post('/me/stripe-connect/onboard', requireAuth, requireVerified, onboardStripeConnect)

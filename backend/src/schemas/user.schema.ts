@@ -51,3 +51,12 @@ export const UpdatePushTokenSchema = z.object({
     expoPushToken: z.string().max(200, 'expoPushToken is too long.').nullable().optional(),
   }),
 })
+
+// ── POST /users/me/push-token/release ────────────────────────────────────────
+
+export const ReleasePushTokenSchema = z.object({
+  body: z.object({
+    // This phone's Expo push token; cleared only while the account still has it.
+    expoPushToken: z.string().min(1).max(200, 'expoPushToken is too long.'),
+  }),
+})
