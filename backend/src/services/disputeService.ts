@@ -1,7 +1,7 @@
 import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { cancelPaymentIntent, capturePaymentIntent, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
+import { cancelDepositPaymentIntent, cancelPaymentIntent, captureDepositPaymentIntent, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
 import { notifyUser } from './notificationService'
 
 // Deposit resolution auto-releases 24h after return handoff completes (see
@@ -18,66 +18,75 @@ export async function createDispute(
   description: string,
   db: typeof prisma = prisma
 ) {
-  const booking = await db.booking.findUnique({ where: { id: bookingId } })
-  if (!booking) throw new NotFoundError('Booking not found')
+  // One transaction holding the booking row: two filings racing each other (a
+  // double tap, or both parties at once) used to both pass the "no open
+  // dispute" check and open two disputes, and a filing racing the deposit
+  // release job at the 24-hour mark could open a dispute on a deposit the job
+  // was releasing. The job takes the same lock (cleanupJob.releaseDueDeposits).
+  return db.$transaction(async (tx) => {
+    const [locked] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`
+    if (!locked) throw new NotFoundError('Booking not found')
 
-  if (booking.renterId !== requesterId && booking.ownerId !== requesterId) {
-    throw new ForbiddenError('Only the renter or owner can open a dispute for this booking.')
-  }
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } })
 
-  if (booking.status === 'COMPLETED' && booking.completedAt) {
-    const windowEnd = new Date(booking.completedAt.getTime() + DISPUTE_WINDOW_HOURS * 60 * 60 * 1000)
-    if (new Date() > windowEnd) {
-      throw new BadRequestError(
-        `The dispute window has closed. Disputes must be filed within ${DISPUTE_WINDOW_HOURS} hours of the booking completing.`
-      )
+    if (booking.renterId !== requesterId && booking.ownerId !== requesterId) {
+      throw new ForbiddenError('Only the renter or owner can open a dispute for this booking.')
     }
 
-    // The deposit window check above and this one are independent: a first
-    // dispute can resolve (capturing or releasing the deposit — see
-    // resolveDispute's COMPLETED branch) well inside the 24h window, leaving
-    // room for a second dispute to be filed before the window closes. Catch
-    // that here instead of letting it fail later at resolution — the deposit
-    // PaymentIntent has already been captured or canceled by that point, so
-    // there is nothing left for a new dispute to act on.
-    if (booking.depositStatus === 'CAPTURED' || booking.depositStatus === 'RELEASED') {
-      throw new BadRequestError("This booking's deposit has already been resolved by a previous dispute.")
+    if (booking.status === 'COMPLETED' && booking.completedAt) {
+      const windowEnd = new Date(booking.completedAt.getTime() + DISPUTE_WINDOW_HOURS * 60 * 60 * 1000)
+      if (new Date() > windowEnd) {
+        throw new BadRequestError(
+          `The dispute window has closed. Disputes must be filed within ${DISPUTE_WINDOW_HOURS} hours of the booking completing.`
+        )
+      }
+
+      // The deposit window check above and this one are independent: a first
+      // dispute can resolve (capturing or releasing the deposit — see
+      // resolveDispute's COMPLETED branch) well inside the 24h window, leaving
+      // room for a second dispute to be filed before the window closes. Catch
+      // that here instead of letting it fail later at resolution — the deposit
+      // PaymentIntent has already been captured or canceled by that point, so
+      // there is nothing left for a new dispute to act on.
+      if (booking.depositStatus === 'CAPTURED' || booking.depositStatus === 'RELEASED') {
+        throw new BadRequestError("This booking's deposit has already been resolved by a previous dispute.")
+      }
     }
-  }
 
-  const existing = await db.dispute.findFirst({
-    where: { bookingId, status: { notIn: ['RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED'] } }
-  })
+    const existing = await tx.dispute.findFirst({
+      where: { bookingId, status: { notIn: ['RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED'] } }
+    })
 
-  if (existing) {
-    throw new BadRequestError('An open dispute already exists for this booking.')
-  }
-
-  const dispute = await db.dispute.create({
-    data: {
-      bookingId,
-      raisedByUserId: requesterId,
-      reason,
-      description,
-      status: 'OPEN',
-    },
-  })
-
-  await db.bookingEvent.create({
-    data: {
-      bookingId,
-      actorId: requesterId,
-      type: BookingEventType.DISPUTE_OPENED,
-      metadata: { disputeId: dispute.id, reason },
+    if (existing) {
+      throw new BadRequestError('An open dispute already exists for this booking.')
     }
-  })
 
-  await db.booking.update({
-    where: { id: bookingId },
-    data: { disputeStatus: 'OPEN' }
-  })
+    const dispute = await tx.dispute.create({
+      data: {
+        bookingId,
+        raisedByUserId: requesterId,
+        reason,
+        description,
+        status: 'OPEN',
+      },
+    })
 
-  return dispute
+    await tx.bookingEvent.create({
+      data: {
+        bookingId,
+        actorId: requesterId,
+        type: BookingEventType.DISPUTE_OPENED,
+        metadata: { disputeId: dispute.id, reason },
+      }
+    })
+
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: { disputeStatus: 'OPEN' }
+    })
+
+    return dispute
+  })
 }
 
 function formatCents(cents: number) {
@@ -167,18 +176,17 @@ export async function resolveDispute(
         )
       }
 
+      // Keyed on the deposit PaymentIntent (captured or released at most
+      // once), not the booking version the rental's own capture/cancel keys
+      // use, so the two can never collide.
       const depositIntentRef = {
         id: dispute.booking.id,
-        version: dispute.booking.version,
-        stripePaymentIntentId: dispute.booking.stripeDepositPaymentIntentId,
-        totalPrice: new Prisma.Decimal(0),
-        insuranceFee: new Prisma.Decimal(0),
-        hstAmount: new Prisma.Decimal(0),
+        stripeDepositPaymentIntentId: dispute.booking.stripeDepositPaymentIntentId,
       }
 
       if (refundedCents > 0) {
         try {
-          await capturePaymentIntent(depositIntentRef, refundedCents)
+          await captureDepositPaymentIntent(depositIntentRef, refundedCents)
         } catch (err: any) {
           throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
         }
@@ -242,7 +250,7 @@ export async function resolveDispute(
         }
       } else {
         try {
-          await cancelPaymentIntent(depositIntentRef)
+          await cancelDepositPaymentIntent(depositIntentRef)
         } catch (err: any) {
           throw new InternalServerError(`Failed to release the deposit via Stripe: ${err.message}`)
         }

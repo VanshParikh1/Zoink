@@ -1,6 +1,6 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelPaymentIntent, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, toCents, transferPayout } from './paymentService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { Sentry } from '../instrument'
@@ -48,73 +48,87 @@ export async function cleanupStaleHandoffs() {
   return { cleared: result.count }
 }
 
+// The payment jobs call Stripe while holding the booking's row lock, so the
+// transaction needs longer than Prisma's 5-second default. If it does time
+// out after Stripe succeeded, the next run repeats the call with the same
+// idempotency key and gets the same result back.
+const STRIPE_JOB_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
 export async function releaseDuePayouts() {
   const holdHours = PAYOUT_HOLD_HOURS
   const dueBefore = new Date(Date.now() - holdHours * 60 * 60 * 1000)
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      status: BookingStatus.COMPLETED,
-      completedAt: { lte: dueBefore },
-      // payoutSentAt is the single "this booking's payout has been dealt with"
-      // marker — set both when a transfer is sent and when a fully-refunded
-      // booking is closed out with nothing to send, so neither is reprocessed.
-      payoutSentAt: null,
-      OR: [
-        // Never disputed, disputed with no money movement, or a dispute that
-        // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
-        // see disputeService/stripeWebhookController). RESOLVED_REFUND is no
-        // longer excluded: the owner's proportional remaining share is computed
-        // below from Booking.refundedAmountCents instead of being left as a
-        // manual admin action. OPEN/UNDER_REVIEW stay out (unresolved).
-        {
-          paymentStatus: PaymentStatus.PAYOUT_PENDING,
-          disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED', 'RESOLVED_REFUND'] },
-        },
-        // A dispute that refunded the renter the FULL charge leaves the booking
-        // at REFUNDED. The owner is owed nothing, but it still needs closing out
-        // (payoutSentAt) so this job stops looking at it.
-        {
-          paymentStatus: PaymentStatus.REFUNDED,
-          disputeStatus: 'RESOLVED_REFUND',
-        },
-      ],
-    },
-    select: {
-      id: true,
-      version: true,
-      ownerPayout: true,
-      totalPrice: true,
-      refundedAmountCents: true,
-      disputeStatus: true,
-      owner: { select: { stripeAccountId: true } },
-    },
-  })
+  const dueWhere = {
+    status: BookingStatus.COMPLETED,
+    completedAt: { lte: dueBefore },
+    // payoutSentAt is the single "this booking's payout has been dealt with"
+    // marker — set both when a transfer is sent and when a fully-refunded
+    // booking is closed out with nothing to send, so neither is reprocessed.
+    payoutSentAt: null,
+    OR: [
+      // Never disputed, disputed with no money movement, or a dispute that
+      // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
+      // see disputeService/stripeWebhookController). RESOLVED_REFUND is no
+      // longer excluded: the owner's proportional remaining share is computed
+      // below from Booking.refundedAmountCents instead of being left as a
+      // manual admin action. OPEN/UNDER_REVIEW stay out (unresolved).
+      {
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED', 'RESOLVED_REFUND'] as DisputeStatus[] },
+      },
+      // A dispute that refunded the renter the FULL charge leaves the booking
+      // at REFUNDED. The owner is owed nothing, but it still needs closing out
+      // (payoutSentAt) so this job stops looking at it.
+      {
+        paymentStatus: PaymentStatus.REFUNDED,
+        disputeStatus: DisputeStatus.RESOLVED_REFUND,
+      },
+    ],
+  }
+
+  const bookings = await prisma.booking.findMany({ where: dueWhere, select: { id: true } })
 
   let paid = 0
   let failed = 0
-  for (const booking of bookings) {
+  for (const { id } of bookings) {
     try {
-      const totalCents = toCents(booking.totalPrice)
-      const fullOwnerPayoutCents = toCents(booking.ownerPayout)
-      const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
+      const outcome = await prisma.$transaction(async (tx) => {
+        // Re-read under the booking's row lock (the one createDispute takes)
+        // so a dispute filed at the last moment, or an overlapping run of this
+        // job, can't slip in between the eligibility check and the transfer.
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const booking = await tx.booking.findFirst({
+          where: { id, ...dueWhere },
+          select: {
+            id: true,
+            version: true,
+            ownerPayout: true,
+            totalPrice: true,
+            refundedAmountCents: true,
+            owner: { select: { stripeAccountId: true } },
+          },
+        })
+        if (!booking) return 'skipped' as const
 
-      // The owner's cut of what the renter actually kept paying, proportional to
-      // their share of the original total (so the platform eats its commission on
-      // the refunded slice too). With refundedToRenterCents === 0 — the common
-      // case — this is exactly fullOwnerPayoutCents.
-      const remainingPayoutCents =
-        totalCents > 0
-          ? Math.max(
-              0,
-              Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
-            )
-          : 0
+        const totalCents = toCents(booking.totalPrice)
+        const fullOwnerPayoutCents = toCents(booking.ownerPayout)
+        const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
 
-      // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
-      // isn't reconsidered every tick.
-      if (remainingPayoutCents <= 0) {
-        await prisma.$transaction(async (tx) => {
+        // The owner's cut of what the renter actually kept paying, proportional to
+        // their share of the original total (so the platform eats its commission on
+        // the refunded slice too). With refundedToRenterCents === 0 — the common
+        // case — this is exactly fullOwnerPayoutCents.
+        const remainingPayoutCents =
+          totalCents > 0
+            ? Math.max(
+                0,
+                Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
+              )
+            : 0
+
+        // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
+        // isn't reconsidered every tick.
+        if (remainingPayoutCents <= 0) {
           await tx.booking.update({
             where: { id: booking.id },
             data: { payoutSentAt: new Date(), version: { increment: 1 } },
@@ -126,15 +140,13 @@ export async function releaseDuePayouts() {
               metadata: { amountCents: 0, reason: 'fully_refunded', holdHours },
             },
           })
-        })
-        continue
-      }
+          return 'closed' as const
+        }
 
-      if (!booking.owner.stripeAccountId) continue
+        if (!booking.owner.stripeAccountId) return 'skipped' as const
 
-      const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
-      const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
-      await prisma.$transaction(async (tx) => {
+        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
+        const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
         await tx.booking.update({
           where: { id: booking.id },
           data: {
@@ -159,11 +171,12 @@ export async function releaseDuePayouts() {
             },
           },
         })
-      })
-      paid += 1
+        return 'paid' as const
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (outcome === 'paid') paid += 1
     } catch (error) {
       failed += 1
-      await recordJobFailure(booking.id, 'release_payout', error)
+      await recordJobFailure(id, 'release_payout', error)
     }
   }
 
@@ -203,17 +216,32 @@ export async function releaseDueDeposits() {
   let released = 0
   let failed = 0
   for (const booking of bookings) {
-    if (!booking.stripeDepositPaymentIntentId) continue
+    const depositPaymentIntentId = booking.stripeDepositPaymentIntentId
+    if (!depositPaymentIntentId) continue
 
     try {
+      const didRelease = await prisma.$transaction(async (tx) => {
+        // createDispute takes the same row lock: a dispute filed at the 24-hour
+        // mark either commits first (and this re-check skips the booking) or
+        // waits and then finds the deposit already released. Before, the job
+        // could read "no dispute", the dispute could commit, and the deposit
+        // was released anyway.
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`
+        const current = await tx.booking.findUniqueOrThrow({
+          where: { id: booking.id },
+          select: { depositStatus: true, disputeStatus: true, stripeDepositPaymentIntentId: true },
+        })
+        if (
+          current.depositStatus !== DepositStatus.AUTHORIZED ||
+          current.disputeStatus === DisputeStatus.OPEN ||
+          current.disputeStatus === DisputeStatus.UNDER_REVIEW ||
+          current.stripeDepositPaymentIntentId !== depositPaymentIntentId
+        ) {
+          return false
+        }
 
-      await cancelPaymentIntent({
-        id: booking.id,
-        version: booking.version,
-        stripePaymentIntentId: booking.stripeDepositPaymentIntentId,
-      })
+        await cancelDepositPaymentIntent({ id: booking.id, stripeDepositPaymentIntentId: depositPaymentIntentId })
 
-      await prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
           data: {
@@ -229,7 +257,9 @@ export async function releaseDueDeposits() {
             metadata: { action: 'deposit_released', holdHours },
           },
         })
-      })
+        return true
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (!didRelease) continue
 
       void notifyUser({
         userId: booking.renterId,
