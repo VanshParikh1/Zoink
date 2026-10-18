@@ -1161,4 +1161,4 @@ async function handleCancellationPayment(booking: any, actorId: string) {
   }
 }
 
-export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect, toBookingResponse }
+export { createReviewObligationsForCompletedBooking, createBookingEvent, bookingSelect, toBookingResponse, withBookingLock }

@@ -1,12 +1,23 @@
 import { BookingEventType, BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
-import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse } from './bookingService'
+import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse, withBookingLock } from './bookingService'
 import { notifyUser } from './notificationService'
-import { capturePaymentIntent } from './paymentService'
+import { capturePaymentIntent, retrievePaymentIntent } from './paymentService'
 import { ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
+import { Sentry } from '../instrument'
 
 export type HandoffPhase = 'pickup' | 'return'
+
+/** The rent couldn't be captured when both parties tapped at pickup, so the
+ *  pickup didn't happen: the booking stays PICKUP_PENDING. Shown on both
+ *  phones. */
+export class PickupPaymentFailedError extends ConflictError {
+  readonly code = 'PICKUP_PAYMENT_FAILED'
+  constructor() {
+    super("The rental payment couldn't be collected, so the pickup didn't go through. Keep the item for now and try Zoink It again. If it keeps failing, contact support.")
+  }
+}
 // The same window the stale-tap cleanup and the app's countdown use. No env
 // override: it's a contract term (see config/bookingWindows.ts).
 const CONFIRM_WINDOW_MS = ZOINK_TAP_WINDOW_MS
@@ -210,17 +221,15 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
   const shouldCapture = phase === 'pickup' && bothConfirmed
   const shouldComplete = phase === 'return' && bothConfirmed
 
+  if (shouldCapture) {
+    return completePickup(booking, actorId, actorField)
+  }
+
   const updated: any = await prisma.$transaction(async (tx) => {
     const data: Prisma.BookingUpdateManyMutationInput = {
       [actorField]: now,
       version: { increment: 1 },
     } as any
-
-    if (shouldCapture) {
-      data.status = BookingStatus.ACTIVE
-      data.startDate = now
-      data.paymentStatus = PaymentStatus.CAPTURE_PENDING
-    }
 
     if (shouldComplete) {
       data.status = BookingStatus.COMPLETED
@@ -242,14 +251,11 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
       actorField,
     })
 
-    if (shouldCapture || shouldComplete) {
+    if (shouldComplete) {
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
         from: booking.status,
         to: completedStatus(phase),
       })
-    }
-
-    if (shouldComplete) {
       const completed = await tx.booking.findUniqueOrThrow({
         where: { id: booking.id },
         select: { id: true, renterId: true, ownerId: true },
@@ -260,29 +266,99 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
     return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
   })
 
-  if (shouldCapture) {
-    try {
-      await capturePaymentIntent(updated)
-    } catch (error) {
-      await prisma.booking.update({
+  return { bothConfirmed, booking: toBookingResponse(updated, actorId) }
+}
+
+/** Captures the rent, treating "Stripe already captured it" (a retry after a
+ *  lost response) as success. */
+async function captureRent(booking: any) {
+  try {
+    await capturePaymentIntent(booking)
+  } catch (error) {
+    const intent = await retrievePaymentIntent(booking.stripePaymentIntentId).catch(() => null)
+    if (intent?.status === 'succeeded') return
+    throw error
+  }
+}
+
+// Pickup is where the rent is charged, so the booking only goes ACTIVE once
+// the capture has succeeded: under the booking's row lock, capture, then write
+// the tap and ACTIVE in the same transaction. A concurrent tap waits for the
+// lock and then gets the usual 409. If Stripe refuses, nothing about the
+// handoff is written (still PICKUP_PENDING, taps as they were, paymentStatus
+// untouched since the authorization's real state comes from Stripe's
+// webhooks); the failure is recorded on the booking, reported to Sentry for
+// follow-up, and both people are told to keep the item. The booking version is
+// bumped so the next tap tries a fresh capture: Stripe replays a failed
+// response for an idempotency key it has already seen.
+async function completePickup(booking: any, actorId: string, actorField: string) {
+  let captureError: unknown
+  try {
+    const updated: any = await withBookingLock(booking.id, async (tx) => {
+      const current = await tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: { version: true } })
+      if (current.version !== booking.version) {
+        throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
+      }
+
+      try {
+        await captureRent(booking)
+      } catch (error) {
+        captureError = error
+        throw error
+      }
+
+      const now = new Date()
+      await tx.booking.update({
         where: { id: booking.id },
-        data: { paymentStatus: PaymentStatus.FAILED },
-      })
-      await prisma.bookingEvent.create({
         data: {
-          bookingId: booking.id,
+          [actorField]: now,
+          status: BookingStatus.ACTIVE,
+          startDate: now,
+          paymentStatus: PaymentStatus.CAPTURE_PENDING,
+          version: { increment: 1 },
+        },
+      })
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.ZOINK_TAP, {
+        phase: 'pickup',
+        synchronized: true,
+        actorField,
+      })
+      await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, {
+        from: booking.status,
+        to: BookingStatus.ACTIVE,
+      })
+      return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
+    })
+    return { bothConfirmed: true, booking: toBookingResponse(updated, actorId) }
+  } catch (error) {
+    if (captureError === undefined) throw error
+    await recordPickupCaptureFailure(booking.id, actorId, captureError)
+    throw new PickupPaymentFailedError()
+  }
+}
+
+async function recordPickupCaptureFailure(bookingId: string, actorId: string, error: unknown) {
+  console.error(`[capture_payment] pickup capture failed for booking ${bookingId}:`, error)
+  Sentry.captureException(error, { tags: { action: 'capture_payment', bookingId } })
+  try {
+    await prisma.$transaction([
+      prisma.booking.update({ where: { id: bookingId }, data: { version: { increment: 1 } } }),
+      prisma.bookingEvent.create({
+        data: {
+          bookingId,
           actorId,
           type: BookingEventType.ERROR,
           metadata: {
             action: 'capture_payment',
             message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+            blockedHandoff: true,
           },
         },
-      })
-    }
+      }),
+    ])
+  } catch (auditError) {
+    console.error(`[capture_payment] could not record the failure for booking ${bookingId}:`, auditError)
   }
-
-  return { bothConfirmed, booking: toBookingResponse(updated, actorId) }
 }
 
 export async function getCompletedHandoffPhotos(bookingId: string, actorId: string) {
