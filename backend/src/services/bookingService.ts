@@ -215,6 +215,8 @@ function listingForViewer(booking: any, userId?: string) {
 
 function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
   const booking = { ...rawBooking, listing: listingForViewer(rawBooking, userId) }
+  const isRenter = userId !== undefined && userId === booking.renterId
+  const isOwner = userId !== undefined && userId === booking.ownerId
   const totalPrice = Number(booking.totalPrice)
   return {
     id: booking.id,
@@ -230,11 +232,13 @@ function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
     hstAmount: Number(booking.hstAmount ?? calculateHst(totalPrice)),
-    stripePaymentIntentId: booking.stripePaymentIntentId,
-    stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId ?? null,
+    // Each party sees only their own Stripe ids: the renter's payment, the
+    // owner's payout transfer.
+    stripePaymentIntentId: isRenter ? booking.stripePaymentIntentId : null,
+    stripeDepositPaymentIntentId: isRenter ? booking.stripeDepositPaymentIntentId ?? null : null,
     depositStatus: booking.depositStatus ?? null,
-    stripeChargeId: booking.stripeChargeId,
-    stripeTransferId: booking.stripeTransferId,
+    stripeChargeId: isRenter ? booking.stripeChargeId : null,
+    stripeTransferId: isOwner ? booking.stripeTransferId : null,
     paidAt: booking.paidAt,
     refundedAt: booking.refundedAt,
     payoutSentAt: booking.payoutSentAt,
@@ -501,7 +505,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     data: { bookingId: booking.id, listingId: listing.id },
   })
 
-  return toBookingResponse(booking)
+  return toBookingResponse(booking, renterId)
 }
 
 // Pay and Confirm call Stripe and then write the booking, so they hold the

@@ -95,6 +95,9 @@ before(async () => {
   confirmedBookingId = await bookingRow(BookingStatus.CONFIRMED, {
     paymentStatus: PaymentStatus.AUTHORIZED,
     stripePaymentIntentId: 'pi_test_authz_secret',
+    stripeDepositPaymentIntentId: 'pi_test_authz_deposit',
+    stripeChargeId: 'ch_test_authz_secret',
+    stripeTransferId: 'tr_test_authz_secret',
   })
   pickupBookingId = await bookingRow(BookingStatus.PICKUP_PENDING, {
     paymentStatus: PaymentStatus.AUTHORIZED,
@@ -402,19 +405,24 @@ describe('responses never carry credentials, Stripe ids or contact details', () 
     }
   }
 
+  // The renter's payment ids are theirs (the Pay screen's client secret
+  // contains the PaymentIntent id anyway); the transfer is the owner's.
+  const RENTER_PAYMENT_IDS = ['pi_test_authz_secret', 'pi_test_authz_deposit', 'ch_test_authz_secret']
+  const OWNER_PAYOUT_IDS = ['tr_test_authz_secret']
+
   test("a booking, to either party, has no Stripe ids or the other party's credentials", async () => {
-    for (const viewer of [owner, renter]) {
+    for (const [viewer, othersIds] of [[owner, RENTER_PAYMENT_IDS], [renter, OWNER_PAYOUT_IDS]] as const) {
       const res = await supertest(getApp()).get(`/bookings/${confirmedBookingId}`).set('Authorization', `Bearer ${viewer.token}`)
       assert.equal(res.status, 200)
-      assertClean(res.body, 'GET /bookings/:id')
+      assertClean(res.body, 'GET /bookings/:id', [...othersIds])
     }
   })
 
-  test('booking lists have no Stripe ids', async () => {
+  test("booking lists have no Stripe ids of the other party's", async () => {
     const mine = await supertest(getApp()).get('/bookings/me').set('Authorization', `Bearer ${renter.token}`)
     const requests = await supertest(getApp()).get('/bookings/requests').set('Authorization', `Bearer ${owner.token}`)
-    assertClean(mine.body, 'GET /bookings/me')
-    assertClean(requests.body, 'GET /bookings/requests')
+    assertClean(mine.body, 'GET /bookings/me', OWNER_PAYOUT_IDS)
+    assertClean(requests.body, 'GET /bookings/requests', RENTER_PAYMENT_IDS)
   })
 
   test("a public profile shows no email or phone", async () => {
