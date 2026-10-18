@@ -1,5 +1,5 @@
 import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
-import { quoteRental, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
+import { cancellationCutoff, quoteRental, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
@@ -845,8 +845,10 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   // longer cancellable." The state machine alone doesn't enforce this — e.g.
   // CONFIRMED and PICKUP_PENDING both still allow a CANCELLED transition
   // structurally — so it needs an explicit date check here, independent of
-  // status. See legal/OPEN-ITEMS.md B7.
-  if (nextStatus === 'CANCELLED' && new Date() >= booking.startDate) {
+  // status. See legal/OPEN-ITEMS.md B7. The start time is 00:00 Toronto on the
+  // rental day; startDate itself (midnight UTC) is 7-8 PM the evening before.
+  const cutoff = cancellationCutoff(booking.startDate) ?? booking.startDate
+  if (nextStatus === 'CANCELLED' && new Date() >= cutoff) {
     throw new ConflictError('Once the rental start time has passed, this booking can no longer be cancelled.')
   }
 

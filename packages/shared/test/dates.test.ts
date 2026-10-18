@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  cancellationCutoff,
   daysBetween,
   formatDateTime,
   formatDayOf,
@@ -10,6 +11,7 @@ import {
   isTodayInToronto,
   rentalDayCount,
   rentalDayKey,
+  startOfTorontoDay,
   torontoDayKey,
 } from '../src/dates'
 
@@ -93,4 +95,34 @@ test('missing or invalid values format as empty, never "Invalid Date"', () => {
   assert.equal(formatTimeOfDay(undefined), '')
   assert.equal(rentalDayKey(''), null)
   assert.equal(rentalDayCount('', '2026-10-20T00:00:00.000Z'), 0)
+})
+
+test('a Toronto day starts at 04:00 UTC in summer and 05:00 UTC in winter, in every device time zone', () => {
+  inEachZone(() => {
+    assert.equal(startOfTorontoDay('2026-10-20').toISOString(), '2026-10-20T04:00:00.000Z')
+    assert.equal(startOfTorontoDay('2026-01-15').toISOString(), '2026-01-15T05:00:00.000Z')
+    // Spring forward (2026-03-08, 2 AM EST -> 3 AM EDT): that day still starts
+    // on EST, the next one on EDT.
+    assert.equal(startOfTorontoDay('2026-03-07').toISOString(), '2026-03-07T05:00:00.000Z')
+    assert.equal(startOfTorontoDay('2026-03-08').toISOString(), '2026-03-08T05:00:00.000Z')
+    assert.equal(startOfTorontoDay('2026-03-09').toISOString(), '2026-03-09T04:00:00.000Z')
+    // Fall back (2026-11-01, 2 AM EDT -> 1 AM EST): that day starts on EDT,
+    // the next one on EST.
+    assert.equal(startOfTorontoDay('2026-10-31').toISOString(), '2026-10-31T04:00:00.000Z')
+    assert.equal(startOfTorontoDay('2026-11-01').toISOString(), '2026-11-01T04:00:00.000Z')
+    assert.equal(startOfTorontoDay('2026-11-02').toISOString(), '2026-11-02T05:00:00.000Z')
+  })
+})
+
+test('cancellation closes at 00:00 Toronto on the rental day, not 7-8 PM the evening before', () => {
+  inEachZone(() => {
+    // A rental for Oct 20 is stored as 2026-10-20T00:00Z (8 PM Oct 19 in Toronto).
+    assert.equal(cancellationCutoff('2026-10-20T00:00:00.000Z')?.toISOString(), '2026-10-20T04:00:00.000Z')
+    // Winter: 7 PM the evening before used to be the cutoff.
+    assert.equal(cancellationCutoff('2026-12-05T00:00:00.000Z')?.toISOString(), '2026-12-05T05:00:00.000Z')
+    // Rentals starting on each DST change day.
+    assert.equal(cancellationCutoff('2026-03-08T00:00:00.000Z')?.toISOString(), '2026-03-08T05:00:00.000Z')
+    assert.equal(cancellationCutoff('2026-11-01T00:00:00.000Z')?.toISOString(), '2026-11-01T04:00:00.000Z')
+    assert.equal(cancellationCutoff('not a date'), null)
+  })
 })

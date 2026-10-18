@@ -143,3 +143,51 @@ export function isTodayInToronto(value: DateInput | null | undefined, now: DateI
   const key = torontoDayKey(value ?? '')
   return key !== null && key === torontoDayKey(now)
 }
+
+let wallClockFormatter: Intl.DateTimeFormat | undefined
+
+/** How far Toronto's wall clock is from UTC at an instant, in ms (-4 h in
+ *  summer, -5 h in winter). */
+function torontoOffsetMs(date: Date): number {
+  wallClockFormatter ??= new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TIME_ZONE,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  const parts = wallClockFormatter.formatToParts(date)
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const wallAsUtc = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour') % 24, part('minute'), part('second'))
+  return wallAsUtc - Math.floor(date.getTime() / 1000) * 1000
+}
+
+/** The instant a Toronto calendar day (YYYY-MM-DD) begins: 00:00 local, which
+ *  is 04:00 UTC in summer and 05:00 UTC in winter. Toronto changes clocks at
+ *  2 AM, so midnight always exists and never repeats. */
+export function startOfTorontoDay(dayKey: string): Date {
+  const [y, m, d] = dayKey.split('-').map(Number)
+  const utcMidnight = Date.UTC(y, m - 1, d)
+  try {
+    // First guess with the offset at UTC midnight, then once more with the
+    // offset at the guess, in case a clock change falls between the two.
+    const guess = utcMidnight - torontoOffsetMs(new Date(utcMidnight))
+    return new Date(utcMidnight - torontoOffsetMs(new Date(guess)))
+  } catch {
+    // No time-zone support: the device's own midnight (Toronto's for nearly
+    // every user).
+    return new Date(y, m - 1, d)
+  }
+}
+
+/** When a booking stops being cancellable (terms.md §9: "once the rental start
+ *  time has passed"): 00:00 Toronto time on the rental's first day. The start
+ *  date is stored as midnight UTC of that day, which is 7 or 8 PM the evening
+ *  before in Toronto; comparing against it directly closed cancellation early. */
+export function cancellationCutoff(startDate: DateInput): Date | null {
+  const key = rentalDayKey(startDate)
+  return key ? startOfTorontoDay(key) : null
+}
