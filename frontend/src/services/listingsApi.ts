@@ -2,7 +2,7 @@ import api from './api'
 import { BrowseListingsResult, Listing, ListingBrowseItem, ListingImage } from '../types'
 import { DEMO_MODE } from '../config/demoMode'
 import { getImageUploadPart } from './uploadFormData'
-// Demo-mode mocks load only when the build sets EXPO_PUBLIC_DEMO_MODE to
+// Demo-mode mocks load only in a dev build that sets EXPO_PUBLIC_DEMO_MODE to
 // 'true'. That value is inlined at build time, so in every other build this
 // condition folds to false and Metro drops the require — the mock modules and
 // their data never reach the bundle. (Calls below sit behind DEMO_MODE, which
@@ -18,7 +18,7 @@ const {
   mockSetAvailability,
   mockUpdateListing,
   mockUploadListingImage,
-} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockListings') : {}) as typeof import('./mockListings')
+} = (__DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockListings') : {}) as typeof import('./mockListings')
 
 export type NearbyListingsParams = {
   lat: number

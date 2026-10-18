@@ -1,0 +1,12 @@
+{
+  // Node's test runner (npm test) compiles through ts-node; the app's Expo
+  // tsconfig targets the bundler, so tests get a plain CommonJS config.
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2022",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
