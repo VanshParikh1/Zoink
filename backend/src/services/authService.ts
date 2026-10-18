@@ -18,6 +18,42 @@ import type { University } from '@zoink/shared'
 // Wrong guesses allowed per code before it's spent (see verifyOTP).
 const MAX_OTP_ATTEMPTS = 5
 
+// Verification emails per address in any 24 hours, sign-ups and resends
+// together. With 5 guesses a code that caps guessing at 50 a day, so a 6-digit
+// code can't be walked through by requesting code after code.
+export const MAX_VERIFICATION_EMAILS_PER_DAY = 10
+const RESEND_COOLDOWN_MS = 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// How long a code stays valid; the email states the same number.
+function otpExpiryMinutes(): number {
+  return Number(process.env.OTP_EXPIRY_MINUTES || 15)
+}
+
+// Records a verification email to `email`, or refuses it: over the daily cap
+// for the address, or (a resend) within a minute of the last one. Counted per
+// address in its own table, so the cap holds across a replaced sign-up and a
+// server restart; the per-address lock stops two requests at once from both
+// slipping under it.
+async function reserveVerificationEmail(email: string, options: { cooldown: boolean }) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`verification-email:${email}`}))::text`
+    const now = Date.now()
+    const recent = await tx.verificationEmailSend.findMany({
+      where: { email, createdAt: { gt: new Date(now - DAY_MS) } },
+      select: { createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (recent.length >= MAX_VERIFICATION_EMAILS_PER_DAY) {
+      throw new TooManyRequestsError('Too many codes have been sent to this email today. Please try again tomorrow.')
+    }
+    if (options.cooldown && recent[0] && recent[0].createdAt.getTime() > now - RESEND_COOLDOWN_MS) {
+      throw new TooManyRequestsError('Please wait 60 seconds before requesting a new code.')
+    }
+    await tx.verificationEmailSend.create({ data: { email } })
+  })
+}
+
 // A bcrypt hash of a throwaway string, at the same cost (12) as real password
 // hashes. Login compares against it when the email has no live account, so a
 // miss takes as long as a wrong password and response time doesn't reveal
@@ -87,10 +123,14 @@ export async function registerUser(
     throw new ConflictError('An account with this email already exists.')
   }
 
-  // 3. Hash password
+  // 3. Count the verification email this sign-up sends against the address's
+  // daily cap (no cooldown: someone fixing a typo can sign up again at once).
+  await reserveVerificationEmail(email, { cooldown: false })
+
+  // 4. Hash password
   const passwordHash = await bcrypt.hash(password, 12)
 
-  // 4. Create user, stamping acceptance with a single timestamp so all three
+  // 5. Create user, stamping acceptance with a single timestamp so all three
   // columns agree on exactly when consent was given.
   const acceptedAt = new Date()
   const user = await prisma.user.create({
@@ -109,22 +149,20 @@ export async function registerUser(
     },
   })
 
-  // 5. Generate and store OTP
+  // 6. Generate and store OTP
   const code = generateOTP()
-  const expiresAt = new Date(
-    Date.now() + Number(process.env.OTP_EXPIRY_MINUTES || 15) * 60 * 1000
-  )
+  const expiresAt = new Date(Date.now() + otpExpiryMinutes() * 60 * 1000)
 
   await prisma.verificationToken.create({
     data: { userId: user.id, code, expiresAt },
   })
 
-  // 6. Send the OTP email in the background. sendVerificationEmail never
+  // 7. Send the OTP email in the background. sendVerificationEmail never
   // rejects (it logs SES failures itself), and the user can always resend
   // from the verification screen, so sign-up doesn't wait on SES latency.
   void sendVerificationEmail(user.email, user.firstName, code)
 
-  // 7. Return JWT so the user is logged in immediately after registering
+  // 8. Return JWT so the user is logged in immediately after registering
   const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
@@ -226,19 +264,11 @@ export async function resendOTP(userId: string) {
   if (!user) throw new NotFoundError('User not found.')
   if (user.verificationStatus === 'VERIFIED') throw new BadRequestError('Your account is already verified.')
 
-  // Rate limit: block if a token was created in the last 60 seconds
-  const recentToken = await prisma.verificationToken.findFirst({
-    where: {
-      userId,
-      createdAt: { gt: new Date(Date.now() - 60 * 1000) },
-    },
-  })
-  if (recentToken) throw new TooManyRequestsError('Please wait 60 seconds before requesting a new code.')
+  // A minute between codes, and the address's daily cap.
+  await reserveVerificationEmail(user.email, { cooldown: true })
 
   const code = generateOTP()
-  const expiresAt = new Date(
-    Date.now() + Number(process.env.OTP_EXPIRY_MINUTES || 15) * 60 * 1000
-  )
+  const expiresAt = new Date(Date.now() + otpExpiryMinutes() * 60 * 1000)
 
   await prisma.verificationToken.create({
     data: { userId, code, expiresAt },
@@ -272,7 +302,7 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
       },
       Body: {
         Text: {
-          Data: `Hi ${firstName},\n\nYour Zoink verification code is: ${code}\n\nIt expires in 15 minutes.\n\nIf you didn't request this, ignore this email.`,
+          Data: `Hi ${firstName},\n\nYour Zoink verification code is: ${code}\n\nIt expires in ${otpExpiryMinutes()} minutes.\n\nIf you didn't request this, ignore this email.`,
         },
         Html: {
           Data: `
@@ -283,7 +313,7 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
               <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #4F46E5; margin: 24px 0;">
                 ${code}
               </div>
-              <p style="color: #666;">Expires in 15 minutes. If you didn't request this, ignore this email.</p>
+              <p style="color: #666;">Expires in ${otpExpiryMinutes()} minutes. If you didn't request this, ignore this email.</p>
             </div>
           `,
         },

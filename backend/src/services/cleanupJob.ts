@@ -323,13 +323,17 @@ function yearsAgo(years: number): Date {
 
 /** Deletes email verification codes older than 24 hours, used or not —
  *  verifyOTP only ever reads the latest unused one, and they expire after
- *  OTP_EXPIRY_MINUTES anyway. */
+ *  OTP_EXPIRY_MINUTES anyway — and the record of which addresses were sent a
+ *  code, which only the 24-hour send cap reads. */
 export async function purgeOldVerificationTokens() {
   const before = new Date(Date.now() - RETENTION_VERIFICATION_TOKENS_HOURS * 60 * 60 * 1000)
   const result = await prisma.verificationToken.deleteMany({
     where: { createdAt: { lt: before } },
   })
-  return { deleted: result.count }
+  const sends = await prisma.verificationEmailSend.deleteMany({
+    where: { createdAt: { lt: before } },
+  })
+  return { deleted: result.count, emailSendsDeleted: sends.count }
 }
 
 /** Deletes messages older than the retention window. Conversations and

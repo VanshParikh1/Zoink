@@ -11,18 +11,26 @@ import { loginUser, registerUser } from './authService'
 const originalFindUnique = prisma.user.findUnique
 const originalCreate = prisma.user.create
 const originalTokenCreate = prisma.verificationToken.create
+const originalTransaction = prisma.$transaction
 const originalSesSend = SESClient.prototype.send
 
 afterEach(() => {
   ;(prisma.user as any).findUnique = originalFindUnique
   ;(prisma.user as any).create = originalCreate
   ;(prisma.verificationToken as any).create = originalTokenCreate
+  ;(prisma as any).$transaction = originalTransaction
   ;(SESClient.prototype as any).send = originalSesSend
 })
 
 function stubHappyPathCollaborators(createSpy: (args: any) => void) {
   ;(prisma.user as any).findUnique = async () => null
   ;(prisma.verificationToken as any).create = async () => ({ id: 'token-1' })
+  // The per-address send cap (reserveVerificationEmail): nothing sent yet.
+  ;(prisma as any).$transaction = async (fn: (tx: any) => Promise<unknown>) =>
+    fn({
+      $queryRaw: async () => [],
+      verificationEmailSend: { findMany: async () => [], create: async () => ({ id: 'send-1' }) },
+    })
   ;(SESClient.prototype as any).send = async () => ({})
   ;(prisma.user as any).create = async (args: any) => {
     createSpy(args)

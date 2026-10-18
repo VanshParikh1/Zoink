@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken'
 import { once } from 'events'
 import type { AddressInfo } from 'net'
 import type { Server } from 'http'
-import { buildGlobalLimiter, buildLimiter, clientIp, globalLimiter } from './rateLimiter'
+import { buildGlobalLimiter, buildLimiter, clientIp, globalLimiter, verificationEmailAddressLimiter } from './rateLimiter'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret-for-rate-limiter-tests'
 
@@ -218,4 +218,17 @@ test('an X-Real-IP that is not a single IP address falls back to req.ip', async 
 test('clientIp accepts IPv6 from X-Real-IP', () => {
   const req = { get: (name: string) => (name === 'x-real-ip' ? ' 2001:db8::1 ' : undefined), ip: '10.0.0.1' } as any
   assert.equal(clientIp(req), '2001:db8::1')
+})
+
+test('verification emails: 50 a day per network address, and only requests that sent one count', async () => {
+  const app = express()
+  app.use(verificationEmailAddressLimiter)
+  // ?sent=0 stands in for a sign-up refused by validation (nothing sent).
+  app.get('/ping', (req, res) => (req.query.sent === '0' ? res.status(400).json({}) : res.status(201).json({})))
+  const from = (ip: string, path = '/ping') => client(app).get(path).set('X-Real-IP', ip)
+
+  for (let i = 0; i < 20; i++) assert.equal((await from('203.0.113.40', '/ping?sent=0')).status, 400)
+  for (let i = 0; i < 50; i++) assert.equal((await from('203.0.113.40')).status, 201, `send ${i + 1}`)
+  assert.equal((await from('203.0.113.40')).status, 429)
+  assert.equal((await from('203.0.113.41')).status, 201, 'another network is unaffected')
 })

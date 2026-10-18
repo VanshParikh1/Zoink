@@ -386,6 +386,19 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+// One row per verification email sent, kept 24 h (purgeOldVerificationTokens).
+// Keyed on the address, not the account: signing up again replaces an
+// unverified account (and its codes), and the daily cap per address
+// (authService.reserveVerificationEmail) has to outlive that.
+model VerificationEmailSend {
+  id        String   @id @default(uuid())
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@map("verification_email_sends")
+}
+
 model Dispute {
   id                String        @id @default(uuid())
   bookingId         String

@@ -71,6 +71,6 @@ export const LoginSchema = z.object({
 
 export const VerifyEmailSchema = z.object({
   body: z.object({
-    code: z.string().min(1, 'Verification code is required.'),
+    code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
   }),
 })

@@ -287,6 +287,12 @@ export interface VerificationToken {
   user?: User;
 }
 
+export interface VerificationEmailSend {
+  id: string;
+  email: string;
+  createdAt: string;
+}
+
 export interface Dispute {
   id: string;
   bookingId: string;

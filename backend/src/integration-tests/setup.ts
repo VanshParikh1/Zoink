@@ -150,6 +150,7 @@ const TRUNCATE_ORDER = [
   'listings',
   'user_reputations',
   'verification_tokens',
+  'verification_email_sends',
   'users',
 ]
 
