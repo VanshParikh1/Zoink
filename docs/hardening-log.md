@@ -169,7 +169,7 @@ The seed now uses real public Cloudinary demo photos (one unique URL per listing
 
 Pin every business invariant with tests (shared unit and property tests for the money math; HTTP integration tests for the state machine), then go through each concurrency path the brief names (double-tap Pay, double-tap Zoink It, accept vs. cancel, overlapping requests, webhook retries and ordering), Stripe idempotency, the payment jobs, and time handling (one shared date helper, DST tests, the rental-date display sweep). Anything that would change a business rule goes to "Needs product decision" instead of being changed.
 
-**The run stopped at the end of this phase, at the owner's request.** Phases 2 to 7 weren't started.
+**The run stopped at the end of this phase, at the owner's request.** The owner's decisions on the open items were applied on 2026-10-18 before Phase 2 (below).
 
 ### Findings
 
@@ -220,6 +220,8 @@ Left as they were: message and inbox timestamps and admin timestamps use the dev
 
 ### Needs product decision
 
+Decided by the owner on 2026-10-18; see "Product decisions applied" below. 7 and 8 are still open.
+
 1. **Commission: tiered vs flat (existing).** Code charges 15 / 12.5 / 10% by daily rate; the business plan says flat 15%. Pinned by tests as-is.
 2. **Cancellation cutoff is 7 to 8 PM the evening before, not the rental day.** `transitionBookingStatus` refuses a cancel when `now >= startDate`, and startDate is midnight UTC, which is 8 PM (EDT) or 7 PM (EST) the previous evening in Toronto. Suggested: compare against the start of the rental day in Toronto (one line, but it changes when a booking can be cancelled, which terms.md §9 governs).
 3. **Card authorization expiry vs. booking lead time.** Rent is authorized at Confirm and captured at pickup; deposit is authorized at Confirm and held until return + 24 h. Card authorizations typically lapse after about 7 days, and nothing limits how far ahead a booking can be paid. A booking paid more than about a week before pickup will likely fail to capture; a 7-day rental confirmed one day ahead holds its deposit about 9 days, so a dispute can find it expired. Options: cap the lead time, authorize closer to pickup, re-authorize the deposit at pickup, or Stripe extended authorizations.
@@ -231,7 +233,7 @@ Left as they were: message and inbox timestamps and admin timestamps use the dev
 
 ### Found, not fixed (later phases)
 
-- **Expired or dead sessions leave the app "signed in" and broken** (S2, Phase 5). A stored token is decoded without checking `exp`; when the server answers 401 (token past its 30 days, account deleted), `api.ts` drops the token but AuthContext keeps the user, so every screen shows raw "No token provided." until the user logs out by hand. Reproduced on the simulator.
+- **Expired or dead sessions leave the app "signed in" and broken** (S2; moved into Phase 2 by the owner). A stored token is decoded without checking `exp`; when the server answers 401 (token past its 30 days, account deleted), `api.ts` drops the token but AuthContext keeps the user, so every screen shows raw "No token provided." until the user logs out by hand. Reproduced on the simulator.
 - Raw server error strings reach the UI (Phase 5).
 - Login email field has autocorrect on (suggested "Toronto" for "utoronto"); a validation message pushes the form down (Phase 5 forms).
 - Blank white then tan screen between the native splash and the first JS screen (Phase 4 startup).
@@ -248,6 +250,8 @@ Left as they were: message and inbox timestamps and admin timestamps use the dev
 | backend integration | 292 (289 pass, 3 skipped) | **331: 328 pass, 3 skipped (the cancellation-fee tests, still skipped on purpose), 0 fail**, 641 s. New suites: `stateMachine` (18: 9 statuses x 9 actions, skipped steps, roles, the state set), `bookingConcurrency` (8, Stripe test mode), `webhookOrdering` (7), `jobRaces` (5) |
 | frontend unit | 3 | 3 |
 
+After the owner's decisions (2026-10-18): shared 16 (was 13: cancellation cutoff, Toronto midnight across DST, half-up ties), backend unit 221, backend integration **345: 340 pass, 3 skipped (cancellation fees), 2 failed**, 668 s. Both failures were `bookingLifecycle` pickup tests that used a placeholder PaymentIntent and relied on a failed capture still activating the booking, which is exactly what decision 4 forbids. They now mock the capture, and the file re-ran 43/43. New suites: `pickupCapture` (5) and `cancelCutoff` (9). Backend typecheck passes.
+
 The race tests were checked against the old code: 5 of 6 job/dispute race tests fail there. One run of the full suite hit an unrelated failure: a stray packet from the Cisco ISE posture agent on this Mac (the payload contains `ISEBlockUntrustedCerts`) landed on the test server's loopback port; the file passed on re-run.
 
 Typecheck (backend, frontend) passes. The date sweep was checked on the iOS simulator Release build: an evening pickup reads as its Toronto day in Rentals, and Active rental counts calendar days left.
@@ -256,7 +260,99 @@ Typecheck (backend, frontend) passes. The date sweep was checked on the iOS simu
 
 `d40bd4c` `8b937ca` (shared pricing and money tests), `f50b559` `28cf272` `5201cd9` `e18b41b` `247e5ed` `1fee579` `9b30de2`. Nothing pushed.
 
-### Where to pick up (Phase 2 onward, not started)
+### Product decisions applied (owner, 2026-10-18)
 
-Security pass (authZ/IDOR tests per resource, strict validation, rate-limit gaps, OTP/JWT review, secrets and PII scrub, upload ownership, npm audit), then backend performance (pagination, payload trimming), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish (session-expiry bug above), accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
+| # | Decision | What changed | Commit |
+|---|---|---|---|
+| 4 | Failed capture at pickup blocks the handoff | The second Zoink It tap captures the rent under the booking's row lock before writing ACTIVE. If Stripe refuses: still PICKUP_PENDING, the tap isn't recorded, paymentStatus is left to Stripe's webhooks, both phones get a 409 ("keep the item for now and try Zoink It again"), an ERROR event (`capture_payment`, `blockedHandoff: true`) and a Sentry report. The version is bumped so the retry gets a fresh capture key (Stripe replays a failed result for a key it has seen). A capture Stripe already completed (lost response) counts as captured. `pickupCapture.integration.test.ts` (5) | `d04a9c8` |
+| 2 | Cancel cutoff is a time-zone bug | Cutoff is 00:00 America/Toronto on the rental day (`cancellationCutoff` / `startOfTorontoDay` in `@zoink/shared`). Shared tests in six device zones and both 2026 DST days; `cancelCutoff.integration.test.ts` (9, clock mocked) | `5c84ce2` |
+| 6 | Remove the unreachable skip transitions | CONFIRMED→ACTIVE and ACTIVE→COMPLETED are gone from `allowedTransitions`. `transitionBookingStatus` only takes accept, decline, confirm and cancel, so its unreachable mark-complete branch went too | `7d28f4f` |
+| 5 | Round half-up to the cent if trivial | It was: commission and HST are computed in integer cents with the rate in basis points. The 700,000-quote property test now requires exact half-up everywhere (the 1,980 ties round up). Stored amounts on existing bookings don't change | `5e3d6b7` |
+| 1 | Keep tiered commission | No change. Flat 15% with a $2 minimum is logged as a next feature (not built) | — |
+| 3 | Authorization expiry | Logged as a next feature, not built: renters pay no earlier than 1 day before pickup, and rentals with a deposit are capped at 3 days | — |
+
+Still open (no decision yet): 7 (an ACCEPTED request whose dates were taken stays ACCEPTED) and 8 (disputes on bookings in any status).
+
+### Migration check (Phase 1)
+
+Phase 1 added **no migrations**: `git diff fe5cec3..cb13720 -- backend/prisma` and `git diff main...HEAD -- backend/prisma` are both empty. Every Phase 1 fix is code: row locks (`SELECT … FOR UPDATE`), re-checks inside transactions and forward-only webhook rules. Nothing can fail to apply on existing prod data.
+
+What existing prod data can hold is rows left behind by the bugs Phase 1 fixed. These read-only queries find them (each ran clean against the local bench database; **not run against prod**). Queries 1 and 2 are also the pre-checks for any future overlap exclusion constraint or "one open dispute per booking" partial unique index.
+
+```sql
+-- 1. Overlapping date-holding bookings on one listing (findings 1, 2)
+SELECT a.id AS booking_a, b.id AS booking_b, a."listingId", a.status AS status_a, b.status AS status_b,
+       a."startDate"::date AS a_start, a."endDate"::date AS a_end, b."startDate"::date AS b_start, b."endDate"::date AS b_end
+FROM bookings a
+JOIN bookings b ON b."listingId" = a."listingId" AND a.id < b.id
+WHERE a.status IN ('CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING')
+  AND b.status IN ('CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING')
+  AND a."startDate"::date <= b."endDate"::date
+  AND b."startDate"::date <= a."endDate"::date;
+
+-- 2. More than one open dispute on a booking (finding 9)
+SELECT "bookingId", count(*) AS open_disputes
+FROM disputes
+WHERE status IN ('OPEN', 'UNDER_REVIEW')
+GROUP BY "bookingId"
+HAVING count(*) > 1;
+
+-- 3. Rentals that went ahead after a failed pickup capture (decision 4, old path)
+SELECT b.id, b.status, b."paymentStatus", b."startDate"
+FROM bookings b
+WHERE b.status IN ('ACTIVE', 'RETURN_PENDING', 'COMPLETED')
+  AND (b."paymentStatus" = 'FAILED'
+       OR EXISTS (SELECT 1 FROM booking_events e
+                  WHERE e."bookingId" = b.id AND e.type = 'ERROR' AND e.metadata->>'action' = 'capture_payment'));
+
+-- 4. Cancelled bookings still holding the renter's money (finding 4)
+SELECT id, "paymentStatus", "depositStatus", "updatedAt"
+FROM bookings
+WHERE status = 'CANCELLED'
+  AND ("paymentStatus" IN ('AUTHORIZED', 'CAPTURE_PENDING') OR "depositStatus" = 'AUTHORIZED');
+
+-- 5. Completed rentals stuck at CAPTURED, never paid out (finding 5)
+SELECT id, "completedAt", "paymentStatus"
+FROM bookings
+WHERE status = 'COMPLETED' AND "paymentStatus" = 'CAPTURED' AND "payoutSentAt" IS NULL;
+
+-- 6. Deposit released or owner paid while a dispute is open (finding 7)
+SELECT b.id, b."depositStatus", b."payoutSentAt", d.id AS dispute_id, d.status AS dispute_status, d."createdAt" AS disputed_at
+FROM bookings b
+JOIN disputes d ON d."bookingId" = b.id
+WHERE d.status IN ('OPEN', 'UNDER_REVIEW')
+  AND (b."depositStatus" = 'RELEASED' OR b."payoutSentAt" IS NOT NULL);
+```
+
+Any row from 3 to 6 is a real-money case for a person to settle in the Stripe dashboard; none of it is auto-repaired.
+
+### Where to pick up (Phase 2 onward)
+
+**Handoff, 2026-10-18.** This session stopped at the end of Phase 1 at the owner's request. Phase 2 is being run in a separate terminal session. The notes below were gathered before the handoff. None of them are applied or committed.
+
+**Phase 2 work in progress, in `git stash` (`stash@{0}`, "hardening phase 2 WIP"); restore with `git stash pop`:**
+
+- The expired/deleted-token stuck session (owner moved it into Phase 2). `api.ts` only ends the session on a 401 for the token still in use (not a wrong-password 401 at login, not a late reply from before a fresh login, never a 503). AuthContext then signs out to Login with a one-line notice, and a stored token past its `exp` is dropped at launch. Pure helpers are in `frontend/src/services/sessionToken.ts` with 4 tests, and the frontend test glob includes `src/services`. Frontend tests (7) and typecheck passed. **Not yet checked on the simulator.**
+- `backend/src/integration-tests/authorization.integration.test.ts`: the authZ/IDOR matrix (a verified stranger on every by-id route gets 403/404 with no data change, no token gets 401 on every authed route, unverified gets 403 on student routes, a user gets 403 on admin routes) plus checks that responses never carry passwords, Stripe ids or contact details. **Written, never run.**
+
+**Checked and sound:** role and verification read from the DB on every request (the 2026-08-31 scan's F2 is fixed), HS256 pinned, webhook fails closed, dispute responses shaped per caller (F3), handoff photo URLs must be this booking's own uploads, listing image upload owner-checked before Cloudinary, `X-Real-IP` trusted only behind Railway's edge (verified 2026-09-26), server Sentry scrubbing, login timing equalized, OTP attempt cap and constant-time compare.
+
+**Found, fix proposed, not applied:**
+
+| # | Finding | Sev | Proposed fix |
+|---|---|---|---|
+| a | One device push token can sit on two accounts. After a session ends without sign-out (expiry, or sign-out couldn't reach the server), the next person to sign in on that phone gets the previous account's notifications, message previews included | S2 | `updateExpoPushToken`: clear the token from every other user in the same transaction |
+| b | No per-account cap on verification codes: 5 guesses per code and a new code every 60 s puts a 50% chance of verifying someone else's university email at about 2 months | S2 | Cap at 10 codes per rolling 24 h (429 with a readable message) |
+| c | Registering someone else's university email blocks them from ever signing up (unverified accounts are never cleaned up; there is no reset) | S2 | **Needs product decision**: purge unverified accounts after N hours, or let a new sign-up take over an unverified account older than 24 h |
+| d | The API accepts booking requests that start in the past (the app prevents it) | S3 | `createBooking`: start day must be today (Toronto) or later |
+| e | Profile `phone` is free text with no length limit | S3 | Same rule as sign-up, checked in `userService.updateMe` so the app gets a readable message; schema max 30 |
+| f | The verification email puts `firstName` into HTML unescaped | S3 | Escape it |
+| g | Unbounded inputs: sign-up password, browse `q`/`category`/`city`, verify `code` | S3 | Password max 128, `q` 100, `category` 40, `city` 60, code `^\d{6}$` |
+| h | Tokens can't be revoked before their 30 days (known TODO in `requireAuth`) | S3 | `tokenVersion` column, checked per request and bumped on sign-out/role change; needs a migration (additive, default 0, safe on existing rows) |
+| i | No login lockout across IPs | — | Deliberate: an account-wide lockout lets anyone lock a student out. Per IP+email (10/15 min) and per IP (100/15 min) limits apply |
+| j | `JWT_SECRET` length isn't checked at boot | S3 | Confirm it's at least 32 random bytes in Railway, then add a production guard |
+
+**npm audit (production dependencies, 2026-10-18):** Backend has 11. The critical one is `proxy-addr` 2.0.7, which isn't reachable with `trust proxy 1`. `cloudinary` 1.41.3 is high (argument injection), but our upload params are built on the server, not from user input; the fix is 2.11.0, a major version. `qs`, `fast-uri` and the Prisma CLI's `@prisma/config`/`mysql2`/`deepmerge-ts` all have non-breaking fixes. Frontend: the only one in shipped code is `axios` 1.18.1 (fixed in 1.20.0). The rest are Expo/Metro/Jest build tooling, where npm's suggested "fixes" are downgrades to Expo 44.
+
+**After Phase 2:** backend performance (pagination, payload trimming), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish, accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
 
