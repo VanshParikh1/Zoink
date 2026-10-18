@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertBookingTransition } from './bookingStateMachine'
+import { assertBookingTransition, InvalidBookingTransitionError } from './bookingStateMachine'
 
 test('allows valid booking transitions', () => {
   assert.doesNotThrow(() => assertBookingTransition('PENDING', 'ACCEPTED'))
@@ -14,9 +14,11 @@ test('allows valid booking transitions', () => {
 })
 
 test('rejects invalid booking transitions', () => {
-  assert.throws(() => assertBookingTransition('PENDING', 'COMPLETED'), /BOOKING_INVALID_TRANSITION/)
-  assert.throws(() => assertBookingTransition('DECLINED', 'ACCEPTED'), /BOOKING_INVALID_TRANSITION/)
-  assert.throws(() => assertBookingTransition('CANCELLED', 'ACTIVE'), /BOOKING_INVALID_TRANSITION/)
-  assert.throws(() => assertBookingTransition('COMPLETED', 'CANCELLED'), /BOOKING_INVALID_TRANSITION/)
-  assert.throws(() => assertBookingTransition('ACCEPTED', 'ACTIVE'), /BOOKING_INVALID_TRANSITION/)
+  const invalid = (error: unknown) =>
+    error instanceof InvalidBookingTransitionError && error.statusCode === 409 && error.code === 'BOOKING_INVALID_TRANSITION'
+  assert.throws(() => assertBookingTransition('PENDING', 'COMPLETED'), invalid)
+  assert.throws(() => assertBookingTransition('DECLINED', 'ACCEPTED'), invalid)
+  assert.throws(() => assertBookingTransition('CANCELLED', 'ACTIVE'), invalid)
+  assert.throws(() => assertBookingTransition('COMPLETED', 'CANCELLED'), invalid)
+  assert.throws(() => assertBookingTransition('ACCEPTED', 'ACTIVE'), invalid)
 })

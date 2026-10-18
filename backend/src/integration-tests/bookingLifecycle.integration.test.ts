@@ -333,7 +333,7 @@ describe('owner accept / decline', () => {
     // DECLINED → ACCEPTED is not a valid transition
     await assert.rejects(
       () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED),
-      /BOOKING_INVALID_TRANSITION/
+      /transition is not allowed/
     )
   })
 })
