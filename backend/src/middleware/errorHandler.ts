@@ -3,6 +3,7 @@ import { ZodError } from 'zod'
 import multer from 'multer'
 import { AppError } from '../utils/errors'
 import { Sentry } from '../instrument'
+import { loggableError } from '../utils/sentryScrub'
 
 export function errorHandler(
   err: any,
@@ -54,7 +55,7 @@ export function errorHandler(
   }
 
   // Fallback to 500 for unrecognized errors, logging them server-side
-  console.error('Unhandled error:', err)
+  console.error('Unhandled error:', loggableError(err))
   Sentry.captureException(err)
   return res.status(500).json({ error: 'Something went wrong.' })
 }

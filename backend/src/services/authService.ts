@@ -13,7 +13,7 @@ import {
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { hasPlusInLocalPart, normalizeEmail, PLUS_ADDRESS_MESSAGE } from '../utils/email'
 import { deleteUnverifiedAccounts } from './unverifiedAccounts'
-import type { University } from '@zoink/shared'
+import { redactText, type University } from '@zoink/shared'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -357,7 +357,9 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
     // SES failed (sandbox restrictions, missing config, etc.). Outside
     // production the code is logged so local dev is never blocked; in
     // production it must never reach logs (or Sentry breadcrumbs).
-    console.warn(`SES verification email failed: ${err?.message ?? err}`)
+    // SES names the recipient in some errors ("…identities failed the check:
+    // student@…"); the address stays out of the logs.
+    console.warn(`SES verification email failed: ${redactText(String(err?.message ?? err))}`)
     if (process.env.NODE_ENV !== 'production') {
       console.warn(`[DEV] OTP for ${email}: ${code}`)
     }

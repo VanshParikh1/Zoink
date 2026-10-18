@@ -28,6 +28,7 @@ import {
 } from './paymentService'
 import { scoreLabelsForRole } from './reviewService'
 import { Sentry } from '../instrument'
+import { loggableError, loggableMessage } from '../utils/sentryScrub'
 
 const bookingSelect = {
   id: true,
@@ -1048,7 +1049,7 @@ function calculateCancellationFeeCents(totalPrice: Prisma.Decimal | number) {
 }
 
 async function recordPaymentError(bookingId: string, actorId: string | null, action: string, error: unknown) {
-  console.error(`[${action}] booking ${bookingId} failed:`, error)
+  console.error(`[${action}] booking ${bookingId} failed:`, loggableError(error))
   Sentry.captureException(error, { tags: { action, bookingId } })
   try {
     await prisma.bookingEvent.create({
@@ -1056,7 +1057,7 @@ async function recordPaymentError(bookingId: string, actorId: string | null, act
         bookingId,
         actorId,
         type: BookingEventType.ERROR,
-        metadata: { action, message: error instanceof Error ? error.message : 'UNKNOWN_ERROR' },
+        metadata: { action, message: loggableMessage(error) },
       },
     })
   } catch (auditError) {

@@ -6,6 +6,7 @@ import { notifyUser } from './notificationService'
 import { capturePaymentIntent, retrievePaymentIntent } from './paymentService'
 import { ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { Sentry } from '../instrument'
+import { loggableError, loggableMessage } from '../utils/sentryScrub'
 
 export type HandoffPhase = 'pickup' | 'return'
 
@@ -338,7 +339,7 @@ async function completePickup(booking: any, actorId: string, actorField: string)
 }
 
 async function recordPickupCaptureFailure(bookingId: string, actorId: string, error: unknown) {
-  console.error(`[capture_payment] pickup capture failed for booking ${bookingId}:`, error)
+  console.error(`[capture_payment] pickup capture failed for booking ${bookingId}:`, loggableError(error))
   Sentry.captureException(error, { tags: { action: 'capture_payment', bookingId } })
   try {
     await prisma.$transaction([
@@ -350,7 +351,7 @@ async function recordPickupCaptureFailure(bookingId: string, actorId: string, er
           type: BookingEventType.ERROR,
           metadata: {
             action: 'capture_payment',
-            message: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+            message: loggableMessage(error),
             blockedHandoff: true,
           },
         },

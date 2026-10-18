@@ -1,6 +1,8 @@
 import { NotificationType, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { Sentry } from '../instrument'
+import { redactText } from '@zoink/shared'
+import { loggableError } from '../utils/sentryScrub'
 
 type NotifyInput = {
   userId: string
@@ -72,10 +74,10 @@ async function sendExpoPush(token: string, title: string, body: string, data?: R
 
     if (!response.ok) {
       const text = await response.text()
-      console.warn(`[Push] Expo send failed (${response.status}): ${text}`)
+      console.warn(`[Push] Expo send failed (${response.status}): ${redactText(text)}`)
     }
   } catch (error) {
-    console.warn('[Push] Failed to send Expo notification:', error)
+    console.warn('[Push] Failed to send Expo notification:', loggableError(error))
   }
 }
 
@@ -98,7 +100,7 @@ export async function notifyUser(input: NotifyInput) {
   try {
     await deliverNotification(input)
   } catch (error) {
-    console.error(`[notifyUser] ${input.type} for user ${input.userId} failed:`, error)
+    console.error(`[notifyUser] ${input.type} for user ${input.userId} failed:`, loggableError(error))
     Sentry.captureException(error, { tags: { notificationType: input.type } })
   }
 }

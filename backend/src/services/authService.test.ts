@@ -189,7 +189,8 @@ test('the verification email keeps the first name as text in its HTML', { timeou
 test('a failed verification email never logs the code in production', { timeout: 20_000 }, async () => {
   stubHappyPathCollaborators(() => {})
   ;(SESClient.prototype as any).send = async () => {
-    throw new Error('Email address is not verified.')
+    // SES's own wording names the recipient.
+    throw new Error('Email address is not verified. The following identities failed the check in region US-EAST-1: student@mail.utoronto.ca')
   }
   const warnings: string[] = []
   const originalWarn = console.warn

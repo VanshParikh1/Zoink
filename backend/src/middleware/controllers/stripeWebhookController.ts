@@ -5,6 +5,7 @@ import prisma from '../../utils/prisma'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { BadRequestError, InternalServerError } from '../../utils/errors'
 import { Sentry } from '../../instrument'
+import { loggableError } from '../../utils/sentryScrub'
 
 type StripeEvent = {
   id: string
@@ -318,7 +319,7 @@ export const stripeWebhook = asyncHandler(async (req: Request, res: Response) =>
     await updateBookingFromEvent(event)
     return res.json({ received: true })
   } catch (error) {
-    console.error('Stripe webhook handling failed:', error)
+    console.error('Stripe webhook handling failed:', loggableError(error))
     // errorHandler only sees the generic InternalServerError below, so capture
     // the real cause here while we still have it.
     Sentry.captureException(error, {

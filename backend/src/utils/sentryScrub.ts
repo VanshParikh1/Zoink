@@ -1,45 +1,49 @@
 import type { Breadcrumb, ErrorEvent } from '@sentry/node'
+import { FILTERED, redactText, scrubObject } from '@zoink/shared'
 
-// Values under these keys never leave the server in an error report:
-// credentials and payment data, plus personal data (email, phone) and
-// one-time codes. Matched anywhere in the key, case-insensitively…
-const SENSITIVE_KEY_PATTERN =
-  /password|passwd|token|secret|key|authorization|cookie|session|email|phone|otp|card|cvc|cvv|iban|account_?number|routing/i
-// …except `code`, which is matched exactly so e.g. `status_code` survives.
-const SENSITIVE_EXACT_KEYS = new Set(['code'])
+// Which keys and which text count as credentials or personal data lives in
+// @zoink/shared (redact.ts), so the app's Sentry setup strips the same things.
+export { FILTERED }
 
-const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+// A PrismaClientValidationError's message prints the failed call with its
+// arguments: an email, a password hash, a name. Keep the first paragraph (the
+// call) and the last (the reason); drop what's between.
+const PRISMA_INVOCATION = /Invalid `prisma\.[^`]*` invocation/
 
-export const FILTERED = '[Filtered]'
-
-function isSensitiveKey(key: string) {
-  return SENSITIVE_EXACT_KEYS.has(key.toLowerCase()) || SENSITIVE_KEY_PATTERN.test(key)
+export function redactPrismaArguments(text: string): string {
+  if (!PRISMA_INVOCATION.test(text)) return text
+  const paragraphs = text.trim().split(/\n\s*\n/)
+  if (paragraphs.length >= 3) return [paragraphs[0], '[arguments omitted]', paragraphs[paragraphs.length - 1]].join('\n\n')
+  const lines = text.trim().split('\n')
+  return lines.length > 2 ? `${lines[0]}\n[arguments omitted]\n${lines[lines.length - 1]}` : text
 }
 
-export function redactEmails(text: string): string {
-  return text.replace(EMAIL_PATTERN, '[email]')
+function redact(text: string): string {
+  return redactText(redactPrismaArguments(text))
 }
 
-export function scrubObject<T>(value: T): T {
-  if (!value || typeof value !== 'object') return value
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => {
-      value[i] = typeof item === 'string' ? redactEmails(item) : scrubObject(item)
-    })
-    return value
-  }
-  const obj = value as Record<string, unknown>
-  for (const key of Object.keys(obj)) {
-    const v = obj[key]
-    if (isSensitiveKey(key)) obj[key] = FILTERED
-    else if (typeof v === 'string') obj[key] = redactEmails(v)
-    else if (v && typeof v === 'object') scrubObject(v)
-  }
-  return value
+/** The error's message, safe to store or show (e.g. in a booking's ERROR event). */
+export function loggableMessage(error: unknown): string {
+  return error instanceof Error ? redact(error.message) : 'UNKNOWN_ERROR'
+}
+
+/** The error to hand console.error: the same error when nothing in it needs
+ *  hiding, otherwise a copy with the message (and the stack's copy of it)
+ *  redacted and the stack frames kept. */
+export function loggableError(error: unknown): unknown {
+  if (typeof error === 'string') return redact(error)
+  if (!(error instanceof Error)) return error
+  const message = redact(error.message)
+  if (message === error.message) return error
+  const copy = new Error(message)
+  copy.name = error.name
+  const frames = (error.stack ?? '').split('\n').filter((line) => line.trimStart().startsWith('at '))
+  copy.stack = [`${error.name}: ${message}`, ...frames].join('\n')
+  return copy
 }
 
 export function scrubBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
-  if (breadcrumb.message) breadcrumb.message = redactEmails(breadcrumb.message)
+  if (breadcrumb.message) breadcrumb.message = redact(breadcrumb.message)
   scrubObject(breadcrumb.data)
   return breadcrumb
 }
@@ -53,16 +57,16 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent {
     // scrubbed field by field, so it isn't sent at all.
     if (typeof request.data === 'string') request.data = FILTERED
     else scrubObject(request.data)
-    if (typeof request.query_string === 'string') request.query_string = redactEmails(request.query_string)
+    if (typeof request.query_string === 'string') request.query_string = redactText(request.query_string)
     else scrubObject(request.query_string)
-    if (request.url) request.url = redactEmails(request.url)
+    if (request.url) request.url = redactText(request.url)
   }
 
   scrubObject(event.extra)
   if (event.user) event.user = event.user.id !== undefined ? { id: event.user.id } : {}
-  if (event.message) event.message = redactEmails(event.message)
+  if (event.message) event.message = redact(event.message)
   for (const exception of event.exception?.values ?? []) {
-    if (exception.value) exception.value = redactEmails(exception.value)
+    if (exception.value) exception.value = redact(exception.value)
   }
   for (const breadcrumb of event.breadcrumbs ?? []) scrubBreadcrumb(breadcrumb)
   return event

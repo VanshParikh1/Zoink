@@ -5,6 +5,7 @@ import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { deleteUnverifiedAccounts } from './unverifiedAccounts'
 import { Sentry } from '../instrument'
+import { loggableError, loggableMessage } from '../utils/sentryScrub'
 
 // The payment jobs below walk many bookings and call Stripe for each. One
 // booking failing (a restricted connected account, a PaymentIntent Stripe
@@ -12,8 +13,8 @@ import { Sentry } from '../instrument'
 // booking after it: record it, report it, and move on. The booking is left
 // exactly as it was, so the next run retries it.
 export async function recordJobFailure(bookingId: string, action: string, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  console.error(`[${action}] booking ${bookingId} failed:`, error)
+  const message = error instanceof Error ? loggableMessage(error) : String(loggableError(error))
+  console.error(`[${action}] booking ${bookingId} failed:`, loggableError(error))
   Sentry.captureException(error, { tags: { job: action, bookingId } })
   try {
     await prisma.bookingEvent.create({
