@@ -8,6 +8,7 @@ import { useFonts, FiraSans_400Regular, FiraSans_700Bold, FiraSans_900Black } fr
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono'
 import { STRIPE_PUBLISHABLE_KEY } from './src/config/stripe'
 import ErrorBoundary from './src/components/mockup/ErrorBoundary'
+import { scrubBreadcrumb, scrubEvent } from './src/services/sentryScrub'
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN
 if (sentryDsn) {
@@ -17,6 +18,12 @@ if (sentryDsn) {
     // Dev/simulator builds stall constantly (Metro reloads, debugger pauses)
     // and flood Sentry with false app-hang events.
     enableAppHangTracking: !__DEV__,
+    // Credentials, emails, phone numbers, push tokens and codes never leave
+    // the phone in a report, by the same rules as the server (see
+    // src/services/sentryScrub.ts).
+    sendDefaultPii: false,
+    beforeSend: scrubEvent,
+    beforeBreadcrumb: scrubBreadcrumb,
   })
 }
 
