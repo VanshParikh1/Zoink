@@ -111,6 +111,16 @@ export async function updateMyPushToken(expoPushToken: string | null): Promise<{
   return res.data
 }
 
+// Takes this phone's token off the account, only if the account still has it.
+// `sessionToken` is for a session that has already ended (api.ts no longer
+// holds it); the server accepts a lapsed one for this call only.
+export async function releaseMyPushToken(expoPushToken: string, sessionToken?: string): Promise<{ released: boolean }> {
+  if (DEMO_MODE) return { released: true }
+
+  const res = await api.post('/users/me/push-token/release', { expoPushToken }, { sessionToken })
+  return res.data
+}
+
 export async function onboardStripeConnect(): Promise<{ url: string }> {
   if (DEMO_MODE) return { url: 'https://demo-stripe-onboarding.zoink.com' }
 

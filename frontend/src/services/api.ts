@@ -23,6 +23,14 @@ const api = axios.create({
 // on login/verify/terms acceptance/logout via setApiToken.
 let cachedToken: string | null | undefined // undefined = not loaded yet
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    // Send this session token instead of the current one: releasing the push
+    // token for a session that was just signed out or has ended.
+    sessionToken?: string
+  }
+}
+
 export function setApiToken(token: string | null) {
   cachedToken = token
 }
@@ -30,9 +38,9 @@ export function setApiToken(token: string | null) {
 // AuthContext registers this so a session the server no longer accepts (token
 // past its 30 days, account deleted) signs the user out instead of leaving
 // every screen failing with "No token provided.".
-let onSessionEnded: (() => void) | null = null
+let onSessionEnded: ((endedToken: string) => void) | null = null
 
-export function setSessionEndedHandler(handler: (() => void) | null) {
+export function setSessionEndedHandler(handler: ((endedToken: string) => void) | null) {
   onSessionEnded = handler
 }
 
@@ -57,7 +65,7 @@ if (DEMO_MODE) {
 }
 
 api.interceptors.request.use(async (config) => {
-  const token = await currentToken()
+  const token = config.sessionToken ?? (await currentToken())
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -76,6 +84,7 @@ api.interceptors.response.use(
     // made before a fresh login. A burst of 401s from requests in flight ends
     // it once, since the first clears cachedToken.
     if (endsCurrentSession(error.response?.status, error.config?.headers?.Authorization, cachedToken)) {
+      const endedToken = cachedToken as string
       cachedToken = null
       try {
         if (Platform.OS === 'web') {
@@ -84,7 +93,7 @@ api.interceptors.response.use(
           await SecureStore.deleteItemAsync(TOKEN_KEY)
         }
       } finally {
-        onSessionEnded?.()
+        onSessionEnded?.(endedToken)
       }
     }
 

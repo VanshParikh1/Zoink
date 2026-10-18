@@ -5,7 +5,7 @@ import { Alert, Platform } from 'react-native'
 import api, { setApiToken, setSessionEndedHandler } from '../services/api'
 import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
-import { clearPushToken, syncPushToken } from '../services/pushNotifications'
+import { releasePushToken, syncPushToken } from '../services/pushNotifications'
 import type { University } from '@zoink/shared'
 
 const TOKEN_KEY = 'zoink_jwt'
@@ -81,6 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // or a session past its expiry. Drop it and start signed out
             // instead of opening the app "signed in" with every request failing.
             console.warn('Stored session token is unusable or expired; clearing it')
+            // A lapsed session still has this phone's push token on its
+            // account; release it so that account stops notifying a phone
+            // that's now signed out.
+            if (!DEMO_MODE && decodeJwtPayload(stored)) void releasePushToken(stored)
             await deleteTokenAsync(TOKEN_KEY)
             setApiToken(null)
             return
@@ -103,9 +107,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // The server stopped accepting the session mid-use (token expired, account
   // deleted): api.ts has already dropped the stored token; sign out here so
-  // navigation goes back to Login, and say why once.
+  // navigation goes back to Login, and say why once. The phone's push token is
+  // released too, or the lapsed account would keep notifying a signed-out phone.
   useEffect(() => {
-    setSessionEndedHandler(() => {
+    setSessionEndedHandler((endedToken) => {
+      if (!DEMO_MODE) void releasePushToken(endedToken)
       delete api.defaults.headers.common['Authorization']
       setToken(null)
       setUser(null)
@@ -187,8 +193,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [saveSession])
 
   const logout = useCallback(async () => {
+    // Not awaited: it carries its own copy of the session token, so signing
+    // out doesn't wait on the network.
     if (!DEMO_MODE && token) {
-      await clearPushToken()
+      void releasePushToken(token)
     }
     await deleteTokenAsync(TOKEN_KEY)
     setApiToken(null)
