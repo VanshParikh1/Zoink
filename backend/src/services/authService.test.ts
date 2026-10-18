@@ -155,6 +155,37 @@ test('registerUser responds without waiting for the verification email to send',
   assert.equal(sendCalled, true, 'the verification email is still sent')
 })
 
+test('the verification email keeps the first name as text in its HTML', { timeout: 20_000 }, async () => {
+  stubHappyPathCollaborators(() => {})
+  let html = ''
+  let text = ''
+  const sent = new Promise<void>((resolve) => {
+    ;(SESClient.prototype as any).send = async (command: any) => {
+      html = command.input.Message.Body.Html.Data
+      text = command.input.Message.Body.Text.Data
+      resolve()
+      return {}
+    }
+  })
+
+  await registerUser(
+    'student@mail.utoronto.ca',
+    'password123',
+    '<a href="https://evil.example">Ada</a>',
+    'Lovelace',
+    '+14165550192',
+    'UOFT',
+    CURRENT_TERMS_VERSION,
+    CURRENT_PRIVACY_VERSION,
+    true
+  )
+  await sent
+
+  assert.ok(!html.includes('<a href'), html)
+  assert.ok(html.includes('Hi &lt;a href=&quot;https://evil.example&quot;&gt;Ada&lt;/a&gt;,'), html)
+  assert.ok(text.includes('Hi <a href="https://evil.example">Ada</a>,'), 'the plain-text part is left as typed')
+})
+
 test('a failed verification email never logs the code in production', { timeout: 20_000 }, async () => {
   stubHappyPathCollaborators(() => {})
   ;(SESClient.prototype as any).send = async () => {

@@ -309,6 +309,17 @@ const sesClient = new SESClient({
   },
 })
 
+// The first name is whatever the person typed at sign-up; in the HTML part it
+// must stay text.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 async function sendVerificationEmail(email: string, firstName: string, code: string) {
   const command = new SendEmailCommand({
     Source: process.env.SES_FROM_EMAIL!,
@@ -327,7 +338,7 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
           Data: `
             <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
               <h2 style="color: #1a1a1a;">Your Zoink verification code</h2>
-              <p>Hi ${firstName},</p>
+              <p>Hi ${escapeHtml(firstName)},</p>
               <p>Enter this code in the app to verify your student email:</p>
               <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #4F46E5; margin: 24px 0;">
                 ${code}
