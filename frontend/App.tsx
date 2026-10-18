@@ -7,6 +7,7 @@ import { StripeProvider } from '@stripe/stripe-react-native'
 import { useFonts, FiraSans_400Regular, FiraSans_700Bold, FiraSans_900Black } from '@expo-google-fonts/fira-sans'
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono'
 import { STRIPE_PUBLISHABLE_KEY } from './src/config/stripe'
+import ErrorBoundary from './src/components/mockup/ErrorBoundary'
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN
 if (sentryDsn) {
@@ -17,6 +18,14 @@ if (sentryDsn) {
     // and flood Sentry with false app-hang events.
     enableAppHangTracking: !__DEV__,
   })
+}
+
+function reportRenderError(error: Error, componentStack: string | null | undefined) {
+  if (sentryDsn) {
+    Sentry.captureException(error, { extra: { componentStack } })
+  } else {
+    console.error('Unhandled render error', error, componentStack)
+  }
 }
 
 export default function App() {
@@ -37,7 +46,9 @@ export default function App() {
           urlScheme="zoink"
         >
           <AuthProvider>
-            <Navigation fontsReady={fontsLoaded || !!fontError} />
+            <ErrorBoundary onError={reportRenderError}>
+              <Navigation fontsReady={fontsLoaded || !!fontError} />
+            </ErrorBoundary>
           </AuthProvider>
         </StripeProvider>
       </SafeAreaProvider>

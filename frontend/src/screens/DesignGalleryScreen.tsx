@@ -47,6 +47,11 @@ const GRID_SAMPLES: { key: string; listing: ListingCardData }[] = [
   },
 ]
 
+// Throws while rendering, to exercise the top-level ErrorBoundary.
+function Crash(): null {
+  throw new Error('Design gallery test crash')
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
@@ -57,6 +62,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function DesignGalleryScreen() {
+  const [crash, setCrash] = useState(false)
   const [chip, setChip] = useState('All')
   const [otp, setOtp] = useState('')
   const [otpDone, setOtpDone] = useState<string | null>(null)
@@ -69,6 +75,11 @@ export default function DesignGalleryScreen() {
 
   return (
     <Screen glow="topRight" header={<ScreenHeader title="Design gallery" back right={<LogoPill size="sm" />} />}>
+      <Section title="Error boundary">
+        <Button label="Throw a test error" variant="secondary" onPress={() => setCrash(true)} />
+        {crash ? <Crash /> : null}
+      </Section>
+
       <Section title="Type">
         <Text style={[type.display, styles.ink]}>Display 40</Text>
         <Text style={[type.h1, styles.ink]}>Heading h1 32</Text>
