@@ -163,3 +163,100 @@ The seed now uses real public Cloudinary demo photos (one unique URL per listing
 
 ---
 
+## Phase 1: correctness and data integrity
+
+### Plan
+
+Pin every business invariant with tests (shared unit and property tests for the money math; HTTP integration tests for the state machine), then go through each concurrency path the brief names (double-tap Pay, double-tap Zoink It, accept vs. cancel, overlapping requests, webhook retries and ordering), Stripe idempotency, the payment jobs, and time handling (one shared date helper, DST tests, the rental-date display sweep). Anything that would change a business rule goes to "Needs product decision" instead of being changed.
+
+**The run stopped at the end of this phase, at the owner's request.** Phases 2 to 7 weren't started.
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix / decision | Commit |
+|---|---|---|---|---|---|
+| 1 | Two renters could both pay for the same dates | Two ACCEPTED requests overlap (accepting doesn't hold dates); both renters tap Pay at about the same time; both pass the overlap check before either writes | S1 | Accept and confirm take the listing's row lock and re-check overlap inside the transaction | `e18b41b` |
+| 2 | PICKUP_PENDING and RETURN_PENDING didn't hold dates | Owner starts the pickup handoff; another renter's confirm (or the owner's accept) for those dates goes through | S1 | Overlap check counts CONFIRMED, PICKUP_PENDING, ACTIVE, RETURN_PENDING | `e18b41b` |
+| 3 | Double-tapped Confirm could put two deposit holds on the card, or cancel the rent hold the booking was confirmed with | Deposit key included the booking version, which the deposit's own webhook bumps; two concurrent confirms raced on one key, Stripe rejected the second while the first was in flight, and that failure path cancelled the rent authorization | S1 | Pay and Confirm run under the booking's row lock; a repeat confirm returns the first result; deposit keyed on the rent PaymentIntent | `f50b559`, `e18b41b` |
+| 4 | Cancelling a paid booking left money held | CONFIRMED: rent released, deposit held up to ~7 days. PICKUP_PENDING: nothing released at all | S1 | Both holds released on cancel; depositStatus RELEASED | `e18b41b` |
+| 5 | A late `payment_intent.succeeded` stopped the owner's payout | Capture webhook arrives after the return completed the booking (or after PAYOUT_PENDING): status reset to CAPTURED, which `releaseDuePayouts` never selects | S1 | Rental webhooks only move forward; a capture landing after completion goes to PAYOUT_PENDING | `247e5ed` |
+| 6 | Other out-of-order webhooks moved payment status backwards | Late `amount_capturable_updated` after capture (back to AUTHORIZED); late `payment_failed` from a first declined card after a good one (AUTHORIZED to FAILED); late authorization after a release | S2 | Same forward-only rules | `247e5ed` |
+| 7 | Deposit released or owner paid while a dispute was being filed | Dispute filed in the last moments of the 24 h window while the 15-minute job runs: the job read "no dispute", the dispute committed, the job released anyway | S2 | Jobs re-check each booking under its row lock; `createDispute` takes the same lock | `1fee579` |
+| 8 | Overlapping job runs could act twice on one booking | A slow run overlapping the next tick, or two instances | S2 | Same row-lock re-check (payout `payoutSentAt`, deposit `depositStatus`) | `1fee579` |
+| 9 | Two disputes on one booking | Renter and owner (or a double tap) file at once; both pass the "no open dispute" check | S2 | `createDispute` runs in one transaction holding the booking lock | `1fee579` |
+| 10 | An ACCEPTED booking could be overwritten to DECLINED | Owner accepts two overlapping requests at once; one accept's auto-decline overwrote the other after it committed ACCEPTED (an illegal transition; the renter got "accepted" then "declined") | S2 | Auto-decline only updates rows still PENDING, under the listing lock | `e18b41b` |
+| 11 | Renter refused at confirm kept the rent hold | Dates taken by someone else between Pay and Confirm | S2 | Rent authorization released when confirm is refused for overlap | `e18b41b` |
+| 12 | Illegal transitions answered 500 | Any stale action (accept an already-cancelled request, cancel a completed one): "Something went wrong." and a Sentry crash report | S2 | `InvalidBookingTransitionError`, 409 with a readable message | `28cf272` |
+| 13 | Rental dates showed the wrong day after a handoff, "days left" was a day early every evening | startDate/endDate are overwritten with the real pickup/return time; formatting those in UTC showed the next day for evening handoffs. "Days left" counted milliseconds to midnight UTC (8 PM the evening before in Toronto). Zoink It's day count was off by one after pickup. Settings showed block/terms-acceptance instants in UTC | S2 | One shared helper (`@zoink/shared` `dates.ts`) and the sweep below | `9b30de2` |
+| 14 | Request preview could differ from the charge by a cent | The request screen computed HST with `toFixed(2)` and kept its own copies of HST_RATE and MAX_RENTAL_DAYS | S3 | `quoteRental` in `@zoink/shared`, used by both | `d40bd4c` |
+| 15 | Rate limiter unit test flaked | supertest bound a new port per request; under the parallel run one connection reset | S3 | One server per test app | `fbc50ac` |
+
+### Checked and found sound (no change)
+
+- Webhook signature verification fails closed outside tests; every event id is stored in `processed_stripe_events` in the same transaction as the booking update (redeliveries are no-ops).
+- Double-tapped Zoink It is already covered by `handoffRace` (one transition, clean 409 for the loser).
+- Every Stripe create/capture/cancel/refund/transfer call carries an idempotency key (account links excepted; they're single-use by design).
+- OTP: attempt cap, expiry, constant-time compare (Phase 2 would re-verify).
+- Money arithmetic: a property test over every daily price from $0.01 to $1,000 for 1 to 7 days (700,000 quotes) shows every line is whole cents, commission + payout = rental total, and the pickup charge = rent + HST. The float formula agrees with exact half-up rounding except on an exact half-cent tie, where it rounds down by a cent: 1,980 of the 700,000 quotes (see product decisions). The app and server now share one formula, so what's shown is what's charged.
+- Cleanup jobs: stale-handoff cleanup and the retention sweeps are single statements (atomic, safe to repeat); deposit and payout jobs are per-booking transactions with stable Stripe keys, so a restart mid-run repeats the same calls and gets the same results back.
+
+### Date sweep
+
+`@zoink/shared` `dates.ts`: calendar-date values (midnight UTC, how the app sends a rental day) are read in UTC; real instants (including a startDate/endDate after the handoff overwrote them) are shown in America/Toronto. `rentalDayKey`, `torontoDayKey`, `daysBetween`, `rentalDayCount`, `formatRentalDate`, `formatDayOf`, `formatTimeOfDay`, `formatDateTime`, `isTodayInToronto`. Tests run in six device time zones and across both 2026 DST changes.
+
+| Screen | Before | After |
+|---|---|---|
+| Request (BookingRequest) | Picked days from the device calendar, sent as midnight UTC | Unchanged (correct); price preview now `quoteRental` |
+| Checkout (Pay) | `formatLongDate` (UTC) | `formatRentalDate(…, 'long')` |
+| Rentals list (BookingHistory) and Requests | UTC formatting | `formatRentalDate` |
+| Chat pinned card | Shows listing and daily price only, no rental dates | Nothing to change |
+| Zoink It | Day count from milliseconds (off by one after pickup) | `rentalDayCount` |
+| Booking detail | `calendarDate` (UTC) for rental days, device-local for moments | `formatRentalDate` / `formatDayOf` (Toronto) |
+| Active rental | UTC dates; "days left" by milliseconds | `formatRentalDate`; calendar-day count in Toronto |
+| Review prompt | `formatLongDate` (UTC) on dates that are post-handoff instants | `formatRentalDate(…, 'long')` |
+| Settings | Block and terms-acceptance instants in UTC | `formatDayOf(…, 'long')` |
+
+Left as they were: message and inbox timestamps and admin timestamps use the device's time zone (the same as Toronto for Ontario users). Moving them is a one-line change per call site if wanted.
+
+### Needs product decision
+
+1. **Commission: tiered vs flat (existing).** Code charges 15 / 12.5 / 10% by daily rate; the business plan says flat 15%. Pinned by tests as-is.
+2. **Cancellation cutoff is 7 to 8 PM the evening before, not the rental day.** `transitionBookingStatus` refuses a cancel when `now >= startDate`, and startDate is midnight UTC, which is 8 PM (EDT) or 7 PM (EST) the previous evening in Toronto. Suggested: compare against the start of the rental day in Toronto (one line, but it changes when a booking can be cancelled, which terms.md §9 governs).
+3. **Card authorization expiry vs. booking lead time.** Rent is authorized at Confirm and captured at pickup; deposit is authorized at Confirm and held until return + 24 h. Card authorizations typically lapse after about 7 days, and nothing limits how far ahead a booking can be paid. A booking paid more than about a week before pickup will likely fail to capture; a 7-day rental confirmed one day ahead holds its deposit about 9 days, so a dispute can find it expired. Options: cap the lead time, authorize closer to pickup, re-authorize the deposit at pickup, or Stripe extended authorizations.
+4. **Failed capture at pickup has no path.** The booking goes ACTIVE with paymentStatus FAILED and an ERROR event; nothing retries, notifies, or blocks the handoff. Needs a decision (retry job, block the tap until captured, admin alert).
+5. **Half-cent ties.** The float formula rounds an exact half cent down where exact half-up would round up: 1,980 of 700,000 quotes differ by 1¢ (commission or HST). Totals still add up. Switching to integer-cent half-up would change those amounts by a cent.
+6. **Unreachable transitions in the state table.** `allowedTransitions` still lists CONFIRMED→ACTIVE and ACTIVE→COMPLETED (skipping the handoff steps). No route reaches them (pinned by the state-machine tests). Suggested: remove them.
+7. **An ACCEPTED request whose dates were taken stays ACCEPTED.** After another renter confirms overlapping dates, the losing request can be paid again and will be refused again. Consider auto-declining it when the other booking confirms, like PENDING ones are on accept.
+8. **Disputes on bookings in any status.** Only COMPLETED bookings have the 24 h window check; a dispute can be filed on a PENDING, DECLINED or CANCELLED booking.
+
+### Found, not fixed (later phases)
+
+- **Expired or dead sessions leave the app "signed in" and broken** (S2, Phase 5). A stored token is decoded without checking `exp`; when the server answers 401 (token past its 30 days, account deleted), `api.ts` drops the token but AuthContext keeps the user, so every screen shows raw "No token provided." until the user logs out by hand. Reproduced on the simulator.
+- Raw server error strings reach the UI (Phase 5).
+- Login email field has autocorrect on (suggested "Toronto" for "utoronto"); a validation message pushes the form down (Phase 5 forms).
+- Blank white then tan screen between the native splash and the first JS screen (Phase 4 startup).
+- The server accepts booking requests whose start date is already past (the app prevents it); Phase 2 validation.
+- The verification email interpolates the user's first name into HTML unescaped (self-only injection; Phase 2).
+- Unpaginated lists (`/bookings/requests` 1.2 MB in the bench), Home shows only 20 listings (Phase 3/4).
+
+### Tests after Phase 1
+
+| Suite | Before | After |
+|---|---|---|
+| `@zoink/shared` (new) | none | 13 (money, contract limits, 700,000-quote property test, dates incl. DST and six device zones) |
+| backend unit | 212 (1 flaky) | 220, all pass |
+| backend integration | 292 (289 pass, 3 skipped) | **331: 328 pass, 3 skipped (the cancellation-fee tests, still skipped on purpose), 0 fail**, 641 s. New suites: `stateMachine` (18: 9 statuses x 9 actions, skipped steps, roles, the state set), `bookingConcurrency` (8, Stripe test mode), `webhookOrdering` (7), `jobRaces` (5) |
+| frontend unit | 3 | 3 |
+
+The race tests were checked against the old code: 5 of 6 job/dispute race tests fail there. One run of the full suite hit an unrelated failure: a stray packet from the Cisco ISE posture agent on this Mac (the payload contains `ISEBlockUntrustedCerts`) landed on the test server's loopback port; the file passed on re-run.
+
+Typecheck (backend, frontend) passes. The date sweep was checked on the iOS simulator Release build: an evening pickup reads as its Toronto day in Rentals, and Active rental counts calendar days left.
+
+### Commits
+
+`d40bd4c` `8b937ca` (shared pricing and money tests), `f50b559` `28cf272` `5201cd9` `e18b41b` `247e5ed` `1fee579` `9b30de2`. Nothing pushed.
+
+### Where to pick up (Phase 2 onward, not started)
+
+Security pass (authZ/IDOR tests per resource, strict validation, rate-limit gaps, OTP/JWT review, secrets and PII scrub, upload ownership, npm audit), then backend performance (pagination, payload trimming), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish (session-expiry bug above), accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
+
