@@ -112,10 +112,14 @@ Twenty findings: one S1, seven S2, twelve S3, plus the npm audit.
 2. **Check the JWT secret in Railway is at least 32 characters**, or the deploy won't start. Railway keeps the old deployment serving if it doesn't.
 3. **The first cleanup run deletes existing unverified accounts older than 24 h** that never did anything. The log has a read-only query to count them first. The App Review account is verified and isn't affected.
 
-### Needs a decision
+### Owner decisions, applied (2026-10-19)
 
-- **A listing anyone has messaged about or booked can't be deleted**: the API answers 500 and the app says "Could not delete listing." Bookings must be kept 7 years, while the privacy policy promises deleted listings go immediately. Options: hide it and delete its photos and address while keeping the record, or offer "unlist" with a clear message.
-- **Strict unknown fields vs. old app builds**: builds from before 2026-09-07 send a retired field on booking requests and would now be refused.
+| Open question | Decision | Result |
+|---|---|---|
+| A listing anyone has messaged about or booked couldn't be deleted (500) | Soft-delete it | It disappears from browse, search and the owner's list, its photos are deleted from Cloudinary, and it takes no new bookings, chats or edits. Bookings and chats keep its title and prices. A listing with no history is still deleted outright. A booking still in progress blocks the delete with a clear message rather than a 500. One additive column (`listings.deletedAt`). The privacy policy's "deleted immediately" line needs a small edit; the log has proposed wording (not applied) |
+| Old app builds send a retired booking field and were refused | Accept and ignore it | Dropped unread before validation; a test shows it changes nothing |
+
+Still open from this: should deleting a listing auto-decline its pending requests instead of asking the owner to decline them first?
 
 Still open: tokens can't be revoked before their 30 days; soft-deleted accounts are never purged (the privacy policy says within 30 days); `cloudinary` 2.x and the Expo/React Native tooling advisories need major upgrades.
 

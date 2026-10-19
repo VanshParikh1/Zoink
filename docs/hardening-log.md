@@ -415,8 +415,8 @@ The App Review account (`reviewer@zoink.app`) is seeded VERIFIED and is never to
 
 ### Needs product decision
 
-1. **A listing that anyone has messaged about or booked can't be deleted.** `Conversation.listing` and `Booking.listing` restrict deletion, so `DELETE /listings/:id` answers 500 and the app says "Could not delete listing." (reproduced against the test database). Bookings must be kept 7 years, and privacy.md §7 promises a deleted listing and its photos are deleted immediately. Options: soft-delete (hide it, delete its photos and address, keep the row for the records), or block deletion with a readable message and offer "unlist" instead. Either way privacy.md should match.
-2. **Strict unknown fields vs. old app builds.** Builds from before 2026-09-07 send `insuranceOptIn` on booking requests and now get 400. If any such build is still in use, the field can be accepted and ignored.
+1. **Decided 2026-10-19: soft-delete (applied above, `67a2ea7`).** **A listing that anyone has messaged about or booked can't be deleted.** `Conversation.listing` and `Booking.listing` restrict deletion, so `DELETE /listings/:id` answers 500 and the app says "Could not delete listing." (reproduced against the test database). Bookings must be kept 7 years, and privacy.md §7 promises a deleted listing and its photos are deleted immediately. Options: soft-delete (hide it, delete its photos and address, keep the row for the records), or block deletion with a readable message and offer "unlist" instead. Either way privacy.md should match.
+2. **Decided 2026-10-19: accept and ignore (applied above, `e1fef4e`).** **Strict unknown fields vs. old app builds.** Builds from before 2026-09-07 send `insuranceOptIn` on booking requests and now get 400. If any such build is still in use, the field can be accepted and ignored.
 
 ### Found, not fixed (later)
 
@@ -435,6 +435,22 @@ The App Review account (`reviewer@zoink.app`) is seeded VERIFIED and is never to
 | moderate | 21 | 16 |
 
 `npm audit fix` (no `--force`), lockfile only: `axios` 1.18.1 → 1.20.0 (shipped in the app), `@react-navigation/core` 7.21.13 → 7.24.0 (drops the vulnerable `query-string`), `proxy-addr` 2.0.8, `qs` 6.16.1, `fast-uri` 3.1.8, `undici` 6.29.1, Prisma CLI 7.10.1 with `deepmerge-ts`/`mysql2`, `shell-quote`, `@xmldom/xmldom`, `brace-expansion`, `compression`, `source-map-js`, `ip-address`. What's left needs a major version: `cloudinary` 2.x (not reachable, see above), and everything in the Expo 54 / React Native 0.81 / Metro / Jest tool chain, where npm's suggested "fix" is a downgrade to Expo 44 or React Native 0.86. Those run at build time, not in the shipped app.
+
+### Owner decisions applied (2026-10-19)
+
+| # | Decision | What changed | Commit |
+|---|---|---|---|
+| 1 | Listings with messages or bookings get soft-deleted; the app shows success, not a 500 | New nullable `listings.deletedAt` (migration `20261019120000_listing_deleted_at`, additive). A listing with any conversation or booking gets `deletedAt` and `isAvailable = false`, its photo rows are deleted and the files removed from Cloudinary (own uploads only, as before). It's hidden from browse, search (also with `includeUnavailable`), categories, `GET /listings/me` and `GET /listings/:id` (404), and takes no new bookings, conversations, edits, availability changes or photos (404). Bookings and chats about it keep its title, daily price and every stored amount; their thumbnail is empty. Existing threads stay open. A listing with no history is still deleted outright. A repeat delete by the owner is a no-op 204 (a retry after a lost response). The app now shows the server's message when a delete is refused. `listingSoftDelete.integration.test.ts` (15) | `67a2ea7` |
+| 1a | (Not in the decision; chosen to avoid touching the state machine) A booking still in progress blocks the delete | PENDING, ACCEPTED, CONFIRMED, PICKUP_PENDING, ACTIVE or RETURN_PENDING: 409 "This listing has a booking that isn't finished yet. Decline or cancel it, or complete the rental, then delete the listing." Nothing changes. Auto-declining pending requests instead is a product call (below). `createBooking` takes a key-share lock on the listing and re-checks `deletedAt` inside its transaction, so a request can't land on a listing deleted at the same moment (deterministic test: the request waits for the delete's commit, then gets 404; it creates a booking without the re-check) | `67a2ea7` |
+| 2 | Accept and ignore `insuranceOptIn` on booking requests | `ignoreBodyFields('insuranceOptIn')` runs before `validate(CreateBookingSchema)` on `POST /bookings`, so older builds get 201 again. Test: the same request with `insuranceOptIn: true` produces the same amounts and `insuranceOptIn = false`, `insuranceFee = 0` in the row; any other unknown field (`insuranceFee`) is still refused. Fails without the change | `e1fef4e` |
+
+**Proposed privacy.md edit (not applied; legal docs are the owner's).** §7's row "Listings and photos — While the listing exists. When you delete a listing, it and its photos are deleted immediately." is no longer exactly true for a listing with history. Suggested wording:
+
+> | Listings and photos | While the listing exists. When you delete a listing, its photos are deleted immediately and it is removed from the app. If anyone has messaged you about it or booked it, we keep its details (title, description, price, category and pickup location) with those conversations and booking records, for as long as we keep them (see below), so both of you can still see what was arranged. A listing nobody has contacted you about is deleted entirely. |
+
+Also worth the owner's look: §7 implies a purge; nothing purges soft-deleted listing rows yet (`cleanupJob.ts` comment updated). If the street address shouldn't outlive the listing, `address` (nullable) could be cleared at soft-delete; the renter of a completed booking would then no longer see it.
+
+**Needs product decision (new):** should deleting a listing auto-decline its PENDING requests (the delete dialog already says "Any pending bookings will be affected.") instead of refusing? Today the owner declines them first; the dialog copy was left as it is.
 
 ### Migration check (Phase 2)
 
