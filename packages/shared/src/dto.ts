@@ -301,3 +301,62 @@ export interface MessageResponse {
   body: string
   createdAt: string
 }
+
+// ── Paginated lists ───────────────────────────────────────────────────────────
+// A list request that sends `limit` (or a `cursor`) gets one page in these
+// shapes, with only the fields its list screen renders. Without them the
+// endpoint answers as it always did (capped), for app builds released before
+// pagination. See backend/src/utils/pagination.ts.
+
+export interface Page<T> {
+  items: T[]
+  /** Send back as `cursor` for the next page; null on the last one. */
+  nextCursor: string | null
+}
+
+/** A browse/search result card: GET /listings?limit=… */
+export type ListingCardItem = Pick<ListingResponse, 'id' | 'ownerId' | 'title' | 'category' | 'dailyPrice' | 'depositAmount'> & {
+  /** The first photo only (or none). */
+  images: ListingImageSummary[]
+  distanceKm: number | null
+}
+
+/** GET /listings/me?limit=…, most recent booking activity first. */
+export type MyListingItem = Pick<ListingResponse, 'id' | 'title' | 'category' | 'dailyPrice' | 'depositAmount' | 'isAvailable'> & {
+  images: ListingImageSummary[]
+  /** A booking of this listing that is mid-rental (PICKUP_PENDING, ACTIVE or RETURN_PENDING), if any. */
+  activeBookingId: string | null
+}
+
+/** GET /bookings/me?limit=… and /bookings/requests?limit=… rows. */
+export interface BookingListItem {
+  id: string
+  status: BookingStatus
+  startDate: string
+  endDate: string
+  totalPrice: number
+  ownerPayout: number
+  listingId: string
+  renterId: string
+  ownerId: string
+  listing: Pick<BookingListingSnapshot, 'id' | 'title' | 'category' | 'dailyPrice' | 'images'>
+  renter: Pick<UserSummary, 'id' | 'firstName' | 'lastName'>
+  owner: Pick<UserSummary, 'id' | 'firstName' | 'lastName'>
+}
+
+/** Live rentals first (soonest start first), then everything else (latest start first). */
+export interface BookingListPage extends Page<BookingListItem> {
+  /** Every booking in this list, all pages. */
+  total: number
+  /** Of those, how many are PENDING (waiting on the owner). */
+  pendingCount: number
+}
+
+/** GET /conversations/me?limit=… */
+export interface ConversationListPage extends Page<ConversationResponse> {
+  /** Conversations, across all pages, whose latest message is unread by the caller. */
+  unreadCount: number
+}
+
+/** GET /conversations/:id/messages?limit=… rows (no sender object; the thread knows both people). */
+export type MessageListItem = Omit<MessageResponse, 'sender'>

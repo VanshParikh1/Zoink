@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pageQuery } from '../utils/pagination'
 
 /**
  * Booking-domain request schemas.
@@ -47,4 +48,12 @@ export const BookingIdParamsSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Booking ID is required.'),
   }),
+})
+
+/**
+ * GET /bookings/me, GET /bookings/requests. `limit` (or `cursor`) asks for a
+ * page; without either the original unpaginated list (capped).
+ */
+export const BookingListQuerySchema = z.object({
+  query: z.object({ ...pageQuery }),
 })

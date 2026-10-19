@@ -1,5 +1,6 @@
 import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus, Prisma, ReviewRole } from '@prisma/client'
-import { cancellationCutoff, quoteRental, rentalDayKey, torontoDayKey, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
+import { cancellationCutoff, quoteRental, rentalDayKey, torontoDayKey, type BookingListItem, type BookingListPage, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
+import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
@@ -29,6 +30,7 @@ import {
 import { scoreLabelsForRole } from './reviewService'
 import { Sentry } from '../instrument'
 import { loggableError, loggableMessage } from '../utils/sentryScrub'
+import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
 
 const bookingSelect = {
   id: true,
@@ -797,6 +799,8 @@ export async function getBookingById(bookingId: string, userId: string): Promise
   return toBookingResponse(booking, userId)
 }
 
+// Unpaginated lists, for app builds from before pagination (no `limit`):
+// their original order and shape, capped at LEGACY_LIST_CAP rows.
 export async function getMyBookings(renterId: string): Promise<BookingResponse[]> {
   const bookings: any[] = await prisma.booking.findMany({
     where: { renterId },
@@ -806,6 +810,7 @@ export async function getMyBookings(renterId: string): Promise<BookingResponse[]
     // so a booking that was recently completed or cancelled surfaces near the
     // top instead of sinking based on when it was originally requested.
     orderBy: { updatedAt: 'desc' },
+    take: LEGACY_LIST_CAP,
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, renterId))
@@ -824,9 +829,123 @@ export async function getIncomingRequests(ownerId: string): Promise<BookingRespo
     // so e.g. the most recently completed booking leads the COMPLETED group
     // instead of the one requested longest ago.
     orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+    take: LEGACY_LIST_CAP,
   })
 
   return bookings.map((booking: any) => toBookingResponse(booking, ownerId))
+}
+
+// The order both list screens show (frontend utils/sortBookings.ts): live
+// rentals first, soonest start first; then everything else, latest start
+// first. Encoded as one ascending key, (rank, signed start ms, id), so a page
+// boundary is a single row comparison.
+const LIVE_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+]
+const bookingListCursor = z.tuple([z.number().int().min(0).max(1), z.number().int(), z.string().max(64)])
+
+type BookingListRow = {
+  id: string
+  rank: number
+  sortKey: bigint
+  status: BookingStatus
+  startDate: Date
+  endDate: Date
+  totalPrice: Prisma.Decimal
+  ownerPayout: Prisma.Decimal
+  listingId: string
+  renterId: string
+  ownerId: string
+  title: string
+  category: string
+  dailyPrice: Prisma.Decimal
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+  renterFirstName: string
+  renterLastName: string
+  ownerFirstName: string
+  ownerLastName: string
+}
+
+/** GET /bookings/me (renter) or /bookings/requests (owner) with `limit`: one
+ *  page in one statement (booking, listing, first photo and both names
+ *  joined), with the list's counts read alongside. */
+export async function listBookingsPage(party: 'renter' | 'owner', userId: string, params: PageParams): Promise<BookingListPage> {
+  const size = pageSize(params)
+  const after = params.cursor ? decodeCursor(params.cursor, bookingListCursor) : null
+  const partyColumn = Prisma.raw(party === 'renter' ? '"renterId"' : '"ownerId"')
+  const live = Prisma.join(LIVE_BOOKING_STATUSES.map((status) => Prisma.sql`${status}::"BookingStatus"`))
+
+  const [rows, [counts]] = await Promise.all([
+    prisma.$queryRaw<BookingListRow[]>`
+      SELECT p.id, p.rank, p."sortKey", b.status, b."startDate", b."endDate", b."totalPrice", b."ownerPayout",
+             b."listingId", b."renterId", b."ownerId", l.title, l.category, l."dailyPrice",
+             img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder",
+             r."firstName" AS "renterFirstName", r."lastName" AS "renterLastName",
+             o."firstName" AS "ownerFirstName", o."lastName" AS "ownerLastName"
+      FROM (
+        SELECT id, rank, "sortKey" FROM (
+          SELECT b.id,
+                 CASE WHEN b.status IN (${live}) THEN 0 ELSE 1 END AS rank,
+                 CASE WHEN b.status IN (${live}) THEN 1 ELSE -1 END
+                   * FLOOR(EXTRACT(EPOCH FROM b."startDate") * 1000)::bigint AS "sortKey"
+          FROM bookings b
+          WHERE b.${partyColumn} = ${userId}
+        ) keyed
+        ${after ? Prisma.sql`WHERE (rank, "sortKey", id) > (${after[0]}::int, ${after[1]}::bigint, ${after[2]}::text)` : Prisma.empty}
+        ORDER BY rank, "sortKey", id
+        LIMIT ${size + 1}
+      ) p
+      JOIN bookings b ON b.id = p.id
+      JOIN listings l ON l.id = b."listingId"
+      JOIN users r ON r.id = b."renterId"
+      JOIN users o ON o.id = b."ownerId"
+      LEFT JOIN LATERAL (
+        SELECT i.id, i.url, i."order" FROM listing_images i
+        WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+      ) img ON true
+      ORDER BY p.rank, p."sortKey", p.id
+    `,
+    prisma.$queryRaw<{ total: number; pending: number }[]>`
+      SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'PENDING')::int AS pending
+      FROM bookings WHERE ${partyColumn} = ${userId}
+    `,
+  ])
+
+  const page = splitPage(rows, size, (row) => [row.rank, Number(row.sortKey), row.id])
+  return {
+    items: page.items.map(toBookingListItem),
+    nextCursor: page.nextCursor,
+    total: counts?.total ?? 0,
+    pendingCount: counts?.pending ?? 0,
+  }
+}
+
+function toBookingListItem(row: BookingListRow): BookingListItem {
+  return {
+    id: row.id,
+    status: row.status,
+    startDate: row.startDate.toISOString(),
+    endDate: row.endDate.toISOString(),
+    totalPrice: Number(row.totalPrice),
+    ownerPayout: Number(row.ownerPayout),
+    listingId: row.listingId,
+    renterId: row.renterId,
+    ownerId: row.ownerId,
+    listing: {
+      id: row.listingId,
+      title: row.title,
+      category: row.category,
+      dailyPrice: row.dailyPrice.toString(),
+      images: row.imageId ? [{ id: row.imageId, url: row.imageUrl!, order: row.imageOrder! }] : [],
+    },
+    renter: { id: row.renterId, firstName: row.renterFirstName, lastName: row.renterLastName },
+    owner: { id: row.ownerId, firstName: row.ownerFirstName, lastName: row.ownerLastName },
+  }
 }
 
 /** The moves a client can ask for directly. ACTIVE and COMPLETED only happen

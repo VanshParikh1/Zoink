@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { ignoreBodyFields, validate } from '../middleware/validate'
 import { bookingRequestLimiter, paymentLimiter, uploadLimiter } from '../middleware/rateLimiter'
-import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
+import { CreateBookingSchema, BookingIdParamsSchema, BookingListQuerySchema } from '../schemas/booking.schema'
 import {
   InitiateHandoffSchema,
   ZoinkTapSchema,
@@ -52,8 +52,8 @@ router.use(requireAuth, requireVerified)
 // App builds from before 2026-09-07 still send insuranceOptIn; it is dropped
 // unread (no insurance product, see booking.schema.ts) instead of refused.
 router.post('/', bookingRequestLimiter, ignoreBodyFields('insuranceOptIn'), validate(CreateBookingSchema), createBooking)
-router.get('/me', getMyBookings)
-router.get('/requests', getIncomingRequests)
+router.get('/me', validate(BookingListQuerySchema), getMyBookings)
+router.get('/requests', validate(BookingListQuerySchema), getIncomingRequests)
 
 // Handoff / Zoink It — highest risk, validated strictly
 router.post('/:id/pickup/initiate', validate(InitiateHandoffSchema), initiatePickup)
