@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pageQuery } from '../utils/pagination'
 
 /**
  * Conversation / messaging schemas.
@@ -41,4 +42,11 @@ export const GetMessagesSchema = z.object({
     // Forward-polling cursor: the id of the newest message the client has.
     after: z.string().uuid('after must be a message id.').optional(),
   }),
+})
+
+// ── GET /conversations/me ─────────────────────────────────────────────────────
+// `limit` (or `cursor`) asks for a page; without either, the original list (capped).
+
+export const InboxQuerySchema = z.object({
+  query: z.object({ ...pageQuery }),
 })

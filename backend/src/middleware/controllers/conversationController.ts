@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import * as conversationService from '../../services/conversationService'
 import { asyncHandler } from '../../utils/asyncHandler'
+import { isPaged, type PageParams } from '../../utils/pagination'
 
 export const openConversation = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
@@ -16,7 +17,9 @@ export const openConversation = asyncHandler(async (req: Request, res: Response)
 
 export const getMyConversations = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
+  const params = req.query as PageParams
 
+  if (isPaged(params)) return res.json(await conversationService.listMyConversationsPage(userId, params))
   const conversations = await conversationService.getMyConversations(userId)
   return res.json(conversations)
 })

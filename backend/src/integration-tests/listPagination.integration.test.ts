@@ -302,3 +302,61 @@ describe('browse and search (GET /listings)', () => {
     assert.equal((await get(renter.token, `/listings?cursor=abc&offset=5`)).status, 400)
   })
 })
+
+describe('the inbox (GET /conversations/me)', () => {
+  async function seedInbox() {
+    const db = getTestPrisma()
+    const base = Date.now() - 3_600_000
+    const ids: string[] = []
+    for (let i = 0; i < 9; i++) {
+      const lender = await createTestUser({ firstName: `Lender${i}` })
+      const listing = (await createTestListing(lender.id, { title: `Thing ${i}` })).id
+      await db.listingImage.create({ data: { listingId: listing, url: `https://example.com/${i}.jpg`, order: 0 } })
+      const conversation = await db.conversation.create({
+        data: {
+          listingId: listing,
+          renterId: renter.id,
+          ownerId: lender.id,
+          // Two share a creation instant, so the id tiebreak is exercised.
+          createdAt: new Date(base + Math.min(i, 7) * 1000),
+          renterLastReadAt: i % 3 === 0 ? new Date(base + 10_000_000) : null,
+        },
+      })
+      ids.push(conversation.id)
+      if (i % 2 === 0) {
+        await db.message.create({ data: { conversationId: conversation.id, senderId: lender.id, body: `hello ${i}`, createdAt: new Date(base + 5000 + i) } })
+      }
+      if (i === 4) {
+        await db.message.create({ data: { conversationId: conversation.id, senderId: renter.id, body: 'my reply', createdAt: new Date(base + 9000) } })
+      }
+      if (i === 6) {
+        await db.booking.create({
+          data: {
+            listingId: listing, renterId: renter.id, ownerId: lender.id, conversationId: conversation.id,
+            startDate: day(3), endDate: day(4), totalPrice: new Prisma.Decimal(10), status: 'ACCEPTED',
+          },
+        })
+      }
+      if (i === 8) await db.userBlock.create({ data: { blockerId: lender.id, blockedId: renter.id } })
+    }
+    // A conversation where the renter is the owner side.
+    const mine = (await createTestListing(renter.id, { title: 'My own thing' })).id
+    await db.conversation.create({ data: { listingId: mine, renterId: stranger.id, ownerId: renter.id, createdAt: new Date(base + 20_000) } })
+    return ids
+  }
+
+  test('pages hold exactly what the full inbox holds, in the same order, with the unread count', async () => {
+    await seedInbox()
+
+    const legacy = await get(renter.token, '/conversations/me')
+    const { items, pages } = await walk<any>(renter.token, '/conversations/me', 3)
+
+    assert.equal(legacy.body.length, 9, 'blocked conversation excluded')
+    assert.deepEqual(items, legacy.body)
+    const unread = legacy.body.filter((conversation: { unread: boolean }) => conversation.unread).length
+    assert.ok(unread > 0)
+    for (const page of pages) assert.equal(page.unreadCount, unread)
+    assert.ok(items.some((item) => item.acceptedUnpaidBookingId), 'accepted-unpaid booking carried')
+    assert.deepEqual((await walk<any>(stranger.token, '/conversations/me', 3)).items.length, 1)
+  })
+})

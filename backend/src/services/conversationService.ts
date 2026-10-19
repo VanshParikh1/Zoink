@@ -1,9 +1,11 @@
 import { Prisma, BookingStatus } from '@prisma/client'
-import type { ConversationDetailResponse, ConversationResponse, MessageResponse } from '@zoink/shared'
+import type { ConversationDetailResponse, ConversationListPage, ConversationResponse, MessageResponse, VerificationStatus } from '@zoink/shared'
+import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 import { assertNotBlocked, getBlockedUserIds } from './blockService'
+import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
 
 const conversationSelect = {
   id: true,
@@ -221,6 +223,7 @@ export async function openConversation(currentUserId: string, listingId: string)
   return toConversationSummary(conversation, currentUserId)
 }
 
+// Unpaginated, for app builds from before pagination (no `limit`), capped.
 export async function getMyConversations(currentUserId: string): Promise<ConversationResponse[]> {
   // Threads with anyone on the other side of a block (either direction) drop
   // out of the inbox. The rows are kept so an unblock brings them back.
@@ -235,10 +238,170 @@ export async function getMyConversations(currentUserId: string): Promise<Convers
     },
     select: conversationListSelect,
     orderBy: { createdAt: 'desc' },
+    take: LEGACY_LIST_CAP,
   })
 
   const withLatest = await withLastMessageAndAcceptedBooking(conversations)
   return withLatest.map((conversation) => toConversationSummary(conversation, currentUserId))
+}
+
+const inboxCursor = z.tuple([z.number().int(), z.string().max(64)])
+
+type InboxRow = {
+  id: string
+  createdMs: bigint
+  listingId: string
+  renterId: string
+  ownerId: string
+  createdAt: Date
+  renterLastReadAt: Date | null
+  ownerLastReadAt: Date | null
+  title: string
+  category: string
+  city: string
+  dailyPrice: Prisma.Decimal
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+  renterFirstName: string
+  renterLastName: string
+  renterAvatarUrl: string | null
+  renterVerificationStatus: VerificationStatus
+  ownerFirstName: string
+  ownerLastName: string
+  ownerAvatarUrl: string | null
+  ownerVerificationStatus: VerificationStatus
+  lastMessageId: string | null
+  lastMessageBody: string | null
+  lastMessageSenderId: string | null
+  lastMessageCreatedAt: Date | null
+  acceptedBookingId: string | null
+}
+
+// The caller's conversations, minus anyone on the other side of a block.
+function myConversationsSql(userId: string) {
+  return Prisma.sql`
+    (c."renterId" = ${userId} OR c."ownerId" = ${userId})
+    AND NOT EXISTS (
+      SELECT 1 FROM user_blocks ub
+      WHERE (ub."blockerId" = ${userId} AND ub."blockedId" IN (c."renterId", c."ownerId"))
+         OR (ub."blockedId" = ${userId} AND ub."blockerId" IN (c."renterId", c."ownerId"))
+    )
+  `
+}
+
+/** GET /conversations/me with `limit`: newest conversation first, as before,
+ *  one page in one statement (listing, first photo, both people, the last
+ *  message and an accepted-unpaid booking joined per row), and the number of
+ *  unread conversations across all pages for the Inbox tab's badge. */
+export async function listMyConversationsPage(currentUserId: string, params: PageParams): Promise<ConversationListPage> {
+  const size = pageSize(params)
+  const before = params.cursor ? decodeCursor(params.cursor, inboxCursor) : null
+  const mine = myConversationsSql(currentUserId)
+  const createdMs = Prisma.sql`FLOOR(EXTRACT(EPOCH FROM c."createdAt") * 1000)::bigint`
+
+  const [rows, [unread]] = await Promise.all([
+    prisma.$queryRaw<InboxRow[]>`
+      SELECT p."createdMs", c.id, c."listingId", c."renterId", c."ownerId", c."createdAt",
+             c."renterLastReadAt", c."ownerLastReadAt",
+             l.title, l.category, l.city, l."dailyPrice",
+             img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder",
+             r."firstName" AS "renterFirstName", r."lastName" AS "renterLastName",
+             r."avatarUrl" AS "renterAvatarUrl", r."verificationStatus" AS "renterVerificationStatus",
+             o."firstName" AS "ownerFirstName", o."lastName" AS "ownerLastName",
+             o."avatarUrl" AS "ownerAvatarUrl", o."verificationStatus" AS "ownerVerificationStatus",
+             last.id AS "lastMessageId", last.body AS "lastMessageBody",
+             last."senderId" AS "lastMessageSenderId", last."createdAt" AS "lastMessageCreatedAt",
+             accepted.id AS "acceptedBookingId"
+      FROM (
+        SELECT c.id, ${createdMs} AS "createdMs"
+        FROM conversations c
+        WHERE ${mine}
+        ${before ? Prisma.sql`AND (${createdMs}, c.id) < (${before[0]}::bigint, ${before[1]}::text)` : Prisma.empty}
+        ORDER BY "createdMs" DESC, c.id DESC
+        LIMIT ${size + 1}
+      ) p
+      JOIN conversations c ON c.id = p.id
+      JOIN listings l ON l.id = c."listingId"
+      JOIN users r ON r.id = c."renterId"
+      JOIN users o ON o.id = c."ownerId"
+      LEFT JOIN LATERAL (
+        SELECT i.id, i.url, i."order" FROM listing_images i
+        WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+      ) img ON true
+      LEFT JOIN LATERAL (
+        SELECT m.id, m.body, m."senderId", m."createdAt" FROM messages m
+        WHERE m."conversationId" = c.id ORDER BY m."createdAt" DESC, m.id DESC LIMIT 1
+      ) last ON true
+      LEFT JOIN LATERAL (
+        SELECT b.id FROM bookings b
+        WHERE b."conversationId" = c.id AND b.status = 'ACCEPTED' ORDER BY b.id LIMIT 1
+      ) accepted ON true
+      ORDER BY p."createdMs" DESC, p.id DESC
+    `,
+    // Same rule as toConversationSummary's `unread`: the latest message is
+    // from the other person and newer than the caller's last read.
+    prisma.$queryRaw<{ unreadCount: number }[]>`
+      SELECT count(*)::int AS "unreadCount"
+      FROM conversations c
+      CROSS JOIN LATERAL (
+        SELECT m."senderId", m."createdAt" FROM messages m
+        WHERE m."conversationId" = c.id ORDER BY m."createdAt" DESC, m.id DESC LIMIT 1
+      ) last
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN c."renterId" = ${currentUserId} THEN c."renterLastReadAt" ELSE c."ownerLastReadAt" END AS "readAt"
+      ) mine
+      WHERE ${mine}
+        AND last."senderId" <> ${currentUserId}
+        AND (mine."readAt" IS NULL OR last."createdAt" > mine."readAt")
+    `,
+  ])
+
+  const page = splitPage(rows, size, (row) => [Number(row.createdMs), row.id])
+  return {
+    items: page.items.map((row) =>
+      toConversationSummary(
+        {
+          id: row.id,
+          listingId: row.listingId,
+          renterId: row.renterId,
+          ownerId: row.ownerId,
+          createdAt: row.createdAt,
+          renterLastReadAt: row.renterLastReadAt,
+          ownerLastReadAt: row.ownerLastReadAt,
+          listing: {
+            id: row.listingId,
+            title: row.title,
+            category: row.category,
+            city: row.city,
+            dailyPrice: row.dailyPrice.toString(),
+            images: row.imageId ? [{ id: row.imageId, url: row.imageUrl, order: row.imageOrder }] : [],
+          },
+          renter: {
+            id: row.renterId,
+            firstName: row.renterFirstName,
+            lastName: row.renterLastName,
+            avatarUrl: row.renterAvatarUrl,
+            verificationStatus: row.renterVerificationStatus,
+          },
+          owner: {
+            id: row.ownerId,
+            firstName: row.ownerFirstName,
+            lastName: row.ownerLastName,
+            avatarUrl: row.ownerAvatarUrl,
+            verificationStatus: row.ownerVerificationStatus,
+          },
+          messages: row.lastMessageId
+            ? [{ id: row.lastMessageId, body: row.lastMessageBody, senderId: row.lastMessageSenderId, createdAt: row.lastMessageCreatedAt }]
+            : [],
+          bookings: row.acceptedBookingId ? [{ id: row.acceptedBookingId }] : [],
+        },
+        currentUserId
+      )
+    ),
+    nextCursor: page.nextCursor,
+    unreadCount: unread?.unreadCount ?? 0,
+  }
 }
 
 // "In flight" for the chat header: any booking that still needs either party
