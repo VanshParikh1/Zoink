@@ -3,7 +3,7 @@ import multer from 'multer'
 import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
-import { validate } from '../middleware/validate'
+import { ignoreBodyFields, validate } from '../middleware/validate'
 import { bookingRequestLimiter, paymentLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
 import {
@@ -49,7 +49,9 @@ const upload = multer({
 router.use(requireAuth, requireVerified)
 
 // Booking CRUD
-router.post('/', bookingRequestLimiter, validate(CreateBookingSchema), createBooking)
+// App builds from before 2026-09-07 still send insuranceOptIn; it is dropped
+// unread (no insurance product, see booking.schema.ts) instead of refused.
+router.post('/', bookingRequestLimiter, ignoreBodyFields('insuranceOptIn'), validate(CreateBookingSchema), createBooking)
 router.get('/me', getMyBookings)
 router.get('/requests', getIncomingRequests)
 

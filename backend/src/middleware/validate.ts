@@ -59,6 +59,20 @@ export function validate(schema: ZodSchema) {
   }
 }
 
+/**
+ * Removes fields an older app build still sends but the API no longer reads,
+ * before validate() would refuse them as unknown. For retired fields only:
+ * whatever a client puts in them is thrown away, never stored or used.
+ */
+export function ignoreBodyFields(...fields: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+      for (const field of fields) delete req.body[field]
+    }
+    next()
+  }
+}
+
 // The keys an object schema allows, or undefined when the schema isn't a
 // plain object (then this check leaves that part to the schema itself).
 function objectKeys(schema: unknown): Set<string> | undefined {

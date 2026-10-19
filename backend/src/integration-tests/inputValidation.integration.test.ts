@@ -13,7 +13,7 @@ import test, { beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
 import { torontoDayKey } from '@zoink/shared'
-import { truncateAllTables, createTestUser, createTestListing, getTestPrisma, disconnectTestPrisma, getApp } from './setup'
+import { truncateAllTables, createTestUser, createTestListing, getTestPrisma, disconnectTestPrisma, getApp, futureDates } from './setup'
 
 let user: { id: string; token: string }
 let owner: { id: string; token: string }
@@ -132,6 +132,31 @@ describe('unknown fields are refused, not dropped', () => {
   test('unknown query parameters are refused too', async () => {
     assertUnknownField(await as(user.token).get('/listings?ownerId=abc'), 'ownerId')
     assert.equal((await as(user.token).get('/listings?q=camera')).status, 200)
+  })
+
+  test('insuranceOptIn from older app builds is accepted and has no effect', async () => {
+    const { startDate, endDate } = futureDates(2, 2)
+    const plain = await as(user.token).post('/bookings').send({ listingId, startDate, endDate })
+    assert.equal(plain.status, 201, JSON.stringify(plain.body))
+
+    const otherListing = (await createTestListing(owner.id)).id
+    const withOptIn = await as(user.token)
+      .post('/bookings')
+      .send({ listingId: otherListing, startDate, endDate, insuranceOptIn: true })
+    assert.equal(withOptIn.status, 201, JSON.stringify(withOptIn.body))
+
+    for (const field of ['insuranceOptIn', 'insuranceFee', 'totalPrice', 'hstAmount', 'commissionAmount', 'ownerPayout', 'depositAmount']) {
+      assert.deepEqual(withOptIn.body[field], plain.body[field], field)
+    }
+    const row = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: withOptIn.body.id } })
+    assert.equal(row.insuranceOptIn, false)
+    assert.equal(row.insuranceFee.toString(), '0')
+
+    // Only that one retired field is let through; anything else is still refused.
+    assertUnknownField(
+      await as(user.token).post('/bookings').send({ listingId, startDate, endDate, insuranceOptIn: true, insuranceFee: 5 }),
+      'insuranceFee'
+    )
   })
 
   test('routes that validate params and body separately still take their body', async () => {

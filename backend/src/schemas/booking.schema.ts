@@ -12,7 +12,9 @@ import { z } from 'zod'
  * schema.prisma), but Zoink offers no insurance product at launch — see
  * terms.md §12. That field is deliberately NOT accepted here: a client
  * can't set it even if it sends it, so the column is unreachable from the
- * API rather than merely defaulted. bookingService.createBooking() hardcodes
+ * API rather than merely defaulted (older app builds still send it; the route
+ * drops it unread before validation, see routes/bookings.ts).
+ * bookingService.createBooking() hardcodes
  * insuranceOptIn to false. Do not re-add this field to the schema without
  * updating terms.md and getting a lawyer's sign-off — see legal/OPEN-ITEMS.md B1.
  */
