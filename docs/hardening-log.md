@@ -338,7 +338,7 @@ Started from the handoff notes (stash `stash@{0}`, popped by the owner on 2026-1
 
 | # | Finding | How it happens in real use | Sev | Fix / decision | Commit |
 |---|---|---|---|---|---|
-| 1 | **Credentials in public git history** | `backend/env` (no dot) was committed in `51d53af` (2026-06-01, "Webhook config") and deleted the same day in `761918a`. It holds `DATABASE_URL`, `JWT_SECRET`, an AWS access key pair, the Cloudinary API key and secret, a Stripe test secret key and a webhook signing secret. The GitHub repository is public (unauthenticated API read answered 200), so anyone can read them. Every value differs from today's local `.env` files except `STRIPE_WEBHOOK_SECRET`, which is still the local one (compared by SHA-256, nothing printed). Production values live in Railway and weren't read | S1 | **Owner action**: revoke and rotate every key in that file (see "Needs owner action"). Rewriting history doesn't help once public | — |
+| 1 | **Credentials in public git history** | `backend/env` (no dot) was committed in `51d53af` (2026-06-01, "Webhook config") and deleted the same day in `761918a`. It holds `DATABASE_URL`, `JWT_SECRET`, an AWS access key pair, the Cloudinary API key and secret, a Stripe test secret key and a webhook signing secret. The GitHub repository is public (unauthenticated API read answered 200), so anyone can read them. Every value differs from today's local `.env` files except `STRIPE_WEBHOOK_SECRET`, which is still the local one (compared by SHA-256, nothing printed). Production values live in Railway and weren't read | S1 | **Resolved by owner, keys rotated.** The owner confirmed on 2026-10-19 that every key in that file was rotated long ago. No code change; `.env` files and Railway untouched | — |
 | 2 | Expired or deleted sessions left the app "signed in" and broken (owner moved it into Phase 2) | A 401 dropped the stored token but AuthContext kept the user; a stored token was never checked for `exp` | S2 | Only a 401 for the token in use ends the session (not a login 401, not a late reply from before a fresh login, never a 503); AuthContext signs out to Login with one notice; an expired stored token is dropped at launch. Checked on the simulator (below) | `4faaa6e` |
 | 3 | One phone's push token could sit on two accounts | A session ends without sign-out (expiry, or sign-out couldn't reach the server); the next person to sign in on that phone gets the previous account's notifications, message previews included | S2 | Registering a token takes it off every other account in the same transaction | `ca7096d` |
 | 4 | A lapsed session kept notifying a signed-out phone | Sign-out cleared the token only if that request got through, and nothing cleared it when a session expired or was dropped at launch | S2 | `POST /users/me/push-token/release` clears the account's token only while it is still this phone's; it accepts a session token this server signed even after expiry (nothing else does). The app calls it on sign-out, on a session ended by the server, and when an expired session is dropped at launch | `ca7096d`, `8b0277e` |
@@ -394,7 +394,7 @@ Both paths only delete an account that never verified **and** has no activity at
 
 ### Needs owner action
 
-1. **Rotate everything in `51d53af:backend/env`** (finding 1): deactivate that AWS access key in IAM; regenerate the Cloudinary API secret; roll the Stripe test secret key and the test webhook signing secret (the local `.env` still uses the leaked one); make sure the production `JWT_SECRET` and database password aren't the ones in that file. Treat the repository as public when deciding what else that file exposed.
+1. ~~**Rotate everything in `51d53af:backend/env`** (finding 1).~~ **Resolved by owner, keys rotated** (confirmed 2026-10-19: every key in that file was rotated long ago).
 2. **Before deploying this branch**: confirm `JWT_SECRET` in Railway is at least 32 characters, or the new deploy refuses to start (Railway keeps the old one serving).
 3. **On the first cleanup run after deploy**, unverified accounts older than 24 h with no activity are deleted. Preview the count (read-only):
 
@@ -463,7 +463,7 @@ The first full run (before the dependency updates) had one failure: the lifecycl
 
 ## Where to pick up (Phase 3 onward)
 
-Phase 2 is done; its summary is in `hardening-report.md`. Before deploying, the owner actions above (rotation, `JWT_SECRET` length, the unverified-account preview).
+Phase 2 is done; its summary is in `hardening-report.md`. Before deploying, the owner actions above (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved).
 
 Next phases, from the brief: backend performance (pagination, payload trimming: `/bookings/requests` is 1.2 MB in the bench), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish (raw server errors in the UI, the login email autocorrect, the splash flash), accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
 

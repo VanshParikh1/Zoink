@@ -80,7 +80,7 @@ Shared: 16 (money, contract limits, the 700,000-quote property test, dates acros
 
 Twenty findings: one S1, seven S2, twelve S3, plus the npm audit.
 
-- **Credentials are in the public git history (S1, needs the owner).** A file named `backend/env` was committed on 2026-06-01 and deleted the same day. It holds the database URL, the JWT secret, an AWS key pair, the Cloudinary secret, a Stripe test secret key and a webhook signing secret, and the GitHub repository is public. Most of those values differ from today's local ones, but the webhook signing secret is still in use locally, and production's values weren't checked from here. Rotation is the only fix.
+- **Credentials are in the public git history (S1): resolved by owner, keys rotated.** A file named `backend/env` was committed on 2026-06-01 and deleted the same day. It holds the database URL, the JWT secret, an AWS key pair, the Cloudinary secret, a Stripe test secret key and a webhook signing secret, and the GitHub repository is public. The owner confirmed on 2026-10-19 that every key in it was rotated long ago.
 - **Phones could get someone else's notifications.** When a session ended without a sign-out, the phone's push token stayed on the old account, so the next person to sign in on that phone got both accounts' notifications, message previews included.
 - **Expired or deleted sessions left the app stuck** "signed in", with every screen failing.
 - **Anyone could lock a student out of signing up** by registering their university email first: the address stayed taken and unverified accounts were never cleaned up. And with no daily limit on codes, guessing through to someone else's email took about two months.
@@ -108,7 +108,7 @@ Twenty findings: one S1, seven S2, twelve S3, plus the npm audit.
 
 ### Before deploying
 
-1. **Rotate every credential in that committed file** (AWS key, Cloudinary secret, Stripe test key and webhook secret, and make sure production's JWT secret and database password aren't the leaked ones).
+1. ~~Rotate every credential in that committed file.~~ Resolved by owner, keys rotated.
 2. **Check the JWT secret in Railway is at least 32 characters**, or the deploy won't start. Railway keeps the old deployment serving if it doesn't.
 3. **The first cleanup run deletes existing unverified accounts older than 24 h** that never did anything. The log has a read-only query to count them first. The App Review account is verified and isn't affected.
 
