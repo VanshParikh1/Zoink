@@ -237,3 +237,68 @@ describe("the owner's listings (GET /listings/me)", () => {
     assert.ok('description' in res.body[0] && 'owner' in res.body[0], 'still the full listing shape')
   })
 })
+
+describe('browse and search (GET /listings)', () => {
+  const near = 'latitude=43.6629&longitude=-79.3957&radiusKm=5000'
+
+  async function seedListings() {
+    const ids: string[] = []
+    for (let i = 0; i < 11; i++) {
+      const { id } = await createTestListing(owner.id, { title: i % 2 ? `Odd camera ${i}` : `Even tent ${i}` })
+      // Spread the pickup points ~1 km apart so distance order is unambiguous.
+      await getTestPrisma().listing.update({ where: { id }, data: { latitude: 43.6629 + i * 0.01, longitude: -79.3957 } })
+      ids.push(id)
+    }
+    // (A listing can't lack a public point: the listings_public_location trigger refills it.)
+    const far = (await createTestListing(owner.id, { title: 'Even far away' })).id
+    await getTestPrisma().listing.update({ where: { id: far }, data: { latitude: 45.4215, longitude: -75.6972 } })
+    const paused = (await createTestListing(owner.id, { title: 'Paused', isAvailable: false })).id
+    const gone = (await createTestListing(owner.id, { title: 'Gone' })).id
+    await getTestPrisma().listing.update({ where: { id: gone }, data: { deletedAt: new Date(), isAvailable: false } })
+    const blocker = await createTestUser()
+    const hidden = (await createTestListing(blocker.id, { title: 'Blocked owner' })).id
+    await getTestPrisma().userBlock.create({ data: { blockerId: blocker.id, blockedId: renter.id } })
+    return { ids, far, excluded: [paused, gone, hidden] }
+  }
+
+  test('nearest first, every listing once', async () => {
+    const { ids, far, excluded } = await seedListings()
+
+    const { items } = await walk<any>(renter.token, `/listings?${near}`, 4)
+
+    assert.deepEqual(items.map((item) => item.id), [...ids, far])
+    const distances = items.map((item) => item.distanceKm)
+    assert.deepEqual(distances, [...distances].sort((a, b) => a - b))
+    assert.ok(distances[distances.length - 1] > 300, 'Ottawa is last')
+    for (const id of excluded) assert.ok(!items.some((item) => item.id === id))
+    assert.deepEqual(Object.keys(items[0]).sort(), ['category', 'dailyPrice', 'depositAmount', 'distanceKm', 'id', 'images', 'ownerId', 'title'])
+  })
+
+  test('without a location: newest first; a search narrows it', async () => {
+    const { ids, far } = await seedListings()
+    const all = await walk<any>(renter.token, '/listings', 5)
+    const rows = await getTestPrisma().listing.findMany({
+      where: { id: { in: [...ids, far] } },
+      select: { id: true, createdAt: true },
+    })
+    const newest = rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1)).map((row) => row.id)
+    assert.deepEqual(all.items.map((item) => item.id), newest)
+
+    const search = await walk<any>(renter.token, `/listings?q=even&${near}`, 2)
+    assert.equal(search.items.length, 7)
+    assert.ok(search.items.every((item) => item.title.startsWith('Even')))
+  })
+
+  test('the offset pages older builds use are unchanged', async () => {
+    await seedListings()
+    const res = await get(renter.token, `/listings?${near}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.meta.total, 12)
+    assert.equal(res.body.items.length, 12)
+    assert.ok('description' in res.body.items[0])
+    const third = await get(renter.token, `/listings?${near}&limit=5&offset=10`)
+    assert.equal(third.body.items.length, 2)
+    assert.equal(third.body.meta.hasMore, false)
+    assert.equal((await get(renter.token, `/listings?cursor=abc&offset=5`)).status, 400)
+  })
+})

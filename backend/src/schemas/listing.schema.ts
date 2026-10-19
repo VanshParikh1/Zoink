@@ -141,11 +141,21 @@ export const BrowseListingsQuerySchema = z
       radiusKm: optionalPositiveNumber,
       limit: optionalPositiveNumber,
       offset: optionalNonNegativeNumber,
+      // From the previous page's nextCursor (cursor pages; see browseListingsPage).
+      cursor: pageQuery.cursor,
       includeUnavailable: optionalCoercedBoolean,
     }),
   })
   .superRefine((data, ctx) => {
-    const { minPrice, maxPrice, latitude, longitude, radiusKm } = data.query
+    const { minPrice, maxPrice, latitude, longitude, radiusKm, cursor, offset } = data.query
+
+    if (cursor !== undefined && offset !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['query', 'offset'],
+        message: 'Send either cursor or offset, not both.',
+      })
+    }
     const latProvided = latitude !== undefined
     const lngProvided = longitude !== undefined
 

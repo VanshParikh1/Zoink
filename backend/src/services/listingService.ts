@@ -1,7 +1,7 @@
 import prisma from '../utils/prisma'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { BookingStatus, Prisma } from '@prisma/client'
-import type { BrowseListingsResult, ListingResponse, MyListingItem, Page } from '@zoink/shared'
+import type { BrowseListingsResult, ListingCardItem, ListingResponse, MyListingItem, Page } from '@zoink/shared'
 import { z } from 'zod'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
@@ -333,7 +333,15 @@ export async function listMyListingsPage(ownerId: string, params: PageParams): P
 
 // ── Browse/search listings ────────────────────────────────────────────────────
 
-export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
+type BrowseFilters = {
+  whereSql: Prisma.Sql
+  distanceSql: Prisma.Sql
+  hasLocation: boolean
+  radiusFilterSql: Prisma.Sql
+}
+
+// The WHERE clause and distance expression every browse/search query shares.
+function browseFilters(input: BrowseListingsInput): BrowseFilters {
   const {
     query,
     category,
@@ -347,8 +355,6 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     viewerId,
   } = input
 
-  const limit = clamp(input.limit ?? 20, 1, 50)
-  const offset = Math.max(input.offset ?? 0, 0)
   const hasLocation = latitude != null && longitude != null
 
   const whereClauses: Prisma.Sql[] = [Prisma.sql`l."deletedAt" IS NULL`]
@@ -389,17 +395,26 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     )
   }
 
-  const whereSql = Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`
+  return {
+    whereSql: Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`,
+    distanceSql: hasLocation
+      ? buildDistanceSql(latitude as number, longitude as number)
+      : Prisma.sql`NULL::double precision`,
+    hasLocation,
+    radiusFilterSql: hasLocation && radiusKm != null
+      ? Prisma.sql`WHERE filtered."distanceKm" <= ${radiusKm}`
+      : Prisma.empty,
+  }
+}
 
-  const distanceSql = hasLocation
-    ? buildDistanceSql(latitude as number, longitude as number)
-    : Prisma.sql`NULL::double precision`
+// Offset pages with a total, for app builds from before cursor pagination.
+export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
+  const limit = Math.floor(clamp(input.limit ?? 20, 1, 50))
+  const offset = Math.floor(Math.max(input.offset ?? 0, 0))
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const { viewerId } = input
 
-  const radiusFilterSql = hasLocation && radiusKm != null
-    ? Prisma.sql`WHERE filtered."distanceKm" <= ${radiusKm}`
-    : Prisma.empty
-
-  const listingRows = await prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
+  const [listingRows, countRows] = await Promise.all([prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
     WITH filtered AS (
       SELECT
         l."id",
@@ -416,9 +431,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
       filtered."createdAt" DESC
     LIMIT ${limit}
     OFFSET ${offset}
-  `)
-
-  const countRows = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
+  `), prisma.$queryRaw<CountRow[]>(Prisma.sql`
     WITH filtered AS (
       SELECT
         l."id",
@@ -429,7 +442,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     SELECT COUNT(*) AS count
     FROM filtered
     ${radiusFilterSql}
-  `)
+  `)])
 
   const listingIds = listingRows.map((row) => row.id)
 
@@ -471,6 +484,82 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
       offset,
       hasMore: offset + listingIds.length < Number(countRows[0]?.count ?? 0),
     },
+  }
+}
+
+// Nearest first when the caller sent a location (no public point sorts last),
+// then newest; distance is keyed at 1 mm so the cursor compares exactly.
+const browseCursor = z.tuple([z.string().regex(/^\d+(\.\d+)?$/), z.number().int(), z.string().max(64)])
+const NO_DISTANCE_KEY = '1000000000'
+
+type BrowsePageRow = {
+  id: string
+  distanceKm: number | null
+  distanceKey: string
+  createdMs: bigint
+  ownerId: string
+  title: string
+  category: string
+  dailyPrice: Prisma.Decimal
+  depositAmount: Prisma.Decimal
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+}
+
+/** GET /listings with `limit` and no `offset`, or with a `cursor`: one page of
+ *  result cards in one statement (no total; nothing shows it). */
+export async function browseListingsPage(input: BrowseListingsInput, params: PageParams): Promise<Page<ListingCardItem>> {
+  const size = Math.floor(clamp(pageSize(params), 1, 50))
+  const after = params.cursor ? decodeCursor(params.cursor, browseCursor) : null
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const distanceKeySql = hasLocation
+    ? Prisma.sql`COALESCE(ROUND(filtered."distanceKm"::numeric, 6), ${NO_DISTANCE_KEY}::numeric)`
+    : Prisma.sql`0::numeric`
+
+  const rows = await prisma.$queryRaw<BrowsePageRow[]>`
+    SELECT p.id, p."distanceKm", p."distanceKey"::text AS "distanceKey", p."createdMs",
+           l."ownerId", l.title, l.category, l."dailyPrice", l."depositAmount",
+           img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder"
+    FROM (
+      SELECT * FROM (
+        SELECT filtered.id, filtered."distanceKm", ${distanceKeySql} AS "distanceKey", filtered."createdMs"
+        FROM (
+          SELECT l.id, ${distanceSql} AS "distanceKm", FLOOR(EXTRACT(EPOCH FROM l."createdAt") * 1000)::bigint AS "createdMs"
+          FROM "listings" l
+          ${whereSql}
+        ) filtered
+        ${radiusFilterSql}
+      ) keyed
+      ${after
+        ? Prisma.sql`WHERE keyed."distanceKey" > ${after[0]}::numeric
+            OR (keyed."distanceKey" = ${after[0]}::numeric AND keyed."createdMs" < ${after[1]}::bigint)
+            OR (keyed."distanceKey" = ${after[0]}::numeric AND keyed."createdMs" = ${after[1]}::bigint AND keyed.id < ${after[2]}::text)`
+        : Prisma.empty}
+      ORDER BY keyed."distanceKey" ASC, keyed."createdMs" DESC, keyed.id DESC
+      LIMIT ${size + 1}
+    ) p
+    JOIN listings l ON l.id = p.id
+    LEFT JOIN LATERAL (
+      SELECT i.id, i.url, i."order" FROM listing_images i
+      WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+    ) img ON true
+    ORDER BY p."distanceKey" ASC, p."createdMs" DESC, p.id DESC
+  `
+
+  const page = splitPage(rows, size, (row) => [row.distanceKey, Number(row.createdMs), row.id])
+  return {
+    items: page.items.map((row) => ({
+      id: row.id,
+      ownerId: row.ownerId,
+      title: row.title,
+      category: row.category,
+      dailyPrice: row.dailyPrice.toString(),
+      depositAmount: row.depositAmount.toString(),
+      images: row.imageId ? [{ id: row.imageId, url: row.imageUrl!, order: row.imageOrder! }] : [],
+      distanceKm: roundToHalfKm(row.distanceKm),
+    })),
+    nextCursor: page.nextCursor,
   }
 }
 

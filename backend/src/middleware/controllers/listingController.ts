@@ -42,8 +42,19 @@ export const browseListings = asyncHandler(async (req: Request, res: Response) =
     radiusKm,
     limit,
     offset,
+    cursor,
     includeUnavailable,
   } = req.query as any
+
+  // Cursor pages for current builds (limit without offset, or a cursor);
+  // offset pages with a total for builds from before them.
+  if (cursor !== undefined || (limit !== undefined && offset === undefined)) {
+    const page = await listingService.browseListingsPage(
+      { query, category, city, minPrice, maxPrice, latitude, longitude, radiusKm, includeUnavailable, viewerId: (req as any).userId },
+      { limit, cursor }
+    )
+    return res.json(page)
+  }
 
   const result = await listingService.browseListings({
     query,
