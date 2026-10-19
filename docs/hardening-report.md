@@ -130,3 +130,52 @@ One, additive: a new `verification_email_sends` table for the per-address code c
 ### Tests
 
 Shared 19, backend unit 232, frontend 10. Backend integration **555: 552 pass, 3 skipped on purpose (cancellation fees), 0 fail**, after the dependency updates. New suites cover who can reach what on every route (155), push tokens, code send limits, unverified accounts and Cloudinary cleanup. Both typechecks pass, and a Release build was smoke-tested on the iOS simulator.
+
+---
+
+## Phase 3: backend performance
+
+### What was slow or heavy
+
+Nothing was slow on a local database (every route was already inside the targets in Phase 0). The problem was size and round trips:
+
+- **Lists weren't paginated.** The owner's requests list sent every booking with every field: 1.2 MB in the bench's worst case. My listings fetched that same list just to mark which items were rented out. The inbox, which the app polls every 15 seconds on every tab for its unread badge, sent every conversation. Chat history past the newest 100 messages couldn't be loaded at all.
+- **Nothing was compressed**, and listing reads had no caching headers.
+- **Lists loaded each related table in its own query** (listing, photos, each person): 6 to 9 round trips per list load.
+- **Several hot lookups had no index**: the push-token check on every sign-in, the payment jobs that run every 15 minutes, reputation updates, dispute lookups, and the checks Postgres runs when an account is deleted.
+- **A real bug on the way:** a chat message sent in the same millisecond as the newest one on an open chat was never shown in that chat until it was reopened.
+
+### What changed
+
+- **Every growing list is paginated by cursor**: booking lists, My listings, browse and search, the inbox, chat history, admin disputes and reports, the booking timeline, and a user's disputes. Pages carry only what the screen shows and come from one database query each. Pages keep their place when new items arrive (cursor, not offset).
+- **Older app builds keep working**: a request without `limit` gets exactly the old response, capped at 100 rows. The app switches to pages in Phase 4.
+- My listings now gets each listing's active rental with the listing, so it no longer needs the booking list. The inbox reports its unread count, so the badge no longer needs the whole inbox. A booking screen asks for its own dispute only.
+- Responses over 1 KB are gzip-compressed. Listing reads tell the phone to revalidate, so an unchanged listing comes back as an empty 304.
+- Eight additive indexes; the auto-decline on accept is one statement instead of one per request; messages are ordered by time and id, which fixes the skipped-message bug.
+
+### Before and after (local bench, 50 requests per route)
+
+| Route | Before (Phase 0) | After |
+|---|---|---|
+| Owner's requests list | 1,244 KB, 7 queries, p95 54 ms | 15 KB a page (2.5 KB on the wire), 3 queries, p95 8 ms |
+| Renter's rentals list | 133 KB, 7 queries | 15 KB a page (2.8 KB on the wire), 3 queries |
+| Inbox (polled every 15 s) | 41 KB, 9 queries | 22 KB a page (3.5 KB on the wire), 3 queries |
+| Browse / search page | 16 KB, 6 queries | 6.8 KB (1.9 KB on the wire), 2 queries |
+| My listings | 47 KB, 5 queries | 6.7 KB a page (1.8 KB on the wire), 2 queries |
+| Opening a long chat | 39 KB (newest 100 with senders) | 12.5 KB (newest 50, 1.6 KB on the wire); older pages on demand |
+| Admin disputes / reports | 64 KB / 50 KB | 13 KB / 10 KB a page |
+| An unchanged listing | 1.1 KB | 304, no body |
+
+Targets: every read is under 150 ms p95 (slowest 23 ms) and every write under 300 ms, except sign-up at about 350 ms, which is the deliberate password-hashing cost and was already over in Phase 0. At production-like volumes (100k users, 500k messages), the new indexes take the sign-in push-token check from 17 to 4 ms, the payout job's scan from 27 to 0.4 ms, and deleting an account from 108 to 16 ms.
+
+Not changed: booking state changes still take 17 to 26 database round trips, because Prisma loads a full booking one table at a time and the fix needs a preview feature. All are under 30 ms locally. Browse sorts every listing by distance; that's fine to tens of thousands of listings and would need a spatial index beyond that, logged as an idea.
+
+### Migrations
+
+Two, both additive: `listings.deletedAt` (the soft-delete decision) and eight indexes. Neither touches existing rows. Plain index builds briefly block writes to their table, well under a second at today's size.
+
+### Tests
+
+Backend integration **592: 589 pass, 3 skipped on purpose (cancellation fees), 0 fail**; unit 232, shared 19, frontend 10; both typechecks pass. New suites walk every paged list page by page against the order its screen shows, and cover the listing soft-delete, compression, caching headers and the skipped-message bug.
+
+**Deploy order:** the backend first. Phase 4's app build uses the paged routes; the backend keeps answering older builds the old way.

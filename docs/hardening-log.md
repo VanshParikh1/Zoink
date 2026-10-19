@@ -477,10 +477,161 @@ The first full run (before the dependency updates) had one failure: the lifecycl
 
 ---
 
-## Where to pick up (Phase 3 onward)
+## Phase 3: backend performance
 
-Phase 2 is done; its summary is in `hardening-report.md`. Before deploying, the owner actions above (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved).
+### Plan
 
-Next phases, from the brief: backend performance (pagination, payload trimming: `/bookings/requests` is 1.2 MB in the bench), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish (raw server errors in the UI, the login email autocorrect, the splash flash), accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
+Pagination first (owner's instruction), starting with `GET /bookings/requests`, then every other list that grows; then N+1s and trimming list rows to what the screens render; compression; Cache-Control/ETag on listing reads; additive indexes. Measure with the bench against the Phase 0 baseline and a run taken just before this phase.
+
+**Compatibility rule.** Builds already on phones call these routes without paging. Pagination is opt-in: a list request with `limit` (or a `cursor`) gets `{ items, nextCursor, … }` with trimmed rows; without them the route answers exactly as before, capped at 100 rows (`LEGACY_LIST_CAP`). Browse keeps its offset pages (with `meta.total`) for old builds; current builds get keyset pages. The app moves to the paged form in Phase 4. Helpers in `backend/src/utils/pagination.ts`, DTOs (`Page`, `BookingListPage`, `ListingCardItem`, `MyListingItem`, `ConversationListPage`, `MessageListItem`) in `@zoink/shared`. Cursors are the last row's sort key, base64url JSON; a cursor the server didn't hand out is a 400.
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | Booking lists unpaginated | `/bookings/requests` sent every booking with every field (1.2 MB for the bench's busiest owner); `/bookings/me` 133 KB | S3 | Keyset pages in the order both screens already sort to (live rentals first by start, then the rest latest start first), one SQL statement per page (listing, first photo and both names joined), `total` and `pendingCount` alongside | `7ce68f2` |
+| 2 | My listings loaded the owner's whole booking list to badge rented-out items | Every visit to My listings fetched `/bookings/requests` in full | S3 | `/listings/me?limit=` pages carry `activeBookingId` (PICKUP_PENDING, ACTIVE or RETURN_PENDING), so the screen needs no booking list | `b9be8a2` |
+| 3 | Browse counted every match on every page and loaded each result's listing, owner and photos in three more queries; new listings shifted offset pages | Every Home/Search load | S3 | Keyset pages (nearest first, then newest), card fields only, one statement, no count (no screen shows it). Offset pages kept for old builds, page and count now in parallel | `4eb30c5` |
+| 4 | The inbox, polled every 15 s on every tab for the list and the unread badge, returned every conversation | Always | S3 | Paged inbox in one statement, plus `unreadCount` across all pages for the badge. Pages equal the old response field for field (tested) | `4fc703d` |
+| 5 | Chat history past the newest 100 messages couldn't be loaded | Any thread over 100 messages | S3 | `before=<oldest id>` pages back; paged rows drop the per-message sender object | `4b3e181` |
+| 6 | A message sent in the same millisecond as the open chat's newest one was never delivered to it | Two people sending at once; the poll used `createdAt > cursor` | S3 | Messages ordered by (createdAt, id) everywhere; the poll and `before` both use the pair | `4b3e181` |
+| 7 | Booking detail fetched every dispute the user ever filed to find one | Opening a disputed booking | S3 | `/disputes?bookingId=` | `83ae8a8` |
+| 8 | Admin lists (disputes 64 KB, reports 50 KB) and the booking timeline unpaginated; blocks and pending reviews unbounded | Grows with use | S3 | Keyset pages newest first (timeline oldest first) with an id tiebreak; `/reviews/pending?limit=1` (the app opens only the first); blocks capped | `83ae8a8` |
+| 9 | No response compression | Every response | S3 | `compression` middleware (dependency below): gzip/brotli over 1 KB | `7bafd86` |
+| 10 | Listing reads had an ETag but no Cache-Control | Every listing view | S3 | `private, no-cache` on browse/search and a listing's page, so an unchanged answer revalidates to a 304 with no body; categories `private, max-age=300` | `2175c48` |
+| 11 | Sequential scans on hot predicates | Push-token claim on every sign-in; payout/deposit/stale-handoff jobs every 15 min; hourly reconciliation; reputation recompute per review; dispute lookups; foreign-key checks when an account is deleted (the unverified-account purge) scan `messages` and `notifications` | S3 | Migration `20261019130000_index_hot_lookups`, eight additive btree indexes, declared in `schema.prisma` (no drift). At 100k users, 500k messages and notifications and 200k bookings (`docs/hardening/index-scale-check.sql`, rolled back): push-token claim 17.0 → 4.3 ms, payout scan 26.6 → 0.4 ms, reconciliation 16.1 → 0.1 ms, deleting one account 107.8 → 15.8 ms | `6489864` |
+| 12 | N+1 on accept: overlapping PENDING requests were declined one UPDATE at a time | Accepting a request with overlapping ones | S3 | One `UPDATE … RETURNING` (`updateManyAndReturn`); still only rows that are PENDING when the update reaches them | `eac82dc` |
+| 13 | The bench couldn't measure two writes any more | Phase 2's per-user caps (20 listings a day, 30 Stripe calls an hour) answered 429 for its single owner | — | Bench rotates owners for those, measures gzip wire size, resets its main accounts' rate budget between scenarios | `2667ee6` |
+
+### Results
+
+Bench (`backend/src/scripts/bench/run.ts`), local Postgres, 50 sequential requests per route, Stripe/SES/Cloudinary/Expo off the network. Three p95 columns: Phase 0, the run just before this phase (after Phases 1–2, `docs/hardening/bench-before-phase3.json`), and now (`bench-after-phase3.json`). "Wire" is the response body as sent with `Accept-Encoding: gzip`, which the app's HTTP stack always sends. Single-run p95s on a laptop move by a few ms between runs (several rows that Phase 3 didn't touch moved 2–8 ms either way); payload and query counts are exact.
+
+| Endpoint | Kind | p50 ms | p95 ms (P0 · pre-P3 · now) | Queries (pre-P3 → now) | JSON KB (pre-P3 → now) | Wire KB now | OK |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `GET /health` | read | 0.5 | 0.5 · 1.6 · **1.3** | 0 → 0 | 0.0 | 0.0 | 50/50 |
+| `GET /auth/legal-version` | read | 0.4 | 0.3 · 1.9 · **0.9** | 0 → 0 | 0.0 | 0.0 | 50/50 |
+| `POST /auth/register` | write | 273.5 | 303.1 · 339.7 · **349.3** | 10 → 10 | 0.6 | 0.6 | 50/50 |
+| `POST /auth/login` | write | 67.3 | 86.3 · 69.9 · **70.9** | 1 → 1 | 0.6 | 0.6 | 50/50 |
+| `POST /auth/verify-email` | write | 3.6 | 5.1 · 13.5 · **5.2** | 7 → 7 | 0.4 | 0.4 | 50/50 |
+| `POST /auth/resend-otp` | write | 4.5 | 8.3 · 7.9 · **7.2** | 8 → 8 | 0.0 | 0.0 | 50/50 |
+| `GET /users/me` | read | 1.2 | 2.0 · 4.5 · **1.8** | 2 → 2 | 0.6 | 0.6 | 50/50 |
+| `GET /users/:id` | read | 1.9 | 3.0 · 4.6 · **4.7** | 4 → 4 | 0.2 | 0.2 | 50/50 |
+| `GET /users/me/blocks` | read | 1.9 | 1.3 · 2.0 · **8.6** | 3 → 3 | 0.1 | 0.1 | 50/50 |
+| `GET /users/me/stripe-connect/status` | read | 1.0 | 1.6 · 1.6 · **1.2** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `GET /stripe/connect/status` | read | 1.0 | 5.9 · 2.4 · **1.2** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `PATCH /users/me` | write | 1.2 | 4.2 · 2.4 · **1.8** | 2 → 2 | 0.2 | 0.2 | 50/50 |
+| `PATCH /users/me/notification-prefs` | write | 1.3 | 2.4 · 2.5 · **1.6** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `PATCH /users/me/push-token` | write | 1.8 | 2.9 · 2.3 · **3.9** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `POST /users/me/accept-terms` | write | 2.0 | 2.4 · 2.2 · **3.6** | 2 → 2 | 0.5 | 0.5 | 50/50 |
+| `POST /users/me/stripe-connect/onboard` | write | 1.0 | 1.6 · 1.4 · **2.1** | 2 → 2 | 0.0 | 0.0 | 50/50 |
+| `POST /users/:id/block` | write | 2.4 | 2.5 · 5.9 · **3.1** | 7 → 7 | 0.0 | 0.0 | 50/50 |
+| `DELETE /users/:id/block` | write | 0.7 | 0.7 · 3.0 · **1.1** | 2 → 2 | 0.0 | 0.0 | 50/50 |
+| `DELETE /users/me` | write | 1.7 | 2.6 · 6.4 · **4.5** | 6 → 6 | 0.0 | 0.0 | 50/50 |
+| `GET /listings?lat&lng` | read | 3.3 | 7.2 · 9.1 · **5.0** | 6 → 6 | 16.1 | 2.8 | 50/50 |
+| `GET /listings?q` | read | 4.4 | 10.2 · 9.2 · **10.7** | 6 → 6 | 15.9 | 2.5 | 50/50 |
+| `GET /listings?offset=40` | read | 6.0 | 9.5 · 24.9 · **8.0** | 6 → 6 | 16.0 | 2.7 | 50/50 |
+| `GET /listings?lat&lng&limit=20` | read | 3.7 | – · – · **4.8** | 2 | 6.8 | 1.9 | 50/50 |
+| `GET /listings?lat&lng&limit=20&cursor` | read | 4.5 | – · – · **7.6** | 2 | 6.8 | 1.9 | 50/50 |
+| `GET /listings?q&limit=20` | read | 3.8 | – · – · **5.6** | 2 | 6.6 | 1.7 | 50/50 |
+| `GET /listings/categories` | read | 2.8 | 3.2 · 10.1 · **3.5** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `GET /listings/:id` | read | 2.2 | 2.6 · 2.5 · **3.6** | 5 → 5 | 1.1 | 0.6 | 50/50 |
+| `GET /listings/:id If-None-Match` | read | 1.1 | – · – · **1.7** | 5 | 0.0 | 0.0 | 50/50 |
+| `GET /listings/me` | read | 6.3 | 4.3 · 7.8 · **16.5** | 5 → 5 | 46.5 | 5.0 | 50/50 |
+| `GET /listings/me?limit=20` | read | 5.4 | – · – · **7.5** | 2 | 6.7 | 1.8 | 50/50 |
+| `POST /listings` | write | 3.2 | 3.1 · 8.9 · **11.5** | 1 → 7 | 0.1 → 0.6 | 0.6 | 50/50 |
+| `PATCH /listings/:id` | write | 2.1 | 5.7 · 10.5 · **3.8** | 8 → 8 | 1.0 | 1.0 | 50/50 |
+| `PATCH /listings/:id/availability` | write | 1.3 | 2.1 · 2.6 · **2.2** | 3 → 3 | 0.1 | 0.1 | 50/50 |
+| `DELETE /listings/:id` | write | 4.3 | 2.5 · 6.9 · **6.0** | 8 → 8 | 0.0 | 0.0 | 50/50 |
+| `GET /bookings/me` | read | 8.3 | 10.6 · 12.6 · **12.7** | 7 → 7 | 133.1 | 11.7 | 50/50 |
+| `GET /bookings/requests` | read | 7.1 | 53.7 · 70.9 · **13.2** | 7 → 7 | 1226.8 → 166.7 | 8.8 | 50/50 |
+| `GET /bookings/requests?limit=20` | read | 5.0 | – · – · **8.2** | 3 | 15.4 | 2.5 | 50/50 |
+| `GET /bookings/requests?limit=20&cursor` | read | 7.1 | – · – · **23.1** | 3 | 15.4 | 2.5 | 50/50 |
+| `GET /bookings/me?limit=20` | read | 4.2 | – · – · **10.8** | 3 | 15.3 | 2.8 | 50/50 |
+| `GET /bookings/:id` | read | 2.6 | 3.4 · 2.7 · **6.6** | 7 → 7 | 1.9 | 0.9 | 50/50 |
+| `GET /bookings/:id/photos` | read | 2.8 | 7.8 · 4.5 · **6.7** | 7 → 7 | 0.1 | 0.1 | 50/50 |
+| `POST /bookings` | write | 5.4 | 14.8 · 22.7 · **20.5** | 21 → 21 | 2.0 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/accept` | write | 4.0 | 15.6 · 15.6 · **8.9** | 26 → 26 | 1.9 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/decline` | write | 2.5 | 3.7 · 4.4 · **3.4** | 19 → 19 | 1.9 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/cancel` | write | 2.9 | 3.2 · 5.2 · **4.2** | 20 → 20 | 1.9 | 0.9 | 50/50 |
+| `POST /bookings/:id/payment-intent` | write | 2.9 | 3.6 · 6.0 · **10.0** | 18 → 18 | 2.0 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/confirm` | write | 3.8 | 3.4 · 7.2 · **7.2** | 24 → 24 | 2.0 | 0.9 | 50/50 |
+| `POST /bookings/:id/pickup/initiate` | write | 4.7 | 8.4 · 9.2 · **8.4** | 20 → 20 | 2.2 | 0.9 | 50/50 |
+| `POST /bookings/:id/zoink-tap` | write | 3.9 | 3.5 · 8.0 · **12.1** | 17 → 17 | 2.2 | 0.9 | 50/50 |
+| `POST /bookings/:id/return/initiate` | write | 4.9 | 7.3 · 7.9 · **8.5** | 20 → 20 | 2.2 | 0.9 | 50/50 |
+| `GET /conversations/me` | read | 8.7 | 12.4 · 14.1 · **14.3** | 9 → 9 | 40.8 | 6.0 | 50/50 |
+| `GET /conversations/me?limit=20` | read | 6.3 | – · – · **10.2** | 3 | 21.6 | 3.5 | 50/50 |
+| `GET /conversations/:id` | read | 2.4 | 3.5 · 3.0 · **7.0** | 9 → 9 | 1.3 | 0.6 | 50/50 |
+| `GET /conversations/:id/messages` | read | 3.2 | 7.0 · 13.7 · **5.6** | 4 → 4 | 38.9 | 3.3 | 50/50 |
+| `GET /conversations/:id/messages?limit=50` | read | 1.3 | – · – · **5.1** | 3 | 12.5 | 1.6 | 50/50 |
+| `POST /conversations` | write | 4.8 | 6.7 · 5.9 · **8.2** | 14 → 14 | 1.1 | 0.5 | 50/50 |
+| `POST /conversations/:id/messages` | write | 1.6 | 6.2 · 3.3 · **3.2** | 10 → 10 | 0.4 | 0.4 | 50/50 |
+| `POST /conversations/:id/read` | write | 0.9 | 1.8 · 1.0 · **1.9** | 3 → 3 | 0.0 | 0.0 | 50/50 |
+| `GET /reviews/pending` | read | 1.4 | 2.7 · 1.9 · **2.2** | 7 → 7 | 0.8 | 0.8 | 50/50 |
+| `GET /reviews/pending?limit=1` | read | 1.7 | – · – · **3.8** | 7 | 0.8 | 0.8 | 50/50 |
+| `POST /reviews` | write | 5.4 | 14.9 · 7.4 · **12.1** | 19 → 19 | 0.6 | 0.6 | 50/50 |
+| `GET /disputes` | read | 1.1 | 2.3 · 1.3 · **10.8** | 4 → 4 | 1.1 | 0.5 | 50/50 |
+| `GET /disputes/:id` | read | 1.8 | 2.1 · 1.6 · **9.5** | 4 → 4 | 0.5 | 0.5 | 50/50 |
+| `POST /disputes` | write | 2.9 | 10.0 · 6.7 · **6.3** | 9 → 9 | 0.4 | 0.4 | 50/50 |
+| `POST /reports` | write | 1.2 | 2.4 · 3.3 · **2.6** | 3 → 3 | 0.3 | 0.3 | 50/50 |
+| `GET /admin/disputes` | read | 2.4 | 6.7 · 4.7 · **4.3** | 4 → 4 | 64.2 → 63.6 | 8.3 | 50/50 |
+| `GET /admin/disputes?limit=20` | read | 1.2 | – · – · **1.6** | 4 | 12.9 | 2.2 | 50/50 |
+| `GET /admin/disputes/:id` | read | 0.7 | 2.4 · 1.7 · **1.0** | 5 → 5 | 0.9 | 0.9 | 50/50 |
+| `GET /admin/bookings/:id/events` | read | 0.8 | 1.7 · 2.2 · **1.5** | 3 → 3 | 0.0 | 0.0 | 50/50 |
+| `GET /admin/reports` | read | 2.6 | 4.0 · 8.4 · **4.0** | 5 → 5 | 49.9 | 6.4 | 50/50 |
+| `GET /admin/reports?limit=20` | read | 1.6 | – · – · **2.0** | 4 | 9.9 | 1.5 | 50/50 |
+| `PATCH /admin/disputes/:id/resolve` | write | 3.2 | 8.1 · 12.6 · **5.2** | 11 → 11 | 0.5 | 0.5 | 50/50 |
+| `PATCH /admin/reports/:id` | write | 1.1 | 2.9 · 3.3 · **1.5** | 3 → 3 | 0.4 | 0.4 | 50/50 |
+| `POST /stripe/webhook` | write | 1.8 | 4.3 · 7.5 · **5.7** | 6 → 6 | 0.0 | 0.0 | 50/50 |
+
+Reading it:
+
+- **Targets met.** Every read is under 150 ms p95 (the slowest, 23 ms, is page 2 of the owner's 680 bookings) and every write under 300 ms except `POST /auth/register` (349 ms p95): bcrypt cost 12, about 270 ms by design and already over the target in Phase 0. Not changed; lowering the cost is a security trade-off, not a performance fix.
+- **Payloads.** The busiest list, `/bookings/requests`, was 1.2 MB of JSON per load. A page is now 15 KB of JSON and 2.5 KB on the wire (the capped unpaginated answer is 167 KB, 8.8 KB gzipped). The inbox the app polls every 15 s: 41 KB → 22 KB per page, 3.5 KB on the wire. Browse/search: 16 KB → 6.8 KB per page, 2 KB on the wire. My listings: 47 KB → 6.7 KB per page. Admin lists 50–64 KB → 10–13 KB per page. Responses over 1 KB are about half the size on the wire at 1–2 KB and 80–93% smaller from 15 KB up.
+- **Round trips.** Paged lists are one statement plus the auth lookup and, where the screen shows one, a count in parallel: bookings 7 → 3, browse 6 → 2, my listings 5 → 2, inbox 9 → 3.
+- **Unchanged on purpose.** Booking state changes still cost 17–26 statements: Prisma loads the full booking with one query per relation (about 5) and a transition reads it twice. Collapsing that needs Prisma's `relationJoins`, still a preview feature; not adopted. All of them are under 30 ms p95 locally. `POST /listings` shows 1 → 7 queries only because the pre-Phase-3 run was all 429s (finding 13). `DELETE /listings/:id` is 3 → 8 statements from the Phase 2 soft-delete transaction (lock, open-booking check, history count).
+- A 304 saves the bytes, not the server's work: the server still builds the answer to compare ETags.
+
+### Checked, not changed
+
+- **Browse with a location** computes the distance to every available listing and sorts (the app sends a 5,000 km radius, so nothing is pre-filtered). About 1 ms at the bench's 450 listings and a few ms at 10k; at 100k+ it needs a spatial index (PostGIS or `earthdistance` with a KNN index). A new database extension is out of scope; logged as an idea.
+- No index for browse's no-location order (newest first): the app always sends a location (Home falls back to downtown Toronto).
+- `requireAuth` reads the user per request (role and verification live from the database, a Phase 2 security decision): one query on every authenticated route.
+- Messages purge (daily, `createdAt < 24 months ago`) has no `createdAt`-leading index; a daily scan of the busiest-insert table is cheaper than another index on every message.
+
+### Dependency added
+
+- **`compression` 1.8.2** (backend). The Express team's response-compression middleware, 21 KB unpacked, last published 2026-09; already in the lockfile through the Expo CLI, so the install added only `@types/compression` (dev). Built-in alternative: hand-writing gzip/brotli negotiation, `Vary`, thresholds and streaming on Node's `zlib` for every response path; not worth owning.
+
+### Migration check (Phase 3, and the Phase 2 decision applied in this run)
+
+- `20261019120000_listing_deleted_at`: one nullable column, `listings.deletedAt`. Additive; touches no row.
+- `20261019130000_index_hot_lookups`: eight `CREATE INDEX`. Additive; can't fail on existing data. Plain `CREATE INDEX` blocks writes to its table while it builds; at production's current size that is well under a second per index. On a much larger table, build it `CONCURRENTLY` by hand first (the migration's header says so).
+- `prisma migrate diff` against the test database after both: empty. Not applied to the dev database or production.
+
+### Tests after Phase 3
+
+| Suite | After Phase 2 | After Phase 3 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 (one expectation updated: the booking timeline's order now carries an id tiebreak) |
+| backend integration | 555 (552 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 826 s |
+| frontend unit | 10 | 10 |
+
+New integration suites: `listSoftDelete` (15, the Phase 2 decision), `listPagination` (20: every paged list walked page by page against the order its screen shows, trimmed fields, legacy shapes and caps, bad cursors, same-millisecond messages), `httpCaching` (5: gzip, Cache-Control, 304s, per-viewer ETags); `inputValidation` +1 (`insuranceOptIn`). Two existing tests changed: `conversationInbox` calls the message reader with the new `{ after }` argument, and the unit test above. Backend and frontend typecheck pass.
+
+### Commits
+
+`844d507` (S1 docs) `e1fef4e` `67a2ea7` `e7d7337` (Phase 2 decisions), then `7ce68f2` `b9be8a2` `4eb30c5` `4fc703d` `4b3e181` `83ae8a8` `7bafd86` `2175c48` `6489864` `eac82dc` `2667ee6`, plus these docs. Nothing pushed.
+
+Also seen this phase: one unit-suite run had a single failure that six reruns didn't reproduce; its output wasn't kept (every run since is logged to a file).
+
+---
+
+## Where to pick up (Phase 4 onward)
+
+Phases 0 to 3 are done; their summaries are in `hardening-report.md`. Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved) and the proposed privacy.md edit. **Deploy the backend before any app build from Phase 4**: the app's paged lists need the Phase 3 routes (the backend still answers older builds the old way).
+
+Phase 4 (frontend performance) is next: Fira weights first, then the Home grid's dropped frames, images, the caching layer (`@tanstack/react-query`, with every list screen loading more on scroll), startup, re-renders, bundle; the handoff screen's 3 s polling only while it's focused. Measure with the perf marks (`EXPO_PUBLIC_PERF_LOG=1`) on an iOS simulator Release build against the bench API, as in Phase 0.
 
 Simulator tooling for later checks: `idb` (Homebrew `facebook/fb/idb-companion`, plus `pip install fb-idb` in a venv; this session's venv was in a scratch folder) drives taps and typing without the desktop; a Release build pointed at `http://localhost:3000` (`EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_DEMO_MODE=false`) against `PORT=3000 npx ts-node src/scripts/bench/serve.ts` (`.env.test` sets 3001).
