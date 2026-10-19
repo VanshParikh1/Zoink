@@ -47,3 +47,39 @@ describe('compression', () => {
     assert.equal(plain.body.items.length, 6)
   })
 })
+
+describe('listing reads: Cache-Control and ETag', () => {
+  test('a listing is revalidated: unchanged is a 304 with no body, changed is a fresh 200', async () => {
+    const first = await get(`/listings/${listingId}`)
+    assert.equal(first.status, 200)
+    assert.equal(first.headers['cache-control'], 'private, no-cache')
+    const etag = first.headers.etag
+    assert.ok(etag, 'has an ETag')
+
+    const again = await get(`/listings/${listingId}`, { 'If-None-Match': etag })
+    assert.equal(again.status, 304)
+    assert.equal(again.text, '')
+
+    await getTestPrisma().listing.update({ where: { id: listingId }, data: { dailyPrice: 99 } })
+    const changed = await get(`/listings/${listingId}`, { 'If-None-Match': etag })
+    assert.equal(changed.status, 200)
+    assert.equal(changed.body.dailyPrice, '99')
+    assert.notEqual(changed.headers.etag, etag)
+  })
+
+  test('browse pages revalidate the same way; categories may be reused for five minutes', async () => {
+    const page = await get('/listings?limit=3')
+    assert.equal(page.headers['cache-control'], 'private, no-cache')
+    assert.equal((await get('/listings?limit=3', { 'If-None-Match': page.headers.etag })).status, 304)
+
+    const categories = await get('/listings/categories')
+    assert.equal(categories.headers['cache-control'], 'private, max-age=300')
+  })
+
+  test("another viewer's ETag never matches a viewer-specific answer", async () => {
+    const asOwner = await supertest(getApp()).get(`/listings/${listingId}`).set('Authorization', `Bearer ${owner.token}`)
+    const asViewer = await get(`/listings/${listingId}`, { 'If-None-Match': asOwner.headers.etag })
+    assert.equal(asViewer.status, 200, 'the owner sees the exact point and address; the viewer does not')
+    assert.equal(asViewer.body.address, null)
+  })
+})
