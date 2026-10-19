@@ -231,14 +231,14 @@ describe('GET /conversations/:id/messages paging', () => {
   test('with a cursor it returns only newer messages, oldest-first', async () => {
     const conversationId = await seedLongThread(130)
     const cursor = (await getTestPrisma().message.findFirstOrThrow({ where: { conversationId, body: 'long 120' } })).id
-    const page = await conversationService.getConversationMessages(renter.id, conversationId, cursor)
+    const page = await conversationService.getConversationMessages(renter.id, conversationId, { after: cursor })
     assert.deepEqual(page.map((m) => m.body), Array.from({ length: 9 }, (_, k) => `long ${121 + k}`))
   })
 
   test("a cursor from another conversation is ignored rather than used as this thread's position", async () => {
     const conversationId = await seedLongThread(130)
     const foreignCursor = (await getTestPrisma().message.findFirstOrThrow({ where: { conversationId: conversationIds[0] } })).id
-    const page = await conversationService.getConversationMessages(renter.id, conversationId, foreignCursor)
+    const page = await conversationService.getConversationMessages(renter.id, conversationId, { after: foreignCursor })
     assert.equal(page.length, 100)
     assert.equal(page[99].body, 'long 129')
   })

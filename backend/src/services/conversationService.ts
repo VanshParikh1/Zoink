@@ -1,5 +1,5 @@
 import { Prisma, BookingStatus } from '@prisma/client'
-import type { ConversationDetailResponse, ConversationListPage, ConversationResponse, MessageResponse, VerificationStatus } from '@zoink/shared'
+import type { ConversationDetailResponse, ConversationListPage, ConversationResponse, MessageListItem, MessageResponse, VerificationStatus } from '@zoink/shared'
 import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
@@ -162,6 +162,14 @@ function toConversationSummary(conversation: any, currentUserId: string): Conver
     acceptedUnpaidBookingId: conversation.bookings?.[0]?.id ?? null,
   }
 }
+
+const messageListSelect = {
+  id: true,
+  conversationId: true,
+  senderId: true,
+  body: true,
+  createdAt: true,
+} satisfies Prisma.MessageSelect
 
 function toMessage(message: any): MessageResponse {
   return {
@@ -450,38 +458,67 @@ export async function getConversationById(currentUserId: string, conversationId:
   }
 }
 
-export async function getConversationMessages(currentUserId: string, conversationId: string, afterId?: string): Promise<MessageResponse[]> {
+export type MessagesQuery = {
+  /** Forward polling: messages newer than this one. */
+  after?: string
+  /** Scrolling back: messages older than this one. */
+  before?: string
+  /** Sent by current builds; their rows leave out the sender object. */
+  limit?: number
+}
+
+const MESSAGES_LEGACY_PAGE = 100
+const MESSAGES_PAGE = 50
+
+export async function getConversationMessages(
+  currentUserId: string,
+  conversationId: string,
+  { after, before, limit }: MessagesQuery = {}
+): Promise<MessageResponse[] | MessageListItem[]> {
   await getConversationForParticipant(conversationId, currentUserId)
 
-  // The cursor only counts if it belongs to this conversation.
-  const afterMessage = afterId
-    ? await prisma.message.findFirst({
-        where: { id: afterId, conversationId },
-        select: { createdAt: true },
-      })
+  // Builds that page (send `limit`) know both people in the thread already.
+  const lean = limit !== undefined
+  const take = limit ?? (lean ? MESSAGES_PAGE : MESSAGES_LEGACY_PAGE)
+  const select = lean ? messageListSelect : { ...messageListSelect, ...messageInclude }
+
+  // A cursor only counts if it belongs to this conversation. Messages are
+  // ordered by (createdAt, id), so two sent in the same millisecond are
+  // neither skipped nor repeated across a cursor.
+  const cursorId = after ?? before
+  const cursor = cursorId
+    ? await prisma.message.findFirst({ where: { id: cursorId, conversationId }, select: { id: true, createdAt: true } })
     : null
 
-  if (afterMessage) {
-    // Forward polling: the next (up to) 100 messages after the cursor.
+  if (cursor && after) {
+    // Forward polling: the next (up to) `take` messages after the cursor.
     const newer = await prisma.message.findMany({
-      where: { conversationId, createdAt: { gt: afterMessage.createdAt } },
-      include: messageInclude,
-      orderBy: { createdAt: 'asc' },
-      take: 100,
+      where: {
+        conversationId,
+        OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }],
+      },
+      select,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take,
     })
     return newer.map((message) => toMessage(message))
   }
 
-  // Opening a thread: the newest 100, returned oldest-first, so the client's
-  // poll cursor (the last element) is the latest message rather than the 100th
-  // oldest — which opened long threads on stale history.
-  const latest = await prisma.message.findMany({
-    where: { conversationId },
-    include: messageInclude,
-    orderBy: { createdAt: 'desc' },
-    take: 100,
+  // Opening a thread (newest `take`), or scrolling back from `before`;
+  // returned oldest-first either way, so the client's poll cursor (the last
+  // element of the newest page) is the latest message.
+  const older = await prisma.message.findMany({
+    where: {
+      conversationId,
+      ...(cursor && before
+        ? { OR: [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }] }
+        : {}),
+    },
+    select,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take,
   })
-  return latest.reverse().map((message) => toMessage(message))
+  return older.reverse().map((message) => toMessage(message))
 }
 
 export async function markConversationRead(currentUserId: string, conversationId: string): Promise<void> {

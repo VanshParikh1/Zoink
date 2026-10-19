@@ -360,3 +360,50 @@ describe('the inbox (GET /conversations/me)', () => {
     assert.deepEqual((await walk<any>(stranger.token, '/conversations/me', 3)).items.length, 1)
   })
 })
+
+describe('a long chat (GET /conversations/:id/messages)', () => {
+  async function seedThread(count: number) {
+    const listing = (await createTestListing(owner.id)).id
+    const conversation = await getTestPrisma().conversation.create({ data: { listingId: listing, renterId: renter.id, ownerId: owner.id } })
+    const base = Date.now() - 600_000
+    await getTestPrisma().message.createMany({
+      data: Array.from({ length: count }, (_, i) => ({
+        conversationId: conversation.id,
+        senderId: i % 2 ? owner.id : renter.id,
+        body: `m${i}`,
+        // Pairs share a millisecond.
+        createdAt: new Date(base + Math.floor(i / 2) * 10),
+      })),
+    })
+    const ordered = await getTestPrisma().message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    })
+    return { conversationId: conversation.id, ordered: ordered.map((m) => m.id) }
+  }
+
+  test('scrolling back with `before` reaches every message once, without sender objects', async () => {
+    const { conversationId, ordered } = await seedThread(120)
+    const seen: string[] = []
+    let res = await get(renter.token, `/conversations/${conversationId}/messages?limit=50`)
+    assert.equal(res.status, 200)
+    while (res.body.length > 0) {
+      assert.ok(!('sender' in res.body[0]))
+      seen.unshift(...res.body.map((m: { id: string }) => m.id))
+      res = await get(renter.token, `/conversations/${conversationId}/messages?limit=50&before=${res.body[0].id}`)
+    }
+    assert.deepEqual(seen, ordered)
+  })
+
+  test('polling with `after` never skips a message sent in the same millisecond', async () => {
+    const { conversationId, ordered } = await seedThread(40)
+    for (const index of [0, 1, 17, 38]) {
+      const res = await get(renter.token, `/conversations/${conversationId}/messages?limit=50&after=${ordered[index]}`)
+      assert.deepEqual(res.body.map((m: { id: string }) => m.id), ordered.slice(index + 1))
+    }
+    const legacy = await get(renter.token, `/conversations/${conversationId}/messages`)
+    assert.ok('sender' in legacy.body[0], 'older builds still get the sender')
+    assert.equal((await get(renter.token, `/conversations/${conversationId}/messages?after=${ordered[1]}&before=${ordered[5]}`)).status, 400)
+  })
+})

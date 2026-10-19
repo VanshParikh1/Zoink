@@ -38,10 +38,16 @@ export const GetMessagesSchema = z.object({
   params: z.object({
     id: z.string().uuid('Conversation ID must be a valid UUID.'),
   }),
-  query: z.object({
-    // Forward-polling cursor: the id of the newest message the client has.
-    after: z.string().uuid('after must be a message id.').optional(),
-  }),
+  query: z
+    .object({
+      // Forward-polling cursor: the id of the newest message the client has.
+      after: z.string().uuid('after must be a message id.').optional(),
+      // Scrolling back: the id of the oldest message the client has.
+      before: z.string().uuid('before must be a message id.').optional(),
+      // Current builds send it (rows then leave out the sender object).
+      limit: pageQuery.limit,
+    })
+    .refine((query) => !(query.after && query.before), { message: 'Send either after or before, not both.', path: ['before'] }),
 })
 
 // ── GET /conversations/me ─────────────────────────────────────────────────────
