@@ -1,12 +1,13 @@
 import React from 'react'
-import { Image, ImageSourcePropType, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native'
+import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native'
+import { Image, ImageProps } from 'expo-image'
 import { colors } from '../../theme/colors'
 import { border, radius } from '../../theme/tokens'
 import { fonts } from '../../theme/typography'
 
 type Props = {
   size?: number
-  source?: ImageSourcePropType
+  source?: ImageProps['source']
   initials?: string
   /** Defaults to 36% of size. */
   initialsSize?: number
@@ -18,7 +19,7 @@ export default function Thumb({ size = 56, source, initials, initialsSize, style
   return (
     <View style={[styles.thumb, { width: size, height: size }, style]}>
       {source ? (
-        <Image source={source} style={{ width: size, height: size }} resizeMode="cover" />
+        <Image source={source} style={{ width: size, height: size }} contentFit="cover" cachePolicy="memory-disk" />
       ) : initials ? (
         <Text style={[styles.initials, { fontSize, lineHeight: Math.round(fontSize * 1.15) }]} numberOfLines={1}>
           {initials}

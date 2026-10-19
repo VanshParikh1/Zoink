@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -266,7 +267,7 @@ export default function AdminDisputeDetailScreen() {
           accessibilityLabel={`Photo ${idx + 1} of ${urls.length}`}
           onPress={() => nav.navigate('PhotoViewer', { photos: urls, initialIndex: idx })}
         >
-          <Image source={{ uri: fillImageUrl(url, { width: 144, height: 144 }) }} style={styles.photoThumb} resizeMode="cover" />
+          <Image source={{ uri: fillImageUrl(url, { width: 144, height: 144 }) }} style={styles.photoThumb} contentFit="cover" />
         </Pressable>
       ))}
     </ScrollView>

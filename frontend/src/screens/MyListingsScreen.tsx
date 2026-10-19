@@ -16,6 +16,7 @@ import IconButton from '../components/mockup/IconButton'
 import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
 import { BadgeVariant } from '../components/mockup/Badge'
+import { prefetchListingHero } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -101,11 +102,11 @@ export default function MyListingsScreen() {
               listing={item}
               width={cellWidth}
               badge={statusBadge(item, activeBooking)}
-              onPress={() =>
-                activeBooking
-                  ? nav.navigate('ActiveRental', { bookingId: activeBooking.id })
-                  : nav.navigate('ListingDetail', { listingId: item.id })
-              }
+              onPress={() => {
+                if (activeBooking) return nav.navigate('ActiveRental', { bookingId: activeBooking.id })
+                prefetchListingHero(item.images[0]?.url)
+                nav.navigate('ListingDetail', { listingId: item.id })
+              }}
             />
           ) : null
         }}

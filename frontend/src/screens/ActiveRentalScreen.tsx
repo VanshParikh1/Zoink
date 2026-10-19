@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
@@ -154,7 +155,7 @@ export default function ActiveRentalScreen() {
     >
       <View style={styles.hero}>
         {imageUrl ? (
-          <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH }) }} style={styles.heroImage} />
+          <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH }) }} style={styles.heroImage} cachePolicy="memory-disk" />
         ) : null}
         <IconButton accessibilityLabel="Go back" onPress={() => nav.goBack()} style={[styles.back, { top: insets.top + space.sm }]}>
           <Feather name="chevron-left" size={24} color={colors.ink} />

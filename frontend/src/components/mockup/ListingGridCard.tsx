@@ -1,5 +1,6 @@
 import React from 'react'
-import { Image, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native'
+import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native'
+import { Image } from 'expo-image'
 import { colors } from '../../theme/colors'
 import { border, radius, shadow, space } from '../../theme/tokens'
 import { fonts, type } from '../../theme/typography'
@@ -48,7 +49,12 @@ function ListingGridCard({ listing, width, badge, onPress, style }: Props) {
               source={{ uri: fillImageUrl(imageUrl, { width: imageSide, height: imageSide }) }}
               // Explicit size: an absolute-fill Image didn't draw inside Thumb on iOS.
               style={[styles.image, { width: imageSide, height: imageSide }]}
-              resizeMode="cover"
+              contentFit="cover"
+              // Decoded photos stay in memory while scrolling back and forth,
+              // and on disk between launches; a recycled cell never flashes
+              // the previous listing's photo. The tan box shows until it loads.
+              cachePolicy="memory-disk"
+              recyclingKey={imageUrl}
             />
           ) : (
             <Text style={styles.fallbackTag}>{categoryAbbreviation(listing.category)}</Text>

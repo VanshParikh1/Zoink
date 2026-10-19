@@ -21,6 +21,7 @@ import CategoryChips from '../components/mockup/CategoryChips'
 import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
 import StatePanel from '../components/mockup/StatePanel'
 import { useScrollPerfProbe } from '../utils/perfMarks'
+import { prefetchListingHero } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
@@ -157,6 +158,7 @@ export default function SearchScreen() {
 
     setRecent([...sessionRecentlyViewed])
 
+    prefetchListingHero(item.images[0]?.url)
     nav.navigate('ListingDetail', { listingId: item.id })
   }
 

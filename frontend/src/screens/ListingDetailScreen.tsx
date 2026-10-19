@@ -4,7 +4,6 @@ import {
   Alert,
   Animated,
   FlatList,
-  Image,
   Pressable,
   Share,
   StyleSheet,
@@ -26,7 +25,8 @@ import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
 import { categoryAbbreviation } from '../config/categories'
-import { fillImageUrl } from '../utils/cloudinaryImage'
+import { fillImageUrl, listingHeroHeight } from '../utils/cloudinaryImage'
+import { Image } from 'expo-image'
 import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import IconButton from '../components/mockup/IconButton'
@@ -40,11 +40,7 @@ import LocationMapPreview from '../components/LocationMapPreview'
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
 
-// Hero photo area: about 30% of the screen, clamped for very small and very
-// tall phones. The status-bar inset is added on top (the hero runs under it).
-const HERO_MIN = 220
-const HERO_MAX = 280
-const HERO_SCREEN_SHARE = 0.29
+// Hero photo area: see listingHeroHeight (shared with the cards' prefetch).
 const NO_PHOTO_THUMB = 132
 const AVATAR = 40
 
@@ -164,7 +160,7 @@ export default function ListingDetailScreen() {
   if (!listing) return null
 
   const photos = listing.images
-  const heroHeight = Math.min(HERO_MAX, Math.max(HERO_MIN, Math.round(windowHeight * HERO_SCREEN_SHARE))) + insets.top
+  const heroHeight = listingHeroHeight(windowHeight, insets.top)
   const { deposit } = listingDisplay(listing)
   // "$X / day · Category", plus the distance only when the API sent one.
   const distanceKm = (listing as { distanceKm?: number | null }).distanceKm
@@ -199,7 +195,8 @@ export default function ListingDetailScreen() {
               <Image
                 source={{ uri: fillImageUrl(item.url, { width: windowWidth, height: heroHeight }) }}
                 style={{ width: windowWidth, height: heroHeight }}
-                resizeMode="cover"
+                contentFit="cover"
+                cachePolicy="memory-disk"
               />
             </Pressable>
           )}

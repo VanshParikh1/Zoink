@@ -24,6 +24,7 @@ import IconButton from '../components/mockup/IconButton'
 import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
 import { markStartup, useScrollPerfProbe } from '../utils/perfMarks'
+import { prefetchListingHero } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -219,9 +220,10 @@ export default function HomeScreen() {
     <StatePanel title="No listings found" body="Nothing nearby right now — pull to refresh." />
   )
 
-  const openListing = useCallback((listingId: string) => {
+  const openListing = useCallback((listing: ListingBrowseItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-    nav.navigate('ListingDetail', { listingId })
+    prefetchListingHero(listing.images[0]?.url)
+    nav.navigate('ListingDetail', { listingId: listing.id })
   }, [nav])
 
   const renderItem = useCallback(
@@ -271,9 +273,9 @@ const GridCell = React.memo(function GridCell({
 }: {
   listing: ListingBrowseItem
   width: number
-  onOpen: (listingId: string) => void
+  onOpen: (listing: ListingBrowseItem) => void
 }) {
-  return <ListingGridCard listing={listing} width={width} onPress={() => onOpen(listing.id)} />
+  return <ListingGridCard listing={listing} width={width} onPress={() => onOpen(listing)} />
 })
 
 function Separator() {

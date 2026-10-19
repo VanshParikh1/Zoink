@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -580,8 +581,7 @@ export default function BookingDetailScreen() {
                         <Image
                           source={{ uri: limitImageUrl(url, { width: windowWidth - space.screen * 2, height: 220 }) }}
                           style={styles.photoPreview}
-                          resizeMode="contain"
-                          resizeMethod="scale"
+                          contentFit="contain"
                         />
                       </Pressable>
                     ))
