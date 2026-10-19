@@ -1,4 +1,5 @@
-// Endpoint benchmark: p50/p95 latency, DB round trips and payload size for
+// Endpoint benchmark: p50/p95 latency, DB round trips and payload size (JSON
+// and gzip on the wire, as the app's HTTP stack asks for it) for
 // every API route, 50 sequential requests each, against a freshly seeded
 // zoink_bench database. Stripe/SES/Cloudinary/Expo stay off the network (see
 // benchEnv.ts), so write timings exclude third-party calls.
@@ -13,11 +14,14 @@
 // endpoints are marked in the notes column.
 import './benchEnv'
 import { writeFileSync } from 'fs'
+import http from 'http'
 import { AddressInfo } from 'net'
+import { brotliDecompressSync, gunzipSync } from 'zlib'
 import jwt from 'jsonwebtoken'
 import { TERMS_VERSION, PRIVACY_VERSION } from '@zoink/shared'
 import { seed, BENCH_PASSWORD, N, type BenchFixtures } from './seed'
 import prisma from '../../utils/prisma'
+import { globalLimiter } from '../../middleware/rateLimiter'
 
 // Count every statement the pg driver sends (BEGIN/COMMIT included): that's
 // the number of database round trips a request costs.
@@ -32,7 +36,16 @@ pg.Client.prototype.query = function countedQuery(...args: unknown[]) {
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 type Request = { method: Method; path: string; token?: string; body?: unknown; headers?: Record<string, string> }
-type Scenario = { name: string; route: string; kind: 'read' | 'write'; note?: string; request: (i: number) => Request }
+type Sent = { status: number; ms: number; queries: number; bytes: number; wireBytes: number; text: string; json: () => any; headers: http.IncomingHttpHeaders }
+type Scenario = {
+  name: string
+  route: string
+  kind: 'read' | 'write'
+  note?: string
+  /** Runs once before the scenario (e.g. fetch the cursor a page-2 request needs). */
+  prepare?: (send: (req: Request) => Promise<Sent>) => Promise<void>
+  request: (i: number) => Request
+}
 type Result = {
   name: string
   route: string
@@ -42,6 +55,7 @@ type Result = {
   max: number
   queries: number
   bytes: number
+  wireBytes: number
   ok: number
   failures: string[]
   note?: string
@@ -64,6 +78,15 @@ function median(values: number[]) {
 function buildScenarios(f: BenchFixtures): Scenario[] {
   const renter = tokenFor(f.renter)
   const owner = tokenFor(f.owner)
+  // Per-user caps (20 new listings a day, 30 Stripe calls an hour) would 429
+  // a single account; rotate through the other owners.
+  const lenderN = (i: number) => tokenFor(f.lenders[i % f.lenders.length])
+  const cursors: Record<string, string> = {}
+  let listingEtag = ''
+  const pageTwo = (key: string, path: string, token: string): Scenario['prepare'] => async (send) => {
+    const first = await send({ method: 'GET', path, token })
+    cursors[key] = first.json().nextCursor ?? (first.json().meta?.nextCursor as string)
+  }
   const admin = tokenFor(f.admin, { role: 'ADMIN' })
   const renterN = (i: number) => tokenFor(f.renters[i])
   const ip = (i: number) => ({ 'X-Real-IP': `10.0.${Math.floor(i / 250)}.${(i % 250) + 1}` })
@@ -101,7 +124,7 @@ function buildScenarios(f: BenchFixtures): Scenario[] {
     { name: 'notification prefs', route: 'PATCH /users/me/notification-prefs', kind: 'write', request: (i) => ({ method: 'PATCH', path: '/users/me/notification-prefs', token: renter, body: { notifyReviews: i % 2 === 0 } }) },
     { name: 'push token', route: 'PATCH /users/me/push-token', kind: 'write', request: () => ({ method: 'PATCH', path: '/users/me/push-token', token: renter, body: { expoPushToken: null } }) },
     { name: 'accept terms', route: 'POST /users/me/accept-terms', kind: 'write', request: () => ({ method: 'POST', path: '/users/me/accept-terms', token: renter }) },
-    { name: 'stripe onboard', route: 'POST /users/me/stripe-connect/onboard', kind: 'write', note: 'Stripe mocked', request: () => ({ method: 'POST', path: '/users/me/stripe-connect/onboard', token: owner }) },
+    { name: 'stripe onboard', route: 'POST /users/me/stripe-connect/onboard', kind: 'write', note: 'Stripe mocked', request: (i) => ({ method: 'POST', path: '/users/me/stripe-connect/onboard', token: lenderN(i) }) },
     { name: 'block', route: 'POST /users/:id/block', kind: 'write', request: (i) => ({ method: 'POST', path: `/users/${f.otherUser}/block`, token: renterN(i) }) },
     { name: 'unblock', route: 'DELETE /users/:id/block', kind: 'write', request: (i) => ({ method: 'DELETE', path: `/users/${f.otherUser}/block`, token: renterN(i) }) },
     { name: 'delete account', route: 'DELETE /users/me', kind: 'write', request: (i) => ({ method: 'DELETE', path: '/users/me', token: tokenFor(f.deletableUsers[i]) }) },
@@ -110,12 +133,25 @@ function buildScenarios(f: BenchFixtures): Scenario[] {
     { name: 'browse (nearby)', route: 'GET /listings?lat&lng', kind: 'read', request: () => ({ method: 'GET', path: `/listings${near}`, token: renter }) },
     { name: 'browse (search)', route: 'GET /listings?q', kind: 'read', request: () => ({ method: 'GET', path: `/listings${near}&q=item&category=Tools`, token: renter }) },
     { name: 'browse (page 3)', route: 'GET /listings?offset=40', kind: 'read', request: () => ({ method: 'GET', path: `/listings${near}&limit=20&offset=40`, token: renter }) },
+    { name: 'browse page 1', route: 'GET /listings?lat&lng&limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: `/listings${near}&limit=20`, token: renter }) },
+    {
+      name: 'browse page 2', route: 'GET /listings?lat&lng&limit=20&cursor', kind: 'read', note: 'cursor page',
+      prepare: pageTwo('browse', `/listings${near}&limit=20`, renter),
+      request: () => ({ method: 'GET', path: `/listings${near}&limit=20&cursor=${cursors.browse}`, token: renter }),
+    },
+    { name: 'search page 1', route: 'GET /listings?q&limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: `/listings${near}&q=item&category=Tools&limit=20`, token: renter }) },
     { name: 'categories', route: 'GET /listings/categories', kind: 'read', request: () => ({ method: 'GET', path: '/listings/categories', token: renter }) },
     { name: 'listing detail', route: 'GET /listings/:id', kind: 'read', request: () => ({ method: 'GET', path: `/listings/${f.browseListing}`, token: renter }) },
+    {
+      name: 'listing detail (304)', route: 'GET /listings/:id If-None-Match', kind: 'read', note: 'unchanged: 304, no body',
+      prepare: async (send) => { listingEtag = String((await send({ method: 'GET', path: `/listings/${f.browseListing}`, token: renter })).headers.etag) },
+      request: () => ({ method: 'GET', path: `/listings/${f.browseListing}`, token: renter, headers: { 'If-None-Match': listingEtag } }),
+    },
     { name: 'my listings', route: 'GET /listings/me', kind: 'read', request: () => ({ method: 'GET', path: '/listings/me', token: owner }) },
+    { name: 'my listings page', route: 'GET /listings/me?limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: '/listings/me?limit=20', token: owner }) },
     {
       name: 'create listing', route: 'POST /listings', kind: 'write',
-      request: (i) => ({ method: 'POST', path: '/listings', token: owner, body: { title: `Camping stove ${i}`, description: 'Two burner stove, works great.', category: 'Outdoors', dailyPrice: 12, itemValue: 120, depositAmount: 40, latitude: 43.66, longitude: -79.39, city: 'Toronto' } }),
+      request: (i) => ({ method: 'POST', path: '/listings', token: lenderN(i), body: { title: `Camping stove ${i}`, description: 'Two burner stove, works great.', category: 'Outdoors', dailyPrice: 12, itemValue: 120, depositAmount: 40, latitude: 43.66, longitude: -79.39, city: 'Toronto' } }),
     },
     { name: 'update listing', route: 'PATCH /listings/:id', kind: 'write', request: (i) => ({ method: 'PATCH', path: `/listings/${f.ownerListings[i % 10]}`, token: owner, body: { description: `Updated description ${i}` } }) },
     { name: 'toggle availability', route: 'PATCH /listings/:id/availability', kind: 'write', request: (i) => ({ method: 'PATCH', path: `/listings/${f.ownerListings[9]}/availability`, token: owner, body: { isAvailable: i % 2 === 1 } }) },
@@ -123,7 +159,14 @@ function buildScenarios(f: BenchFixtures): Scenario[] {
 
     // ── Bookings
     { name: 'my bookings', route: 'GET /bookings/me', kind: 'read', request: () => ({ method: 'GET', path: '/bookings/me', token: renter }) },
-    { name: 'incoming requests', route: 'GET /bookings/requests', kind: 'read', request: () => ({ method: 'GET', path: '/bookings/requests', token: owner }) },
+    { name: 'incoming requests', route: 'GET /bookings/requests', kind: 'read', note: 'unpaginated, now capped at 100', request: () => ({ method: 'GET', path: '/bookings/requests', token: owner }) },
+    { name: 'requests page 1', route: 'GET /bookings/requests?limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: '/bookings/requests?limit=20', token: owner }) },
+    {
+      name: 'requests page 2', route: 'GET /bookings/requests?limit=20&cursor', kind: 'read', note: 'cursor page',
+      prepare: pageTwo('requests', '/bookings/requests?limit=20', owner),
+      request: () => ({ method: 'GET', path: `/bookings/requests?limit=20&cursor=${cursors.requests}`, token: owner }),
+    },
+    { name: 'my bookings page', route: 'GET /bookings/me?limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: '/bookings/me?limit=20', token: renter }) },
     { name: 'booking detail', route: 'GET /bookings/:id', kind: 'read', request: () => ({ method: 'GET', path: `/bookings/${f.renterBooking}`, token: renter }) },
     { name: 'handoff photos', route: 'GET /bookings/:id/photos', kind: 'read', request: () => ({ method: 'GET', path: `/bookings/${f.completedBooking}/photos`, token: owner }) },
     {
@@ -145,14 +188,17 @@ function buildScenarios(f: BenchFixtures): Scenario[] {
 
     // ── Conversations
     { name: 'inbox', route: 'GET /conversations/me', kind: 'read', request: () => ({ method: 'GET', path: '/conversations/me', token: renter }) },
+    { name: 'inbox page', route: 'GET /conversations/me?limit=20', kind: 'read', note: 'cursor page + unreadCount', request: () => ({ method: 'GET', path: '/conversations/me?limit=20', token: renter }) },
     { name: 'conversation', route: 'GET /conversations/:id', kind: 'read', request: () => ({ method: 'GET', path: `/conversations/${f.bigConversation}`, token: renter }) },
-    { name: 'messages (500)', route: 'GET /conversations/:id/messages', kind: 'read', request: () => ({ method: 'GET', path: `/conversations/${f.bigConversation}/messages`, token: renter }) },
+    { name: 'messages (500)', route: 'GET /conversations/:id/messages', kind: 'read', note: 'newest 100 with senders', request: () => ({ method: 'GET', path: `/conversations/${f.bigConversation}/messages`, token: renter }) },
+    { name: 'messages page', route: 'GET /conversations/:id/messages?limit=50', kind: 'read', note: 'newest 50, no sender objects', request: () => ({ method: 'GET', path: `/conversations/${f.bigConversation}/messages?limit=50`, token: renter }) },
     { name: 'open conversation', route: 'POST /conversations', kind: 'write', request: (i) => ({ method: 'POST', path: '/conversations', token: renter, body: { listingId: f.openConversationListings[i] } }) },
     { name: 'send message', route: 'POST /conversations/:id/messages', kind: 'write', note: 'notifies recipient after responding', request: (i) => ({ method: 'POST', path: `/conversations/${f.messageConversations[i]}/messages`, token: renterN(i), body: { body: 'Sounds good, see you at 6!' } }) },
     { name: 'mark read', route: 'POST /conversations/:id/read', kind: 'write', request: () => ({ method: 'POST', path: `/conversations/${f.bigConversation}/read`, token: renter }) },
 
     // ── Reviews, disputes, reports
     { name: 'pending reviews', route: 'GET /reviews/pending', kind: 'read', request: (i) => ({ method: 'GET', path: '/reviews/pending', token: renterN(i) }) },
+    { name: 'pending reviews (first)', route: 'GET /reviews/pending?limit=1', kind: 'read', request: (i) => ({ method: 'GET', path: '/reviews/pending?limit=1', token: renterN(i) }) },
     { name: 'submit review', route: 'POST /reviews', kind: 'write', request: (i) => ({ method: 'POST', path: '/reviews', token: renterN(i), body: { obligationId: f.reviewObligations[i], reviewerRole: 'RENTER', scoreA: 5, scoreB: 4, scoreC: 5, itemRating: 5 } }) },
     { name: 'my disputes', route: 'GET /disputes', kind: 'read', request: () => ({ method: 'GET', path: '/disputes', token: tokenFor(f.renters[4]) }) },
     { name: 'dispute detail', route: 'GET /disputes/:id', kind: 'read', request: () => ({ method: 'GET', path: `/disputes/${f.dispute}`, token: owner }) },
@@ -161,9 +207,11 @@ function buildScenarios(f: BenchFixtures): Scenario[] {
 
     // ── Admin
     { name: 'admin disputes', route: 'GET /admin/disputes', kind: 'read', request: () => ({ method: 'GET', path: '/admin/disputes', token: admin }) },
+    { name: 'admin disputes page', route: 'GET /admin/disputes?limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: '/admin/disputes?limit=20', token: admin }) },
     { name: 'admin dispute detail', route: 'GET /admin/disputes/:id', kind: 'read', request: () => ({ method: 'GET', path: `/admin/disputes/${f.dispute}`, token: admin }) },
     { name: 'admin booking events', route: 'GET /admin/bookings/:id/events', kind: 'read', request: () => ({ method: 'GET', path: `/admin/bookings/${f.renterBooking}/events`, token: admin }) },
     { name: 'admin reports', route: 'GET /admin/reports', kind: 'read', request: () => ({ method: 'GET', path: '/admin/reports', token: admin }) },
+    { name: 'admin reports page', route: 'GET /admin/reports?limit=20', kind: 'read', note: 'cursor page', request: () => ({ method: 'GET', path: '/admin/reports?limit=20', token: admin }) },
     { name: 'admin resolve dispute', route: 'PATCH /admin/disputes/:id/resolve', kind: 'write', request: (i) => ({ method: 'PATCH', path: `/admin/disputes/${f.disputeResolve[i]}/resolve`, token: admin, body: { status: 'RESOLVED_NO_ACTION', resolutionNotes: 'Normal wear, no action.' } }) },
     { name: 'admin resolve report', route: 'PATCH /admin/reports/:id', kind: 'write', request: (i) => ({ method: 'PATCH', path: `/admin/reports/${f.reportResolve[i]}`, token: admin, body: { status: 'REVIEWED' } }) },
 
@@ -195,25 +243,56 @@ async function main() {
   await new Promise((resolve) => server.once('listening', resolve))
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
-  async function send(req: Request) {
-    const headers: Record<string, string> = { ...(req.headers ?? {}) }
+  // node:http rather than fetch, to see the bytes on the wire: the app's HTTP
+  // stack (NSURLSession, OkHttp) always asks for gzip.
+  function send(req: Request): Promise<Sent> {
+    const headers: Record<string, string> = { 'Accept-Encoding': 'gzip', ...(req.headers ?? {}) }
     if (req.token) headers.Authorization = `Bearer ${req.token}`
-    if (req.body !== undefined) headers['Content-Type'] = 'application/json'
+    const payload = req.body !== undefined ? JSON.stringify(req.body) : undefined
+    if (payload !== undefined) headers['Content-Type'] = 'application/json'
     queryCount = 0
     const started = process.hrtime.bigint()
-    const res = await fetch(`${base}${req.path}`, { method: req.method, headers, body: req.body !== undefined ? JSON.stringify(req.body) : undefined })
-    const buffer = Buffer.from(await res.arrayBuffer())
-    const ms = Number(process.hrtime.bigint() - started) / 1e6
-    return { status: res.status, ms, queries: queryCount, bytes: buffer.length, text: buffer.toString('utf8').slice(0, 160), encoding: res.headers.get('content-encoding') }
+    return new Promise((resolve, reject) => {
+      const outgoing = http.request(`${base}${req.path}`, { method: req.method, headers }, (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () => {
+          const ms = Number(process.hrtime.bigint() - started) / 1e6
+          const wire = Buffer.concat(chunks)
+          const encoding = res.headers['content-encoding']
+          const body = encoding === 'gzip' ? gunzipSync(wire) : encoding === 'br' ? brotliDecompressSync(wire) : wire
+          resolve({
+            status: res.statusCode ?? 0,
+            ms,
+            queries: queryCount,
+            bytes: body.length,
+            wireBytes: wire.length,
+            text: body.toString('utf8').slice(0, 160),
+            json: () => JSON.parse(body.toString('utf8')),
+            headers: res.headers,
+          })
+        })
+        res.on('error', reject)
+      })
+      outgoing.on('error', reject)
+      if (payload !== undefined) outgoing.write(payload)
+      outgoing.end()
+    })
   }
 
   const results: Result[] = []
   for (const scenario of buildScenarios(fixtures)) {
     if (only && !scenario.name.includes(only) && !scenario.route.includes(only)) continue
+    // The bench's main accounts send thousands of requests in a few minutes,
+    // far past the 1,200-per-15-minutes budget a person gets; reset it so
+    // each route is measured rather than the limiter's 429.
+    for (const userId of [fixtures.renter, fixtures.owner, fixtures.admin]) await globalLimiter.resetKey(`user:${userId}`)
     const timings: number[] = []
     const queries: number[] = []
     const bytes: number[] = []
     const failures: string[] = []
+    const wireBytes: number[] = []
+    if (scenario.prepare) await scenario.prepare(send)
     // Reads get 5 unmeasured warm-up requests; each write fixture is single-use.
     if (scenario.kind === 'read') {
       for (let w = 0; w < 5; w += 1) await send(scenario.request(w))
@@ -225,6 +304,7 @@ async function main() {
       timings.push(r.ms)
       queries.push(r.queries)
       bytes.push(r.bytes)
+      wireBytes.push(r.wireBytes)
       if (r.status >= 400) failures.push(`${r.status} ${r.text}`)
     }
     const sorted = [...timings].sort((a, b) => a - b)
@@ -237,21 +317,22 @@ async function main() {
       max: sorted[sorted.length - 1],
       queries: median(queries),
       bytes: median(bytes),
+      wireBytes: median(wireBytes),
       ok: N - failures.length,
       failures: [...new Set(failures)].slice(0, 3),
       note: scenario.note,
     }
     results.push(result)
-    console.error(`${result.route.padEnd(42)} p50 ${result.p50.toFixed(1).padStart(7)}ms  p95 ${result.p95.toFixed(1).padStart(7)}ms  q ${String(result.queries).padStart(3)}  ${String(result.bytes).padStart(7)}B  ok ${result.ok}/${N}${result.failures.length ? `  ✖ ${result.failures[0]}` : ''}`)
+    console.error(`${result.route.padEnd(42)} p50 ${result.p50.toFixed(1).padStart(7)}ms  p95 ${result.p95.toFixed(1).padStart(7)}ms  q ${String(result.queries).padStart(3)}  ${String(result.bytes).padStart(7)}B  wire ${String(result.wireBytes).padStart(7)}B  ok ${result.ok}/${N}${result.failures.length ? `  ✖ ${result.failures[0]}` : ''}`)
   }
 
   server.close()
   await (prisma as any).$disconnect?.()
 
   const table = [
-    '| Endpoint | Kind | p50 ms | p95 ms | DB queries | Payload | OK |',
-    '|---|---|---:|---:|---:|---:|---:|',
-    ...results.map((r) => `| \`${r.route}\` | ${r.kind} | ${r.p50.toFixed(1)} | ${r.p95.toFixed(1)} | ${r.queries} | ${(r.bytes / 1024).toFixed(1)} KB | ${r.ok}/${N} |`),
+    '| Endpoint | Kind | p50 ms | p95 ms | DB queries | JSON | On the wire | OK |',
+    '|---|---|---:|---:|---:|---:|---:|---:|',
+    ...results.map((r) => `| \`${r.route}\` | ${r.kind} | ${r.p50.toFixed(1)} | ${r.p95.toFixed(1)} | ${r.queries} | ${(r.bytes / 1024).toFixed(1)} KB | ${(r.wireBytes / 1024).toFixed(1)} KB | ${r.ok}/${N} |`),
   ].join('\n')
   console.log(table)
   if (jsonOut) writeFileSync(jsonOut, JSON.stringify(results, null, 2))

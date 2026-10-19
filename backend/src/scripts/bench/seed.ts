@@ -47,6 +47,8 @@ const CATEGORIES = ['Electronics', 'Tools', 'Sports', 'Outdoors', 'Kitchen', 'Bo
 export type BenchFixtures = {
   renter: string
   owner: string
+  /** The 39 other owners: per-user capped writes (new listings, Stripe calls) rotate through them. */
+  lenders: string[]
   admin: string
   otherUser: string
   renters: string[]
@@ -406,6 +408,7 @@ export async function seed(): Promise<BenchFixtures> {
   return {
     renter,
     owner,
+    lenders: owners.slice(1),
     admin,
     otherUser,
     renters,
