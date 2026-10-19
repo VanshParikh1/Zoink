@@ -35,6 +35,7 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { universityFromEmail } from '../utils/university'
+import { useRenderProbe } from '../utils/perfMarks'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -55,6 +56,7 @@ async function getPromptSeen(key: string) {
 }
 
 export default function MyProfileScreen() {
+  useRenderProbe('profile')
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   // Pushed as a standalone route (not one of the main tabs) it gets a back button.

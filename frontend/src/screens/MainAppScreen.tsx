@@ -33,7 +33,7 @@ import {
 } from '../components/mockup/tabBarMetrics'
 import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
 import { MainTab, MainTabProvider } from '../context/MainTabContext'
-import { markStartup } from '../utils/perfMarks'
+import { markStartup, useRenderProbe } from '../utils/perfMarks'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
 // Five equal columns: Home, Search, the "+" slot, Inbox, Profile.
@@ -94,6 +94,7 @@ function NavItem({
 }
 
 export default function MainAppScreen({ navigation }: ScreenProps) {
+  useRenderProbe('main-app')
   const route = useRoute<MainAppRoute>()
   const insets = useSafeAreaInsets()
   const [activeTab, setActiveTab] = useState<MainTab>(route.params?.tab ?? 'Home')

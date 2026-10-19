@@ -22,6 +22,7 @@ import WaitingOnPaymentBadge from '../components/WaitingOnPaymentBadge'
 import { Conversation } from '../types'
 import { initialsOf } from '../utils/initials'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import { useRenderProbe } from '../utils/perfMarks'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -39,6 +40,7 @@ function rowTime(iso: string) {
 }
 
 export default function InboxScreen() {
+  useRenderProbe('inbox')
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const { user } = useAuth()

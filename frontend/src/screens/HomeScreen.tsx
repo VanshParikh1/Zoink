@@ -23,7 +23,7 @@ import Card from '../components/mockup/Card'
 import IconButton from '../components/mockup/IconButton'
 import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
-import { markStartup, useScrollPerfProbe } from '../utils/perfMarks'
+import { markStartup, useScrollPerfProbe, useRenderProbe } from '../utils/perfMarks'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -55,6 +55,7 @@ const QUICK_ACTIONS: QuickAction[] = [
 ]
 
 export default function HomeScreen() {
+  useRenderProbe('home')
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const { width } = useWindowDimensions()

@@ -79,3 +79,12 @@ export function useScrollPerfProbe(name: string) {
     }
   }, [name])
 }
+
+/**
+ * Logs one "[perf] render <name>" line per render of the calling component,
+ * so the renders a screen does while it sits idle (polling, context changes)
+ * can be counted from the device log. Silent in normal builds.
+ */
+export function useRenderProbe(name: string) {
+  if (ENABLED) console.error(`[perf] render ${name}`)
+}

@@ -20,7 +20,7 @@ import TextField from '../components/mockup/TextField'
 import CategoryChips from '../components/mockup/CategoryChips'
 import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCard'
 import StatePanel from '../components/mockup/StatePanel'
-import { useScrollPerfProbe } from '../utils/perfMarks'
+import { useScrollPerfProbe, useRenderProbe } from '../utils/perfMarks'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -33,6 +33,7 @@ const SKELETON_COUNT = 3
 let sessionRecentlyViewed: ListingBrowseItem[] = []
 
 export default function SearchScreen() {
+  useRenderProbe('search')
   const tabBarClearance = useTabBarClearance()
   const nav = useNavigation<Nav>()
   const route = useRoute<MainAppRoute>()
