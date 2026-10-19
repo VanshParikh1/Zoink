@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react'
-import { FlatList, LayoutChangeEvent, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { FlatList, LayoutChangeEvent, Platform, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
 import Feather from '@expo/vector-icons/Feather'
@@ -219,26 +219,33 @@ export default function HomeScreen() {
     <StatePanel title="No listings found" body="Nothing nearby right now — pull to refresh." />
   )
 
+  const openListing = useCallback((listingId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    nav.navigate('ListingDetail', { listingId })
+  }, [nav])
+
+  const renderItem = useCallback(
+    ({ item }: { item: ListingBrowseItem }) =>
+      cellWidth > 0 ? <GridCell listing={item} width={cellWidth} onOpen={openListing} /> : null,
+    [cellWidth, openListing]
+  )
+
   return (
     <Screen glow="topLeft" scroll={false} contentStyle={styles.screenContent}>
       <FlatList
         data={loading ? [] : listings}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         numColumns={GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
         onLayout={(e: LayoutChangeEvent) => setListWidth(e.nativeEvent.layout.width)}
-        renderItem={({ item }) =>
-          cellWidth > 0 ? (
-            <ListingGridCard
-              listing={item}
-              width={cellWidth}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
-                nav.navigate('ListingDetail', { listingId: item.id })
-              }}
-            />
-          ) : null
-        }
+        renderItem={renderItem}
+        // Rows are two tall photo cards. FlatList's defaults mount 10 cells per
+        // batch and keep 21 screens' worth around; here new rows mount in
+        // slices of two, and about three screens stay rendered.
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
         ItemSeparatorComponent={Separator}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />}
         contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
@@ -251,6 +258,23 @@ export default function HomeScreen() {
     </Screen>
   )
 }
+
+function keyExtractor(item: ListingBrowseItem) {
+  return item.id
+}
+
+/** One grid card; re-renders only when its listing or width changes. */
+const GridCell = React.memo(function GridCell({
+  listing,
+  width,
+  onOpen,
+}: {
+  listing: ListingBrowseItem
+  width: number
+  onOpen: (listingId: string) => void
+}) {
+  return <ListingGridCard listing={listing} width={width} onPress={() => onOpen(listing.id)} />
+})
 
 function Separator() {
   return <View style={styles.separator} />
