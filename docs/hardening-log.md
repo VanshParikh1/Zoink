@@ -326,33 +326,145 @@ WHERE d.status IN ('OPEN', 'UNDER_REVIEW')
 
 Any row from 3 to 6 is a real-money case for a person to settle in the Stripe dashboard; none of it is auto-repaired.
 
-### Where to pick up (Phase 2 onward)
+---
 
-**Handoff, 2026-10-18.** This session stopped at the end of Phase 1 at the owner's request. Phase 2 is being run in a separate terminal session. The notes below were gathered before the handoff. None of them are applied or committed.
+## Phase 2: security
 
-**Phase 2 work in progress, in `git stash` (`stash@{0}`, "hardening phase 2 WIP"); restore with `git stash pop`:**
+### Plan
 
-- The expired/deleted-token stuck session (owner moved it into Phase 2). `api.ts` only ends the session on a 401 for the token still in use (not a wrong-password 401 at login, not a late reply from before a fresh login, never a 503). AuthContext then signs out to Login with a one-line notice, and a stored token past its `exp` is dropped at launch. Pure helpers are in `frontend/src/services/sessionToken.ts` with 4 tests, and the frontend test glob includes `src/services`. Frontend tests (7) and typecheck passed. **Not yet checked on the simulator.**
-- `backend/src/integration-tests/authorization.integration.test.ts`: the authZ/IDOR matrix (a verified stranger on every by-id route gets 403/404 with no data change, no token gets 401 on every authed route, unverified gets 403 on student routes, a user gets 403 on admin routes) plus checks that responses never carry passwords, Stripe ids or contact details. **Written, never run.**
+Started from the handoff notes (stash `stash@{0}`, popped by the owner on 2026-10-18). Order, per the owner: get the stashed work green (the stuck-session fix checked on the simulator, the authZ/IDOR matrix run), then push tokens, OTP limits, the unverified-accounts decision, then the rest of the brief's Phase 2 list (validation with unknown-field rejection, rate-limit gaps, secrets in the bundle, PII in logs and Sentry, Cloudinary ownership, npm audit without major jumps).
 
-**Checked and sound:** role and verification read from the DB on every request (the 2026-08-31 scan's F2 is fixed), HS256 pinned, webhook fails closed, dispute responses shaped per caller (F3), handoff photo URLs must be this booking's own uploads, listing image upload owner-checked before Cloudinary, `X-Real-IP` trusted only behind Railway's edge (verified 2026-09-26), server Sentry scrubbing, login timing equalized, OTP attempt cap and constant-time compare.
+### Findings
 
-**Found, fix proposed, not applied:**
+| # | Finding | How it happens in real use | Sev | Fix / decision | Commit |
+|---|---|---|---|---|---|
+| 1 | **Credentials in public git history** | `backend/env` (no dot) was committed in `51d53af` (2026-06-01, "Webhook config") and deleted the same day in `761918a`. It holds `DATABASE_URL`, `JWT_SECRET`, an AWS access key pair, the Cloudinary API key and secret, a Stripe test secret key and a webhook signing secret. The GitHub repository is public (unauthenticated API read answered 200), so anyone can read them. Every value differs from today's local `.env` files except `STRIPE_WEBHOOK_SECRET`, which is still the local one (compared by SHA-256, nothing printed). Production values live in Railway and weren't read | S1 | **Owner action**: revoke and rotate every key in that file (see "Needs owner action"). Rewriting history doesn't help once public | — |
+| 2 | Expired or deleted sessions left the app "signed in" and broken (owner moved it into Phase 2) | A 401 dropped the stored token but AuthContext kept the user; a stored token was never checked for `exp` | S2 | Only a 401 for the token in use ends the session (not a login 401, not a late reply from before a fresh login, never a 503); AuthContext signs out to Login with one notice; an expired stored token is dropped at launch. Checked on the simulator (below) | `4faaa6e` |
+| 3 | One phone's push token could sit on two accounts | A session ends without sign-out (expiry, or sign-out couldn't reach the server); the next person to sign in on that phone gets the previous account's notifications, message previews included | S2 | Registering a token takes it off every other account in the same transaction | `ca7096d` |
+| 4 | A lapsed session kept notifying a signed-out phone | Sign-out cleared the token only if that request got through, and nothing cleared it when a session expired or was dropped at launch | S2 | `POST /users/me/push-token/release` clears the account's token only while it is still this phone's; it accepts a session token this server signed even after expiry (nothing else does). The app calls it on sign-out, on a session ended by the server, and when an expired session is dropped at launch | `ca7096d`, `8b0277e` |
+| 5 | Booking responses carried the other party's Stripe ids (found by the IDOR matrix) | The owner saw the renter's PaymentIntent, deposit PaymentIntent and charge ids; the renter saw the owner's transfer id | S3 | Per viewer: the renter gets their payment ids, the owner their transfer id. The app reads none of them | `3ba635b` |
+| 6 | No daily cap on verification codes per address (handoff b) | 5 guesses a code and a new code every 60 s: about even odds of verifying someone else's university email in two months | S2 | 10 codes per address in any 24 h, sign-ups and resends together, counted in `verification_email_sends` (so it survives a replaced sign-up and a restart) under a per-address advisory lock. Guessing is now capped at 50 a day | `1343f03` |
+| 7 | No daily cap on sends per network | One client could send codes to any number of addresses | S3 | 50 a day per network address, counting only requests that sent one (campus networks put many students behind one address) | `1343f03` |
+| 8 | Verify `code` unbounded (part of handoff g); the email said "15 minutes" whatever `OTP_EXPIRY_MINUTES` was | — | S3 | Six digits, checked before it counts as a guess; the email states the configured expiry | `1343f03` |
+| 9 | Registering someone else's university email locked them out for good (handoff c) | Unverified accounts were never cleaned up and the address stayed taken | S2 | Owner decision, applied (below) | `5cab41c` |
+| 10 | Unverified accounts could edit their profile, avatar, push token, notification settings and blocks | Only the student routes required verification | S3 | Before verification an account can only verify, read and delete itself, and release its push token. The earlier "an unverified account can still block someone harassing it" comment no longer held: nothing can reach an unverified account | `5cab41c` |
+| 11 | The verification email put `firstName` into HTML unescaped (handoff f) | Markup typed as a name rendered in the recipient's inbox | S3 | Escaped in the HTML part; the text part is unchanged | `dacedda` |
+| 12 | Unknown request fields were silently dropped | Zod's default strips unknown keys, so `role`, `ownerId`, `senderId` or a retired field went through with that part ignored | S3 | `validate()` answers 400 naming the unknown field(s), for the top level of every body and query its schema describes. App builds from before 2026-09-07 still send `insuranceOptIn` and would now get a 400 on booking requests (one old test did; fixed) | `e321b37` |
+| 13 | The API accepted limits only the app kept (handoff d, e, g) | Booking requests starting yesterday; profile phone free text of any length; unbounded sign-up password and browse `q`/`category`/`city` | S3 | Start day must be today (Toronto) or later; profile phone uses the sign-up rule and storage (readable message from the service); sign-up password ≤ 128, login ≤ 1,024 (so an older long password still signs in); `q` 100, `category` 40, `city` 60 | `2142580` |
+| 14 | Prisma validation errors put the call's arguments in logs, Sentry and booking ERROR events | A `PrismaClientValidationError` message prints the failed call with its arguments (email, password hash, name) in every `errorFormat` (checked: `minimal` too). Sentry only redacted the email | S2 | The call and the reason are kept, the arguments dropped, wherever errors are logged or stored | `b3cf28d` |
+| 15 | SES and Expo errors put emails and push tokens in the logs | SES's "identities failed the check" names the recipient; Expo's push errors quote the device token | S3 | Redacted (`@zoink/shared` `redact.ts`: emails, push tokens, JWTs, bearer tokens, stored-format phone numbers) | `b3cf28d` |
+| 16 | The app's Sentry setup had no scrubbing | Console breadcrumbs keep the logged arguments, which for a failed request is the axios error with its `Authorization` header. The SDK's default depth limit cut that off before sending, but nothing guaranteed it | S3 | Same rules as the server: console breadcrumbs keep only their message, breadcrumb data is scrubbed on a copy, events keep only the user id, `sendDefaultPii: false` | `787155a` |
+| 17 | Deleted listings' photos stayed public on Cloudinary | privacy.md §7: "When you delete a listing, it and its photos are deleted immediately." Only the rows were deleted | S2 | The files are deleted too, best effort after the rows; only this app's own uploads are ever deleted (`ownPublicId`) | `a9cc821` |
+| 18 | A deleted account's profile photo stayed public on Cloudinary | Deletion nulled `avatarUrl`; the file stayed at its URL | S3 | Deleted with the account, same way | `a9cc821` |
+| 19 | No per-user cap on routes that call Stripe or post to everyone | Only the global 1,200/15 min applied to the Pay step, confirm, payout onboarding and status (each a Stripe call), new listings and opening conversations | S3 | Stripe calls 30/hour (shared), payout status 120/hour, new listings 20/day, opening conversations 60/hour | `168eff0` |
+| 20 | `JWT_SECRET` length not checked at boot (handoff j) | A short secret can be brute-forced offline from any token | S3 | Production refuses to start under 32 characters. **Owner**: confirm the Railway value first (below) | `cff20e0` |
+| 21 | npm audit: 2 critical and 38 high advisories in production dependencies | See below | — | Non-major fixes applied | `206fbe5` |
 
-| # | Finding | Sev | Proposed fix |
-|---|---|---|---|
-| a | One device push token can sit on two accounts. After a session ends without sign-out (expiry, or sign-out couldn't reach the server), the next person to sign in on that phone gets the previous account's notifications, message previews included | S2 | `updateExpoPushToken`: clear the token from every other user in the same transaction |
-| b | No per-account cap on verification codes: 5 guesses per code and a new code every 60 s puts a 50% chance of verifying someone else's university email at about 2 months | S2 | Cap at 10 codes per rolling 24 h (429 with a readable message) |
-| c | Registering someone else's university email blocks them from ever signing up (unverified accounts are never cleaned up; there is no reset) | S2 | **Needs product decision**: purge unverified accounts after N hours, or let a new sign-up take over an unverified account older than 24 h |
-| d | The API accepts booking requests that start in the past (the app prevents it) | S3 | `createBooking`: start day must be today (Toronto) or later |
-| e | Profile `phone` is free text with no length limit | S3 | Same rule as sign-up, checked in `userService.updateMe` so the app gets a readable message; schema max 30 |
-| f | The verification email puts `firstName` into HTML unescaped | S3 | Escape it |
-| g | Unbounded inputs: sign-up password, browse `q`/`category`/`city`, verify `code` | S3 | Password max 128, `q` 100, `category` 40, `city` 60, code `^\d{6}$` |
-| h | Tokens can't be revoked before their 30 days (known TODO in `requireAuth`) | S3 | `tokenVersion` column, checked per request and bumped on sign-out/role change; needs a migration (additive, default 0, safe on existing rows) |
-| i | No login lockout across IPs | — | Deliberate: an account-wide lockout lets anyone lock a student out. Per IP+email (10/15 min) and per IP (100/15 min) limits apply |
-| j | `JWT_SECRET` length isn't checked at boot | S3 | Confirm it's at least 32 random bytes in Railway, then add a production guard |
+### Stashed work, checked
 
-**npm audit (production dependencies, 2026-10-18):** Backend has 11. The critical one is `proxy-addr` 2.0.7, which isn't reachable with `trust proxy 1`. `cloudinary` 1.41.3 is high (argument injection), but our upload params are built on the server, not from user input; the fix is 2.11.0, a major version. `qs`, `fast-uri` and the Prisma CLI's `@prisma/config`/`mysql2`/`deepmerge-ts` all have non-breaking fixes. Frontend: the only one in shipped code is `axios` 1.18.1 (fixed in 1.20.0). The rest are Expo/Metro/Jest build tooling, where npm's suggested "fixes" are downgrades to Expo 44.
+**Stuck session (finding 2), iOS simulator.** iPhone 17 Pro (iOS 26.5), `expo run:ios --configuration Release` against the bench API (`zoink_bench`, Stripe mocked) served by a scratch wrapper that signs 120-second tokens (no app or server code change). Driven with `idb` (installed via Homebrew `facebook/fb/idb-companion` plus `fb-idb` in a scratch venv) since desktop clicks weren't reliable.
 
-**After Phase 2:** backend performance (pagination, payload trimming), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish, accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
+| Case | Result |
+|---|---|
+| Token expires mid-use | The first poll after expiry got 401; Login with "Your session has ended. Please log in again."; no further requests |
+| Token already expired at launch | Straight to Login, no notice, no request with the dead token |
+| Account deleted (from another device) mid-use | Next poll 401; Login with the notice |
+| Account deleted, then the app launched | Two requests 401 at once; one notice; Login; quiet afterwards |
 
+**AuthZ/IDOR matrix** (`authorization.integration.test.ts`): 144 tests, all passed on the first run. Checked that it can fail: with the booking party check removed, `GET /bookings/:id` failed. It missed Stripe ids on bookings because the fixture's ids weren't in its list of secrets; with them added it failed, which is finding 5. Committed as written (`3b8d165`), then tightened with the fix.
+
+**Push tokens on the simulator** (same setup): sign-out released the token (no account held it); with the token left on `renter1`, signing in as `owner2` moved it off `renter1`; a session lapsing mid-use released it with the expired token; an expired session dropped at launch released it.
+
+### Owner decision applied: unverified accounts (2026-10-18)
+
+| Rule | What changed | Commit |
+|---|---|---|
+| An account isn't active until its OTP is verified | Before verification: verify, resend, read and delete itself, release its push token. Everything else 403 (pinned in the authZ matrix) | `5cab41c` |
+| A sign-up with the same email replaces any unverified record | Deleted and recreated with a **new id**, so a session from the earlier sign-up can never reach the account once its owner verifies (reusing the id would have been an account takeover). The per-address code cap carries over. A verified account still answers 409, and so does the loser of two sign-ups at once | `5cab41c` |
+| A cleanup job deletes unverified accounts older than 24 h, idempotently | `purgeUnverifiedAccounts`, in the 15-minute job. Each delete re-checks every condition, so a repeat run (or two at once) deletes nothing more and an account verified a moment ago is kept | `5cab41c` |
+
+Both paths only delete an account that never verified **and** has no activity at all (no listings, bookings, conversations, messages, reviews, disputes or reports), never an admin or a soft-deleted one, with its codes, blocks and notifications. Tests: `unverifiedAccounts.integration.test.ts` (12).
+
+### Checked and found sound (no change)
+
+- Role and verification come from the database on every request; HS256 pinned; webhook signature fails closed; dispute responses shaped per caller; handoff photo URLs must be the booking's own uploads; listing image uploads owner-checked before Cloudinary; `X-Real-IP` trusted only behind Railway's edge; login timing equalized; OTP attempt cap (5 per code, atomic), expiry and constant-time compare (expiry now has a test).
+- **Secrets in the bundle**: the Release `main.jsbundle` was searched for Stripe secret and restricted keys, webhook secrets, AWS keys, Sentry auth tokens, private keys, database URLs, Google and GitHub keys: none. It carries only values that are public by design: the API URL, the Stripe publishable key (`pk_test_…` in this local build), the Sentry DSN, the MapTiler key and the EAS project id. No `sentry.properties` or env file is tracked.
+- **Cloudinary ownership**: listing photo upload and delete are owner-checked, and a photo of another listing named through your own is 404. Handoff uploads check the booking's party before anything reaches Cloudinary, under a `booking_<id>_` public id. Avatars overwrite only `avatars/avatar_<own id>`. Upload parameters are built on the server, which keeps the `cloudinary` 1.x argument-injection advisory out of reach.
+- Login lockout across IPs (handoff i) stays deliberate.
+
+### Needs owner action
+
+1. **Rotate everything in `51d53af:backend/env`** (finding 1): deactivate that AWS access key in IAM; regenerate the Cloudinary API secret; roll the Stripe test secret key and the test webhook signing secret (the local `.env` still uses the leaked one); make sure the production `JWT_SECRET` and database password aren't the ones in that file. Treat the repository as public when deciding what else that file exposed.
+2. **Before deploying this branch**: confirm `JWT_SECRET` in Railway is at least 32 characters, or the new deploy refuses to start (Railway keeps the old one serving).
+3. **On the first cleanup run after deploy**, unverified accounts older than 24 h with no activity are deleted. Preview the count (read-only):
+
+```sql
+SELECT count(*) FROM users u
+WHERE u."verificationStatus" <> 'VERIFIED' AND u.role = 'USER' AND u."deletedAt" IS NULL
+  AND u."createdAt" < now() - interval '24 hours'
+  AND NOT EXISTS (SELECT 1 FROM listings l WHERE l."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b."renterId" = u.id OR b."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c."renterId" = u.id OR c."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM messages m WHERE m."senderId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r."reviewerId" = u.id OR r."revieweeId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM disputes d WHERE d."raisedByUserId" = u.id OR d."resolvedByAdminId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM reports p WHERE p."reporterId" = u.id OR p."reviewedByAdminId" = u.id);
+```
+
+The App Review account (`reviewer@zoink.app`) is seeded VERIFIED and is never touched.
+
+### Needs product decision
+
+1. **A listing that anyone has messaged about or booked can't be deleted.** `Conversation.listing` and `Booking.listing` restrict deletion, so `DELETE /listings/:id` answers 500 and the app says "Could not delete listing." (reproduced against the test database). Bookings must be kept 7 years, and privacy.md §7 promises a deleted listing and its photos are deleted immediately. Options: soft-delete (hide it, delete its photos and address, keep the row for the records), or block deletion with a readable message and offer "unlist" instead. Either way privacy.md should match.
+2. **Strict unknown fields vs. old app builds.** Builds from before 2026-09-07 send `insuranceOptIn` on booking requests and now get 400. If any such build is still in use, the field can be accepted and ignored.
+
+### Found, not fixed (later)
+
+- Tokens can't be revoked before their 30 days (handoff h). Proposed: a `tokenVersion` column (additive, default 0), checked per request, bumped on sign-out-everywhere and role change.
+- Soft-deleted accounts are never purged; privacy.md §7 says within 30 days.
+- `cloudinary` 1.41.3 → 2.x and the Expo/React Native/Metro tooling advisories need major upgrades (below).
+- Phone numbers in free text are only redacted in the stored `+1XXXXXXXXXX` form.
+- Rate limits are in memory per instance (documented in `rateLimiter.ts`); the per-address code cap is in the database.
+
+### npm audit (production dependencies)
+
+| | Before | After |
+|---|---|---|
+| critical | 2 (`proxy-addr`, `shell-quote`) | 0 |
+| high | 38 | 27 |
+| moderate | 21 | 16 |
+
+`npm audit fix` (no `--force`), lockfile only: `axios` 1.18.1 → 1.20.0 (shipped in the app), `@react-navigation/core` 7.21.13 → 7.24.0 (drops the vulnerable `query-string`), `proxy-addr` 2.0.8, `qs` 6.16.1, `fast-uri` 3.1.8, `undici` 6.29.1, Prisma CLI 7.10.1 with `deepmerge-ts`/`mysql2`, `shell-quote`, `@xmldom/xmldom`, `brace-expansion`, `compression`, `source-map-js`, `ip-address`. What's left needs a major version: `cloudinary` 2.x (not reachable, see above), and everything in the Expo 54 / React Native 0.81 / Metro / Jest tool chain, where npm's suggested "fix" is a downgrade to Expo 44 or React Native 0.86. Those run at build time, not in the shipped app.
+
+### Migration check (Phase 2)
+
+One migration: `20261018120000_verification_email_sends`, a new table and index. Additive; touches no existing row, so it can't fail on production data. The data-changing step is the cleanup job's first run (see "Needs owner action" 3).
+
+### Tests after Phase 2
+
+| Suite | After Phase 1 | After Phase 2 |
+|---|---|---|
+| `@zoink/shared` | 16 | 19 (redaction) |
+| backend unit | 221 | 232 |
+| backend integration | 345 (340 pass, 3 skipped, 2 failed then fixed) | **555: 552 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 874 s, after the dependency updates |
+| frontend unit | 3 (7 with the stash) | 10 (session token, Sentry scrubbing) |
+
+New integration suites: `authorization` (155), `pushTokens` (12), `otpSendLimits` (11), `unverifiedAccounts` (12), `cloudinaryCleanup` (7); `inputValidation` now 14, `userRateLimits` 9, `emailNormalization` 6. Typecheck (backend, frontend) passes.
+
+The first full run (before the dependency updates) had one failure: the lifecycle test still sending the retired `insuranceOptIn`, fixed in `e321b37`. Separately, `authorization` was run 38 more times; 2 runs failed one request each. The first one's output wasn't kept. The second was an `HPE_INVALID_CONSTANT` parse error whose raw reply was `{"type":"Tier1","version":"1.0"}`, not anything this API sends: another process on this Mac answered on the test server's loopback connection. The same class as Phase 1's Cisco ISE packet. An environment flake, not a product bug.
+
+**Smoke test after the dependency updates** (Release build, iOS simulator, bench API): sign in, Home with photos, a listing, Message (opens the conversation through the new cap and unknown-field check), send a message, Profile with payouts, an invalid profile phone (the app shows "Enter a valid 10-digit Canadian phone number…" and nothing is saved), sign out.
+
+### Commits
+
+`3b8d165` `3ba635b` `ca7096d` `4faaa6e` `1343f03` `5cab41c` `dacedda` `8b0277e` `e321b37` `2142580` `b3cf28d` `787155a` `a9cc821` `168eff0` `cff20e0` `206fbe5`, plus these docs. Nothing pushed.
+
+---
+
+## Where to pick up (Phase 3 onward)
+
+Phase 2 is done; its summary is in `hardening-report.md`. Before deploying, the owner actions above (rotation, `JWT_SECRET` length, the unverified-account preview).
+
+Next phases, from the brief: backend performance (pagination, payload trimming: `/bookings/requests` is 1.2 MB in the bench), frontend performance (data layer, images, fonts: 8.4 MB of unused Fira weights is the cheapest big win), reliability/UX polish (raw server errors in the UI, the login email autocorrect, the splash flash), accessibility, and the `verify` script and E2E. The bench (`backend/src/scripts/bench/run.ts`) and the perf marks are in place to measure each step against the Phase 0 numbers.
+
+Simulator tooling for later checks: `idb` (Homebrew `facebook/fb/idb-companion`, plus `pip install fb-idb` in a venv; this session's venv was in a scratch folder) drives taps and typing without the desktop; a Release build pointed at `http://localhost:3000` (`EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_DEMO_MODE=false`) against `PORT=3000 npx ts-node src/scripts/bench/serve.ts` (`.env.test` sets 3001).

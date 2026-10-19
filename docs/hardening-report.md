@@ -76,4 +76,53 @@ Shared: 16 (money, contract limits, the 700,000-quote property test, dates acros
 
 ## Phase 2: security
 
-Not started in this session; handed to a separate terminal session on 2026-10-18. Findings gathered before the handoff and the work already started (in `git stash`) are listed under "Where to pick up" in the log.
+### What was wrong
+
+Twenty findings: one S1, seven S2, twelve S3, plus the npm audit.
+
+- **Credentials are in the public git history (S1, needs the owner).** A file named `backend/env` was committed on 2026-06-01 and deleted the same day. It holds the database URL, the JWT secret, an AWS key pair, the Cloudinary secret, a Stripe test secret key and a webhook signing secret, and the GitHub repository is public. Most of those values differ from today's local ones, but the webhook signing secret is still in use locally, and production's values weren't checked from here. Rotation is the only fix.
+- **Phones could get someone else's notifications.** When a session ended without a sign-out, the phone's push token stayed on the old account, so the next person to sign in on that phone got both accounts' notifications, message previews included.
+- **Expired or deleted sessions left the app stuck** "signed in", with every screen failing.
+- **Anyone could lock a student out of signing up** by registering their university email first: the address stayed taken and unverified accounts were never cleaned up. And with no daily limit on codes, guessing through to someone else's email took about two months.
+- **Personal data reached logs and Sentry.** A Prisma validation error prints the failed call's arguments (email, password hash, name), in logs, in Sentry and in the booking history admins read. SES and Expo errors put addresses and push tokens in the logs, and the app's Sentry setup had no scrubbing at all.
+- **Deleted photos stayed public.** Deleting a listing, or an account, left the photos on Cloudinary at their URLs, against what the privacy policy promises.
+- **Smaller gaps.** Booking responses gave each party the other's Stripe ids. Unknown request fields were silently dropped. The API took limits only the app enforced (past start dates, free-text phone numbers, unbounded passwords and search terms). The verification email put the typed name into HTML unescaped. The routes that call Stripe or post to everyone had no per-user cap. The JWT secret's length was never checked.
+
+### What changed
+
+- The app signs out to Login with a one-line notice when the server ends the session, and drops an expired session at launch. Checked on the iOS simulator for expiry and deletion, both mid-use and at launch.
+- A phone's push token is on one account at a time: signing in takes it off any other account, and signing out, a session ended by the server, or an expired session at launch all release it. Checked on the simulator.
+- Verification codes: at most 10 a day per email address and 50 a day per network, one resend a minute, six digits, still 5 guesses a code. Guessing is now capped at 50 a day.
+- Each booking party sees only their own Stripe ids. Unknown fields are a 400 that names them. The API now enforces what the app always did. The name in the email is escaped.
+- Logs, Sentry (server and app) and stored error messages drop credentials, emails, push tokens, JWTs, phone numbers and Prisma call arguments, by one shared set of rules.
+- Deleted listings' photos and deleted accounts' profile photos are removed from Cloudinary; only this app's own uploads are ever deleted.
+- Per-user caps: Stripe calls 30 an hour, payout status 120 an hour, new listings 20 a day, opening conversations 60 an hour.
+- Production refuses to start with a JWT secret under 32 characters.
+- npm audit's non-major fixes: production advisories from 61 (2 critical) to 43 (none critical).
+
+### Owner decision, applied
+
+| Open question | Decision | Result |
+|---|---|---|
+| Unverified sign-ups block the real student | An account isn't active until its code is verified; a new sign-up replaces an unverified one; unverified accounts older than 24 h are deleted | Before verifying, an account can only verify, read or delete itself. A new sign-up replaces it as a new account with a new id, so the earlier sign-up's session can't reach the verified account. The 15-minute job deletes unverified accounts after 24 h; it is idempotent and only ever deletes an account with no activity at all |
+
+### Before deploying
+
+1. **Rotate every credential in that committed file** (AWS key, Cloudinary secret, Stripe test key and webhook secret, and make sure production's JWT secret and database password aren't the leaked ones).
+2. **Check the JWT secret in Railway is at least 32 characters**, or the deploy won't start. Railway keeps the old deployment serving if it doesn't.
+3. **The first cleanup run deletes existing unverified accounts older than 24 h** that never did anything. The log has a read-only query to count them first. The App Review account is verified and isn't affected.
+
+### Needs a decision
+
+- **A listing anyone has messaged about or booked can't be deleted**: the API answers 500 and the app says "Could not delete listing." Bookings must be kept 7 years, while the privacy policy promises deleted listings go immediately. Options: hide it and delete its photos and address while keeping the record, or offer "unlist" with a clear message.
+- **Strict unknown fields vs. old app builds**: builds from before 2026-09-07 send a retired field on booking requests and would now be refused.
+
+Still open: tokens can't be revoked before their 30 days; soft-deleted accounts are never purged (the privacy policy says within 30 days); `cloudinary` 2.x and the Expo/React Native tooling advisories need major upgrades.
+
+### Migrations
+
+One, additive: a new `verification_email_sends` table for the per-address code cap. It touches no existing row, so it can't fail on production data. The data-changing step is the cleanup job's first run (above).
+
+### Tests
+
+Shared 19, backend unit 232, frontend 10. Backend integration **555: 552 pass, 3 skipped on purpose (cancellation fees), 0 fail**, after the dependency updates. New suites cover who can reach what on every route (155), push tokens, code send limits, unverified accounts and Cloudinary cleanup. Both typechecks pass, and a Release build was smoke-tested on the iOS simulator.
