@@ -1038,9 +1038,14 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
     // longer be honored — auto-decline it rather than leaving it to fail
     // later when someone tries to accept it. These do NOT revive if the
     // just-accepted booking is later cancelled (see handleCancellationPayment).
-    const autoRejected: { id: string; renterId: string }[] = []
+    let autoRejected: { id: string; renterId: string }[] = []
     if (nextStatus === 'ACCEPTED') {
-      const overlapping = await tx.booking.findMany({
+      // One UPDATE for all of them. A row is declined only if it is still
+      // PENDING when the update reaches it (Postgres re-checks the WHERE on
+      // the latest row version): one the renter just cancelled, or another
+      // accept already moved, is left alone instead of being overwritten
+      // with an illegal ->DECLINED transition.
+      autoRejected = await tx.booking.updateManyAndReturn({
         where: {
           listingId: booking.listingId,
           id: { not: booking.id },
@@ -1048,19 +1053,9 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
           startDate: { lte: booking.endDate },
           endDate: { gte: booking.startDate },
         },
+        data: { status: 'DECLINED', version: { increment: 1 } },
         select: { id: true, renterId: true },
       })
-
-      // Each one is declined only if it is still PENDING: one the renter
-      // just cancelled (or another accept already moved) is left alone
-      // instead of being overwritten with an illegal ->DECLINED transition.
-      for (const candidate of overlapping) {
-        const declined = await tx.booking.updateMany({
-          where: { id: candidate.id, status: 'PENDING' },
-          data: { status: 'DECLINED', version: { increment: 1 } },
-        })
-        if (declined.count === 1) autoRejected.push(candidate)
-      }
 
       if (autoRejected.length > 0) {
         await tx.bookingEvent.createMany({
