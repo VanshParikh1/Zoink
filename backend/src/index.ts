@@ -24,6 +24,7 @@ import './instrument'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import compression from 'compression'
 import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
@@ -65,6 +66,10 @@ app.use(helmet())
 // The API only serves the native app, which isn't subject to CORS, so no
 // browser origin is granted access (this used to answer every origin with *).
 app.use(cors({ origin: false }))
+// gzip (or brotli, if the client asks) for any response over 1 KB: list
+// pages and listing JSON shrink 70-85%. The ETag Express adds is computed on
+// the uncompressed body, so revalidation still answers 304.
+app.use(compression())
 // Stripe webhook is authenticated via signature, not by rate limit — keep it
 // exempt so a burst of legitimate webhook deliveries/retries never gets
 // dropped by the blanket limiter below.
