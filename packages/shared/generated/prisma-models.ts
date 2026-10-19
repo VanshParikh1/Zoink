@@ -102,6 +102,7 @@ export interface Listing {
   city: string;
   address: string | null;
   ownerId: string;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
   bookings?: Booking[];

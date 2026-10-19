@@ -288,13 +288,12 @@ export async function releaseDueDeposits() {
 // what a DB sweep can safely touch:
 //   - Error/diagnostic log retention (90 days) is a Sentry project setting,
 //     not application code — set it in the Sentry dashboard.
-//   - Listing hard-deletion is immediate today (listingService.deleteListing
-//     calls prisma.listing.delete directly), which already satisfies "gone
-//     within 90 days" — trivially, since it's gone within zero. The 90-day
-//     figure in privacy.md was written assuming a soft-delete grace period
-//     that was never built; if that's ever added (e.g. to preserve evidence
-//     for a dispute filed just after a listing is pulled), it needs a
-//     deletedAt column on Listing and its own purge sweep here.
+//   - Listing deletion: a listing nobody messaged about or booked is deleted
+//     at once (listingService.deleteListing). One with history is
+//     soft-deleted (deletedAt, photos removed) and kept for its bookings and
+//     chats; nothing here purges those rows yet. A purge would have to wait
+//     until the listing's last booking and message are past their own
+//     retention periods below.
 // See legal/OPEN-ITEMS.md, section C ("Retention periods").
 
 const RETENTION_MESSAGES_MONTHS = 24

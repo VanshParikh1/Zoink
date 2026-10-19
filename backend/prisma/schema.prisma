@@ -120,6 +120,12 @@ model Listing {
   // (paid), are the only people it is returned to.
   address       String?
   ownerId       String
+  // Set when the owner deletes a listing someone has messaged about or
+  // booked: those rows reference it (bookings are kept 7 years), so it stays
+  // for the record, hidden everywhere, with its photos deleted. Bookings and
+  // chats keep showing its title and price. A listing with no history is
+  // deleted outright. See listingService.deleteListing.
+  deletedAt     DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   bookings      Booking[]

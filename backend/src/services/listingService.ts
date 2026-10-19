@@ -1,8 +1,8 @@
 import prisma from '../utils/prisma'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
-import { Prisma } from '@prisma/client'
+import { BookingStatus, Prisma } from '@prisma/client'
 import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
-import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
 
 // ── Prohibited items (terms.md §6) ───────────────────────────────────────────
@@ -206,7 +206,7 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
 
 export async function getListingById(id: string, viewerId?: string): Promise<ListingResponse> {
   const listing = await prisma.listing.findUnique({
-    where: { id },
+    where: { id, deletedAt: null },
     select: listingSelect,
   })
   if (!listing) throw new NotFoundError('Listing not found.')
@@ -221,7 +221,7 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
 
 export async function getMyListings(ownerId: string): Promise<ListingResponse[]> {
   const listings = await prisma.listing.findMany({
-    where: { ownerId },
+    where: { ownerId, deletedAt: null },
     select: listingListSelect,
   })
 
@@ -273,7 +273,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
   const offset = Math.max(input.offset ?? 0, 0)
   const hasLocation = latitude != null && longitude != null
 
-  const whereClauses: Prisma.Sql[] = []
+  const whereClauses: Prisma.Sql[] = [Prisma.sql`l."deletedAt" IS NULL`]
 
   if (!includeUnavailable) {
     whereClauses.push(Prisma.sql`l."isAvailable" = true`)
@@ -311,9 +311,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     )
   }
 
-  const whereSql = whereClauses.length
-    ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`
-    : Prisma.empty
+  const whereSql = Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`
 
   const distanceSql = hasLocation
     ? buildDistanceSql(latitude as number, longitude as number)
@@ -402,7 +400,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
 
 export async function getListingCategories() {
   const rows = await prisma.listing.findMany({
-    where: { isAvailable: true },
+    where: { isAvailable: true, deletedAt: null },
     distinct: ['category'],
     select: { category: true },
     orderBy: { category: 'asc' },
@@ -432,7 +430,7 @@ export async function updateListing(
   data: UpdateListingInput
 ): Promise<ListingResponse> {
   // Verify ownership first
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
+  const existing = await prisma.listing.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
@@ -462,7 +460,7 @@ export async function updateListing(
 // ── Toggle availability ───────────────────────────────────────────────────────
 
 export async function setAvailability(id: string, ownerId: string, isAvailable: boolean) {
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
+  const existing = await prisma.listing.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
@@ -475,18 +473,55 @@ export async function setAvailability(id: string, ownerId: string, isAvailable: 
 
 // ── Delete listing ────────────────────────────────────────────────────────────
 
-// Returns the deleted listing's photo URLs: privacy.md §7 says a deleted
-// listing's photos go with it, and the files live on Cloudinary.
-export async function deleteListing(id: string, ownerId: string): Promise<string[]> {
-  const existing = await prisma.listing.findUnique({
-    where: { id },
-    select: { ownerId: true, images: { select: { url: true } } },
-  })
-  if (!existing) throw new NotFoundError('Listing not found.')
-  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+// A booking in one of these is still owed something (an answer, the item, the
+// return), so its listing can't be deleted yet.
+const OPEN_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACCEPTED,
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+]
 
-  await prisma.listing.delete({ where: { id } })
-  return existing.images.map((image) => image.url)
+// A listing nobody has messaged about or booked is deleted outright. One with
+// history can't be (its bookings and conversations reference it, and bookings
+// are kept 7 years), so it is soft-deleted: hidden from browse, search and the
+// owner's list, closed to new bookings, edits and messages, its photo rows
+// gone. Bookings and chats keep its title and price. Returns the photo URLs
+// for the caller to delete from Cloudinary (privacy.md §7).
+export async function deleteListing(id: string, ownerId: string): Promise<string[]> {
+  return prisma.$transaction(async (tx) => {
+    // createBooking takes a share lock on the listing before it inserts, so a
+    // request can't land between the open-booking check and the delete.
+    const [listing] = await tx.$queryRaw<{ ownerId: string; deletedAt: Date | null }[]>`
+      SELECT "ownerId", "deletedAt" FROM listings WHERE id = ${id} FOR UPDATE
+    `
+    if (!listing || (listing.deletedAt && listing.ownerId !== ownerId)) throw new NotFoundError('Listing not found.')
+    if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+    // Already deleted: a retry after a lost response.
+    if (listing.deletedAt) return []
+
+    const openBookings = await tx.booking.count({ where: { listingId: id, status: { in: OPEN_BOOKING_STATUSES } } })
+    if (openBookings > 0) {
+      throw new ConflictError(
+        'This listing has a booking that isn\'t finished yet. Decline or cancel it, or complete the rental, then delete the listing.'
+      )
+    }
+
+    const { images, _count } = await tx.listing.findUniqueOrThrow({
+      where: { id },
+      select: { images: { select: { url: true } }, _count: { select: { bookings: true, conversations: true } } },
+    })
+
+    if (_count.bookings === 0 && _count.conversations === 0) {
+      await tx.listing.delete({ where: { id } })
+    } else {
+      await tx.listingImage.deleteMany({ where: { listingId: id } })
+      await tx.listing.update({ where: { id }, data: { deletedAt: new Date(), isAvailable: false } })
+    }
+    return images.map((image) => image.url)
+  })
 }
 
 // ── Add image to listing ──────────────────────────────────────────────────────
@@ -500,7 +535,7 @@ export const MAX_LISTING_IMAGES = LISTING_PHOTOS_MAX
 // can't collect an unbounded number of photos.
 export async function assertCanAddListingImage(listingId: string, ownerId: string) {
   const listing = await prisma.listing.findUnique({
-    where: { id: listingId },
+    where: { id: listingId, deletedAt: null },
     select: { ownerId: true, _count: { select: { images: true } } },
   })
   if (!listing) throw new NotFoundError('Listing not found.')
@@ -516,7 +551,7 @@ export async function addListingImage(
   url: string
 ) {
   const existing = await prisma.listing.findUnique({
-    where: { id: listingId },
+    where: { id: listingId, deletedAt: null },
     select: { ownerId: true, images: { select: { order: true }, orderBy: { order: 'desc' }, take: 1 } },
   })
   if (!existing) throw new NotFoundError('Listing not found.')
@@ -538,7 +573,7 @@ export async function deleteListingImage(
   ownerId: string
 ) {
   // Verify listing ownership
-  const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { ownerId: true } })
+  const listing = await prisma.listing.findUnique({ where: { id: listingId, deletedAt: null }, select: { ownerId: true } })
   if (!listing) throw new NotFoundError('Listing not found.')
   if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 

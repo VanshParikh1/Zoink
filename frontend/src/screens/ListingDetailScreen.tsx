@@ -112,8 +112,8 @@ export default function ListingDetailScreen() {
             try {
               await deleteListing(listingId)
               nav.navigate('MyListings')
-            } catch {
-              Alert.alert('Error', 'Could not delete listing.')
+            } catch (err: any) {
+              Alert.alert('Error', err?.response?.data?.error ?? 'Could not delete listing.')
             }
           },
         },

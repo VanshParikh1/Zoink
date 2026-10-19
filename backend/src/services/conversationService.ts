@@ -185,7 +185,7 @@ async function getConversationForParticipant(conversationId: string, userId: str
 
 export async function openConversation(currentUserId: string, listingId: string): Promise<ConversationResponse> {
   const listing = await prisma.listing.findUnique({
-    where: { id: listingId },
+    where: { id: listingId, deletedAt: null },
     select: {
       id: true,
       ownerId: true,

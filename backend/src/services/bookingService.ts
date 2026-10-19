@@ -397,7 +397,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   }
 
   const listing = await prisma.listing.findUnique({
-    where: { id: input.listingId },
+    where: { id: input.listingId, deletedAt: null },
     select: {
       id: true,
       ownerId: true,
@@ -452,6 +452,14 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
   const trimmedMessage = input.message?.trim() || null
 
   const booking: any = await prisma.$transaction(async (tx) => {
+    // Held until commit: listingService.deleteListing locks the row FOR UPDATE
+    // and refuses while a booking is open, so a request either lands before a
+    // delete (which then refuses) or sees the listing gone.
+    const [stillListed] = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM listings WHERE id = ${listing.id} AND "deletedAt" IS NULL FOR KEY SHARE
+    `
+    if (!stillListed) throw new NotFoundError('Listing not found.')
+
     const conversation = await tx.conversation.upsert({
       where: {
         listingId_renterId: {
