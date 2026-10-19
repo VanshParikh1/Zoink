@@ -12,6 +12,7 @@ import {
   BrowseListingsQuerySchema,
   ListingIdParamsSchema,
   ListingImageParamsSchema,
+  MyListingsQuerySchema,
 } from '../schemas/listing.schema'
 import {
   browseListings,
@@ -40,7 +41,7 @@ const upload = multer({
   },
 })
 
-router.get('/me', requireAuth, requireVerified, getMyListings)
+router.get('/me', requireAuth, requireVerified, validate(MyListingsQuerySchema), getMyListings)
 router.get('/', requireAuth, requireVerified, validate(BrowseListingsQuerySchema), browseListings)
 router.get('/categories', requireAuth, requireVerified, getListingCategories)
 router.get('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), getListing)

@@ -1,9 +1,11 @@
 import prisma from '../utils/prisma'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { BookingStatus, Prisma } from '@prisma/client'
-import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
+import type { BrowseListingsResult, ListingResponse, MyListingItem, Page } from '@zoink/shared'
+import { z } from 'zod'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
+import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
 
 // ── Prohibited items (terms.md §6) ───────────────────────────────────────────
 // A blunt keyword heuristic, not a moderation system — it exists to catch the
@@ -219,10 +221,13 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
 
 // ── Get my listings ───────────────────────────────────────────────────────────
 
+// Unpaginated, for app builds from before pagination (no `limit`), capped.
 export async function getMyListings(ownerId: string): Promise<ListingResponse[]> {
   const listings = await prisma.listing.findMany({
     where: { ownerId, deletedAt: null },
     select: listingListSelect,
+    orderBy: { createdAt: 'desc' },
+    take: LEGACY_LIST_CAP,
   })
 
   if (listings.length === 0) return []
@@ -251,6 +256,79 @@ export async function getMyListings(ownerId: string): Promise<ListingResponse[]>
   })
 
   return sorted.map((listing) => toListingResponse(listing, ownerId))
+}
+
+// Mid-rental: the grid shows "Rented out" and opens the rental instead.
+const RENTED_OUT_STATUSES: BookingStatus[] = [BookingStatus.PICKUP_PENDING, BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING]
+const myListingsCursor = z.tuple([z.number().int(), z.string().max(64)])
+
+type MyListingRow = {
+  id: string
+  activityMs: bigint
+  title: string
+  category: string
+  dailyPrice: Prisma.Decimal
+  depositAmount: Prisma.Decimal
+  isAvailable: boolean
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+  activeBookingId: string | null
+}
+
+/** GET /listings/me with `limit`: the same most-recent-activity order as
+ *  getMyListings, one page in one statement, each listing with its first
+ *  photo and the booking it is rented out on, if any. */
+export async function listMyListingsPage(ownerId: string, params: PageParams): Promise<Page<MyListingItem>> {
+  const size = pageSize(params)
+  const before = params.cursor ? decodeCursor(params.cursor, myListingsCursor) : null
+  const rentedOut = Prisma.join(RENTED_OUT_STATUSES.map((status) => Prisma.sql`${status}::"BookingStatus"`))
+
+  const rows = await prisma.$queryRaw<MyListingRow[]>`
+    SELECT p.id, p."activityMs", l.title, l.category, l."dailyPrice", l."depositAmount", l."isAvailable",
+           img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder",
+           rented.id AS "activeBookingId"
+    FROM (
+      SELECT id, "activityMs" FROM (
+        SELECT l.id,
+               FLOOR(EXTRACT(EPOCH FROM COALESCE(
+                 (SELECT MAX(b."updatedAt") FROM bookings b WHERE b."listingId" = l.id),
+                 l."createdAt"
+               )) * 1000)::bigint AS "activityMs"
+        FROM listings l
+        WHERE l."ownerId" = ${ownerId} AND l."deletedAt" IS NULL
+      ) keyed
+      ${before ? Prisma.sql`WHERE ("activityMs", id) < (${before[0]}::bigint, ${before[1]}::text)` : Prisma.empty}
+      ORDER BY "activityMs" DESC, id DESC
+      LIMIT ${size + 1}
+    ) p
+    JOIN listings l ON l.id = p.id
+    LEFT JOIN LATERAL (
+      SELECT i.id, i.url, i."order" FROM listing_images i
+      WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+    ) img ON true
+    LEFT JOIN LATERAL (
+      SELECT b.id FROM bookings b
+      WHERE b."listingId" = l.id AND b.status IN (${rentedOut})
+      ORDER BY b."updatedAt" DESC LIMIT 1
+    ) rented ON true
+    ORDER BY p."activityMs" DESC, p.id DESC
+  `
+
+  const page = splitPage(rows, size, (row) => [Number(row.activityMs), row.id])
+  return {
+    items: page.items.map((row) => ({
+      id: row.id,
+      title: row.title,
+      category: row.category,
+      dailyPrice: row.dailyPrice.toString(),
+      depositAmount: row.depositAmount.toString(),
+      isAvailable: row.isAvailable,
+      images: row.imageId ? [{ id: row.imageId, url: row.imageUrl!, order: row.imageOrder! }] : [],
+      activeBookingId: row.activeBookingId,
+    })),
+    nextCursor: page.nextCursor,
+  }
 }
 
 // ── Browse/search listings ────────────────────────────────────────────────────

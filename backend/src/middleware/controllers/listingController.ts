@@ -3,6 +3,7 @@ import multer from 'multer'
 import * as listingService from '../../services/listingService'
 import * as cloudinary from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
+import { isPaged, type PageParams } from '../../utils/pagination'
 
 // ── POST /listings ────────────────────────────────────────────────────────────
 
@@ -81,6 +82,8 @@ export const getListing = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMyListings = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId
+  const params = req.query as PageParams
+  if (isPaged(params)) return res.json(await listingService.listMyListingsPage(ownerId, params))
   const listings = await listingService.getMyListings(ownerId)
   return res.json(listings)
 })

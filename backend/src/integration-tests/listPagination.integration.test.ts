@@ -193,3 +193,47 @@ describe('booking lists (GET /bookings/requests, GET /bookings/me)', () => {
     }
   })
 })
+
+describe("the owner's listings (GET /listings/me)", () => {
+  test('every listing once, most recent booking activity first, with the booking it is rented out on', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 7; i++) ids.push((await createTestListing(owner.id, { title: `Mine ${i}` })).id)
+    // Activity: a booking's updatedAt; a listing without bookings counts from its creation.
+    const rented = await booking(ids[2], 'ACTIVE', 0)
+    await getTestPrisma().booking.update({ where: { id: rented.id }, data: { updatedAt: new Date(Date.now() + 60_000) } })
+    const older = await booking(ids[5], 'COMPLETED', -10)
+    await getTestPrisma().booking.update({ where: { id: older.id }, data: { updatedAt: new Date(Date.now() + 30_000) } })
+    const deleted = (await createTestListing(owner.id, { title: 'Gone' })).id
+    await getTestPrisma().listing.update({ where: { id: deleted }, data: { deletedAt: new Date() } })
+    await createTestListing(stranger.id, { title: 'Not mine' })
+
+    const { items } = await walk<any>(owner.token, '/listings/me', 3)
+
+    const created = await getTestPrisma().listing.findMany({ where: { id: { in: ids } }, select: { id: true, createdAt: true } })
+    const byCreation = [...created].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1))
+    const expected = [ids[2], ids[5], ...byCreation.map((row) => row.id).filter((id) => id !== ids[2] && id !== ids[5])]
+    assert.deepEqual(items.map((item) => item.id), expected)
+    assert.equal(items.find((item) => item.id === ids[2]).activeBookingId, rented.id)
+    assert.equal(items.find((item) => item.id === ids[5]).activeBookingId, null)
+    assert.deepEqual(Object.keys(items[0]).sort(), ['activeBookingId', 'category', 'dailyPrice', 'depositAmount', 'id', 'images', 'isAvailable', 'title'])
+  })
+
+  test(`without limit, the original list, capped at ${LEGACY_LIST_CAP}`, async () => {
+    await getTestPrisma().listing.createMany({
+      data: Array.from({ length: LEGACY_LIST_CAP + 3 }, (_, i) => ({
+        title: `Bulk ${i}`,
+        description: 'Bulk',
+        category: 'Tools',
+        dailyPrice: new Prisma.Decimal(5),
+        latitude: 43.66,
+        longitude: -79.39,
+        city: 'Toronto',
+        ownerId: owner.id,
+      })),
+    })
+    const res = await get(owner.token, '/listings/me')
+    assert.ok(Array.isArray(res.body))
+    assert.equal(res.body.length, LEGACY_LIST_CAP)
+    assert.ok('description' in res.body[0] && 'owner' in res.body[0], 'still the full listing shape')
+  })
+})

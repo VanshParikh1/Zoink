@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pageQuery } from '../utils/pagination'
 
 /**
  * Listing-domain request schemas.
@@ -183,4 +184,11 @@ export const ListingIdParamsSchema = z.object({
 
 export const ListingImageParamsSchema = z.object({
   params: z.object({ id: listingId, imageId }),
+})
+
+// ── GET /listings/me ──────────────────────────────────────────────────────────
+// `limit` (or `cursor`) asks for a page; without either, the original list (capped).
+
+export const MyListingsQuerySchema = z.object({
+  query: z.object({ ...pageQuery }),
 })
