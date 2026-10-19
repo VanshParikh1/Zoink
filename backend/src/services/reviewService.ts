@@ -1,6 +1,7 @@
 import { Prisma, ReviewRole, ReviewObligationStatus } from '@prisma/client'
 import type { PendingReviewResponse, SubmitReviewResult } from '@zoink/shared'
 import prisma from '../utils/prisma'
+import { createdAtOrder, LEGACY_LIST_CAP } from '../utils/pagination'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 
@@ -177,7 +178,9 @@ function resolveReviewFields(reviewerRole: ReviewRole, input: SubmitReviewInput)
   }
 }
 
-export async function getPendingReviews(userId: string): Promise<PendingReviewResponse[]> {
+// Oldest first. The app only ever opens the first one (limit=1); without a
+// limit, capped like every other unpaginated list.
+export async function getPendingReviews(userId: string, limit = LEGACY_LIST_CAP): Promise<PendingReviewResponse[]> {
   const obligations = await prisma.reviewObligation.findMany({
     where: {
       userId,
@@ -228,7 +231,8 @@ export async function getPendingReviews(userId: string): Promise<PendingReviewRe
         },
       },
     } as any,
-    orderBy: { createdAt: 'asc' },
+    orderBy: createdAtOrder('asc'),
+    take: limit,
   })
 
   return obligations.map((obligation: any) => {

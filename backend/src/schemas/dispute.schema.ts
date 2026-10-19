@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pageQuery } from '../utils/pagination'
 
 export const CreateDisputeSchema = z.object({
   body: z.object({
@@ -31,14 +32,18 @@ export const DisputeIdParamsSchema = z.object({
   }),
 })
 
+// `limit` (or `cursor`) asks for a page; without either, the original list (capped).
 export const AdminListDisputesQuerySchema = z.object({
   query: z.object({
     status: z.enum(['OPEN', 'UNDER_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED']).optional(),
+    ...pageQuery,
   }),
 })
 
 export const MyDisputesQuerySchema = z.object({
   query: z.object({
     status: z.enum(['OPEN', 'UNDER_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_NO_ACTION', 'DISMISSED']).optional(),
+    bookingId: z.string().uuid('bookingId must be a booking id.').optional(),
+    ...pageQuery,
   }),
 })

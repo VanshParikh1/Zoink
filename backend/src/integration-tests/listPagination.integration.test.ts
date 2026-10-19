@@ -407,3 +407,71 @@ describe('a long chat (GET /conversations/:id/messages)', () => {
     assert.equal((await get(renter.token, `/conversations/${conversationId}/messages?after=${ordered[1]}&before=${ordered[5]}`)).status, 400)
   })
 })
+
+describe('admin lists, the booking timeline, disputes and pending reviews', () => {
+  async function seedCases() {
+    const db = getTestPrisma()
+    const admin = await createTestUser({ firstName: 'Admin', role: 'ADMIN' })
+    const listing = (await createTestListing(owner.id)).id
+    const done = await booking(listing, 'COMPLETED', -5)
+    const other = await booking(listing, 'COMPLETED', -9)
+    const base = Date.now() - 600_000
+    for (let i = 0; i < 7; i++) {
+      await db.dispute.create({
+        data: {
+          bookingId: i < 5 ? done.id : other.id,
+          raisedByUserId: renter.id,
+          reason: 'OTHER',
+          description: `case ${i}`,
+          status: i % 2 ? 'OPEN' : 'DISMISSED',
+          createdAt: new Date(base + Math.floor(i / 2) * 1000),
+        },
+      })
+      await db.report.create({
+        data: { reporterId: renter.id, targetType: 'LISTING', targetId: listing, reason: 'SPAM', createdAt: new Date(base + Math.floor(i / 3) * 1000) },
+      })
+      await db.bookingEvent.create({
+        data: { bookingId: done.id, type: 'STATUS_CHANGE', metadata: { i }, createdAt: new Date(base + Math.floor(i / 2) * 1000) },
+      })
+    }
+    return { admin, done, other }
+  }
+
+  test('admin disputes and reports: pages equal the full list, newest first, filters kept', async () => {
+    const { admin } = await seedCases()
+    for (const path of ['/admin/disputes', '/admin/disputes?status=OPEN', '/admin/reports', '/admin/reports?status=OPEN']) {
+      const legacy = await get(admin.token, path)
+      const { items } = await walk<any>(admin.token, path, 2)
+      assert.ok(legacy.body.length > 0, path)
+      assert.deepEqual(items, legacy.body, path)
+    }
+  })
+
+  test('the booking timeline pages oldest first', async () => {
+    const { admin, done } = await seedCases()
+    const legacy = await get(admin.token, `/admin/bookings/${done.id}/events`)
+    const { items } = await walk<any>(admin.token, `/admin/bookings/${done.id}/events`, 3)
+    assert.equal(items.length, 7)
+    assert.deepEqual(items, legacy.body)
+  })
+
+  test("a booking screen gets only its booking's dispute; pending reviews can ask for the first only", async () => {
+    const { done, other } = await seedCases()
+    const forDone = await get(renter.token, `/disputes?bookingId=${done.id}`)
+    assert.equal(forDone.body.length, 5)
+    assert.ok(forDone.body.every((dispute: { bookingId: string }) => dispute.bookingId === done.id))
+    assert.equal((await get(renter.token, `/disputes?bookingId=${other.id}&status=OPEN`)).body.length, 1)
+    assert.equal((await walk<any>(renter.token, '/disputes', 3)).items.length, 7)
+
+    await getTestPrisma().reviewObligation.createMany({
+      data: [
+        { bookingId: other.id, userId: renter.id, targetUserId: owner.id, reviewerRole: 'RENTER', createdAt: new Date(Date.now() - 5000) },
+        { bookingId: done.id, userId: renter.id, targetUserId: owner.id, reviewerRole: 'RENTER' },
+      ],
+    })
+    const first = await get(renter.token, '/reviews/pending?limit=1')
+    assert.equal(first.body.length, 1)
+    assert.equal(first.body[0].bookingId, other.id, 'the oldest')
+    assert.equal((await get(renter.token, '/reviews/pending')).body.length, 2)
+  })
+})

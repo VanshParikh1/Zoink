@@ -5,26 +5,31 @@ import * as bookingEventService from '../../services/bookingEventService'
 import * as reportService from '../../services/reportService'
 import prisma from '../../utils/prisma'
 import { DisputeStatus, ReportStatus } from '@prisma/client'
+import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
 
 interface AuthenticatedRequest extends Request {
   userId?: string
   role?: string
 }
 
+// Newest first. With `limit` (or `cursor`): { items, nextCursor }; without,
+// the original array, capped.
 export const listDisputes = asyncHandler(async (req: Request, res: Response) => {
-  const { status } = req.query as { status?: DisputeStatus }
+  const { status, ...params } = req.query as { status?: DisputeStatus } & PageParams
+  const paged = isPaged(params)
+  const size = pageSize(params)
 
-  const where = status ? { status } : {}
   const disputes = await prisma.dispute.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
+    where: { ...(status ? { status } : {}), ...createdAtAfter(params.cursor, 'desc') },
+    orderBy: createdAtOrder('desc'),
+    take: paged ? size + 1 : LEGACY_LIST_CAP,
     include: {
       booking: { select: { id: true, status: true, totalPrice: true } },
       raisedByUser: { select: { id: true, email: true, firstName: true } }
     }
   })
 
-  res.json(disputes)
+  res.json(paged ? splitPage(disputes, size, createdAtKey) : disputes)
 })
 
 export const getDisputeDetail = asyncHandler(async (req: Request, res: Response) => {
@@ -81,25 +86,31 @@ export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res
 
 export const getBookingEvents = asyncHandler(async (req: Request, res: Response) => {
   const id = req.params.id as string
+  const params = req.query as PageParams
 
+  if (isPaged(params)) return res.json(await bookingEventService.listBookingEventsPage(id, params))
   const events = await bookingEventService.getBookingEvents(id)
   res.json(events)
 })
 
+// Newest first; paged like listDisputes.
 export const listReports = asyncHandler(async (req: Request, res: Response) => {
-  const { status } = req.query as { status?: ReportStatus }
+  const { status, ...params } = req.query as { status?: ReportStatus } & PageParams
+  const paged = isPaged(params)
+  const size = pageSize(params)
 
-  const where = status ? { status } : {}
   const reports = await prisma.report.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
+    where: { ...(status ? { status } : {}), ...createdAtAfter(params.cursor, 'desc') },
+    orderBy: createdAtOrder('desc'),
+    take: paged ? size + 1 : LEGACY_LIST_CAP,
     include: {
       reporter: { select: { id: true, email: true, firstName: true } }
     }
   })
 
-  const reportsWithLabels = await reportService.attachTargetLabels(reports)
-  res.json(reportsWithLabels)
+  if (!paged) return res.json(await reportService.attachTargetLabels(reports))
+  const page = splitPage(reports, size, createdAtKey)
+  res.json({ items: await reportService.attachTargetLabels(page.items), nextCursor: page.nextCursor })
 })
 
 export const resolveReport = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {

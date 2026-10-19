@@ -49,3 +49,24 @@ export function splitPage<T>(rows: T[], size: number, keyOf: (row: T) => readonl
   const last = items[items.length - 1]
   return { items, nextCursor: rows.length > size && last ? encodeCursor(keyOf(last)) : null }
 }
+
+// Most lists here are newest first by (createdAt, id); for those a Prisma
+// `where` does the keyset, no raw SQL needed.
+const createdAtCursor = z.tuple([z.string().datetime(), z.string().max(64)])
+
+export function createdAtKey(row: { createdAt: Date; id: string }): [string, string] {
+  return [row.createdAt.toISOString(), row.id]
+}
+
+/** Rows after the cursor in (createdAt, id) order, descending or ascending. */
+export function createdAtAfter(cursor: string | undefined, direction: 'desc' | 'asc') {
+  if (!cursor) return {}
+  const [at, id] = decodeCursor(cursor, createdAtCursor)
+  const createdAt = new Date(at)
+  const past = direction === 'desc' ? 'lt' : 'gt'
+  return { OR: [{ createdAt: { [past]: createdAt } }, { createdAt, id: { [past]: id } }] }
+}
+
+export function createdAtOrder(direction: 'desc' | 'asc') {
+  return [{ createdAt: direction }, { id: direction }]
+}

@@ -1,8 +1,9 @@
 import { Request, Response } from 'express'
-import { Prisma } from '@prisma/client'
+import { DisputeStatus, Prisma } from '@prisma/client'
 import { asyncHandler } from '../../utils/asyncHandler'
 import * as disputeService from '../../services/disputeService'
 import prisma from '../../utils/prisma'
+import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
 
 // Extend Request inline to keep TypeScript happy without using `any`
 interface AuthenticatedRequest extends Request {
@@ -121,16 +122,25 @@ export const getDispute = asyncHandler(async (req: AuthenticatedRequest, res: Re
 export const getMyDisputes = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId!
   const role = req.role
-  const status = req.query.status as string | undefined
+  const { status, bookingId, ...params } = req.query as { status?: DisputeStatus; bookingId?: string } & PageParams
+  const paged = isPaged(params)
+  const size = pageSize(params)
 
   const disputes = await prisma.dispute.findMany({
     where: {
       raisedByUserId: userId,
-      ...(status ? { status: status as any } : {})
+      ...(status ? { status } : {}),
+      // A booking screen asks for its own booking's dispute only.
+      ...(bookingId ? { bookingId } : {}),
+      ...createdAtAfter(params.cursor, 'desc'),
     },
     select: disputeSelect,
-    orderBy: { createdAt: 'desc' }
+    orderBy: createdAtOrder('desc'),
+    take: paged ? size + 1 : LEGACY_LIST_CAP,
   })
 
-  res.json(disputes.map((dispute) => toDisputeResponse(dispute, userId, role)))
+  const toResponse = (dispute: DisputeRow) => toDisputeResponse(dispute, userId, role)
+  if (!paged) return res.json(disputes.map(toResponse))
+  const page = splitPage(disputes, size, createdAtKey)
+  res.json({ items: page.items.map(toResponse), nextCursor: page.nextCursor })
 })

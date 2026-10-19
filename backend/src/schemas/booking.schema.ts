@@ -57,3 +57,11 @@ export const BookingIdParamsSchema = z.object({
 export const BookingListQuerySchema = z.object({
   query: z.object({ ...pageQuery }),
 })
+
+/** GET /admin/bookings/:id/events: the timeline, oldest first; `limit` pages it. */
+export const BookingEventsQuerySchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'Booking ID is required.'),
+  }),
+  query: z.object({ ...pageQuery }),
+})
