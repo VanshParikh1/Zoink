@@ -179,3 +179,86 @@ Two, both additive: `listings.deletedAt` (the soft-delete decision) and eight in
 Backend integration **592: 589 pass, 3 skipped on purpose (cancellation fees), 0 fail**; unit 232, shared 19, frontend 10; both typechecks pass. New suites walk every paged list page by page against the order its screen shows, and cover the listing soft-delete, compression, caching headers and the skipped-message bug.
 
 **Deploy order:** the backend first. Phase 4's app build uses the paged routes; the backend keeps answering older builds the old way.
+
+---
+
+## Phase 4: frontend performance
+
+### What was slow or heavy
+
+- **8.4 MB of fonts the app never uses** shipped in every install and every over-the-air update: all 21 Fira files, for 4 weights.
+- **The Home grid dropped frames while scrolling** (5 to 31 per fast fling), because the list built too many photo cards at once.
+- **No caching**: every screen refetched everything each time it appeared, and list screens loaded whole lists (Home only ever showed the first 20 listings).
+- **Every 15 seconds, all four main tabs re-rendered** because of the inbox poll, even when nothing had changed.
+- **The handoff screen polled every 3 seconds** for as long as it existed, including behind the camera and with the phone locked.
+- **Startup** showed a blank white screen and then a tan loading screen between the splash and the app. It also loaded payment and camera code that the first screen doesn't need, and waited for a fresh GPS fix before loading listings.
+
+### What changed
+
+- Only the four font weights in use ship. Assets went from 8.7 MB to 1.7 MB.
+- The Home grid builds a couple of rows at a time, and its cards don't re-render while it scrolls.
+- **Photos:**
+  - Photos load through Expo's image library, with a memory and disk cache.
+  - They are fetched as WebP, 4–39% smaller than JPEG.
+  - Tapping a listing starts downloading its main photo before the listing page asks for it.
+- **One shared cache** (React Query) for everything the app reads from the server:
+  - Screens show what they already have immediately and refresh it in the background.
+  - Every list loads more as you scroll, and pull-to-refresh returns to the first page.
+  - Changes such as accepting a request or editing a listing update every screen that shows them.
+  - The cache is cleared whenever the signed-in account changes.
+- The handoff screen polls only while it's on screen.
+- The tabs re-render only when their own data changes.
+- **Startup:**
+  - The splash stays up until the first screen is ready, then fades straight into it.
+  - Screens other than the first ones load the first time they're opened, and payments set up only on the Pay screen.
+  - The first-screen check starts earlier.
+  - Home uses a recent location instead of waiting for GPS.
+- **Bundle:** the new cache library would have made the app's code larger. That was offset by:
+  - replacing a large Node polyfill, used for five checks inside a notification library, with a five-line shim;
+  - replacing axios with a small built-in client with the same behaviour;
+  - removing an unused package.
+
+### Before and after (iOS simulator, Release builds)
+
+| | Before | After |
+|---|---|---|
+| JS bundle | 4.38 MB | **4.35 MB** (−29 KB) |
+| Assets shipped | 8.7 MB | **1.7 MB** |
+| Home grid, fast flings | 5–31 dropped frames each (median 16) | **0–2** (16 of 20 flings at 0), with pages loading mid-scroll |
+| Renders while idle on Home | 15 a minute | **0** |
+| Splash to app | Blank white, then a tan loading screen | **Cross-fades straight into the app** |
+| Cold start to Home content (median) | 2.93 s | **2.77 s** |
+| Cold start to Login / main screen (median) | 2.50 s / 2.44 s | 2.46 s / 2.45 s (unchanged within noise) |
+| A listing photo (grid card, same image) | 46 KB | 28 KB |
+
+### Targets
+
+- **No dropped frames on normal grid scrolling:** met, apart from an occasional single frame.
+- **Bundle no larger than the baseline:** met.
+- **Cold start ≤ 2.0 s:** not met on this Mac, which was under heavy background load from iCloud sync and a virtual machine during every measurement. Medians were 2.4–2.8 s, while the same build's fastest launches were 1.3–1.7 s. Phase 0, on a quieter machine, measured 1.7 s to the main screen before any change. This needs re-measuring on a quiet machine or a real phone.
+
+### Needs a decision
+
+**One build setting (`inlineRequires`) trades bundle size for startup speed.** Turned on, launches were about 10% faster on this Mac, but the bundle grows 70 KB and ends up 1% over the baseline. I left it off so the bundle target holds. It's a one-line change.
+
+### Android pending
+
+Nine checks to run on an Android release build. The log lists each with exact steps:
+- the grid with its Android-only optimisation (no blank cells)
+- grid scrolling frames
+- release cold start
+- the splash on Android 12+
+- photos through Android's image loader
+- the chat history scroll
+- uploads and sign-out through the new HTTP client
+- pull-to-refresh
+- polling pausing in the background
+
+### Deploy notes
+
+- The backend goes first: the app's paged lists need the Phase 3 routes.
+- This app version needs a new store build, not an over-the-air update, because two native modules were added and one removed.
+
+### Tests
+
+Frontend 16 (new tests for the HTTP client), shared 19, backend unit 232, backend integration **592: 589 pass, 3 skipped on purpose, 0 fail**; both typechecks pass. Each change was also checked on the iOS simulator: paging on every list, the inbox badge and polling, accepting a request, a 500-message chat, review prompts, sign-in errors, and a photo upload through the new HTTP client.

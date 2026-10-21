@@ -628,10 +628,145 @@ Also seen this phase: one unit-suite run had a single failure that six reruns di
 
 ---
 
-## Where to pick up (Phase 4 onward)
+## Phase 4: frontend performance
 
-Phases 0 to 3 are done; their summaries are in `hardening-report.md`. Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved) and the proposed privacy.md edit. **Deploy the backend before any app build from Phase 4**: the app's paged lists need the Phase 3 routes (the backend still answers older builds the old way).
+### Plan
 
-Phase 4 (frontend performance) is next: Fira weights first, then the Home grid's dropped frames, images, the caching layer (`@tanstack/react-query`, with every list screen loading more on scroll), startup, re-renders, bundle; the handoff screen's 3 s polling only while it's focused. Measure with the perf marks (`EXPO_PUBLIC_PERF_LOG=1`) on an iOS simulator Release build against the bench API, as in Phase 0.
+In the owner's order: the unused Fira weights; the Home grid's dropped frames; images (expo-image, Cloudinary sizing and format, prefetch on press); one caching layer (`@tanstack/react-query`) for every server read, with every list screen paging on scroll and pull-to-refresh, and the handoff screen polling only while focused; startup (splash until fonts and session are ready, deferred module init, lazy heavy modules); re-renders; bundle.
 
-Simulator tooling for later checks: `idb` (Homebrew `facebook/fb/idb-companion`, plus `pip install fb-idb` in a venv; this session's venv was in a scratch folder) drives taps and typing without the desktop; a Release build pointed at `http://localhost:3000` (`EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_DEMO_MODE=false`) against `PORT=3000 npx ts-node src/scripts/bench/serve.ts` (`.env.test` sets 3001).
+Measured on the iPhone 17 Pro simulator (iOS 26.5), Release builds with `EXPO_PUBLIC_PERF_LOG=1`, against the seeded bench API, with the Phase 0 scripts (`coldstart.js`: terminate, relaunch, device-log timestamps; flings with `idb ui swipe`). **The Mac was under heavier background load than in Phase 0** (iCloud file-provider sync at 50%+ CPU, load average about 5), so absolute cold-start times are higher than Phase 0's; before and after are compared from runs taken back to back by reinstalling a kept copy of the "before" app. Midway, a virtual machine started using a full core as well (load average up to 33), which makes single runs swing by a second.
+
+"Before" for this phase is the app at `4bb05ba` (end of Phase 3; the frontend was unchanged since Phase 2), built and kept as an app bundle.
+
+### Findings
+
+| # | Finding | How it shows up | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | All 21 Fira files shipped for 4 used | 8.4 MB of the 8.6 MB of assets, in every install and OTA update | S3 | Import each weight from its own entry point | `d5e25fd` |
+| 2 | Home grid dropped JS frames while scrolling | FlatList defaults mount 10 cells per batch and keep 21 screens alive; with two tall photo cards per row each batch overran the frame | S3 | Batches of 4, initial 6, window 7, `removeClippedSubviews` on Android, memoized cells with stable handlers | `94b7067` |
+| 3 | Photos: no cache control, JPEG only, the hero queued behind the listing fetch | Every photo decoded through RN Image; Cloudinary served JPEG | S3 | expo-image with memory+disk cache and `recyclingKey`; explicit `f_webp` (the loaders send `Accept: image/*`, so `f_auto` would always pick JPEG); the hero URL prefetched on card press | `a6cc6a8` |
+| 4 | No caching layer; lists unpaginated in the app | Every screen refetched everything on every focus; Home showed only the first 20 listings; long lists loaded whole | S3 | `@tanstack/react-query` for every server read; every list pages on scroll with a skeleton footer and pull-to-refresh to page one; mutations update or invalidate exactly what they change; cache cleared on any session change | `6d93ff0` `0fc62a1` |
+| 5 | Zoink It polled every 3 s from mount to unmount | Kept polling behind the camera, other screens and the lock screen | S3 | `refetchInterval` only while focused; paused in the background | `bee9d43` |
+| 6 | The inbox poll re-rendered all four tabs | MainApp owns the 15 s inbox feed and rendered its tabs as fresh elements: 5 renders per poll with nothing changed | S3 | Tab elements created once; structural sharing makes an unchanged poll a no-op | `efdae0d` |
+| 7 | Startup did more than the first screen needs, with a white then tan flash | Native splash, blank root view, tan loading screen; Stripe initialized for one screen; every screen module evaluated at launch; the review check waited for fonts; Home waited for a fresh GPS fix | S3 | Splash held until the first navigator mounts, then fades; tan root background; secondary screens load on first open; StripeProvider only on Pay; review check started at session restore; last-known location; push sync after interactions | `1db569a` |
+| 8 | React Query grows the bundle 228 KB of source | Would break "no larger than baseline" | — | Offsets: Node's `assert` polyfill chain (158 KB source, used for five `assert()` calls in `@ide/backoff`) replaced by a shim; axios (67 KB of bytecode) replaced by a fetch client with the same surface; unused `expo-linear-gradient` removed; `inlineRequires` left off (+70 KB) | `1b5c3dd` `be41c3e` `e075b21` |
+| 9 | (Introduced and fixed in this phase) Sending a message from far up a long history didn't land on it | Found testing the new history paging: `maintainVisibleContentPosition` holds the reader's place, and one animated `scrollToEnd` lands on an estimate in a long virtualized list | — | Re-pin to the end on each layout after sending until the user drags | `6d93ff0` |
+
+Tooling: a render-count probe for perf builds (`dd625c3`).
+
+### Results
+
+**Bundle** (`expo export --dump-sourcemap`, production, Hermes; the same method as Phase 0):
+
+| | Before (Phase 0 / start of Phase 4) | After |
+|---|---:|---:|
+| iOS JS bundle | 4.37 MB / 4,378,588 B | **4,349,908 B** (−28.7 KB) |
+| Android JS bundle | 4.37 MB / 4,385,144 B | **4,356,504 B** (−28.6 KB) |
+| Assets | 8.6–8.7 MB, 46 files | **1.7 MB, 29 files** |
+| Modules | 2,217 | 2,186 |
+| Shipped `main.jsbundle` in the Release app (built with debug info) | 6,828,647 B | 6,796,271 B |
+
+Where the JS changed (source, iOS map): +228 KB `@tanstack/*`, +24 KB expo-image, +28 KB app source; −158 KB assert/util chain, −158 KB axios, −42 KB semver, −26 KB react-native (Stripe's provider no longer at the root).
+
+**Home grid scrolling** (150+ items, fast flings with `idb`, JS frames over 1.5x a 60 Hz frame counted as dropped):
+
+| | Flings | Dropped per fling | JS FPS |
+|---|---:|---|---|
+| Before (Phase 0 numbers: 13–49) | 24 | 5–31, median 16 | 49.8–57.5 |
+| Grid tuning only (`94b7067`) | 16 | 0–4, 13 at 0 | 58.3–59.8 |
+| + expo-image (`a6cc6a8`) | 16 | 0–4, 12 at 0 | 58.4–59.8 |
+| Final (paging as it scrolls, pages of 20 loading mid-fling) | 20 | **0–2, 16 at 0** | 59.1–59.8 |
+
+**Idle re-renders** (render probe, Home tab untouched): before, every inbox poll (about every 12.5–15 s) re-rendered MainApp and all four tabs, 15 renders in 60 s. After, 0 renders in 75 s (5 polls), after a 30 s settle; the only renders are during the first seconds of loading.
+
+**Cold start**, back to back, alternating installs of the kept "before" app and the build in question (medians; ms from process start in the device log to the mark):
+
+| Path (runs each) | Before | After, with `inlineRequires` (not committed) | Before (second session) | **After, as committed** |
+|---|---:|---:|---:|---:|
+| Signed out → Login (10) | 2,693 | 2,402 | 2,503 | **2,460** |
+| Signed in → main shell (15) | 2,657 | 2,410 | 2,435 | **2,445** |
+| Signed in → Home listings (15) | 3,110 | 2,788 | 2,930 | **2,773** |
+
+The fastest single runs were 1,281 ms to the shell and 1,692 ms to Home content (after) on this machine; Phase 0, on a quieter Mac, had a 1,676 ms median to the shell before any change. What the user sees changed more than the marks: the native splash now cross-fades straight into the main screen (frame capture: splash, then the tab bar fading in over it, then Home's skeleton cards, then photos), with no white frame and no loading screen.
+
+**Photos** (Cloudinary demo photos at the app's sizes, `Accept: image/*` as the loaders send): grid card 504 px 45.9 → 28.0 KB and 32.6 → 31.4 KB; hero 1206×1048 127.5 → 101.6 KB and 114.0 → 109.2 KB; thumb 186 px 11.5 → 8.8 KB and 6.3 → 6.0 KB. A transformation Cloudinary hasn't generated yet costs about 1 s on its first request (0.1–0.16 s after); the press-prefetch starts that wait one listing fetch earlier.
+
+**Checked on the simulator** (bench API, Release build): Home pages deep into the 400s while flinging; the inbox shows a message sent from the other side within one poll and the badge uses the server's count (37); Rentals shows the server total (80) and loads all four pages with both sections; the owner's Requests shows "160 requests waiting on you" from the server, and Accept updates the row in place without moving the list; My listings shows "Rented out" from `activeBookingId`; a 500-message chat opens on messages 450–499, scrolls back to message 0, and sending from the top lands on the new message; the review prompt opens from `?limit=1` and moves to the next owed review after submitting; with the fetch client: a wrong password shows the server's message, sign-in, lists and chat work, and a multipart photo upload reaches the server (which then fails only because the bench's Cloudinary account is fake; the app shows "Upload failed").
+
+### Targets
+
+| Target | Result |
+|---|---|
+| Cold start ≤ 2.0 s (iOS sim, Release) | **Not met on this machine** (medians 2.4–2.8 s with heavy background load; the same app's fastest runs are 1.3–1.7 s). Needs a re-measure on a quiet machine or a device. See the `inlineRequires` decision below |
+| 0 dropped frames on normal grid scrolling | 16 of 20 fast flings at 0, the rest 1–2 JS frames, with pages loading mid-scroll |
+| Bundle no larger than baseline | **Met**: −28.7 KB (iOS), −28.6 KB (Android), assets −7 MB |
+
+### Needs a decision
+
+- **`inlineRequires`**: on, cold start was about 10% faster across all three marks in the back-to-back runs (Login 2,693 → 2,402 ms, shell 2,657 → 2,410, Home 3,110 → 2,788) and the bundle is 70 KB larger (4,420 KB, 1% over baseline). Off (committed), the bundle meets the target and cold start is about where it was. One line in `metro.config.js`. Two of the brief's targets conflict here; I chose the one that was met.
+
+### Dependencies
+
+| Package | Added / removed | Size | Why |
+|---|---|---|---|
+| `@tanstack/react-query` 5.104.5 | added | 228 KB source in the bundle (offset below) | The brief names it; actively maintained (TanStack, releases weekly). Built-in alternative: a hand-rolled cache with request dedupe, stale-while-revalidate, infinite pages, focus/background handling and invalidation; not worth owning |
+| `expo-image` ~3.0.11 | added | 24–40 KB JS, native SDWebImage/Glide | The brief names it; Expo SDK first party. React Native's Image has no recycling key, no cache-policy control and no prefetch into a chosen cache |
+| `expo-splash-screen` ~31.0.13 | added | 1 KB JS | Expo SDK first party; React Native has no API to hold the native splash until the app is ready |
+| `axios` | removed | 158 KB source, 67 KB bytecode | Replaced by `src/services/http.ts` (the subset used, on fetch) |
+| `expo-linear-gradient` | removed | native module | No imports |
+
+### Checked, not changed
+
+- FlashList: not needed; the tuned FlatList reached 0–2 dropped frames, so no new list dependency.
+- Re-renders were measured with the render probe rather than the React DevTools profiler, which this headless setup can't drive. AuthContext's value was already memoized; MainTabContext carries one string.
+- Animations: no `useNativeDriver: false` anywhere; the countdowns (Zoink It, booking detail) and the polls were already focus-gated; Active rental's pulse (native driver) now stops when the screen isn't focused (`0fc62a1`).
+- `react-native-reanimated` (778 KB source) is there only for the photo viewer's pinch zoom (`react-native-zoom-toolkit`); dropping it would change that screen. Sentry's packages (about 1.9 MB of source) stay; upgrading or reconfiguring Sentry is out of scope.
+- Icons are already imported per family (`@expo/vector-icons/Feather`). Hermes is on.
+- Demo mode: unchanged gate; the page functions wrap the existing mocks.
+
+### Android pending
+
+Each on an Android release build (`npx expo run:android --variant release`, `EXPO_PUBLIC_PERF_LOG=1`, API at the bench server: `adb reverse tcp:3000 tcp:3000`), log lines via `adb logcat | grep "\[perf\]"`:
+
+1. **`removeClippedSubviews`** (Home and My listings grids): fling fast down and back up through 150+ listings; no blank cells, no missing photos, no missing "Rented out" badges after scrolling back.
+2. **Grid scroll**: 10 fast flings each way on Home; read `[perf] scroll home-grid … dropped=` lines; expect 0 most of the time, as on iOS.
+3. **Release-build cold start**: `adb shell am force-stop com.zoink.app`, then `adb shell am start -W -n com.zoink.app/.MainActivity` ten times; compare `TotalTime` with an install of the previous commit; also read `[perf] startup main-app / home-content`.
+4. **Splash**: on Android 12+ the splash should stay until the first screen and fade; no white frame (record the screen: `adb shell screenrecord`).
+5. **expo-image on Glide**: WebP photos render in grid, rows, hero, avatars; recycled grid cells never show a previous listing's photo; memory stays flat over long scrolls (Android Studio profiler).
+6. **Chat history**: open a 500-message thread, scroll up to the first message (older pages load, the list doesn't jump: `maintainVisibleContentPosition`); scroll up again and send; the list lands on the new message.
+7. **Fetch client on OkHttp**: sign in, wrong password message, listing photo upload, handoff photo upload (multipart), avatar upload; a session ended by the server (401) signs out once.
+8. **Pull-to-refresh** on every list screen (Home, Search results, My listings, Rentals, Requests, Inbox, admin lists): the spinner's colours, and it goes back to page one.
+9. **Focused polling**: on Zoink It, background the app (home button) and confirm polling stops (bench server or `adb logcat` network), and resumes on return.
+
+### Found, not fixed
+
+- `useQuery` errors on detail screens still show the server's raw message in an alert (Phase 5: user-facing messages).
+- The admin list screens show a full-screen spinner while loading (Phase 5: skeletons).
+- The paged list endpoints keep their unpaginated forms (capped at 100) for app builds released before this branch; they can be removed once those builds are retired.
+
+### Tests after Phase 4
+
+| Suite | After Phase 3 | After Phase 4 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 |
+| backend integration | 592 (589 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 801 s (backend unchanged in this phase) |
+| frontend unit | 10 | **16** (+6: the HTTP client: params, JSON and FormData bodies, axios-shaped errors, network errors and 204s, interceptor order and session tokens) |
+
+Backend and frontend typecheck pass. Every Phase 4 commit was typechecked and unit-tested on its own; the final state was checked on the simulator as listed under Results.
+
+### Commits
+
+`d5e25fd` `94b7067` `a6cc6a8` `dd625c3` `6d93ff0` `0fc62a1` `bee9d43` `efdae0d` `1db569a` `e075b21` `1b5c3dd` `be41c3e`, plus these docs. Nothing pushed.
+
+---
+
+## Where to pick up (Phase 5 onward)
+
+Phases 0 to 4 are done; their summaries are in `hardening-report.md`. **The run stopped after Phase 4, as instructed; Phase 5 hasn't started.**
+
+Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved), the proposed privacy.md edit, and the `inlineRequires` decision above. **Deploy the backend before any app build from Phase 4**: the app's paged lists need the Phase 3 routes (the backend still answers older builds the old way). The app build needs a new native build (expo-image, expo-splash-screen, expo-linear-gradient removed), not an OTA update.
+
+Next, from the brief: Phase 5 (reliability and UX polish: skeleton/empty/error states everywhere, offline bar, user-facing error messages, toasts, forms, haptics, deep links, navigation fallbacks), then accessibility, then the `verify` script and E2E.
+
+Tooling: the bench (`backend/src/scripts/bench/run.ts`) and its server (`PORT=3000 npx ts-node src/scripts/bench/serve.ts --seed`); a Release build pointed at it (`EXPO_PUBLIC_API_URL=http://localhost:3000 EXPO_PUBLIC_DEMO_MODE=false EXPO_PUBLIC_PERF_LOG=1 npx expo run:ios --configuration Release`); `idb` (Homebrew `facebook/fb/idb-companion` plus `pip install fb-idb` in a venv) for taps, typing and flings; the cold-start script and the render probe described above. The bench accounts: `renter1@mail.utoronto.ca` and `owner2@mail.utoronto.ca`, password in `seed.ts`.
