@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import {
   Animated,
   LayoutChangeEvent,
@@ -111,6 +111,14 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   // this screen is focused and the app is in the foreground.
   const inboxFeed = useConversationsFeed(useIsFocused())
   const unreadInboxCount = inboxFeed.unreadCount
+
+  // The same elements on every render, so this screen re-rendering (a new
+  // unread count, the tab changing) doesn't re-render all four tabs; each
+  // re-renders only for its own state, context or data.
+  const tabScreens = useMemo(
+    () => ({ home: <HomeScreen />, search: <SearchScreen />, inbox: <InboxScreen />, profile: <MyProfileScreen /> }),
+    []
+  )
 
   const tabWidth = bottomBarWidth ? (bottomBarWidth - TAB_BAR_PADDING * 2) / COLUMNS : 0
 
@@ -255,18 +263,18 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
               style={styles.tabStrip}
             >
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <HomeScreen />
+                {tabScreens.home}
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <SearchScreen />
+                {tabScreens.search}
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
                 <InboxFeedProvider value={inboxFeed}>
-                  <InboxScreen />
+                  {tabScreens.inbox}
                 </InboxFeedProvider>
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <MyProfileScreen />
+                {tabScreens.profile}
               </View>
             </Animated.ScrollView>
           </MainTabProvider>
