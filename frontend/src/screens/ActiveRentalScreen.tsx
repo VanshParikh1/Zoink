@@ -1,15 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
+import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBooking } from '../services/bookingsApi'
 import { openConversation } from '../services/conversationsApi'
+import { queryKeys } from '../services/queryKeys'
+import { queryClient } from '../services/queryClient'
+import { useRefreshOnFocus } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { useAuth } from '../context/AuthContext'
-import { Booking, User } from '../types'
+import { User } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -52,30 +57,25 @@ export default function ActiveRentalScreen() {
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const insets = useSafeAreaInsets()
-  const [booking, setBooking] = useState<Booking | null>(null)
-  const [loading, setLoading] = useState(true)
+  const bookingId = route.params.bookingId
+  const bookingQuery = useQuery({ queryKey: queryKeys.booking(bookingId), queryFn: () => getBooking(bookingId) })
+  useRefreshOnFocus(queryKeys.booking(bookingId))
+  const booking = bookingQuery.data ?? null
+  const loading = bookingQuery.isPending
+  useEffect(() => {
+    if (bookingQuery.isError && !booking) {
+      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this rental.'))
+      nav.goBack()
+    }
+  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
   const [busy, setBusy] = useState(false)
   const bannerPulse = useRef(new Animated.Value(0.35)).current
+  const isFocused = useIsFocused()
 
-  const loadBooking = useCallback(async () => {
-    try {
-      const next = await getBooking(route.params.bookingId)
-      setBooking(next)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this rental.')
-      nav.goBack()
-    } finally {
-      setLoading(false)
-    }
-  }, [nav, route.params.bookingId])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadBooking()
-    }, [loadBooking])
-  )
-
+  // The banner's pulse runs on the native driver, and only while this
+  // screen is the one showing.
   useEffect(() => {
+    if (!isFocused) return
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(bannerPulse, { toValue: 1, duration: 900, useNativeDriver: true }),
@@ -84,13 +84,15 @@ export default function ActiveRentalScreen() {
     )
     animation.start()
     return () => animation.stop()
-  }, [bannerPulse])
+  }, [bannerPulse, isFocused])
 
   async function openChat() {
     if (!booking) return
     setBusy(true)
     try {
       const conversation = await openConversation(booking.listingId)
+      // A first message here creates the conversation in the inbox.
+      queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
       nav.navigate('ConversationThread', {
         conversationId: conversation.id,
         title: booking.listing.title,

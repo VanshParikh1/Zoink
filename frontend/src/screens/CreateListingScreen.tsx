@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { createListing, setAvailability, uploadListingImage } from '../services/listingsApi'
+import { queryClient } from '../services/queryClient'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -261,6 +262,7 @@ export default function CreateListingScreen() {
         }
       }
 
+      queryClient.invalidateQueries({ queryKey: ['listings'] })
       nav.replace('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
       const msg = err?.response?.data?.error ?? 'Something went wrong.'

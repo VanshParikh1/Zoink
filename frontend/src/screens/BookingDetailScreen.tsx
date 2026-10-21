@@ -1,15 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
+import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { acceptBooking, cancelBooking, declineBooking, getBooking, getHandoffPhotos } from '../services/bookingsApi'
-import { getMyDisputes } from '../services/disputesApi'
+import { getMyDisputeForBooking } from '../services/disputesApi'
+import { queryKeys } from '../services/queryKeys'
+import { applyBookingUpdate } from '../services/bookingCache'
+import { useRefreshOnFocus } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { useAuth } from '../context/AuthContext'
-import { Booking, Dispute, DisputeStatus } from '../types'
+import { Booking, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
 import { radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -160,57 +165,39 @@ export default function BookingDetailScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
-  const [booking, setBooking] = useState<Booking | null>(null)
-  const [loading, setLoading] = useState(true)
+  const bookingId = route.params.bookingId
+  const bookingQuery = useQuery({ queryKey: queryKeys.booking(bookingId), queryFn: () => getBooking(bookingId) })
+  useRefreshOnFocus(queryKeys.booking(bookingId))
+  const booking = bookingQuery.data ?? null
+  const loading = bookingQuery.isPending
+  useEffect(() => {
+    if (bookingQuery.isError && !booking) {
+      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
+      nav.goBack()
+    }
+  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
   const [busy, setBusy] = useState(false)
   const [photosModalVisible, setPhotosModalVisible] = useState(false)
   const [handoffPhotos, setHandoffPhotos] = useState<{ pickupPhotos: string[]; returnPhotos: string[] } | null>(null)
-  const [myDispute, setMyDispute] = useState<Dispute | null>(null)
+
+  // Only the dispute this user filed is returned, so this stays null when the
+  // other party filed it; the booking's own disputeStatus/disputeReason
+  // fields are still shown in that case.
+  const disputeQuery = useQuery({
+    queryKey: queryKeys.bookingDispute(bookingId),
+    queryFn: () => getMyDisputeForBooking(bookingId),
+    enabled: booking !== null && booking.disputeStatus !== 'NONE',
+  })
+  const myDispute = booking && booking.disputeStatus !== 'NONE' ? disputeQuery.data ?? null : null
 
   const isOwner = booking?.ownerId === user?.id
   const isRenter = booking?.renterId === user?.id
-
-  const loadDispute = useCallback(async (currentBooking: Booking) => {
-    if (currentBooking.disputeStatus === 'NONE') {
-      setMyDispute(null)
-      return
-    }
-
-    try {
-      const myDisputes = await getMyDisputes()
-      // getMyDisputes only returns disputes raised by the current user, so this
-      // stays null when the other party filed the dispute — the booking's own
-      // disputeStatus/disputeReason fields are still shown in that case.
-      setMyDispute(myDisputes.find((item) => item.bookingId === currentBooking.id) ?? null)
-    } catch {
-      setMyDispute(null)
-    }
-  }, [])
-
-  const loadBooking = useCallback(async () => {
-    try {
-      const nextBooking = await getBooking(route.params.bookingId)
-      setBooking(nextBooking)
-      loadDispute(nextBooking)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
-      nav.goBack()
-    } finally {
-      setLoading(false)
-    }
-  }, [nav, route.params.bookingId, loadDispute])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadBooking()
-    }, [loadBooking])
-  )
 
   async function runAction(action: () => Promise<Booking>, onSuccess?: (updated: Booking) => void) {
     setBusy(true)
     try {
       const updated = await action()
-      setBooking(updated)
+      applyBookingUpdate(updated)
       onSuccess?.(updated)
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not update this booking.')

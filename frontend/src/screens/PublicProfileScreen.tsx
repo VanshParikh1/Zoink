@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getPublicProfile } from '../services/usersApi'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '../services/queryKeys'
+import { apiErrorMessage } from '../utils/apiError'
 import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { colors } from '../theme/colors'
@@ -26,24 +29,18 @@ export default function PublicProfileScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
-  const [profile, setProfile] = useState<PublicProfile | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const loadProfile = useCallback(async () => {
-    try {
-      const data = await getPublicProfile(route.params.userId)
-      setProfile(data)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this profile.')
-      nav.goBack()
-    } finally {
-      setLoading(false)
-    }
-  }, [nav, route.params.userId])
-
+  const profileQuery = useQuery({
+    queryKey: queryKeys.publicProfile(route.params.userId),
+    queryFn: () => getPublicProfile(route.params.userId),
+  })
+  const profile: PublicProfile | null = profileQuery.data ?? null
+  const loading = profileQuery.isPending
   useEffect(() => {
-    loadProfile()
-  }, [loadProfile])
+    if (profileQuery.isError && !profile) {
+      Alert.alert('Error', apiErrorMessage(profileQuery.error, 'Could not load this profile.'))
+      nav.goBack()
+    }
+  }, [profileQuery.isError, profileQuery.error, profile, nav])
 
   // Presented as a modal: a page sheet on iOS (nothing under it to clear),
   // full screen on Android (Screen's usual status-bar inset applies).

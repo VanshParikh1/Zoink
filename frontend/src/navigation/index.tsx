@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
 import LoadingGate from '../components/mockup/LoadingGate'
-import { getPendingReviews } from '../services/reviewsApi'
+import { getFirstPendingReview } from '../services/reviewsApi'
 
 // Screens
 import LoginScreen from '../screens/LoginScreen'
@@ -89,9 +89,9 @@ function VerifiedAppStack() {
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
-    getPendingReviews()
-      .then((reviews) => {
-        if (reviews.length > 0) setInitialReview(reviews[0])
+    getFirstPendingReview()
+      .then((review) => {
+        if (review) setInitialReview(review)
       })
       .catch((err) => console.error('Failed to fetch pending reviews', err))
       .finally(() => setLoading(false))

@@ -1,11 +1,16 @@
-import React, { useCallback, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useStripe } from '@stripe/stripe-react-native'
 import { RootStackParamList } from '../navigation'
 import { confirmBookingPayment, createBookingPaymentIntent, getBooking } from '../services/bookingsApi'
+import { applyBookingUpdate } from '../services/bookingCache'
+import { queryKeys } from '../services/queryKeys'
+import { useRefreshOnFocus } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
+import { useQuery } from '@tanstack/react-query'
 import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
 import { isStripePublishableKeyConfigured } from '../config/stripe'
@@ -62,28 +67,20 @@ export default function PayScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const { initPaymentSheet, presentPaymentSheet } = useStripe()
-  const [booking, setBooking] = useState<Booking | null>(null)
-  const [loading, setLoading] = useState(true)
+  const bookingId = route.params.bookingId
+  // Always the latest on (re)focus: the payment step must see the real status.
+  const bookingQuery = useQuery({ queryKey: queryKeys.booking(bookingId), queryFn: () => getBooking(bookingId), staleTime: 0 })
+  useRefreshOnFocus(queryKeys.booking(bookingId))
+  const booking = bookingQuery.data ?? null
+  const loading = bookingQuery.isPending
   const [paying, setPaying] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
-
-  const loadBooking = useCallback(async () => {
-    try {
-      const nextBooking = await getBooking(route.params.bookingId)
-      setBooking(nextBooking)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
+  useEffect(() => {
+    if (bookingQuery.isError && !booking) {
+      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
       nav.goBack()
-    } finally {
-      setLoading(false)
     }
-  }, [nav, route.params.bookingId])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadBooking()
-    }, [loadBooking])
-  )
+  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
 
   async function handlePay() {
     if (!booking || paying) return
@@ -125,7 +122,7 @@ export default function PayScreen() {
       }
 
       const confirmed = await confirmBookingPayment(booking.id)
-      setBooking(confirmed)
+      applyBookingUpdate(confirmed)
       nav.replace('BookingDetail', { bookingId: confirmed.id })
     } catch (err: any) {
       const message = err?.response?.data?.error ?? err?.message ?? 'Could not complete payment.'

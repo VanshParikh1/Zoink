@@ -24,11 +24,12 @@ export type SubmitReviewPayload = {
   personNotes?: string
 }
 
-export async function getPendingReviews(): Promise<PendingReview[]> {
-  if (DEMO_MODE) return mockGetPendingReviews()
+/** The oldest review still owed, if any: the only one the app ever opens. */
+export async function getFirstPendingReview(): Promise<PendingReview | null> {
+  if (DEMO_MODE) return (await mockGetPendingReviews())[0] ?? null
 
-  const res = await api.get('/reviews/pending')
-  return res.data
+  const res = await api.get('/reviews/pending', { params: { limit: 1 } })
+  return res.data[0] ?? null
 }
 
 export async function submitReview(data: SubmitReviewPayload): Promise<SubmittedReviewResult> {

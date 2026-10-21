@@ -1,5 +1,7 @@
 import { Alert } from 'react-native'
 import { blockUser } from '../services/usersApi'
+import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
 
 // Confirm → block → onBlocked. Shared by PublicProfileScreen and
 // ConversationThreadScreen so the warning copy stays identical in both.
@@ -16,6 +18,10 @@ export function confirmBlockUser(user: { id: string; name: string }, onBlocked: 
         onPress: async () => {
           try {
             await blockUser(user.id)
+            // Their listings, profile and conversations disappear everywhere.
+            queryClient.invalidateQueries({ queryKey: ['listings'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
+            queryClient.invalidateQueries({ queryKey: queryKeys.blocks })
             Alert.alert('User blocked', `You won't see ${user.name} on Zoink anymore.`)
             onBlocked()
           } catch (err: any) {

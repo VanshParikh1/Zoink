@@ -24,9 +24,10 @@ export async function createDispute(data: CreateDisputePayload): Promise<Dispute
   return res.data
 }
 
-export async function getMyDisputes(): Promise<Dispute[]> {
-  if (DEMO_MODE) return mockGetMyDisputes()
+/** The dispute the current user filed on this booking, if any (the other party's isn't returned). */
+export async function getMyDisputeForBooking(bookingId: string): Promise<Dispute | null> {
+  if (DEMO_MODE) return (await mockGetMyDisputes()).find((dispute) => dispute.bookingId === bookingId) ?? null
 
-  const res = await api.get('/disputes')
-  return res.data
+  const res = await api.get('/disputes', { params: { bookingId } })
+  return res.data[0] ?? null
 }

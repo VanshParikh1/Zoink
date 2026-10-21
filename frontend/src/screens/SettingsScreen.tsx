@@ -1,12 +1,16 @@
-import React, { useCallback, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, Text } from 'react-native'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { TERMS_VERSION, formatDayOf } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { useAuth } from '../context/AuthContext'
 import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotificationPreferences } from '../services/usersApi'
-import { BlockedUser, NotificationPreferences } from '../types'
+import { BlockedUser, MyProfile, NotificationPreferences } from '../types'
+import { queryKeys } from '../services/queryKeys'
+import { useRefreshOnFocus } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -38,38 +42,28 @@ export default function SettingsScreen() {
   const nav = useNavigation<Nav>()
   const { user, logout } = useAuth()
 
-  const [email, setEmail] = useState<string | null>(null)
-  const [termsAcceptedAt, setTermsAcceptedAt] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const profileQuery = useQuery({
+    queryKey: queryKeys.myProfile(user?.id ?? ''),
+    queryFn: () => getMyProfile(user!.id),
+    enabled: Boolean(user?.id),
+  })
+  useRefreshOnFocus(queryKeys.myProfile(user?.id ?? ''), Boolean(user?.id))
+  const email = profileQuery.data?.email ?? null
+  const termsAcceptedAt = profileQuery.data?.termsAcceptedAt ?? null
+  const loading = profileQuery.isPending
+  const error = profileQuery.isError ? apiErrorMessage(profileQuery.error, 'Could not load your settings.') : ''
+  // Toggles change at once and roll back if the save fails.
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  useEffect(() => {
+    if (profileQuery.data) setPrefs(profileQuery.data.notificationPreferences)
+  }, [profileQuery.data])
   const [savingKey, setSavingKey] = useState<keyof NotificationPreferences | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [blocks, setBlocks] = useState<BlockedUser[]>([])
+  // Separate from the profile fetch: a failure here shouldn't blank the page.
+  const blocksQuery = useQuery({ queryKey: queryKeys.blocks, queryFn: getMyBlocks, enabled: Boolean(user?.id) })
+  const blocks: BlockedUser[] = blocksQuery.data ?? []
   const [unblockingId, setUnblockingId] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    if (!user?.id) return
-    try {
-      setError('')
-      const profile = await getMyProfile(user.id)
-      setEmail(profile.email)
-      setPrefs(profile.notificationPreferences)
-      setTermsAcceptedAt(profile.termsAcceptedAt)
-      // Separate from the profile fetch — a failure here shouldn't blank the page.
-      getMyBlocks().then(setBlocks).catch(() => {})
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your settings.')
-    } finally {
-      setLoading(false)
-    }
-  }, [user?.id])
-
-  useFocusEffect(
-    useCallback(() => {
-      load()
-    }, [load])
-  )
 
   async function togglePref(key: keyof NotificationPreferences, value: boolean) {
     if (!prefs) return
@@ -79,6 +73,9 @@ export default function SettingsScreen() {
     try {
       const next = await updateNotificationPreferences({ [key]: value })
       setPrefs(next)
+      queryClient.setQueryData<MyProfile>(queryKeys.myProfile(user!.id), (current) =>
+        current ? { ...current, notificationPreferences: next } : current
+      )
     } catch (err: any) {
       setPrefs(previous)
       Alert.alert('Could not save', err?.response?.data?.error ?? 'Please try again.')
@@ -97,7 +94,10 @@ export default function SettingsScreen() {
           setUnblockingId(blocked.id)
           try {
             await unblockUser(blocked.id)
-            setBlocks((current) => current.filter((b) => b.id !== blocked.id))
+            queryClient.setQueryData<BlockedUser[]>(queryKeys.blocks, (current) => current?.filter((b) => b.id !== blocked.id))
+            // Their listings, profile and conversations can show again.
+            queryClient.invalidateQueries({ queryKey: ['listings'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
           } catch (err: any) {
             Alert.alert('Could not unblock', err?.response?.data?.error ?? 'Please try again.')
           } finally {

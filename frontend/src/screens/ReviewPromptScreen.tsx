@@ -4,7 +4,8 @@ import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getPendingReviews, submitReview } from '../services/reviewsApi'
+import { getFirstPendingReview, submitReview } from '../services/reviewsApi'
+import { queryClient } from '../services/queryClient'
 import { PendingReview } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
@@ -107,10 +108,14 @@ export default function ReviewPromptScreen() {
         ...(isBorrower ? { itemRating, itemNotes } : { personNotes }),
       })
 
+      // The review changes the other person's rating and this booking's state.
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      queryClient.invalidateQueries({ queryKey: ['bookings'] })
+
       if (result.pendingRemaining > 0) {
-        const pending = await getPendingReviews()
-        if (pending.length > 0) {
-          nav.replace('ReviewPrompt', { review: pending[0] })
+        const next = await getFirstPendingReview()
+        if (next) {
+          nav.replace('ReviewPrompt', { review: next })
           return
         }
       }

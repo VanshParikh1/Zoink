@@ -17,6 +17,9 @@ import * as Haptics from 'expo-haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../services/queryKeys'
+import { apiErrorMessage } from '../utils/apiError'
 import { useIsTabActive, useMainTab, useTabLoad } from '../context/MainTabContext'
 import { PAYOUT_STATUS_MAX_AGE_MS } from '../config/polling'
 import { RootStackParamList } from '../navigation'
@@ -62,14 +65,11 @@ export default function MyProfileScreen() {
   // Pushed as a standalone route (not one of the main tabs) it gets a back button.
   const insideTabs = useMainTab() !== null
   const { user, logout } = useAuth()
-  const [profile, setProfile] = useState<MyProfile | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [showProfilePrompt, setShowProfilePrompt] = useState(false)
-  const [error, setError] = useState('')
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -77,7 +77,35 @@ export default function MyProfileScreen() {
     bio: '',
   })
   const [formErrors, setFormErrors] = useState<{ firstName?: string; lastName?: string }>({})
-  const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null)
+
+  // Loaded the first time the Profile tab opens (it's mounted behind Home).
+  const [opened, setOpened] = useState(false)
+  const profileKey = queryKeys.myProfile(user?.id ?? '')
+  const profileQuery = useQuery({
+    queryKey: profileKey,
+    queryFn: () => getMyProfile(user!.id),
+    enabled: opened && Boolean(user?.id),
+  })
+  const profile = profileQuery.data ?? null
+  const loading = !opened || profileQuery.isPending
+  const error = profileQuery.isError ? apiErrorMessage(profileQuery.error, 'Could not load your profile right now.') : ''
+
+  // The status endpoint makes a live Stripe API call, so routine reloads reuse
+  // a recent answer; explicit refreshes (pull-to-refresh, the button, coming
+  // back from Stripe's onboarding in the browser) always ask again.
+  const stripeKey = ['users', 'me', 'payouts'] as const
+  const stripeQuery = useQuery({
+    queryKey: stripeKey,
+    queryFn: getStripeConnectStatus,
+    enabled: opened && Boolean(user?.id),
+    staleTime: PAYOUT_STATUS_MAX_AGE_MS,
+    retry: false,
+  })
+  const stripeStatus: StripeConnectStatus | null = stripeQuery.data ?? null
+  const refreshStripeStatus = useCallback(async (_force = true) => {
+    await queryClient.invalidateQueries({ queryKey: stripeKey })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient])
 
   const syncForm = useCallback((nextProfile: MyProfile) => {
     setForm({
@@ -87,41 +115,25 @@ export default function MyProfileScreen() {
       bio: nextProfile.bio ?? '',
     })
   }, [])
+  // The form follows the profile as loaded, except while it's being edited.
+  useEffect(() => {
+    if (profile && !editing) syncForm(profile)
+  }, [profile, editing, syncForm])
 
-  // The status endpoint makes a live Stripe API call, so routine reloads reuse
-  // a recent answer; explicit refreshes (pull-to-refresh, the button, coming
-  // back from Stripe's onboarding in the browser) always ask again.
-  const stripeStatusFetchedAt = useRef(0)
-  const refreshStripeStatus = useCallback(async (force = false) => {
-    if (!force && Date.now() - stripeStatusFetchedAt.current < PAYOUT_STATUS_MAX_AGE_MS) return
-    const status = await getStripeConnectStatus()
-    stripeStatusFetchedAt.current = Date.now()
-    setStripeStatus(status)
-  }, [])
+  useTabLoad('MyProfile', useCallback(() => {
+    if (!opened) setOpened(true)
+    else queryClient.refetchQueries({ queryKey: ['users', 'me'], type: 'active', stale: true })
+  }, [opened, queryClient]))
 
-  const loadProfile = useCallback(async (forceStripeStatus = false) => {
-    if (!user?.id) return
-
+  const [refreshing, setRefreshing] = useState(false)
+  async function refreshAll() {
+    setRefreshing(true)
     try {
-      setError('')
-      const nextProfile = await getMyProfile(user.id)
-      setProfile(nextProfile)
-      syncForm(nextProfile)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your profile right now.')
+      await Promise.all([profileQuery.refetch(), refreshStripeStatus(true)])
     } finally {
-      setLoading(false)
       setRefreshing(false)
     }
-
-    try {
-      await refreshStripeStatus(forceStripeStatus)
-    } catch (err) {
-      // Ignore stripe fetch errors quietly
-    }
-  }, [refreshStripeStatus, syncForm, user?.id])
-
-  useTabLoad('MyProfile', loadProfile)
+  }
 
   useEffect(() => {
     if (!user?.id) return
@@ -177,7 +189,9 @@ export default function MyProfileScreen() {
     try {
       setUploading(true)
       const uploaded = await uploadMyAvatar(result.assets[0].uri)
-      setProfile((current) => (current ? { ...current, avatarUrl: uploaded.avatarUrl ?? current.avatarUrl } : current))
+      queryClient.setQueryData<MyProfile>(profileKey, (current) =>
+        current ? { ...current, avatarUrl: uploaded.avatarUrl ?? current.avatarUrl } : current
+      )
     } catch (err: any) {
       Alert.alert('Upload failed', err?.response?.data?.error ?? 'Could not update your avatar.')
     } finally {
@@ -201,7 +215,8 @@ export default function MyProfileScreen() {
         phone: form.phone.trim() || undefined,
         bio: form.bio.trim() || undefined,
       })
-      await loadProfile()
+      await profileQuery.refetch()
+      queryClient.invalidateQueries({ queryKey: ['users', 'profile'] })
       setEditing(false)
     } catch (err: any) {
       Alert.alert('Save failed', err?.response?.data?.error ?? 'Could not save your profile.')
@@ -276,10 +291,7 @@ export default function MyProfileScreen() {
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true)
-            loadProfile(true)
-          }}
+          onRefresh={refreshAll}
           tintColor={colors.greenText}
           colors={[colors.green]}
         />

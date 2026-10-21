@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -14,11 +14,15 @@ import {
 import * as Haptics from 'expo-haptics'
 import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
 import { getListing, setAvailability, deleteListing } from '../services/listingsApi'
 import { openConversation } from '../services/conversationsApi'
+import { queryKeys } from '../services/queryKeys'
+import { useRefreshOnFocus } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
@@ -56,29 +60,23 @@ export default function ListingDetailScreen() {
   const { user } = useAuth()
   const listingId = route.params.listingId
 
-  const [listing, setListing] = useState<Listing | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const listingQuery = useQuery({ queryKey: queryKeys.listing(listingId), queryFn: () => getListing(listingId) })
+  useRefreshOnFocus(queryKeys.listing(listingId))
+  const listing = listingQuery.data ?? null
+  const loading = listingQuery.isPending
   const [toggling, setToggling] = useState(false)
   const [activeImg, setActiveImg] = useState(0)
   const scrollY = useRef(new Animated.Value(0)).current
 
   const isOwner = listing?.ownerId === user?.id
 
-  const fetchListing = useCallback(async () => {
-    try {
-      const data = await getListing(listingId)
-      setListing(data)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load listing.')
-      nav.goBack()
-    } finally {
-      setLoading(false)
-    }
-  }, [listingId, nav])
-
   useEffect(() => {
-    fetchListing()
-  }, [fetchListing])
+    if (listingQuery.isError && !listing) {
+      Alert.alert('Error', apiErrorMessage(listingQuery.error, 'Could not load listing.'))
+      nav.goBack()
+    }
+  }, [listingQuery.isError, listingQuery.error, listing, nav])
 
   async function handleToggleAvailability() {
     if (!listing) return
@@ -87,7 +85,11 @@ export default function ListingDetailScreen() {
 
     try {
       const result = await setAvailability(listing.id, !listing.isAvailable)
-      setListing((prev) => (prev ? { ...prev, isAvailable: result.isAvailable } : prev))
+      queryClient.setQueryData<Listing>(queryKeys.listing(listing.id), (prev) =>
+        prev ? { ...prev, isAvailable: result.isAvailable } : prev
+      )
+      queryClient.invalidateQueries({ queryKey: queryKeys.myListings })
+      queryClient.invalidateQueries({ queryKey: ['listings', 'browse'] })
     } catch {
       Alert.alert('Error', 'Could not update availability.')
     } finally {
@@ -107,6 +109,8 @@ export default function ListingDetailScreen() {
           onPress: async () => {
             try {
               await deleteListing(listingId)
+              queryClient.removeQueries({ queryKey: queryKeys.listing(listingId) })
+              queryClient.invalidateQueries({ queryKey: ['listings'] })
               nav.navigate('MyListings')
             } catch (err: any) {
               Alert.alert('Error', err?.response?.data?.error ?? 'Could not delete listing.')
@@ -140,6 +144,8 @@ export default function ListingDetailScreen() {
 
     try {
       const conversation = await openConversation(listing.id)
+      // A first message here creates the conversation in the inbox.
+      queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
       nav.navigate('ConversationThread', {
         conversationId: conversation.id,
         title: listing.title,

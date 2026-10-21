@@ -5,7 +5,11 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing } from '../services/listingsApi'
+import { useQuery } from '@tanstack/react-query'
+import { apiErrorMessage } from '../utils/apiError'
 import { createBooking } from '../services/bookingsApi'
+import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
 import { DEPOSIT_HOLD_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
@@ -105,8 +109,10 @@ const SUMMARY_THUMB = 52
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
-  const [listing, setListing] = useState<Listing | null>(null)
-  const [loading, setLoading] = useState(true)
+  // The listing page just loaded this, so it's usually cached already.
+  const listingQuery = useQuery({ queryKey: queryKeys.listing(route.params.listingId), queryFn: () => getListing(route.params.listingId) })
+  const listing = listingQuery.data ?? null
+  const loading = listingQuery.isPending
   const [submitting, setSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   // Date validation messages, shown under the date control.
@@ -122,20 +128,11 @@ export default function BookingRequestScreen() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    async function loadListing() {
-      try {
-        const nextListing = await getListing(route.params.listingId)
-        setListing(nextListing)
-      } catch (err: any) {
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this listing.')
-        nav.goBack()
-      } finally {
-        setLoading(false)
-      }
+    if (listingQuery.isError && !listing) {
+      Alert.alert('Error', apiErrorMessage(listingQuery.error, 'Could not load this listing.'))
+      nav.goBack()
     }
-
-    loadListing()
-  }, [nav, route.params.listingId])
+  }, [listingQuery.isError, listingQuery.error, listing, nav])
 
   const today = useMemo(() => startOfDay(new Date()), [])
   const visibleMonths = useMemo(
@@ -198,6 +195,10 @@ export default function BookingRequestScreen() {
         message,
       })
 
+      queryClient.setQueryData(queryKeys.booking(booking.id), booking)
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'list'] })
+      // The request opened (or reused) a conversation with its message.
+      queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
       const message = err?.response?.data?.error ?? err?.message ?? 'Could not create booking request.'

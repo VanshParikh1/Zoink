@@ -6,6 +6,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { createDispute } from '../services/disputesApi'
+import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
 import { DisputeReason } from '../types'
 import { colors } from '../theme/colors'
 import { radius, space } from '../theme/tokens'
@@ -54,6 +56,8 @@ export default function FileDisputeScreen() {
     setBusy(true)
     try {
       await createDispute({ bookingId, reason, description: description.trim() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.booking(bookingId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookingDispute(bookingId) })
       nav.goBack()
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not file this dispute.')

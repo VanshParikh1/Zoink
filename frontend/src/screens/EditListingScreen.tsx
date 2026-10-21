@@ -1,12 +1,14 @@
-import React, { useCallback, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native'
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { getListing, updateListing, uploadListingImage, deleteListingImage } from '../services/listingsApi'
 import { Listing } from '../types'
+import { queryKeys } from '../services/queryKeys'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -26,8 +28,10 @@ export default function EditListingScreen() {
   const route = useRoute<Route>()
   const listingId = route.params.listingId
 
-  const [listing, setListing] = useState<Listing | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const listingQuery = useQuery({ queryKey: queryKeys.listing(listingId), queryFn: () => getListing(listingId) })
+  const listing = listingQuery.data ?? null
+  const loading = listingQuery.isPending
   const [saving, setSaving] = useState(false)
   const [uploadingImg, setUploadingImg] = useState(false)
 
@@ -40,32 +44,32 @@ export default function EditListingScreen() {
   const [city, setCity] = useState('')
   const [errors, setErrors] = useState<ListingFormErrors>({})
 
-  useFocusEffect(
-    useCallback(() => {
-      async function load() {
-        setLoading(true)
+  // The form starts from the listing as loaded; later refetches (a new
+  // photo) don't overwrite what's being typed.
+  const formFilled = useRef(false)
+  useEffect(() => {
+    if (!listing || formFilled.current) return
+    formFilled.current = true
+    setTitle(listing.title)
+    setDescription(listing.description)
+    setCategory(listing.category)
+    setDailyPrice(String(Number(listing.dailyPrice)))
+    setItemValue(Number(listing.itemValue) ? String(Number(listing.itemValue)) : '')
+    setDeposit(Number(listing.depositAmount) ? String(Number(listing.depositAmount)) : '')
+    setCity(listing.city)
+  }, [listing])
 
-        try {
-          const data = await getListing(listingId)
-          setListing(data)
-          setTitle(data.title)
-          setDescription(data.description)
-          setCategory(data.category)
-          setDailyPrice(String(Number(data.dailyPrice)))
-          setItemValue(Number(data.itemValue) ? String(Number(data.itemValue)) : '')
-          setDeposit(Number(data.depositAmount) ? String(Number(data.depositAmount)) : '')
-          setCity(data.city)
-        } catch {
-          Alert.alert('Error', 'Could not load listing.')
-          nav.goBack()
-        } finally {
-          setLoading(false)
-        }
-      }
+  useEffect(() => {
+    if (listingQuery.isError && !listing) {
+      Alert.alert('Error', 'Could not load listing.')
+      nav.goBack()
+    }
+  }, [listingQuery.isError, listing, nav])
 
-      load()
-    }, [listingId, nav])
-  )
+  // Anything showing this listing (lists, its page) picks the change up.
+  function listingChanged() {
+    queryClient.invalidateQueries({ queryKey: ['listings'] })
+  }
 
   async function handleSave() {
     // Same rules as before; each message now shows under its field.
@@ -98,7 +102,7 @@ export default function EditListingScreen() {
     setSaving(true)
 
     try {
-      await updateListing(listingId, {
+      const updated = await updateListing(listingId, {
         title: title.trim(),
         description: description.trim(),
         category,
@@ -107,6 +111,8 @@ export default function EditListingScreen() {
         depositAmount: deposit.trim() ? parsedDeposit : 0,
         city: city.trim(),
       })
+      queryClient.setQueryData(queryKeys.listing(listingId), updated)
+      listingChanged()
 
       Alert.alert('Saved', 'Your listing has been updated.', [
         { text: 'OK', onPress: () => nav.navigate('ListingDetail', { listingId }) },
@@ -138,8 +144,8 @@ export default function EditListingScreen() {
 
       await uploadListingImage(listingId, result.assets[0].uri)
       // Re-fetch from backend so the UI shows the real persisted Cloudinary URL
-      const updated = await getListing(listingId)
-      setListing(updated)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.listing(listingId) })
+      listingChanged()
     } catch {
       Alert.alert('Upload failed', 'Could not upload the photo.')
     } finally {
@@ -156,9 +162,10 @@ export default function EditListingScreen() {
         onPress: async () => {
           try {
             await deleteListingImage(listingId, imageId)
-            setListing((prev) =>
+            queryClient.setQueryData<Listing>(queryKeys.listing(listingId), (prev) =>
               prev ? { ...prev, images: prev.images.filter((image) => image.id !== imageId) } : prev
             )
+            listingChanged()
           } catch {
             Alert.alert('Error', 'Could not remove photo.')
           }
