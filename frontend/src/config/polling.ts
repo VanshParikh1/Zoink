@@ -9,6 +9,10 @@ export const INBOX_POLL_MS = 15_000
 export const THREAD_MESSAGES_POLL_MS = 5_000
 export const THREAD_DETAILS_POLL_MS = 30_000
 
+// Zoink It: each phone watches for the other's tap (a 5-minute window), while
+// that screen is the one showing.
+export const HANDOFF_POLL_MS = 3_000
+
 // Profile's payout status (a live Stripe call on the server): how long a
 // routine reload reuses the last answer. Explicit refreshes always refetch.
 export const PAYOUT_STATUS_MAX_AGE_MS = 5 * 60_000

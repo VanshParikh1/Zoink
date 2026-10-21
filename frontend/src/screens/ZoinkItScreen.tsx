@@ -5,17 +5,22 @@ import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
+import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS, rentalDayCount } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { applyBookingUpdate } from '../services/bookingCache'
+import { apiErrorMessage } from '../utils/apiError'
 import { useAuth } from '../context/AuthContext'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
 import { categoryAbbreviation } from '../config/categories'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import { HANDOFF_POLL_MS } from '../config/polling'
 import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import Button from '../components/mockup/Button'
@@ -83,7 +88,20 @@ export default function ZoinkItScreen() {
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const { bookingId, mode } = route.params
-  const [booking, setBooking] = useState<Booking | null>(null)
+  // Both phones watch the booking for the other one's tap: every 3 s, but
+  // only while this screen is the one showing and the app is in front (the
+  // interval used to keep running behind the camera, other screens and the
+  // lock screen until the screen was closed).
+  const isFocused = useIsFocused()
+  const bookingQuery = useQuery({
+    queryKey: queryKeys.booking(bookingId),
+    queryFn: () => getBooking(bookingId),
+    refetchInterval: isFocused ? HANDOFF_POLL_MS : false,
+    // Always the latest on (re)focus: the other phone may have tapped.
+    staleTime: 0,
+  })
+  const booking = bookingQuery.data ?? null
+  const setBooking = applyBookingUpdate
   const [pressed, setPressed] = useState(false)
   const [success, setSuccess] = useState(false)
   const [timedOut, setTimedOut] = useState(false)
@@ -116,32 +134,18 @@ export default function ZoinkItScreen() {
     : null
   const otherName = otherParty?.firstName ?? 'other party'
 
+  // One alert per outage: a failed poll every 3 s (e.g. the whole time the
+  // phone was offline) used to alert each time. Re-armed once a read succeeds.
+  const outageAlerted = useRef(false)
   useEffect(() => {
-    let active = true
-    // One alert per outage: this polls every 3 s, and used to alert on every
-    // failed read (e.g. the whole time the phone was offline). Re-armed once a
-    // read succeeds.
-    let alertShown = false
-    const load = async () => {
-      try {
-        const next = await getBooking(bookingId)
-        if (!active) return
-        alertShown = false
-        setBooking(next)
-      } catch (err: any) {
-        if (!active || alertShown) return
-        alertShown = true
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
-      }
+    if (bookingQuery.isError && !outageAlerted.current) {
+      outageAlerted.current = true
+      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
     }
-
-    load()
-    const id = setInterval(load, 3000)
-    return () => {
-      active = false
-      clearInterval(id)
-    }
-  }, [bookingId])
+  }, [bookingQuery.isError, bookingQuery.error])
+  useEffect(() => {
+    outageAlerted.current = false
+  }, [bookingQuery.dataUpdatedAt])
 
   const handleSuccess = useCallback(async (nextBooking: Booking) => {
     if (successHandled.current) return
