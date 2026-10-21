@@ -5,37 +5,20 @@ import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
 import LoadingGate from '../components/mockup/LoadingGate'
 import { getFirstPendingReview } from '../services/reviewsApi'
+import { useQuery } from '@tanstack/react-query'
+import * as SplashScreen from 'expo-splash-screen'
+import { queryKeys } from '../services/queryKeys'
 
-// Screens
+// Screens shown first (signed out, verifying, the main tabs) load with the
+// app; every other screen's module loads the first time it's opened
+// (getComponent below), which keeps Stripe, the image picker, maps and the
+// photo viewer off the startup path.
 import LoginScreen from '../screens/LoginScreen'
 import RegisterScreen from '../screens/RegisterScreen'
 import TermsAcceptanceScreen from '../screens/TermsAcceptanceScreen'
 import VerifyEmailScreen from '../screens/VerifyEmailScreen'
 import VerificationGateScreen from '../screens/VerificationGateScreen'
 import MainAppScreen from '../screens/MainAppScreen'
-import CreateListingScreen from '../screens/CreateListingScreen'
-import ListingDetailScreen from '../screens/ListingDetailScreen'
-import EditListingScreen from '../screens/EditListingScreen'
-import MyListingsScreen from '../screens/MyListingsScreen'
-import BookingRequestScreen from '../screens/BookingRequestScreen'
-import PayScreen from '../screens/PayScreen'
-import BookingHistoryScreen from '../screens/BookingHistoryScreen'
-import BookingRequestsScreen from '../screens/BookingRequestsScreen'
-import BookingDetailScreen from '../screens/BookingDetailScreen'
-import InboxScreen from '../screens/InboxScreen'
-import ConversationThreadScreen from '../screens/ConversationThreadScreen'
-import ReviewPromptScreen from '../screens/ReviewPromptScreen'
-import MyProfileScreen from '../screens/MyProfileScreen'
-import SettingsScreen from '../screens/SettingsScreen'
-import PublicProfileScreen from '../screens/PublicProfileScreen'
-import ZoinkItScreen from '../screens/ZoinkItScreen'
-import ActiveRentalScreen from '../screens/ActiveRentalScreen'
-import PhotoViewerScreen from '../screens/PhotoViewerScreen'
-import FileDisputeScreen from '../screens/FileDisputeScreen'
-import AdminDisputesScreen from '../screens/AdminDisputesScreen'
-import AdminDisputeDetailScreen from '../screens/AdminDisputeDetailScreen'
-import FileReportScreen from '../screens/FileReportScreen'
-import AdminReportsScreen from '../screens/AdminReportsScreen'
 
 // Held on RegisterScreen while the user goes through TermsAcceptance, so a
 // cancel/error round-trip doesn't lose what they typed. Password is carried
@@ -85,19 +68,12 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>()
 
 function VerifiedAppStack() {
-  const [initialReview, setInitialReview] = React.useState<import('../types').PendingReview | null>(null)
-  const [loading, setLoading] = React.useState(true)
+  // Started as soon as the session was restored (AuthContext prefetches it),
+  // so it usually arrives while fonts are still loading.
+  const reviewQuery = useQuery({ queryKey: queryKeys.firstPendingReview, queryFn: getFirstPendingReview })
+  const initialReview = reviewQuery.data ?? null
 
-  React.useEffect(() => {
-    getFirstPendingReview()
-      .then((review) => {
-        if (review) setInitialReview(review)
-      })
-      .catch((err) => console.error('Failed to fetch pending reviews', err))
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) {
+  if (reviewQuery.isPending) {
     return (
       <LoadingGate />
     )
@@ -109,42 +85,42 @@ function VerifiedAppStack() {
       initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
       <Stack.Screen name="MainApp" component={MainAppScreen} />
-      <Stack.Screen name="CreateListing" component={CreateListingScreen} />
-      <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
-      <Stack.Screen name="EditListing" component={EditListingScreen} />
-      <Stack.Screen name="MyListings" component={MyListingsScreen} />
-      <Stack.Screen name="BookingRequest" component={BookingRequestScreen} />
-      <Stack.Screen name="Pay" component={PayScreen} />
-      <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
-      <Stack.Screen name="BookingRequests" component={BookingRequestsScreen} />
-      <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
-      <Stack.Screen name="FileDispute" component={FileDisputeScreen} />
-      <Stack.Screen name="AdminDisputes" component={AdminDisputesScreen} />
-      <Stack.Screen name="AdminDisputeDetail" component={AdminDisputeDetailScreen} />
-      <Stack.Screen name="FileReport" component={FileReportScreen} />
-      <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
-      <Stack.Screen name="ActiveRental" component={ActiveRentalScreen} />
-      <Stack.Screen name="ZoinkIt" component={ZoinkItScreen} />
+      <Stack.Screen name="CreateListing" getComponent={() => require('../screens/CreateListingScreen').default} />
+      <Stack.Screen name="ListingDetail" getComponent={() => require('../screens/ListingDetailScreen').default} />
+      <Stack.Screen name="EditListing" getComponent={() => require('../screens/EditListingScreen').default} />
+      <Stack.Screen name="MyListings" getComponent={() => require('../screens/MyListingsScreen').default} />
+      <Stack.Screen name="BookingRequest" getComponent={() => require('../screens/BookingRequestScreen').default} />
+      <Stack.Screen name="Pay" getComponent={() => require('../screens/PayScreen').default} />
+      <Stack.Screen name="BookingHistory" getComponent={() => require('../screens/BookingHistoryScreen').default} />
+      <Stack.Screen name="BookingRequests" getComponent={() => require('../screens/BookingRequestsScreen').default} />
+      <Stack.Screen name="BookingDetail" getComponent={() => require('../screens/BookingDetailScreen').default} />
+      <Stack.Screen name="FileDispute" getComponent={() => require('../screens/FileDisputeScreen').default} />
+      <Stack.Screen name="AdminDisputes" getComponent={() => require('../screens/AdminDisputesScreen').default} />
+      <Stack.Screen name="AdminDisputeDetail" getComponent={() => require('../screens/AdminDisputeDetailScreen').default} />
+      <Stack.Screen name="FileReport" getComponent={() => require('../screens/FileReportScreen').default} />
+      <Stack.Screen name="AdminReports" getComponent={() => require('../screens/AdminReportsScreen').default} />
+      <Stack.Screen name="ActiveRental" getComponent={() => require('../screens/ActiveRentalScreen').default} />
+      <Stack.Screen name="ZoinkIt" getComponent={() => require('../screens/ZoinkItScreen').default} />
       <Stack.Screen
         name="PhotoViewer"
-        component={PhotoViewerScreen}
+        getComponent={() => require('../screens/PhotoViewerScreen').default}
         options={{ presentation: 'fullScreenModal', animation: 'fade' }}
       />
       <Stack.Screen 
         name="ReviewPrompt" 
-        component={ReviewPromptScreen} 
+        getComponent={() => require('../screens/ReviewPromptScreen').default} 
         initialParams={initialReview ? { review: initialReview } : undefined} 
         options={{ gestureEnabled: false }}
       />
-      <Stack.Screen name="Inbox" component={InboxScreen} />
-      <Stack.Screen name="MyProfile" component={MyProfileScreen} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="Inbox" getComponent={() => require('../screens/InboxScreen').default} />
+      <Stack.Screen name="MyProfile" getComponent={() => require('../screens/MyProfileScreen').default} />
+      <Stack.Screen name="Settings" getComponent={() => require('../screens/SettingsScreen').default} />
       <Stack.Screen 
         name="PublicProfile" 
-        component={PublicProfileScreen} 
+        getComponent={() => require('../screens/PublicProfileScreen').default} 
         options={{ presentation: 'modal' }}
       />
-      <Stack.Screen name="ConversationThread" component={ConversationThreadScreen} />
+      <Stack.Screen name="ConversationThread" getComponent={() => require('../screens/ConversationThreadScreen').default} />
       <Stack.Screen
         name="TermsAcceptance"
         component={TermsAcceptanceScreen}
@@ -162,7 +138,19 @@ function VerifiedAppStack() {
   )
 }
 
+function hideSplash() {
+  SplashScreen.hideAsync().catch(() => {})
+}
+
 export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
+  // Never leave the splash up for good: if the first screen is slow (fonts,
+  // the session or the review check stuck on the network), the loading
+  // screen shows after a few seconds as it used to.
+  React.useEffect(() => {
+    const timer = setTimeout(hideSplash, 6000)
+    return () => clearTimeout(timer)
+  }, [])
+
   const { user, isLoading } = useAuth()
 
   // Don't render anything until we've checked SecureStore and the fonts are in
@@ -173,7 +161,9 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
   }
 
   return (
-    <NavigationContainer>
+    // The first navigator to mount is the first real screen: the splash
+    // (held since launch, see App.tsx) hides then, with nothing in between.
+    <NavigationContainer onReady={hideSplash}>
       {!user ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Login" component={LoginScreen} />

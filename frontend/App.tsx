@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './src/context/AuthContext'
 import { queryClient } from './src/services/queryClient'
 import Navigation from './src/navigation'
-import { StripeProvider } from '@stripe/stripe-react-native'
+import * as SplashScreen from 'expo-splash-screen'
 import { useFonts } from 'expo-font'
 // One weight per import: the package roots reference every weight, which
 // shipped all 18 Fira Sans and 3 Fira Mono files (8.4 MB) for these four.
@@ -13,7 +13,6 @@ import { FiraSans_400Regular } from '@expo-google-fonts/fira-sans/400Regular'
 import { FiraSans_700Bold } from '@expo-google-fonts/fira-sans/700Bold'
 import { FiraSans_900Black } from '@expo-google-fonts/fira-sans/900Black'
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono/700Bold'
-import { STRIPE_PUBLISHABLE_KEY } from './src/config/stripe'
 import ErrorBoundary from './src/components/mockup/ErrorBoundary'
 import { scrubBreadcrumb, scrubEvent } from './src/services/sentryScrub'
 
@@ -42,6 +41,12 @@ function reportRenderError(error: Error, componentStack: string | null | undefin
   }
 }
 
+// The native splash stays up until the first real screen has drawn (see
+// navigation/index.tsx), instead of handing over to a blank root view and a
+// loading screen while fonts and the session load.
+SplashScreen.preventAutoHideAsync().catch(() => {})
+SplashScreen.setOptions({ duration: 200, fade: true })
+
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     FiraSans_400Regular,
@@ -55,18 +60,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StripeProvider
-          publishableKey={STRIPE_PUBLISHABLE_KEY}
-          urlScheme="zoink"
-        >
-          <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-              <ErrorBoundary onError={reportRenderError}>
-                <Navigation fontsReady={fontsLoaded || !!fontError} />
-              </ErrorBoundary>
-            </AuthProvider>
-          </QueryClientProvider>
-        </StripeProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ErrorBoundary onError={reportRenderError}>
+              <Navigation fontsReady={fontsLoaded || !!fontError} />
+            </ErrorBoundary>
+          </AuthProvider>
+        </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

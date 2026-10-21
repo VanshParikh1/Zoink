@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { useStripe } from '@stripe/stripe-react-native'
+import { StripeProvider, useStripe } from '@stripe/stripe-react-native'
 import { RootStackParamList } from '../navigation'
 import { confirmBookingPayment, createBookingPaymentIntent, getBooking } from '../services/bookingsApi'
 import { applyBookingUpdate } from '../services/bookingCache'
@@ -13,7 +13,7 @@ import { apiErrorMessage } from '../utils/apiError'
 import { useQuery } from '@tanstack/react-query'
 import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
-import { isStripePublishableKeyConfigured } from '../config/stripe'
+import { isStripePublishableKeyConfigured, STRIPE_PUBLISHABLE_KEY } from '../config/stripe'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -63,7 +63,18 @@ function shortMoney(amount: number) {
   return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`
 }
 
+// Stripe is set up here, the only screen that uses it, instead of for the
+// whole app at launch (its SDK no longer loads until someone pays). urlScheme
+// brings the user back here from a bank's 3-D Secure page.
 export default function PayScreen() {
+  return (
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY} urlScheme="zoink">
+      <PayContent />
+    </StripeProvider>
+  )
+}
+
+function PayContent() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const { initPaymentSheet, presentPaymentSheet } = useStripe()

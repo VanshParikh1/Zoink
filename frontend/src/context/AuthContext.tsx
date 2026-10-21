@@ -1,12 +1,14 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
-import { Alert, Platform } from 'react-native'
+import { Alert, InteractionManager, Platform } from 'react-native'
 import api, { setApiToken, setSessionEndedHandler } from '../services/api'
 import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { releasePushToken, syncPushToken } from '../services/pushNotifications'
 import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
+import { getFirstPendingReview } from '../services/reviewsApi'
 import type { University } from '@zoink/shared'
 
 const TOKEN_KEY = 'zoink_jwt'
@@ -94,6 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(stored)
           setUser(payload)
           api.defaults.headers.common['Authorization'] = `Bearer ${stored}`
+          // The first screen depends on whether a review is owed; ask now,
+          // in parallel with the fonts, rather than once they've loaded.
+          if (payload.verificationStatus === 'VERIFIED') {
+            queryClient.prefetchQuery({ queryKey: queryKeys.firstPendingReview, queryFn: getFirstPendingReview })
+          }
         } else {
           setApiToken(null)
         }
@@ -127,9 +134,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    syncPushToken().catch((error) => {
-      console.warn('Failed to sync push token', error)
+    // Not needed for the first screen: wait until launch animations and the
+    // first renders are done.
+    const task = InteractionManager.runAfterInteractions(() => {
+      syncPushToken().catch((error) => {
+        console.warn('Failed to sync push token', error)
+      })
     })
+    return () => task.cancel()
   }, [token, user])
 
   // `newUser` is only used in DEMO_MODE, where there's no real JWT to decode.

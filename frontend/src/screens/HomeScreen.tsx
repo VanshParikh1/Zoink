@@ -34,6 +34,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>
 
 const DEFAULT_COORDS = { latitude: 43.6532, longitude: -79.3832 }
 const DEFAULT_RADIUS_KM = 5000
+const LAST_FIX_MAX_AGE_MS = 10 * 60_000
 const HOME_CATEGORIES = ['All', ...LISTING_CATEGORIES]
 const SKELETON_COUNT = 4
 
@@ -97,9 +98,11 @@ export default function HomeScreen() {
         setCoords(DEFAULT_COORDS)
         return
       }
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      })
+      // A fix from the last few minutes answers at once; a fresh one (which
+      // can take seconds) only when there's none. Listings wait on this.
+      const position =
+        (await Location.getLastKnownPositionAsync({ maxAge: LAST_FIX_MAX_AGE_MS })) ??
+        (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }))
       setCoords({ latitude: position.coords.latitude, longitude: position.coords.longitude })
     } catch {
       setCoords(DEFAULT_COORDS)
