@@ -1,48 +1,63 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { getMyConversations } from '../services/conversationsApi'
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import type { ConversationListPage } from '@zoink/shared'
+import { getInboxPage } from '../services/conversationsApi'
+import { queryKeys } from '../services/queryKeys'
 import { Conversation } from '../types'
-import { usePolling } from '../hooks/usePolling'
+import { usePagedList } from '../hooks/usePagedList'
 import { INBOX_POLL_MS } from '../config/polling'
 
 export type ConversationsFeed = {
   conversations: Conversation[]
+  /** Unread conversations across every page (the tab badge). */
+  unreadCount: number
   loading: boolean
-  error: string
+  error: unknown
+  refreshing: boolean
   refresh: () => Promise<void>
+  loadMore: () => void
+  loadingMore: boolean
 }
 
 /**
- * The signed-in user's conversations: fetched when `active` becomes true (e.g.
- * the screen gains focus) and polled every INBOX_POLL_MS while it stays true
- * and the app is in the foreground.
+ * The signed-in user's conversations, a page at a time: refreshed when
+ * `active` becomes true (e.g. the screen regains focus) and polled every
+ * INBOX_POLL_MS while it stays true and the app is in the foreground. Every
+ * caller shares one cached feed.
  */
 export function useConversationsFeed(active: boolean): ConversationsFeed {
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const queryClient = useQueryClient()
+  const feed = usePagedList<Conversation, ConversationListPage>(queryKeys.inbox, getInboxPage, {
+    refetchInterval: active ? INBOX_POLL_MS : false,
+    refreshOnFocus: false,
+  })
 
-  const refresh = useCallback(async () => {
-    try {
-      setError('')
-      setConversations(await getMyConversations())
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your inbox.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
+  // Coming back (e.g. a thread popped off) always rechecks: messages are the
+  // one thing that can't wait for the cache to go stale.
+  const activatedBefore = useRef(false)
   useEffect(() => {
-    if (active) refresh()
-  }, [active, refresh])
+    if (!active) return
+    if (activatedBefore.current) queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
+    activatedBefore.current = true
+  }, [active, queryClient])
 
-  usePolling(refresh, INBOX_POLL_MS, active)
-
-  return useMemo(() => ({ conversations, loading, error, refresh }), [conversations, loading, error, refresh])
+  return useMemo(
+    () => ({
+      conversations: feed.items,
+      unreadCount: feed.firstPage?.unreadCount ?? 0,
+      loading: feed.loading,
+      error: feed.error,
+      refreshing: feed.refreshing,
+      refresh: feed.refresh,
+      loadMore: feed.loadMore,
+      loadingMore: feed.loadingMore,
+    }),
+    [feed.items, feed.firstPage, feed.loading, feed.error, feed.refreshing, feed.refresh, feed.loadMore, feed.loadingMore]
+  )
 }
 
 // MainAppScreen owns one feed for both the Inbox tab's list and the unread dot
-// on its tab icon, instead of each polling the same endpoint separately.
+// on its tab icon.
 const InboxContext = createContext<ConversationsFeed | null>(null)
 
 export const InboxFeedProvider = InboxContext.Provider

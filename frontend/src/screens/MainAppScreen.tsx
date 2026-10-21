@@ -110,7 +110,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   // when focus returns (e.g. ConversationThread pops back) and polls only while
   // this screen is focused and the app is in the foreground.
   const inboxFeed = useConversationsFeed(useIsFocused())
-  const unreadInboxCount = inboxFeed.conversations.filter((conversation) => conversation.unread).length
+  const unreadInboxCount = inboxFeed.unreadCount
 
   const tabWidth = bottomBarWidth ? (bottomBarWidth - TAB_BAR_PADDING * 2) / COLUMNS : 0
 

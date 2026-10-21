@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './src/context/AuthContext'
+import { queryClient } from './src/services/queryClient'
 import Navigation from './src/navigation'
 import { StripeProvider } from '@stripe/stripe-react-native'
 import { useFonts } from 'expo-font'
@@ -57,11 +59,13 @@ export default function App() {
           publishableKey={STRIPE_PUBLISHABLE_KEY}
           urlScheme="zoink"
         >
-          <AuthProvider>
-            <ErrorBoundary onError={reportRenderError}>
-              <Navigation fontsReady={fontsLoaded || !!fontError} />
-            </ErrorBoundary>
-          </AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <ErrorBoundary onError={reportRenderError}>
+                <Navigation fontsReady={fontsLoaded || !!fontError} />
+              </ErrorBoundary>
+            </AuthProvider>
+          </QueryClientProvider>
         </StripeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

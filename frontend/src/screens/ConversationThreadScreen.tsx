@@ -19,10 +19,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getConversation, getConversationMessages, markConversationRead, sendMessage } from '../services/conversationsApi'
+import { getConversation, getConversationMessages, markConversationRead, MESSAGES_PAGE_SIZE, sendMessage } from '../services/conversationsApi'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../services/queryKeys'
+import type { MessageListItem } from '@zoink/shared'
 import { usePolling } from '../hooks/usePolling'
 import { THREAD_DETAILS_POLL_MS, THREAD_MESSAGES_POLL_MS } from '../config/polling'
-import { Message, ConversationDetail } from '../types'
+import { ConversationDetail } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
@@ -58,7 +61,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // A poll that was already in flight when a message was sent can return that
 // message too; keep one copy per id.
-function appendNew(current: Message[], incoming: Message[]) {
+function appendNew(current: MessageListItem[], incoming: MessageListItem[]) {
   const seen = new Set(current.map((message) => message.id))
   const fresh = incoming.filter((message) => !seen.has(message.id))
   return fresh.length > 0 ? [...current, ...fresh] : current
@@ -66,7 +69,7 @@ function appendNew(current: Message[], incoming: Message[]) {
 
 type Row =
   | { kind: 'day'; key: string; label: string }
-  | { kind: 'message'; key: string; message: Message; isMine: boolean; groupStart: boolean; groupEnd: boolean }
+  | { kind: 'message'; key: string; message: MessageListItem; isMine: boolean; groupStart: boolean; groupEnd: boolean }
 
 /** "Today", "Yesterday", "Oct 20" (plus the year when it isn't this year). Upper-cased by type.eyebrow. */
 function dayLabel(date: Date) {
@@ -86,7 +89,7 @@ function dayLabel(date: Date) {
  * on the same day form one group, and only its last bubble gets the tail
  * corner and the time.
  */
-function buildRows(messages: Message[], myId: string | undefined): Row[] {
+function buildRows(messages: MessageListItem[], myId: string | undefined): Row[] {
   const rows: Row[] = []
   let lastDay = ''
   messages.forEach((message, index) => {
@@ -117,13 +120,27 @@ export default function ConversationThreadScreen() {
   const insets = useSafeAreaInsets()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
-  const [messages, setMessages] = useState<Message[]>([])
+  const queryClient = useQueryClient()
+  const conversationId = route.params.conversationId
+  const [messages, setMessages] = useState<MessageListItem[]>([])
+  // Older history is fetched a page at a time as the user scrolls up.
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const userScrolledRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
-  const [conversation, setConversation] = useState<ConversationDetail | null>(null)
+  const isFocused = useIsFocused()
+  // The header, lender CTA and payment banner, from one single-conversation
+  // fetch so all three stay consistent with each other; polled while open.
+  const conversationQuery = useQuery({
+    queryKey: queryKeys.conversation(conversationId),
+    queryFn: () => getConversation(conversationId),
+    refetchInterval: isFocused ? THREAD_DETAILS_POLL_MS : false,
+  })
+  const conversation: ConversationDetail | null = conversationQuery.data ?? null
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const latestMessageId = useRef<string | undefined>(undefined)
   const listRef = useRef<FlatList<Row>>(null)
@@ -133,13 +150,16 @@ export default function ConversationThreadScreen() {
   // unread messages) always lands on the newest message.
   const isNearBottomRef = useRef(true)
   const hasScrolledRef = useRef(false)
+  // Set by sending: keep jumping to the end as rows below get laid out, until
+  // the user drags. One jump into a long, partly measured list lands short.
+  const pinToEndRef = useRef(false)
 
   const loadMessages = useCallback(async (incremental = false) => {
     try {
       if (!incremental) {
         setError('')
       }
-      const nextMessages = await getConversationMessages(route.params.conversationId, incremental ? latestMessageId.current : undefined)
+      const nextMessages = await getConversationMessages(conversationId, incremental ? { after: latestMessageId.current } : {})
       if (incremental) {
         if (nextMessages.length > 0) {
           setMessages((current) => appendNew(current, nextMessages))
@@ -148,6 +168,7 @@ export default function ConversationThreadScreen() {
         return nextMessages
       } else {
         setMessages(nextMessages)
+        setHasOlder(nextMessages.length === MESSAGES_PAGE_SIZE)
         latestMessageId.current = nextMessages[nextMessages.length - 1]?.id
       }
     } catch (err: any) {
@@ -158,19 +179,30 @@ export default function ConversationThreadScreen() {
       setLoading(false)
     }
     return []
-  }, [nav, route.params.conversationId])
+  }, [conversationId])
 
-  const loadConversation = useCallback(async () => {
+  // Scrolling up past the oldest loaded message fetches the page before it.
+  // Only after the user has scrolled: the list starts at the top for a moment
+  // before it jumps to the newest message.
+  const loadOlder = useCallback(async () => {
+    const oldest = messages[0]
+    if (!userScrolledRef.current || !hasOlder || loadingOlder || !oldest) return
+    setLoadingOlder(true)
     try {
-      // Single-conversation fetch: powers the listing-context header, the
-      // lender CTA, and the bottom payment banner (acceptedUnpaidBookingId),
-      // so all three stay consistent with each other.
-      const next = await getConversation(route.params.conversationId)
-      setConversation(next)
+      const older = await getConversationMessages(conversationId, { before: oldest.id })
+      setMessages((current) => {
+        const seen = new Set(current.map((message) => message.id))
+        return [...older.filter((message) => !seen.has(message.id)), ...current]
+      })
+      setHasOlder(older.length === MESSAGES_PAGE_SIZE)
     } catch {
-      // Non-critical — the header/banner just won't show if this fails.
+      // Stays as it is; scrolling up again retries.
+    } finally {
+      setLoadingOlder(false)
     }
-  }, [route.params.conversationId])
+  }, [messages, hasOlder, loadingOlder, conversationId])
+
+  const loadConversation = conversationQuery.refetch
 
   // Opening (or returning to) the thread loads everything and marks it read.
   useFocusEffect(
@@ -184,7 +216,6 @@ export default function ConversationThreadScreen() {
   // While it's on screen and the app is in the foreground: new messages every
   // few seconds, marking the thread read only when the other person actually
   // sent something; the header / payment banner state far less often.
-  const isFocused = useIsFocused()
   const pollMessages = useCallback(async () => {
     const incoming = await loadMessages(true)
     if (incoming.some((message) => message.senderId !== user?.id)) {
@@ -192,7 +223,6 @@ export default function ConversationThreadScreen() {
     }
   }, [loadMessages, route.params.conversationId, user?.id])
   usePolling(pollMessages, THREAD_MESSAGES_POLL_MS, isFocused)
-  usePolling(loadConversation, THREAD_DETAILS_POLL_MS, isFocused)
 
   // The composer drops its safe-area padding while the keyboard is up (the
   // keyboard already covers the home indicator). iOS gets the "will" events so
@@ -219,9 +249,16 @@ export default function ConversationThreadScreen() {
       // Sending your own message should always carry you down to it,
       // even if you had scrolled up to read older history.
       isNearBottomRef.current = true
+      pinToEndRef.current = true
       setMessages((current) => appendNew(current, [message]))
       latestMessageId.current = message.id
       setBody('')
+      // Explicitly, once the new row is laid out: the list keeps its visible
+      // rows in place for older pages (maintainVisibleContentPosition), which
+      // otherwise holds a reader far up the history where they were.
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 50)
+      // The inbox shows the latest message.
+      queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
     } catch (err: any) {
       setSendError(err?.response?.data?.error ?? 'Could not send that message.')
     } finally {
@@ -294,7 +331,7 @@ export default function ConversationThreadScreen() {
     }
   }
 
-  function openMessageMenu(message: Message) {
+  function openMessageMenu(message: MessageListItem) {
     const snippet = message.body.length > 60 ? `${message.body.slice(0, 57)}...` : message.body
     const report = () =>
       nav.navigate('FileReport', { targetType: 'MESSAGE', targetId: message.id, targetLabel: `"${snippet}"` })
@@ -463,10 +500,19 @@ export default function ConversationThreadScreen() {
               style={styles.flex}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={() => {
+                userScrolledRef.current = true
+                pinToEndRef.current = false
+              }}
+              onStartReached={loadOlder}
+              onStartReachedThreshold={0.5}
+              // Prepending older messages keeps the ones on screen in place.
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              ListHeaderComponent={loadingOlder ? <ActivityIndicator style={styles.olderLoading} color={colors.greenText} /> : null}
               onScroll={(e) => {
                 const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
                 const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
-                isNearBottomRef.current = distanceFromBottom < 120
+                isNearBottomRef.current = pinToEndRef.current || distanceFromBottom < 120
               }}
               scrollEventThrottle={100}
               onContentSizeChange={() => {
@@ -474,7 +520,7 @@ export default function ConversationThreadScreen() {
                   // The first jump is instant: an animated one reports
                   // mid-scroll offsets that would clear isNearBottomRef before
                   // the pinned card / keyboard resize re-pins the list.
-                  listRef.current?.scrollToEnd({ animated: hasScrolledRef.current })
+                  listRef.current?.scrollToEnd({ animated: hasScrolledRef.current && !pinToEndRef.current })
                   hasScrolledRef.current = true
                 }
               }}
@@ -536,6 +582,9 @@ export default function ConversationThreadScreen() {
 }
 
 const styles = StyleSheet.create({
+  olderLoading: {
+    marginVertical: space.md,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.bg,

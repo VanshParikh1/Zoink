@@ -6,6 +6,7 @@ import api, { setApiToken, setSessionEndedHandler } from '../services/api'
 import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
 import { releasePushToken, syncPushToken } from '../services/pushNotifications'
+import { queryClient } from '../services/queryClient'
 import type { University } from '@zoink/shared'
 
 const TOKEN_KEY = 'zoink_jwt'
@@ -113,6 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionEndedHandler((endedToken) => {
       if (!DEMO_MODE) void releasePushToken(endedToken)
       delete api.defaults.headers.common['Authorization']
+      queryClient.clear()
       setToken(null)
       setUser(null)
       Alert.alert('Signed out', 'Your session has ended. Please log in again.')
@@ -138,6 +140,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // terms screen until an app reload re-decoded the token.
   const saveSession = useCallback(async (newToken: string, newUser: User) => {
     await setTokenAsync(TOKEN_KEY, newToken)
+    // Nothing cached for a previous account may show to this one.
+    queryClient.clear()
     setApiToken(newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
     const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
@@ -201,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await deleteTokenAsync(TOKEN_KEY)
     setApiToken(null)
     delete api.defaults.headers.common['Authorization']
+    queryClient.clear()
     setToken(null)
     setUser(null)
   }, [token])

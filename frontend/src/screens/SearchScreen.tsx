@@ -11,8 +11,11 @@ import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
 import { LISTING_CATEGORIES } from '../config/categories'
 import { useTabBarClearance } from '../components/mockup/tabBarMetrics'
-import { ListingBrowseItem } from '../types'
-import { browseListings, getNearbyListings } from '../services/listingsApi'
+import type { ListingCardItem } from '@zoink/shared'
+import { useQuery } from '@tanstack/react-query'
+import { browseListingsPage } from '../services/listingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
 import { useTabLoad } from '../context/MainTabContext'
 import { isBlockedThisSession } from '../services/blockedUsers'
 import Screen from '../components/mockup/Screen'
@@ -29,8 +32,14 @@ type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
 const CATEGORIES = ['All', ...LISTING_CATEGORIES]
 const SKELETON_COUNT = 3
 
+// Large radius: seeded/demo listings are frequently far from wherever the
+// device actually is, so a "realistic" nearby radius silently hides
+// everything. Matches HomeScreen's DEFAULT_RADIUS_KM.
+const SEARCH_RADIUS_KM = 5000
+const SEARCH_DEBOUNCE_MS = 300
+
 // Global in-memory cache for recently viewed items across the session
-let sessionRecentlyViewed: ListingBrowseItem[] = []
+let sessionRecentlyViewed: ListingCardItem[] = []
 
 export default function SearchScreen() {
   useRenderProbe('search')
@@ -42,13 +51,13 @@ export default function SearchScreen() {
   const [selectedCategory, setSelectedCategory] = useState('All')
   const scrollProbe = useScrollPerfProbe('search-list')
 
-  const [trending, setTrending] = useState<ListingBrowseItem[]>([])
-  const [recent, setRecent] = useState<ListingBrowseItem[]>([])
-  const [results, setResults] = useState<ListingBrowseItem[]>([])
-  // True from the moment a search is scheduled until its results land, so the
-  // list shows skeletons instead of flashing "Nothing found" in between.
-  const [searching, setSearching] = useState(false)
-
+  const [recent, setRecent] = useState<ListingCardItem[]>([])
+  // Where to measure distance from: undefined until the tab first opens and
+  // asks, null if no location is available.
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null | undefined>(undefined)
+  // The search actually sent, SEARCH_DEBOUNCE_MS after the last keystroke.
+  const [sent, setSent] = useState<{ query?: string; category?: string } | null>(null)
+  const [, setBlockedVersion] = useState(0)
   const fadeAnim = useRef(new Animated.Value(1)).current
   const translateAnim = useRef(new Animated.Value(0)).current
 
@@ -63,41 +72,51 @@ export default function SearchScreen() {
 
   // Trending needs a location fix and a wide browse, so it waits until the
   // Search tab is first opened rather than running behind Home at launch.
-  // Still loaded once per mount, as before.
-  const trendingRequested = useRef(false)
+  const locationRequested = useRef(false)
   useTabLoad('Search', useCallback(() => {
-    if (trendingRequested.current) return
-    trendingRequested.current = true
-    Location.getCurrentPositionAsync({}).then(loc => {
-      const { latitude, longitude } = loc.coords
-      // Large radius: seeded/demo listings are frequently far from wherever the
-      // device actually is, so a "realistic" nearby radius silently hides everything.
-      // Matches HomeScreen's DEFAULT_RADIUS_KM.
-      getNearbyListings({ lat: latitude, lng: longitude, radius: 5000 })
-        .then(res => {
-          setTrending(res.slice(0, 5))
-        }).catch(console.error)
-    }).catch(() => {
-      browseListings({}).then(res => {
-        setTrending(res.items.slice(0, 5))
-      }).catch(console.error)
-    })
+    if (locationRequested.current) return
+    locationRequested.current = true
+    // The last known fix answers at once; a fresh one only if there's none.
+    Location.getLastKnownPositionAsync()
+      .then((loc) => loc ?? Location.getCurrentPositionAsync({}))
+      .then((loc) => setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude }))
+      .catch(() => setCoords(null))
   }, []))
+
+  const near = coords ? { lat: coords.lat, lng: coords.lng, radius: SEARCH_RADIUS_KM } : {}
+  const trendingQuery = useQuery({
+    queryKey: queryKeys.browse({ ...near, limit: 5 }),
+    queryFn: () => browseListingsPage({ ...near, limit: 5 }).then((page) => page.items),
+    enabled: coords !== undefined,
+  })
+
+  const resultsParams = { ...sent, ...near }
+  const results = usePagedList<ListingCardItem>(
+    queryKeys.browse(resultsParams),
+    (cursor) => browseListingsPage(resultsParams, cursor),
+    { enabled: sent !== null && coords !== undefined, refreshOnFocus: false }
+  )
+
+  // Drop anything from a user blocked since these were cached.
+  const visible = (item: ListingCardItem) => !isBlockedThisSession(item.ownerId)
+  const trending = (trendingQuery.data ?? []).filter(visible)
+  const resultItems = results.items.filter(visible)
 
   useFocusEffect(
     useCallback(() => {
-      // Drop anything from a user blocked since these were cached.
-      const visible = (item: ListingBrowseItem) => !isBlockedThisSession(item.ownerId)
-      sessionRecentlyViewed = sessionRecentlyViewed.filter(visible)
+      sessionRecentlyViewed = sessionRecentlyViewed.filter((item) => !isBlockedThisSession(item.ownerId))
       setRecent([...sessionRecentlyViewed])
-      setTrending((current) => current.filter(visible))
-      setResults((current) => current.filter(visible))
+      setBlockedVersion((version) => version + 1)
     }, [])
   )
 
-  useEffect(() => {
-    const hasText = query.trim().length > 0 || selectedCategory !== 'All'
+  const hasText = query.trim().length > 0 || selectedCategory !== 'All'
+  // From the keystroke until its results land, the list shows skeletons
+  // instead of flashing "Nothing found" in between.
+  const pendingSearch = hasText && (sent?.query !== (query.trim() || undefined) || sent?.category !== (selectedCategory === 'All' ? undefined : selectedCategory))
+  const searching = hasText && (pendingSearch || coords === undefined || results.loading)
 
+  useEffect(() => {
     if (hasText !== isResultsState) {
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -121,34 +140,20 @@ export default function SearchScreen() {
       })
     }
 
-    if (hasText) {
-      setSearching(true)
-      const done = () => setSearching(false)
-      const timer = setTimeout(() => {
-        Location.getLastKnownPositionAsync().then(loc => {
-          browseListings({
-            query: query.trim() || undefined,
-            category: selectedCategory === 'All' ? undefined : selectedCategory,
-            lat: loc?.coords?.latitude,
-            lng: loc?.coords?.longitude,
-            // See trending-fetch comment above — don't let distance silently filter out results.
-            radius: 5000,
-          }).then(res => setResults(res.items)).catch(console.error).finally(done)
-        }).catch(() => {
-          browseListings({
-            query: query.trim() || undefined,
-            category: selectedCategory === 'All' ? undefined : selectedCategory,
-          }).then(res => setResults(res.items)).catch(console.error).finally(done)
-        })
-      }, 300)
-      return () => clearTimeout(timer)
-    } else {
-      setSearching(false)
-      setResults([])
+    if (!hasText) {
+      setSent(null)
+      return
     }
-  }, [query, selectedCategory, isResultsState, fadeAnim, translateAnim])
+    const timer = setTimeout(() => {
+      setSent({
+        query: query.trim() || undefined,
+        category: selectedCategory === 'All' ? undefined : selectedCategory,
+      })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [query, selectedCategory, hasText, isResultsState, fadeAnim, translateAnim])
 
-  const handleListingPress = (item: ListingBrowseItem) => {
+  const handleListingPress = (item: ListingCardItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
     Keyboard.dismiss()
 
@@ -163,7 +168,7 @@ export default function SearchScreen() {
     nav.navigate('ListingDetail', { listingId: item.id })
   }
 
-  const renderSection = (title: string, items: ListingBrowseItem[]) => (
+  const renderSection = (title: string, items: ListingCardItem[]) => (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={styles.list}>
@@ -227,7 +232,7 @@ export default function SearchScreen() {
   return (
     <Screen scroll={false} contentStyle={styles.screenContent}>
       <FlatList
-        data={isResultsState && !searching ? results : []}
+        data={isResultsState && !searching ? resultItems : []}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeaderComponent()}
         ListEmptyComponent={
@@ -255,6 +260,15 @@ export default function SearchScreen() {
         )}
         contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
         ItemSeparatorComponent={Separator}
+        onEndReached={isResultsState ? results.loadMore : undefined}
+        onEndReachedThreshold={1}
+        ListFooterComponent={
+          isResultsState && results.loadingMore ? (
+            <View style={[styles.padded, styles.footer]}>
+              <ListingCardSkeleton />
+            </View>
+          ) : null
+        }
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
@@ -298,5 +312,8 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: space.lg,
+  },
+  footer: {
+    marginTop: space.lg,
   },
 })

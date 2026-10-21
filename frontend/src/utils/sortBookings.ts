@@ -1,5 +1,7 @@
 import { Booking } from '../types'
 
+type Sortable = Pick<Booking, 'status' | 'startDate'>
+
 // Statuses for a live, in-progress rental. These always sort ahead of
 // everything else so the user sees them first no matter their dates — a
 // finished or not-yet-started booking is never more urgent than one that's
@@ -18,7 +20,7 @@ export function isLiveBooking(status: Booking['status']): boolean {
 // Returns a new array (does not mutate the input): live bookings first, ordered
 // by the rental starting soonest; then everything else, most recent rental
 // first.
-export function sortBookingsLiveFirst(bookings: Booking[]): Booking[] {
+export function sortBookingsLiveFirst<T extends Sortable>(bookings: T[]): T[] {
   return [...bookings].sort((left, right) => {
     const leftLive = isLiveBooking(left.status)
     const rightLive = isLiveBooking(right.status)

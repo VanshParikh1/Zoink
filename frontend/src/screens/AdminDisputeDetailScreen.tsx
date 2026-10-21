@@ -1,12 +1,16 @@
-import React, { useCallback, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
-import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native'
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
+import { queryKeys } from '../services/queryKeys'
+import { useRefreshOnFocus, usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -131,49 +135,37 @@ export default function AdminDisputeDetailScreen() {
   const route = useRoute<ScreenRoute>()
   const { disputeId } = route.params
 
-  const [dispute, setDispute] = useState<AdminDisputeDetail | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const disputeQuery = useQuery({ queryKey: queryKeys.adminDispute(disputeId), queryFn: () => getDisputeDetail(disputeId) })
+  useRefreshOnFocus(queryKeys.adminDispute(disputeId))
+  const dispute = disputeQuery.data ?? null
+  const loading = disputeQuery.isPending
+  useEffect(() => {
+    if (disputeQuery.isError && !dispute) {
+      Alert.alert('Error', apiErrorMessage(disputeQuery.error, 'Could not load this dispute.'))
+      nav.goBack()
+    }
+  }, [disputeQuery.isError, disputeQuery.error, dispute, nav])
   const [resolution, setResolution] = useState<ResolveDisputePayload['status'] | null>(null)
   const [notes, setNotes] = useState('')
   const [refundAmountInput, setRefundAmountInput] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // The booking's audit trail, a page at a time, once it's opened.
   const [auditExpanded, setAuditExpanded] = useState(false)
-  const [events, setEvents] = useState<BookingEvent[] | null>(null)
-  const [eventsLoading, setEventsLoading] = useState(false)
-
-  const loadDispute = useCallback(async () => {
-    try {
-      const next = await getDisputeDetail(disputeId)
-      setDispute(next)
-    } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this dispute.')
-      nav.goBack()
-    } finally {
-      setLoading(false)
-    }
-  }, [disputeId, nav])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadDispute()
-    }, [loadDispute])
+  const eventsFeed = usePagedList<BookingEvent>(
+    queryKeys.bookingEvents(dispute?.bookingId ?? ''),
+    (cursor) => getBookingEvents(dispute!.bookingId, cursor),
+    { enabled: auditExpanded && dispute !== null }
   )
+  const events = auditExpanded && !eventsFeed.loading ? eventsFeed.items : null
+  const eventsLoading = auditExpanded && eventsFeed.loading
+  useEffect(() => {
+    if (eventsFeed.error) Alert.alert('Error', apiErrorMessage(eventsFeed.error, 'Could not load the audit trail.'))
+  }, [eventsFeed.error])
 
-  async function handleToggleAuditTrail() {
-    const willExpand = !auditExpanded
-    setAuditExpanded(willExpand)
-    if (willExpand && events === null && dispute) {
-      setEventsLoading(true)
-      try {
-        const bookingEvents = await getBookingEvents(dispute.bookingId)
-        setEvents(bookingEvents)
-      } catch (err: any) {
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load the audit trail.')
-      } finally {
-        setEventsLoading(false)
-      }
-    }
+  function handleToggleAuditTrail() {
+    setAuditExpanded((expanded) => !expanded)
   }
 
   function handleSelectResolution(value: ResolveDisputePayload['status']) {
@@ -224,7 +216,9 @@ export default function AdminDisputeDetailScreen() {
         resolutionNotes: notes.trim(),
         ...(refundAmountCents !== undefined ? { refundAmountCents } : {}),
       })
-      await loadDispute()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.adminDispute(disputeId) })
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+      queryClient.invalidateQueries({ queryKey: ['bookings'] })
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not resolve this dispute.')
     } finally {
@@ -434,6 +428,9 @@ export default function AdminDisputeDetailScreen() {
                 </View>
               )
             })}
+            {eventsFeed.hasMore ? (
+              <Button label="Load more" variant="secondary" size="sm" loading={eventsFeed.loadingMore} onPress={eventsFeed.loadMore} />
+            ) : null}
           </View>
         )
       ) : null}

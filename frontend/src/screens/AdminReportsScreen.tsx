@@ -1,8 +1,11 @@
-import React, { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useFocusEffect } from '@react-navigation/native'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { listReports, resolveReport } from '../services/adminApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { AdminReportListItem, ReportStatus, ReportTargetType } from '../types'
 import { colors } from '../theme/colors'
 import { radius, shadow, space } from '../theme/tokens'
@@ -39,36 +42,16 @@ const TARGET_TYPE_LABELS: Record<ReportTargetType, string> = {
 }
 
 export default function AdminReportsScreen() {
-  const [reports, setReports] = useState<AdminReportListItem[]>([])
   const [filter, setFilter] = useState<ReportStatus | undefined>(undefined)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
   const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
+  const feed = usePagedList<AdminReportListItem>(queryKeys.adminReports(filter), (cursor) => listReports(filter, cursor))
+  const { items: reports, loading, refreshing } = feed
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load reports.') : ''
 
   const [activeReport, setActiveReport] = useState<AdminReportListItem | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
   const [resolving, setResolving] = useState(false)
-
-  const loadReports = useCallback(async (status: ReportStatus | undefined) => {
-    try {
-      setError('')
-      const next = await listReports(status)
-      setReports(next)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load reports.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true)
-      loadReports(filter)
-    }, [loadReports, filter])
-  )
 
   function openResolve(report: AdminReportListItem) {
     setActiveReport(report)
@@ -85,7 +68,8 @@ export default function AdminReportsScreen() {
         adminNotes: adminNotes.trim().length > 0 ? adminNotes.trim() : undefined,
       })
       setActiveReport(null)
-      loadReports(filter)
+      // Every filter's list may have changed (the report left OPEN).
+      queryClient.invalidateQueries({ queryKey: ['admin', 'reports'] })
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not resolve this report.')
     } finally {
@@ -111,10 +95,7 @@ export default function AdminReportsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true)
-              loadReports(filter)
-            }}
+            onRefresh={feed.refresh}
             tintColor={colors.greenText}
             colors={[colors.green]}
           />
@@ -136,13 +117,16 @@ export default function AdminReportsScreen() {
             <StatePanel
               title="Couldn't load reports"
               body={error}
-              action={{ label: 'Try again', onPress: () => loadReports(filter), variant: 'primary' }}
+              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
             />
           ) : (
             <StatePanel title="No reports here" body="Nothing matches this filter right now." />
           )
         }
         ItemSeparatorComponent={Separator}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={feed.loadingMore ? <ActivityIndicator style={styles.footer} color={colors.greenText} /> : null}
         renderItem={({ item }) => {
           const badge = reportStatusBadge(item.status)
           const title = `${TARGET_TYPE_LABELS[item.targetType]} · ${REASON_LABELS[item.reason] ?? item.reason}`
@@ -216,6 +200,7 @@ const styles = StyleSheet.create({
   subtitle: { ...type.bodySm, color: colors.mutedAlt },
   chips: { gap: space.sm, paddingVertical: space.xs },
   separator: { height: space.lg },
+  footer: { marginTop: space.lg },
   pressed: { opacity: 0.85 },
   shadowSpace: { paddingRight: shadow.sm, paddingBottom: shadow.sm },
   card: { gap: space.sm },

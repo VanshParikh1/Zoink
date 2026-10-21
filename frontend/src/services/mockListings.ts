@@ -1,4 +1,4 @@
-import { BrowseListingsResult, ListingBrowseItem, ListingImage, User } from '../types'
+import { ListingBrowseItem, ListingImage, User } from '../types'
 import type { BrowseListingsParams, CreateListingPayload, UpdateListingPayload } from './listingsApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
 import { isDemoBlocked } from './mockBlocks'
@@ -445,7 +445,7 @@ export async function mockBrowseListings({
   category,
   minPrice,
   maxPrice,
-}: BrowseListingsParams): Promise<BrowseListingsResult> {
+}: BrowseListingsParams): Promise<{ items: ListingBrowseItem[]; total: number; hasMore: boolean }> {
   const normalizedQuery = query?.trim().toLowerCase()
   const normalizedCategory = category?.trim().toLowerCase()
 

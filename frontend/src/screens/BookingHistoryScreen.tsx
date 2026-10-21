@@ -1,11 +1,14 @@
-import React, { useCallback, useState } from 'react'
+import React from 'react'
 import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
-import { getMyBookings } from '../services/bookingsApi'
-import { Booking } from '../types'
+import type { BookingListItem, BookingListPage } from '@zoink/shared'
+import { getBookingListPage } from '../services/bookingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -32,29 +35,13 @@ function formatDateRange(startDate: string, endDate: string) {
 export default function BookingHistoryScreen() {
   const nav = useNavigation<Nav>()
   const insets = useSafeAreaInsets()
-  const [bookings, setBookings] = useState<Booking[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
-
-  const loadBookings = useCallback(async () => {
-    try {
-      setError('')
-      const nextBookings = await getMyBookings()
-      setBookings(nextBookings)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your bookings.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadBookings()
-    }, [loadBookings])
+  // Pages arrive live-first, the order the sections show.
+  const feed = usePagedList<BookingListItem, BookingListPage>(queryKeys.bookingList('renter'), (cursor) =>
+    getBookingListPage('renter', cursor)
   )
+  const { items: bookings, loading, refreshing } = feed
+  const total = feed.firstPage?.total ?? bookings.length
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load your bookings.') : ''
 
   const activeRentals = bookings
     .filter((booking) => isLiveBooking(booking.status))
@@ -77,10 +64,7 @@ export default function BookingHistoryScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true)
-              loadBookings()
-            }}
+            onRefresh={feed.refresh}
             tintColor={colors.greenText}
             colors={[colors.green]}
           />
@@ -90,9 +74,9 @@ export default function BookingHistoryScreen() {
           <Text style={styles.summary}>
             {loading
               ? 'Loading your bookings…'
-              : bookings.length === 0
+              : total === 0
                 ? 'Nothing booked yet'
-                : `${bookings.length} booking${bookings.length === 1 ? '' : 's'} tracked here`}
+                : `${total} booking${total === 1 ? '' : 's'} tracked here`}
           </Text>
         }
         renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
@@ -110,6 +94,9 @@ export default function BookingHistoryScreen() {
           />
         )}
         ItemSeparatorComponent={Separator}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={feed.loadingMore ? <ListingCardSkeleton style={styles.footer} /> : null}
         ListEmptyComponent={
           loading ? (
             <View style={styles.list}>
@@ -121,7 +108,7 @@ export default function BookingHistoryScreen() {
             <StatePanel
               title="Your bookings couldn't load"
               body={error}
-              action={{ label: 'Try again', onPress: loadBookings, variant: 'primary' }}
+              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
             />
           ) : (
             <StatePanel
@@ -148,4 +135,5 @@ const styles = StyleSheet.create({
   sectionTitle: { ...type.section, color: colors.ink, marginTop: space.sm },
   list: { gap: space.lg },
   separator: { height: space.lg },
+  footer: { marginTop: space.lg },
 })

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { useIsFocused, useNavigation } from '@react-navigation/native'
@@ -51,8 +51,8 @@ export default function InboxScreen() {
   const sharedFeed = useSharedInboxFeed()
   const isFocused = useIsFocused()
   const ownFeed = useConversationsFeed(sharedFeed === null && isFocused)
-  const { conversations, loading, refresh } = sharedFeed ?? ownFeed
-  const [refreshing, setRefreshing] = useState(false)
+  const feed = sharedFeed ?? ownFeed
+  const { conversations, loading, refreshing, refresh } = feed
 
   const renderRow = ({ item }: { item: Conversation }) => {
     const otherUser = item.ownerId === user?.id ? item.renter : item.owner
@@ -123,14 +123,14 @@ export default function InboxScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true)
-              refresh().finally(() => setRefreshing(false))
-            }}
+            onRefresh={refresh}
             tintColor={colors.greenText}
             colors={[colors.green]}
           />
         }
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={feed.loadingMore ? <View style={styles.footer}><SkeletonRow /></View> : null}
         contentContainerStyle={[styles.listContent, { paddingBottom: tabBarClearance + space.xxl }]}
         ListEmptyComponent={
           loading ? (
@@ -182,6 +182,9 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: space.md,
+  },
+  footer: {
+    marginTop: space.md,
   },
   pressed: {
     opacity: 0.85,

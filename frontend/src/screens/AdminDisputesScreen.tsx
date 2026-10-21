@@ -1,10 +1,13 @@
-import React, { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
 import { listDisputes } from '../services/adminApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
@@ -38,32 +41,11 @@ const FILTERS: { label: string; value: DisputeStatus | undefined }[] = [
 
 export default function AdminDisputesScreen() {
   const nav = useNavigation<Nav>()
-  const [disputes, setDisputes] = useState<AdminDisputeListItem[]>([])
   const [filter, setFilter] = useState<DisputeStatus | undefined>(undefined)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
   const insets = useSafeAreaInsets()
-
-  const loadDisputes = useCallback(async (status: DisputeStatus | undefined) => {
-    try {
-      setError('')
-      const next = await listDisputes(status)
-      setDisputes(next)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load disputes.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true)
-      loadDisputes(filter)
-    }, [loadDisputes, filter])
-  )
+  const feed = usePagedList<AdminDisputeListItem>(queryKeys.adminDisputes(filter), (cursor) => listDisputes(filter, cursor))
+  const { items: disputes, loading, refreshing } = feed
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load disputes.') : ''
 
   const header = <ScreenHeader title="Dispute queue" back />
 
@@ -83,10 +65,7 @@ export default function AdminDisputesScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true)
-              loadDisputes(filter)
-            }}
+            onRefresh={feed.refresh}
             tintColor={colors.greenText}
             colors={[colors.green]}
           />
@@ -107,13 +86,16 @@ export default function AdminDisputesScreen() {
             <StatePanel
               title="Couldn't load disputes"
               body={error}
-              action={{ label: 'Try again', onPress: () => loadDisputes(filter), variant: 'primary' }}
+              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
             />
           ) : (
             <StatePanel title="No disputes here" body="Nothing matches this filter right now." />
           )
         }
         ItemSeparatorComponent={Separator}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={feed.loadingMore ? <ActivityIndicator style={styles.footer} color={colors.greenText} /> : null}
         renderItem={({ item }) => {
           const badge = disputeStatusBadge(item.status)
           return (
@@ -155,6 +137,7 @@ const styles = StyleSheet.create({
   subtitle: { ...type.bodySm, color: colors.mutedAlt },
   chips: { gap: space.sm, paddingVertical: space.xs },
   separator: { height: space.lg },
+  footer: { marginTop: space.lg },
   pressed: { opacity: 0.85 },
   card: { gap: space.sm },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.lg },

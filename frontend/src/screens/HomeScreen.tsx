@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, LayoutChangeEvent, Platform, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Location from 'expo-location'
@@ -6,8 +6,12 @@ import Feather from '@expo/vector-icons/Feather'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { ListingBrowseItem } from '../types'
-import { getNearbyListings } from '../services/listingsApi'
+import type { ListingCardItem } from '@zoink/shared'
+import { useQueryClient } from '@tanstack/react-query'
+import { browseListingsPage } from '../services/listingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { useTabLoad } from '../context/MainTabContext'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
@@ -61,80 +65,60 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions()
   const compactHeadline = width < HEADLINE_COMPACT_BELOW
 
-  const [listings, setListings] = useState<ListingBrowseItem[]>([])
-  const [coords, setCoords] = useState(DEFAULT_COORDS)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
+  const queryClient = useQueryClient()
+  // Null until the first visit has resolved a location (or fallen back).
+  const [coords, setCoords] = useState<typeof DEFAULT_COORDS | null>(null)
   const [listWidth, setListWidth] = useState(0)
   const scrollProbe = useScrollPerfProbe('home-grid')
   const cellWidth = listWidth
     ? Math.floor((listWidth - space.screen * 2 - COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS)
     : 0
 
-  const fetchListings = useCallback(async (currentCoords: typeof DEFAULT_COORDS) => {
-    try {
-      setError('')
-      const data = await getNearbyListings({
-        lat: currentCoords.latitude,
-        lng: currentCoords.longitude,
-        radius: DEFAULT_RADIUS_KM,
-      })
-      setListings(data)
-      markStartup('home-content')
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load nearby listings right now.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
+  const browseParams = coords ? { lat: coords.latitude, lng: coords.longitude, radius: DEFAULT_RADIUS_KM } : null
+  const browseKey = queryKeys.browse(browseParams ?? {})
+  const fetchPage = useCallback(
+    (cursor: string | undefined) => browseListingsPage(browseParams!, cursor),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [coords]
+  )
+  const feed = usePagedList<ListingCardItem>(browseKey, fetchPage, { enabled: coords !== null, refreshOnFocus: false })
+  const listings = feed.items
+  const loading = coords === null || feed.loading
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load nearby listings right now.') : ''
 
-  const loadLocationAndListings = useCallback(async () => {
-    setLoading(true)
+  useEffect(() => {
+    if (listings.length > 0) markStartup('home-content')
+  }, [listings.length > 0])
 
+  const resolveLocation = useCallback(async () => {
     try {
       const permission = await Location.requestForegroundPermissionsAsync()
-
       if (permission.status !== 'granted') {
         setCoords(DEFAULT_COORDS)
-        await fetchListings(DEFAULT_COORDS)
         return
       }
-
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       })
-
-      const nextCoords = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      }
-
-      setCoords(nextCoords)
-      await fetchListings(nextCoords)
+      setCoords({ latitude: position.coords.latitude, longitude: position.coords.longitude })
     } catch {
       setCoords(DEFAULT_COORDS)
-      await fetchListings(DEFAULT_COORDS)
     }
-  }, [fetchListings])
+  }, [])
 
-  // The first visit resolves location and loads; coming back to the tab after
-  // another screen was on top reloads at the coordinates already found.
+  // The first visit resolves location (which starts the load); coming back
+  // to the tab after another screen was on top refreshes it if it's stale.
   const locationResolved = useRef(false)
   useTabLoad('Home', useCallback(() => {
     if (locationResolved.current) {
-      fetchListings(coords)
+      queryClient.refetchQueries({ queryKey: ['listings', 'browse'], type: 'active', stale: true })
     } else {
       locationResolved.current = true
-      loadLocationAndListings()
+      resolveLocation()
     }
-  }, [coords, fetchListings, loadLocationAndListings]))
+  }, [queryClient, resolveLocation]))
 
-  const onRefresh = () => {
-    setRefreshing(true)
-    fetchListings(coords)
-  }
+  const onRefresh = feed.refresh
 
   // Home has no search or category filter of its own: both hand off to the
   // Search tab, which owns that logic.
@@ -221,17 +205,24 @@ export default function HomeScreen() {
     <StatePanel title="No listings found" body="Nothing nearby right now — pull to refresh." />
   )
 
-  const openListing = useCallback((listing: ListingBrowseItem) => {
+  const openListing = useCallback((listing: ListingCardItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
     prefetchListingHero(listing.images[0]?.url)
     nav.navigate('ListingDetail', { listingId: listing.id })
   }, [nav])
 
   const renderItem = useCallback(
-    ({ item }: { item: ListingBrowseItem }) =>
+    ({ item }: { item: ListingCardItem }) =>
       cellWidth > 0 ? <GridCell listing={item} width={cellWidth} onOpen={openListing} /> : null,
     [cellWidth, openListing]
   )
+
+  // Next page loading: a row of placeholder cards under the grid.
+  const footer = feed.loadingMore && cellWidth > 0 ? (
+    <View style={[styles.skeletonGrid, styles.footerRow]}>
+      {Array.from({ length: GRID_COLUMNS }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)}
+    </View>
+  ) : null
 
   return (
     <Screen glow="topLeft" scroll={false} contentStyle={styles.screenContent}>
@@ -249,8 +240,11 @@ export default function HomeScreen() {
         maxToRenderPerBatch={4}
         windowSize={7}
         removeClippedSubviews={Platform.OS === 'android'}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={footer}
         ItemSeparatorComponent={Separator}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />}
+        refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />}
         contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
         ListHeaderComponent={header}
         ListEmptyComponent={<View style={styles.padded}>{emptyState}</View>}
@@ -262,7 +256,7 @@ export default function HomeScreen() {
   )
 }
 
-function keyExtractor(item: ListingBrowseItem) {
+function keyExtractor(item: ListingCardItem) {
   return item.id
 }
 
@@ -272,9 +266,9 @@ const GridCell = React.memo(function GridCell({
   width,
   onOpen,
 }: {
-  listing: ListingBrowseItem
+  listing: ListingCardItem
   width: number
-  onOpen: (listing: ListingBrowseItem) => void
+  onOpen: (listing: ListingCardItem) => void
 }) {
   return <ListingGridCard listing={listing} width={width} onPress={() => onOpen(listing)} />
 })
@@ -361,6 +355,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     columnGap: COLUMN_GAP,
     rowGap: ROW_GAP,
+  },
+  footerRow: {
+    paddingHorizontal: space.screen,
+    marginTop: ROW_GAP,
   },
   separator: {
     height: ROW_GAP,

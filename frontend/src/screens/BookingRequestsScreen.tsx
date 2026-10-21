@@ -1,11 +1,15 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
-import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
-import { acceptBooking, declineBooking, getIncomingRequests } from '../services/bookingsApi'
-import { Booking } from '../types'
+import type { BookingListItem, BookingListPage } from '@zoink/shared'
+import { acceptBooking, declineBooking, getBookingListPage } from '../services/bookingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { applyBookingUpdate } from '../services/bookingCache'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -32,42 +36,24 @@ function formatDateRange(startDate: string, endDate: string) {
 
 export default function BookingRequestsScreen() {
   const nav = useNavigation<Nav>()
-  const [bookings, setBookings] = useState<Booking[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [error, setError] = useState('')
   const insets = useSafeAreaInsets()
+  const feed = usePagedList<BookingListItem, BookingListPage>(queryKeys.bookingList('owner'), (cursor) =>
+    getBookingListPage('owner', cursor)
+  )
+  const { items: bookings, loading, refreshing } = feed
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load incoming requests.') : ''
 
   // Live/confirmed rentals always sit at the top; the rest fall below, newest
-  // rental first.
+  // rental first. (The server pages in this order too.)
   const orderedBookings = useMemo(() => sortBookingsLiveFirst(bookings), [bookings])
-
-  const loadBookings = useCallback(async () => {
-    try {
-      setError('')
-      const nextBookings = await getIncomingRequests()
-      setBookings(nextBookings)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load incoming requests.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      loadBookings()
-    }, [loadBookings])
-  )
 
   async function handleAction(id: string, action: 'accept' | 'decline') {
     setBusyId(id)
 
     try {
       const updated = action === 'accept' ? await acceptBooking(id) : await declineBooking(id)
-      setBookings((current) => current.map((booking) => (booking.id === id ? updated : booking)))
+      applyBookingUpdate(updated)
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error ?? 'Could not update this request.')
     } finally {
@@ -75,7 +61,8 @@ export default function BookingRequestsScreen() {
     }
   }
 
-  const pendingCount = bookings.filter((booking) => booking.status === 'PENDING').length
+  // Across every page, not just the loaded ones.
+  const pendingCount = feed.firstPage?.pendingCount ?? bookings.filter((booking) => booking.status === 'PENDING').length
 
   return (
     <Screen scroll={false} header={<ScreenHeader title="Requests" back />} contentStyle={styles.screenContent}>
@@ -85,10 +72,7 @@ export default function BookingRequestsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true)
-              loadBookings()
-            }}
+            onRefresh={feed.refresh}
             tintColor={colors.greenText}
             colors={[colors.green]}
           />
@@ -104,6 +88,9 @@ export default function BookingRequestsScreen() {
           </Text>
         }
         ItemSeparatorComponent={Separator}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={feed.loadingMore ? <ListingCardSkeleton style={styles.footer} /> : null}
         ListEmptyComponent={
           loading ? (
             <View style={styles.list}>
@@ -115,7 +102,7 @@ export default function BookingRequestsScreen() {
             <StatePanel
               title="Incoming requests couldn't load"
               body={error}
-              action={{ label: 'Try again', onPress: loadBookings, variant: 'primary' }}
+              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
             />
           ) : (
             <StatePanel
@@ -175,6 +162,7 @@ const styles = StyleSheet.create({
   summary: { ...type.caption, color: colors.mutedAlt },
   list: { gap: space.lg },
   separator: { height: space.lg },
+  footer: { marginTop: space.lg },
   actions: { flexDirection: 'row', gap: space.md },
   action: { flex: 1 },
 })

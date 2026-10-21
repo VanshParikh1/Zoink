@@ -1,13 +1,15 @@
 import React, { useCallback, useState } from 'react'
-import { FlatList, LayoutChangeEvent, RefreshControl, StyleSheet, View } from 'react-native'
+import { FlatList, LayoutChangeEvent, Platform, RefreshControl, StyleSheet, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
-import { useNavigation, useFocusEffect } from '@react-navigation/native'
+import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RootStackParamList } from '../navigation'
-import { getMyListings } from '../services/listingsApi'
-import { getIncomingRequests } from '../services/bookingsApi'
-import { Booking, Listing } from '../types'
+import type { MyListingItem } from '@zoink/shared'
+import { getMyListingsPage } from '../services/listingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { usePagedList } from '../hooks/usePagedList'
+import { apiErrorMessage } from '../utils/apiError'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import Screen from '../components/mockup/Screen'
@@ -26,52 +28,37 @@ const COLUMN_GAP = space.lg
 const ROW_GAP = space.xl
 const SKELETON_COUNT = 4
 
-function statusBadge(listing: Listing, activeBooking?: Booking): { label: string; variant: BadgeVariant } {
-  if (activeBooking) return { label: 'Rented out', variant: 'green' }
+function statusBadge(listing: MyListingItem): { label: string; variant: BadgeVariant } {
+  if (listing.activeBookingId) return { label: 'Rented out', variant: 'green' }
   return listing.isAvailable ? { label: 'Active', variant: 'lime' } : { label: 'Paused', variant: 'surface' }
 }
 
 export default function MyListingsScreen() {
   const nav = useNavigation<Nav>()
   const insets = useSafeAreaInsets()
-  const [listings, setListings] = useState<Listing[]>([])
-  const [activeBookingsByListing, setActiveBookingsByListing] = useState<Record<string, Booking>>({})
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
   const [listWidth, setListWidth] = useState(0)
   const cellWidth = listWidth ? Math.floor((listWidth - COLUMN_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS) : 0
 
-  const fetchListings = useCallback(async () => {
-    try {
-      setError('')
-      const [data, ownerBookings] = await Promise.all([getMyListings(), getIncomingRequests()])
-      const activeByListing = ownerBookings.reduce<Record<string, Booking>>((acc, booking) => {
-        if (booking.status === 'ACTIVE' || booking.status === 'PICKUP_PENDING' || booking.status === 'RETURN_PENDING') {
-          acc[booking.listingId] = booking
-        }
-        return acc
-      }, {})
-      setListings(data)
-      setActiveBookingsByListing(activeByListing)
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Could not load your listings right now.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
+  // Each listing arrives with the booking it's rented out on, if any, so this
+  // screen no longer loads the owner's whole booking list.
+  const feed = usePagedList<MyListingItem>(queryKeys.myListings, getMyListingsPage)
+  const { items: listings, loading, refreshing } = feed
+  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load your listings right now.') : ''
+  const onRefresh = feed.refresh
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchListings()
-    }, [fetchListings])
+  const openListing = useCallback(
+    (listing: MyListingItem) => {
+      if (listing.activeBookingId) return nav.navigate('ActiveRental', { bookingId: listing.activeBookingId })
+      prefetchListingHero(listing.images[0]?.url)
+      nav.navigate('ListingDetail', { listingId: listing.id })
+    },
+    [nav]
   )
-
-  const onRefresh = () => {
-    setRefreshing(true)
-    fetchListings()
-  }
+  const renderItem = useCallback(
+    ({ item }: { item: MyListingItem }) =>
+      cellWidth > 0 ? <GridCell listing={item} width={cellWidth} onOpen={openListing} /> : null,
+    [cellWidth, openListing]
+  )
 
   return (
     <Screen
@@ -91,25 +78,24 @@ export default function MyListingsScreen() {
     >
       <FlatList
         data={loading && !refreshing ? [] : listings}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         numColumns={GRID_COLUMNS}
         columnWrapperStyle={styles.gridRow}
         onLayout={(e: LayoutChangeEvent) => setListWidth(e.nativeEvent.layout.width)}
-        renderItem={({ item }) => {
-          const activeBooking = activeBookingsByListing[item.id]
-          return cellWidth > 0 ? (
-            <ListingGridCard
-              listing={item}
-              width={cellWidth}
-              badge={statusBadge(item, activeBooking)}
-              onPress={() => {
-                if (activeBooking) return nav.navigate('ActiveRental', { bookingId: activeBooking.id })
-                prefetchListingHero(item.images[0]?.url)
-                nav.navigate('ListingDetail', { listingId: item.id })
-              }}
-            />
+        renderItem={renderItem}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
+        onEndReached={feed.loadMore}
+        onEndReachedThreshold={1}
+        ListFooterComponent={
+          feed.loadingMore && cellWidth > 0 ? (
+            <View style={[styles.skeletonGrid, styles.footerRow]}>
+              {Array.from({ length: GRID_COLUMNS }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)}
+            </View>
           ) : null
-        }}
+        }
         ItemSeparatorComponent={Separator}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
         refreshControl={
@@ -126,7 +112,7 @@ export default function MyListingsScreen() {
             <StatePanel
               title="Your listings couldn't load"
               body={error}
-              action={{ label: 'Try again', onPress: fetchListings, variant: 'primary' }}
+              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
             />
           ) : (
             <StatePanel
@@ -142,6 +128,23 @@ export default function MyListingsScreen() {
   )
 }
 
+function keyExtractor(item: MyListingItem) {
+  return item.id
+}
+
+/** One grid card; re-renders only when its listing or width changes. */
+const GridCell = React.memo(function GridCell({
+  listing,
+  width,
+  onOpen,
+}: {
+  listing: MyListingItem
+  width: number
+  onOpen: (listing: MyListingItem) => void
+}) {
+  return <ListingGridCard listing={listing} width={width} badge={statusBadge(listing)} onPress={() => onOpen(listing)} />
+})
+
 function Separator() {
   return <View style={styles.separator} />
 }
@@ -150,5 +153,6 @@ const styles = StyleSheet.create({
   screenContent: { paddingBottom: 0 },
   gridRow: { gap: COLUMN_GAP },
   skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: COLUMN_GAP, rowGap: ROW_GAP },
+  footerRow: { marginTop: ROW_GAP },
   separator: { height: ROW_GAP },
 })

@@ -1,5 +1,6 @@
 import api from './api'
-import { BrowseListingsResult, Listing, ListingBrowseItem, ListingImage } from '../types'
+import { Listing, ListingImage } from '../types'
+import type { ListingCardItem, MyListingItem, Page } from '@zoink/shared'
 import { DEMO_MODE } from '../config/demoMode'
 import { getImageUploadPart } from './uploadFormData'
 // Demo-mode mocks load only in a dev build that sets EXPO_PUBLIC_DEMO_MODE to
@@ -14,17 +15,10 @@ const {
   mockDeleteListingImage,
   mockGetListing,
   mockGetMyListings,
-  mockGetNearbyListings,
   mockSetAvailability,
   mockUpdateListing,
   mockUploadListingImage,
 } = (__DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockListings') : {}) as typeof import('./mockListings')
-
-export type NearbyListingsParams = {
-  lat: number
-  lng: number
-  radius?: number
-}
 
 export type BrowseListingsParams = {
   query?: string
@@ -36,39 +30,16 @@ export type BrowseListingsParams = {
   radius?: number
 }
 
-export async function getNearbyListings({
-  lat,
-  lng,
-  radius = 25,
-}: NearbyListingsParams): Promise<ListingBrowseItem[]> {
-  if (DEMO_MODE) return mockGetNearbyListings()
+const PAGE_SIZE = 20
 
-  const res = await api.get('/listings', {
-    params: { latitude: lat, longitude: lng, radiusKm: radius },
-  })
-
-  return res.data.items ?? res.data
-}
-
-export async function browseListings({
-  query,
-  category,
-  minPrice,
-  maxPrice,
-  lat,
-  lng,
-  radius = 25,
-}: BrowseListingsParams): Promise<BrowseListingsResult> {
+/** One page of browse/search results (cards only), nearest first when a location is given. */
+export async function browseListingsPage(
+  { query, category, minPrice, maxPrice, lat, lng, radius = 25, limit = PAGE_SIZE }: BrowseListingsParams & { limit?: number },
+  cursor?: string
+): Promise<Page<ListingCardItem>> {
   if (DEMO_MODE) {
-    return mockBrowseListings({
-      query,
-      category,
-      minPrice,
-      maxPrice,
-      lat,
-      lng,
-      radius,
-    })
+    const result = await mockBrowseListings({ query, category, minPrice, maxPrice, lat, lng, radius })
+    return { items: result.items.slice(0, limit), nextCursor: null }
   }
 
   const res = await api.get('/listings', {
@@ -80,14 +51,22 @@ export async function browseListings({
       latitude: lat,
       longitude: lng,
       radiusKm: lat != null && lng != null ? radius : undefined,
+      limit,
+      cursor,
     },
   })
+  return res.data
+}
 
-  return {
-    items: res.data.items ?? [],
-    total: res.data.meta?.total ?? res.data.items?.length ?? 0,
-    hasMore: res.data.meta?.hasMore ?? false,
+/** One page of the owner's listings, most recent booking activity first. */
+export async function getMyListingsPage(cursor?: string): Promise<Page<MyListingItem>> {
+  if (DEMO_MODE) {
+    const items = await mockGetMyListings()
+    return { items: items.map((listing) => ({ ...listing, activeBookingId: null })), nextCursor: null }
   }
+
+  const res = await api.get('/listings/me', { params: { limit: PAGE_SIZE, cursor } })
+  return res.data
 }
 
 export type CreateListingPayload = {
@@ -114,13 +93,6 @@ export async function getListing(id: string): Promise<Listing> {
   if (DEMO_MODE) return mockGetListing(id)
 
   const res = await api.get(`/listings/${id}`)
-  return res.data
-}
-
-export async function getMyListings(): Promise<Listing[]> {
-  if (DEMO_MODE) return mockGetMyListings()
-
-  const res = await api.get('/listings/me')
   return res.data
 }
 
