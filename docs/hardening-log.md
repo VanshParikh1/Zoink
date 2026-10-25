@@ -761,6 +761,22 @@ Backend and frontend typecheck pass. Every Phase 4 commit was typechecked and un
 
 ---
 
+## Owner decisions (2026-10-25, before Phase 5)
+
+| # | Open item | Decision | What changed |
+|---|---|---|---|
+| 1 | Deleting a listing with a booking still in progress (Phase 2 decision 1a): auto-decline its pending requests instead? | **Keep refusing with the readable message. Do not auto-decline.** | Nothing. The 409 "This listing has a booking that isn't finished yet…" stays, and so does the delete dialog's copy |
+| 2 | `inlineRequires` (Phase 4): about 10% faster cold start vs. 70 KB over the bundle baseline | **Stays off.** Revisit after measuring cold start on a real phone | Nothing. `metro.config.js` unchanged |
+| 3 | Proposed privacy.md §7 wording for soft-deleted listings (Phase 2) | **Approved; apply exactly as written** | `legal/privacy.md` §7 "Listings and photos" row replaced with the proposed text, word for word. `packages/shared/legal/privacy.ts` (the copy bundled into the app, generated from the markdown) regenerated with `npm run generate:legal`; no other line changed |
+| 4 | The fetch client that replaced axios (Phase 4, `be41c3e`) | **Accepted** | Nothing |
+
+Left for the owner, not changed (the decision covered the wording only):
+
+- **"Last updated" date and `CURRENT_PRIVACY_VERSION`.** privacy.md still says "Last updated: September 8, 2026", and §14 says the date is updated with any change. The privacy version is still `1.0` in both `backend/src/config/legal.ts` and `syncLegal.ts`; bumping it makes every signed-in user re-accept at next launch. Whether this edit counts as "material" (30 days' notice under §14) is a legal call.
+- **`landing/privacy.html`** (the website copy) still has the old sentence in its §7 table.
+
+---
+
 ## Where to pick up (Phase 5 onward)
 
 Phases 0 to 4 are done; their summaries are in `hardening-report.md`. **The run stopped after Phase 4, as instructed; Phase 5 hasn't started.**

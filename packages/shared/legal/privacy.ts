@@ -122,7 +122,7 @@ If you would rather your information not be processed outside Canada, do not use
 | --- | --- |
 | Account and profile | While your account is open. On deletion, we soft-delete and then purge within **30 days**, except where a longer period is required below. |
 | Student verification codes | Expired or deleted within **24 hours**. We keep only the verified email address and the date it was verified. |
-| Listings and photos | While the listing exists. When you delete a listing, it and its photos are deleted immediately. |
+| Listings and photos | While the listing exists. When you delete a listing, its photos are deleted immediately and it is removed from the app. If anyone has messaged you about it or booked it, we keep its details (title, description, price, category and pickup location) with those conversations and booking records, for as long as we keep them (see below), so both of you can still see what was arranged. A listing nobody has contacted you about is deleted entirely. |
 | Bookings, payments, commission, payouts, tax records | **7 years** from the end of the tax year, as required by Canadian tax and accounting rules |
 | Handoff and condition photos | **12 months** after the booking completes, or 90 days after any dispute about it is finally resolved, whichever is later |
 | Messages | **24 months** after the related conversation's last booking completes |
