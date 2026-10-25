@@ -1,6 +1,6 @@
 import React from 'react'
-import { NavigationContainer } from '@react-navigation/native'
-import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import { createNavigationContainerRef, NavigationContainer, StackActions } from '@react-navigation/native'
+import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack'
 import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
 import LoadingGate from '../components/mockup/LoadingGate'
@@ -8,6 +8,8 @@ import { getFirstPendingReview } from '../services/reviewsApi'
 import { useQuery } from '@tanstack/react-query'
 import * as SplashScreen from 'expo-splash-screen'
 import { queryKeys } from '../services/queryKeys'
+import { DeepLinkTarget, setDeepLinkOpener } from './deepLinks'
+import { useDeepLinkSources } from './useDeepLinks'
 
 // Screens shown first (signed out, verifying, the main tabs) load with the
 // app; every other screen's module loads the first time it's opened
@@ -62,16 +64,41 @@ export type RootStackParamList = {
   Settings: undefined
   PublicProfile: { userId: string }
   ConversationThread: { conversationId: string; title?: string }
+  LinkNotFound: undefined
   DesignGallery: undefined
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
+
+export const navigationRef = createNavigationContainerRef<RootStackParamList>()
+
+const stackOptions: NativeStackNavigationOptions = { headerShown: false }
+
+// A link or notification tap opens on top of what's showing, so Back returns
+// there (on a cold start, to the main tabs underneath). Waits for the
+// navigator if it's still mounting.
+function openDeepLink(target: DeepLinkTarget, attempts = 0) {
+  if (!navigationRef.isReady() || !navigationRef.getRootState()?.routeNames.includes('MainApp')) {
+    if (attempts < 50) setTimeout(() => openDeepLink(target, attempts + 1), 100)
+    return
+  }
+  navigationRef.dispatch(StackActions.push(target.screen, target.params))
+}
 
 function VerifiedAppStack() {
   // Started as soon as the session was restored (AuthContext prefetches it),
   // so it usually arrives while fonts are still loading.
   const reviewQuery = useQuery({ queryKey: queryKeys.firstPendingReview, queryFn: getFirstPendingReview })
   const initialReview = reviewQuery.data ?? null
+  const stackMounted = !reviewQuery.isPending
+
+  // Links and notification taps open here once this stack is up, including
+  // any that arrived before sign-in (navigation/deepLinks.ts).
+  React.useEffect(() => {
+    if (!stackMounted) return
+    setDeepLinkOpener(openDeepLink)
+    return () => setDeepLinkOpener(null)
+  }, [stackMounted])
 
   if (reviewQuery.isPending) {
     return (
@@ -81,7 +108,8 @@ function VerifiedAppStack() {
 
   return (
     <Stack.Navigator
-      screenOptions={{ headerShown: false }}
+      screenOptions={stackOptions}
+     
       initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
       <Stack.Screen name="MainApp" component={MainAppScreen} />
@@ -126,6 +154,7 @@ function VerifiedAppStack() {
         component={TermsAcceptanceScreen}
         initialParams={{ mode: 'view' }}
       />
+      <Stack.Screen name="LinkNotFound" getComponent={() => require('../screens/LinkNotFoundScreen').default} />
       {/* Dev-only. __DEV__ is false in release bundles, so Metro drops this
           branch and the require with it; the gallery never ships. */}
       {__DEV__ ? (
@@ -152,6 +181,7 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
   }, [])
 
   const { user, isLoading } = useAuth()
+  useDeepLinkSources()
 
   // Don't render anything until we've checked SecureStore and the fonts are in
   if (isLoading || !fontsReady) {
@@ -163,20 +193,20 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
   return (
     // The first navigator to mount is the first real screen: the splash
     // (held since launch, see App.tsx) hides then, with nothing in between.
-    <NavigationContainer onReady={hideSplash}>
+    <NavigationContainer ref={navigationRef} onReady={hideSplash}>
       {!user ? (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator screenOptions={stackOptions}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="TermsAcceptance" component={TermsAcceptanceScreen} />
         </Stack.Navigator>
       ) : user.verificationStatus !== 'VERIFIED' ? (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator screenOptions={stackOptions}>
           <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
           <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
         </Stack.Navigator>
       ) : user.termsVersion !== TERMS_VERSION || user.privacyVersion !== PRIVACY_VERSION ? (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator screenOptions={stackOptions}>
           <Stack.Screen
             name="TermsAcceptance"
             component={TermsAcceptanceScreen}

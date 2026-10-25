@@ -11,7 +11,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "eas-build-post-install": "cd .. && npm run build:shared",
-    "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_TRANSPILE_ONLY=1 node --test --require ts-node/register src/config/*.test.ts src/services/*.test.ts src/utils/*.test.ts"
+    "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_TRANSPILE_ONLY=1 node --test --require ts-node/register src/config/*.test.ts src/services/*.test.ts src/utils/*.test.ts src/navigation/*.test.ts"
   },
   "dependencies": {
     "@expo-google-fonts/fira-mono": "^0.4.1",
