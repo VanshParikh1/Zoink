@@ -19,6 +19,8 @@ import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
 import { toast } from '../services/toast'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
+import { hasErrors, validateListing } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -34,7 +36,6 @@ export default function EditListingScreen() {
   const listingQuery = useQuery({ queryKey: queryKeys.listing(listingId), queryFn: () => getListing(listingId) })
   const listing = listingQuery.data ?? null
   const loading = listingQuery.isPending
-  const [saving, setSaving] = useState(false)
   const [uploadingImg, setUploadingImg] = useState(false)
 
   const [title, setTitle] = useState('')
@@ -66,35 +67,16 @@ export default function EditListingScreen() {
     queryClient.invalidateQueries({ queryKey: ['listings'] })
   }
 
-  async function handleSave() {
-    // Same rules as before; each message now shows under its field.
-    const next: ListingFormErrors = {}
-    if (!title.trim()) next.title = 'Add a name for your item.'
-    if (!description.trim()) next.description = 'Write a short description.'
-    if (!category) next.category = 'Pick a category.'
-    if (!city.trim()) next.city = 'Add a city so renters can find your item.'
+  // Guarded: a second tap while it saves is dropped.
+  const [handleSave, saving] = useSubmit(async () => {
+    // One message per field, under that field (utils/formValidation.ts).
+    const next = validateListing({ title, category, description, dailyPrice, deposit, itemValue, city })
+    setErrors(next)
+    if (hasErrors(next)) return
 
     const price = parseFloat(dailyPrice)
-    if (!dailyPrice) next.dailyPrice = 'Add a daily price.'
-    else if (isNaN(price) || price <= 0) next.dailyPrice = 'Daily price must be a positive number.'
-
     const parsedDeposit = deposit.trim() ? parseFloat(deposit) : 0
-    if (deposit.trim() && (isNaN(parsedDeposit) || parsedDeposit < 0)) {
-      next.deposit = 'Deposit must be zero or more.'
-    }
     const parsedItemValue = itemValue.trim() ? parseFloat(itemValue) : 0
-    if (itemValue.trim() && (isNaN(parsedItemValue) || parsedItemValue < 0)) {
-      next.itemValue = 'Item value must be zero or more.'
-    } else if (deposit.trim() && !itemValue.trim()) {
-      next.itemValue = "Add the item's value so we can validate your deposit amount."
-    } else if (deposit.trim() && itemValue.trim() && parsedDeposit > parsedItemValue) {
-      next.deposit = 'You cannot set the deposit amount greater than the item value.'
-    }
-
-    setErrors(next)
-    if (Object.keys(next).length > 0) return
-
-    setSaving(true)
 
     try {
       const updated = await updateListing(listingId, {
@@ -113,10 +95,8 @@ export default function EditListingScreen() {
       nav.navigate('ListingDetail', { listingId })
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't save your changes. Please try again." })
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   async function handleAddPhoto() {
     try {
@@ -173,7 +153,7 @@ export default function EditListingScreen() {
     return <DetailFallbackScreen query={listingQuery} title="Edit listing" what="this listing" unavailable={LISTING_UNAVAILABLE} />
   }
 
-  const hasErrors = Object.values(errors).some(Boolean)
+  const formHasErrors = hasErrors(errors)
   // Editing a field clears its own error; the rest wait for the next save.
   const edit = (field: keyof ListingFormErrors, set: (v: string) => void) => (v: string) => {
     set(v)
@@ -186,7 +166,10 @@ export default function EditListingScreen() {
       header={<ListingFormHeader title="Edit listing" onBack={() => nav.goBack()} />}
       footer={
         <View style={styles.footer}>
-          {hasErrors ? <Text style={styles.error}>Fix the highlighted fields to save.</Text> : null}
+          {/* Its line is always there, so the button doesn't jump when it shows. */}
+          <Text style={styles.error} numberOfLines={1}>
+            {formHasErrors ? 'Fix the highlighted fields to save.' : ''}
+          </Text>
           <Button label="Save changes" onPress={handleSave} loading={saving} />
         </View>
       }
@@ -216,7 +199,16 @@ export default function EditListingScreen() {
         onItemValue={edit('itemValue', setItemValue)}
         errors={errors}
       >
-        <TextField label="City" placeholder="e.g. Toronto" value={city} onChangeText={edit('city', setCity)} maxLength={60} error={errors.city} />
+        <TextField
+          label="City"
+          placeholder="e.g. Toronto"
+          kind="city"
+          value={city}
+          onChangeText={edit('city', setCity)}
+          maxLength={60}
+          error={errors.city}
+          validated
+        />
       </ListingForm>
     </Screen>
   )
@@ -224,5 +216,5 @@ export default function EditListingScreen() {
 
 const styles = StyleSheet.create({
   footer: { gap: space.sm },
-  error: { ...type.caption, color: colors.danger, textAlign: 'center' },
+  error: { ...type.caption, color: colors.danger, textAlign: 'center', minHeight: type.caption.lineHeight },
 })

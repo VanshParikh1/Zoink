@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -48,7 +48,13 @@ export default function BookingRequestsScreen() {
   // rental first. (The server pages in this order too.)
   const orderedBookings = useMemo(() => sortBookingsLiveFirst(bookings), [bookings])
 
+  // One answer per request at a time: a second tap on the same row before
+  // the first returns is dropped (the busy state only shows a frame later).
+  const inFlight = useRef(new Set<string>())
+
   async function handleAction(id: string, action: 'accept' | 'decline') {
+    if (inFlight.current.has(id)) return
+    inFlight.current.add(id)
     setBusyId(id)
 
     try {
@@ -57,6 +63,7 @@ export default function BookingRequestsScreen() {
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't update this request. Please try again." })
     } finally {
+      inFlight.current.delete(id)
       setBusyId(null)
     }
   }

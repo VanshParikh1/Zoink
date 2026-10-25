@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -20,6 +20,9 @@ import InkCard from '../components/mockup/InkCard'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
 import { toast } from '../services/toast'
+import FieldMessage from '../components/mockup/FieldMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateDispute } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileDispute'>
@@ -41,20 +44,15 @@ export default function FileDisputeScreen() {
 
   const [reason, setReason] = useState<DisputeReason | null>(null)
   const [description, setDescription] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<'reason' | 'description'>>({})
 
-  async function handleSubmit() {
-    if (!reason) {
-      Alert.alert('Choose a reason', 'Please select what went wrong.')
-      return
-    }
+  // Guarded: a second tap while it sends is dropped (the server would refuse
+  // a second open dispute, but not before showing an error).
+  const [handleSubmit, busy] = useSubmit(async () => {
+    const nextErrors = validateDispute({ reason, description }, MIN_DESCRIPTION_LENGTH)
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors) || !reason) return
 
-    if (description.trim().length < MIN_DESCRIPTION_LENGTH) {
-      Alert.alert('More detail needed', `Please describe the issue in at least ${MIN_DESCRIPTION_LENGTH} characters.`)
-      return
-    }
-
-    setBusy(true)
     try {
       await createDispute({ bookingId, reason, description: description.trim() })
       queryClient.invalidateQueries({ queryKey: queryKeys.booking(bookingId) })
@@ -63,10 +61,8 @@ export default function FileDisputeScreen() {
       nav.goBack()
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't send your report. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   return (
     <Screen
@@ -95,16 +91,29 @@ export default function FileDisputeScreen() {
               key={option.value}
               label={option.label}
               active={reason === option.value}
-              onPress={busy ? undefined : () => setReason(option.value)}
+              onPress={
+                busy
+                  ? undefined
+                  : () => {
+                      setReason(option.value)
+                      setErrors((current) => ({ ...current, reason: undefined }))
+                    }
+              }
             />
           ))}
         </View>
+        <FieldMessage message={errors.reason} />
       </View>
 
       <TextField
         label="Details"
         value={description}
-        onChangeText={setDescription}
+        onChangeText={(value) => {
+          setDescription(value)
+          if (errors.description) setErrors((current) => ({ ...current, description: undefined }))
+        }}
+        error={errors.description}
+        validated
         editable={!busy}
         multiline
         maxLength={1000}

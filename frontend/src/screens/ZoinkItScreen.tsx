@@ -33,6 +33,7 @@ import LogoPill from '../components/mockup/LogoPill'
 import Thumb from '../components/mockup/Thumb'
 import { dailyPriceLabel } from '../components/mockup/listingFormat'
 import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -112,7 +113,6 @@ export default function ZoinkItScreen() {
   // Photo picking/editing — merged in from what used to be a separate HandoffPhotoScreen.
   const [pickerUris, setPickerUris] = useState<string[]>([])
   const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
 
   const pendingStatus = mode === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
   const completedStatus = mode === 'pickup' ? 'ACTIVE' : 'COMPLETED'
@@ -275,10 +275,9 @@ export default function ZoinkItScreen() {
     setPickerUris([])
   }
 
-  async function submitPhotos() {
+  // Guarded: a second tap while the photos upload is dropped (they'd upload twice).
+  const [submitPhotos, saving] = useSubmit(async () => {
     if (!isPickerValid) return
-
-    setSaving(true)
     try {
       const uploaded = await Promise.all(pickerUris.map((uri) => uploadHandoffPhotoImage(bookingId, uri, mode)))
       const updated = await initiateHandoff(bookingId, mode, uploaded)
@@ -287,10 +286,8 @@ export default function ZoinkItScreen() {
       setEditing(false)
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't send your photos. Please try again." })
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   const ownerTappedAt = booking?.[ownerTapField] ?? null
   const renterTappedAt = booking?.[renterTapField] ?? null

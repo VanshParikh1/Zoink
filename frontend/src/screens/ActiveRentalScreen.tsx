@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
@@ -29,6 +29,7 @@ import { initialsOf } from '../utils/initials'
 import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoink/shared'
 import { toast } from '../services/toast'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -63,7 +64,6 @@ export default function ActiveRentalScreen() {
   useRefreshOnFocus(queryKeys.booking(bookingId))
   const booking = bookingQuery.data ?? null
   const loading = bookingQuery.isPending
-  const [busy, setBusy] = useState(false)
   const bannerPulse = useRef(new Animated.Value(0.35)).current
   const isFocused = useIsFocused()
 
@@ -81,9 +81,9 @@ export default function ActiveRentalScreen() {
     return () => animation.stop()
   }, [bannerPulse, isFocused])
 
-  async function openChat() {
+  // Guarded: one chat lookup at a time.
+  const [openChat, busy] = useSubmit(async () => {
     if (!booking) return
-    setBusy(true)
     try {
       const conversation = await openConversation(booking.listingId)
       // A first message here creates the conversation in the inbox.
@@ -94,10 +94,8 @@ export default function ActiveRentalScreen() {
       })
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't open the chat. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   if (loading && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title="Rental" hero />
 

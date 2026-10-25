@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
@@ -26,6 +26,9 @@ import { fillImageUrl } from '../utils/cloudinaryImage'
 import { toast } from '../services/toast'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
 import { SkeletonCard } from '../components/mockup/Skeleton'
+import FieldMessage from '../components/mockup/FieldMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateResolution } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'AdminDisputeDetail'>
@@ -145,7 +148,7 @@ export default function AdminDisputeDetailScreen() {
   const [resolution, setResolution] = useState<ResolveDisputePayload['status'] | null>(null)
   const [notes, setNotes] = useState('')
   const [refundAmountInput, setRefundAmountInput] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<'resolution' | 'notes' | 'amount'>>({})
 
   // The booking's audit trail, a page at a time, once it's opened.
   const [auditExpanded, setAuditExpanded] = useState(false)
@@ -168,39 +171,20 @@ export default function AdminDisputeDetailScreen() {
     }
   }
 
-  async function handleResolve() {
-    if (!resolution) {
-      Alert.alert('Choose an outcome', 'Select how this dispute should be resolved.')
-      return
-    }
-    if (notes.trim().length < MIN_NOTES_LENGTH) {
-      Alert.alert('Notes required', 'Add a short note explaining this resolution.')
-      return
-    }
+  // Guarded: a second tap while it sends is dropped (it moves money).
+  const [handleResolve, busy] = useSubmit(async () => {
+    const isRefund = resolution === 'RESOLVED_REFUND'
+    const capDollars = dispute ? Number(getRefundCapAmount(dispute.booking)) : 0
+    const nextErrors = validateResolution({
+      resolution,
+      notes,
+      minNotes: MIN_NOTES_LENGTH,
+      amount: isRefund ? { input: refundAmountInput, capDollars } : undefined,
+    })
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors) || !resolution) return
+    const refundAmountCents = isRefund ? Math.round(Number(refundAmountInput) * 100) : undefined
 
-    let refundAmountCents: number | undefined
-    if (resolution === 'RESOLVED_REFUND') {
-      const capAmount = getRefundCapAmount(dispute!.booking)
-      const capCents = Math.round(Number(capAmount) * 100)
-      const dollars = Number(refundAmountInput)
-      const cents = Math.round(dollars * 100)
-
-      if (!refundAmountInput.trim() || !Number.isFinite(dollars) || cents <= 0) {
-        Alert.alert('Invalid refund amount', 'Enter a refund amount greater than $0.')
-        return
-      }
-      if (cents > capCents) {
-        const isDepositCapture = dispute!.booking.status === 'COMPLETED'
-        Alert.alert(
-          isDepositCapture ? 'Charge too high' : 'Refund too high',
-          `You cannot ${isDepositCapture ? 'charge' : 'refund'} more than the ${isDepositCapture ? 'deposit' : 'total'} amount of $${Number(capAmount).toFixed(2)}.`
-        )
-        return
-      }
-      refundAmountCents = cents
-    }
-
-    setBusy(true)
     try {
       // The resolve endpoint returns the bare dispute row (no booking/user relations),
       // unlike getDisputeDetail — refetch so booking/photos stay populated afterward.
@@ -215,10 +199,8 @@ export default function AdminDisputeDetailScreen() {
       toast.success('Dispute resolved.')
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't resolve this dispute. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   const header = <ScreenHeader title="Dispute" back />
 
@@ -335,26 +317,34 @@ export default function AdminDisputeDetailScreen() {
                 key={option.value}
                 label={option.label}
                 active={resolution === option.value}
-                onPress={busy ? undefined : () => handleSelectResolution(option.value)}
+                onPress={
+                  busy
+                    ? undefined
+                    : () => {
+                        handleSelectResolution(option.value)
+                        setErrors((current) => ({ ...current, resolution: undefined, amount: undefined }))
+                      }
+                }
               />
             ))}
           </View>
+          <FieldMessage message={errors.resolution} />
 
           {resolution === 'RESOLVED_REFUND' ? (
             <View style={styles.stack}>
               <TextField
                 label={isDepositCapture ? 'Deposit charge amount' : 'Refund amount'}
                 value={refundAmountInput}
-                onChangeText={setRefundAmountInput}
+                onChangeText={(value) => {
+                  setRefundAmountInput(value)
+                  setErrors((current) => ({ ...current, amount: undefined }))
+                }}
                 editable={!busy}
-                keyboardType="decimal-pad"
+                kind="money"
                 placeholder="0.00"
                 variant="boxed"
-                error={
-                  refundExceedsTotal
-                    ? `You cannot ${isDepositCapture ? 'charge' : 'refund'} more than the ${isDepositCapture ? 'deposit' : 'total'} amount of $${Number(refundCapAmount).toFixed(2)}.`
-                    : undefined
-                }
+                error={refundExceedsTotal ? `Can't be more than $${Number(refundCapAmount).toFixed(2)}.` : errors.amount}
+                validated
               />
               <Text style={styles.caption}>
                 Up to the {isDepositCapture ? 'deposit' : 'booking total'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {isDepositCapture ? 'charge' : 'refund'}.
@@ -365,7 +355,12 @@ export default function AdminDisputeDetailScreen() {
           <TextField
             label="Resolution notes"
             value={notes}
-            onChangeText={setNotes}
+            onChangeText={(value) => {
+              setNotes(value)
+              setErrors((current) => ({ ...current, notes: undefined }))
+            }}
+            error={errors.notes}
+            validated
             editable={!busy}
             multiline
             maxLength={1000}

@@ -51,6 +51,7 @@ import { SkeletonBlock } from '../components/mockup/Skeleton'
 import { useIsOffline } from '../services/network'
 import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -134,7 +135,6 @@ export default function ConversationThreadScreen() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const userScrolledRef = useRef(false)
   const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
   const [body, setBody] = useState('')
   // The first load's failure, kept whole so a gone or someone else's
   // conversation (a stale link or notification) reads differently from a
@@ -255,11 +255,10 @@ export default function ConversationThreadScreen() {
     }
   }, [])
 
-  async function handleSend() {
+  // Guarded: a second tap while one sends is dropped (the same message twice otherwise).
+  const [handleSend, sending] = useSubmit(async () => {
     const trimmed = body.trim()
     if (!trimmed) return
-
-    setSending(true)
     setSendError('')
     try {
       const message = await sendMessage(route.params.conversationId, trimmed)
@@ -278,10 +277,8 @@ export default function ConversationThreadScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
     } catch (err: any) {
       setSendError(userMessage(err, { action: 'Could not send that message.' }))
-    } finally {
-      setSending(false)
     }
-  }
+  })
 
   const rows = useMemo(() => buildRows(messages, user?.id), [messages, user?.id])
 

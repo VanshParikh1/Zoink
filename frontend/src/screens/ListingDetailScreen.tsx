@@ -40,6 +40,7 @@ import { dailyPriceLabel, distanceLabel, listingDisplay } from '../components/mo
 import LocationMapPreview from '../components/LocationMapPreview'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -65,16 +66,14 @@ export default function ListingDetailScreen() {
   useRefreshOnFocus(queryKeys.listing(listingId))
   const listing = listingQuery.data ?? null
   const loading = listingQuery.isPending
-  const [toggling, setToggling] = useState(false)
   const [activeImg, setActiveImg] = useState(0)
   const scrollY = useRef(new Animated.Value(0)).current
 
   const isOwner = listing?.ownerId === user?.id
 
-  async function handleToggleAvailability() {
+  // Guarded: a second tap before the first answer would flip it back.
+  const [handleToggleAvailability, toggling] = useSubmit(async () => {
     if (!listing) return
-
-    setToggling(true)
 
     try {
       const result = await setAvailability(listing.id, !listing.isAvailable)
@@ -85,10 +84,8 @@ export default function ListingDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['listings', 'browse'] })
     } catch (err) {
       toast.failure(err, { action: "Couldn't change availability. Please try again." })
-    } finally {
-      setToggling(false)
     }
-  }
+  })
 
   async function handleDelete() {
     Alert.alert(
@@ -132,7 +129,8 @@ export default function ListingDetailScreen() {
     })
   }
 
-  async function handleMessageOwner() {
+  // Guarded: one chat lookup at a time.
+  const [handleMessageOwner, openingChat] = useSubmit(async () => {
     if (!listing) return
 
     try {
@@ -146,7 +144,7 @@ export default function ListingDetailScreen() {
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't open the chat. Please try again." })
     }
-  }
+  })
 
   if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Listing" hero />
 
@@ -324,7 +322,7 @@ export default function ListingDetailScreen() {
                 ) : null}
               </View>
             </Pressable>
-            {!isOwner ? <Button label="Message" variant="secondary" size="sm" onPress={handleMessageOwner} /> : null}
+            {!isOwner ? <Button label="Message" variant="secondary" size="sm" onPress={handleMessageOwner} loading={openingChat} /> : null}
           </View>
         </Card>
 

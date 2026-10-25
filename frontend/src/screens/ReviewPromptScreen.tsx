@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -21,6 +21,9 @@ import TextField from '../components/mockup/TextField'
 import Thumb from '../components/mockup/Thumb'
 import { formatRentalDate } from '@zoink/shared'
 import { toast } from '../services/toast'
+import FieldMessage from '../components/mockup/FieldMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateReview } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -75,7 +78,7 @@ export default function ReviewPromptScreen() {
   const [itemRating, setItemRating] = useState(0)
   const [itemNotes, setItemNotes] = useState('')
   const [personNotes, setPersonNotes] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<'scores' | 'itemRating'>>({})
   const listingImageUrl = review.booking.listing.images?.[0]?.url
 
   const scoreRows = useMemo(
@@ -87,18 +90,12 @@ export default function ReviewPromptScreen() {
     [review.scoreLabels]
   )
 
-  async function handleSubmit() {
-    if (!scores.scoreA || !scores.scoreB || !scores.scoreC) {
-      Alert.alert('Missing ratings', 'Please rate all three categories before continuing.')
-      return
-    }
+  // Guarded: a second tap while it sends is dropped.
+  const [handleSubmit, busy] = useSubmit(async () => {
+    const nextErrors = validateReview({ scores: [scores.scoreA, scores.scoreB, scores.scoreC], itemRating, ratesItem: isBorrower })
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors)) return
 
-    if (isBorrower && !itemRating) {
-      Alert.alert('Missing item rating', 'Please rate the item itself before continuing.')
-      return
-    }
-
-    setBusy(true)
     try {
       const result = await submitReview({
         obligationId: review.id,
@@ -127,10 +124,8 @@ export default function ReviewPromptScreen() {
       })
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't send your review. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   return (
     <Screen
@@ -178,7 +173,13 @@ export default function ReviewPromptScreen() {
                     <Pressable
                       key={value}
                       style={styles.scaleCell}
-                      onPress={() => setScores((current) => ({ ...current, [row.key]: value }))}
+                      onPress={() => {
+                        const next = { ...scores, [row.key]: value }
+                        setScores(next)
+                        if (errors.scores && next.scoreA && next.scoreB && next.scoreC) {
+                          setErrors((current) => ({ ...current, scores: undefined }))
+                        }
+                      }}
                       disabled={busy}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
@@ -197,6 +198,7 @@ export default function ReviewPromptScreen() {
               </View>
             </View>
           ))}
+          <FieldMessage message={errors.scores} />
         </Card>
 
         {isBorrower ? (
@@ -208,7 +210,10 @@ export default function ReviewPromptScreen() {
                 return (
                   <Pressable
                     key={value}
-                    onPress={() => setItemRating(value)}
+                    onPress={() => {
+                      setItemRating(value)
+                      setErrors((current) => ({ ...current, itemRating: undefined }))
+                    }}
                     disabled={busy}
                     hitSlop={6}
                     accessibilityRole="button"
@@ -221,6 +226,7 @@ export default function ReviewPromptScreen() {
                 )
               })}
             </View>
+            <FieldMessage message={errors.itemRating} />
             <TextField
               label="Notes about the item"
               value={itemNotes}

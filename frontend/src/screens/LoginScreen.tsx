@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import React, { useEffect, useRef, useState } from 'react'
+import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
@@ -12,7 +12,9 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
 import { markStartup } from '../utils/perfMarks'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateSignIn } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
@@ -25,24 +27,19 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<'email' | 'password'>>({})
+  const passwordRef = useRef<TextInput>(null)
 
-  async function handleLogin() {
-    setError('')
-    if (!email || !password) {
-      setError('Please fill in all fields.')
-      return
-    }
-    setLoading(true)
+  const [handleLogin, loading] = useSubmit(async () => {
+    const nextErrors = validateSignIn({ email, password })
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors)) return
     try {
       await login(email.trim().toLowerCase(), password)
-    } catch (e: any) {
-      setError(userMessage(e, { action: 'Something went wrong.' }))
-    } finally {
-      setLoading(false)
+    } catch (e) {
+      toast.failure(e, { action: "Couldn't sign in. Please try again." })
     }
-  }
+  })
 
   return (
     <Screen
@@ -65,23 +62,35 @@ export default function LoginScreen() {
         <AuthIntro />
 
         <View style={styles.form}>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
           <TextField
             label="Student email"
             placeholder="University email"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            textContentType="emailAddress"
+            kind="email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(value) => {
+              setEmail(value)
+              if (errors.email) setErrors((current) => ({ ...current, email: undefined }))
+            }}
+            error={errors.email}
+            validated
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
           <TextField
+            ref={passwordRef}
             label="Password"
             placeholder="Password"
-            secureTextEntry
-            textContentType="password"
+            kind="password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(value) => {
+              setPassword(value)
+              if (errors.password) setErrors((current) => ({ ...current, password: undefined }))
+            }}
+            error={errors.password}
+            validated
+            returnKeyType="go"
+            onSubmitEditing={handleLogin}
           />
         </View>
 
@@ -98,10 +107,6 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: space.lg,
-  },
-  error: {
-    ...type.labelSm,
-    color: colors.danger,
   },
   footer: {
     gap: space.md,

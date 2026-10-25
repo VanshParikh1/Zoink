@@ -10,6 +10,8 @@ import ScreenHeader from '../components/mockup/ScreenHeader'
 import Button from '../components/mockup/Button'
 import OtpInput from '../components/mockup/OtpInput'
 import { userMessage } from '../utils/userMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { toast } from '../services/toast'
 
 const CODE_LENGTH = 6
 
@@ -18,42 +20,29 @@ export default function VerifyEmailScreen() {
 
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [resendLoading, setResendLoading] = useState(false)
-  const [resendMessage, setResendMessage] = useState('')
 
-  async function handleVerify() {
+  const [handleVerify, loading] = useSubmit(async () => {
     if (code.length < CODE_LENGTH) {
-      setError('Please enter the full 6-digit code.')
+      setError('Enter all 6 digits of the code.')
       return
     }
-
     setError('')
-    setLoading(true)
-
     try {
       const res = await api.post('/auth/verify-email', { code })
       setVerified(res.data.token)
     } catch (e: any) {
-      setError(userMessage(e, { action: 'Something went wrong.' }))
-    } finally {
-      setLoading(false)
+      setError(userMessage(e, { action: "Couldn't check that code. Please try again." }))
     }
-  }
+  })
 
-  async function handleResend() {
-    setResendMessage('')
-    setResendLoading(true)
-
+  const [handleResend, resendLoading] = useSubmit(async () => {
     try {
       await api.post('/auth/resend-otp')
-      setResendMessage('A new code has been sent to your email.')
+      toast.success('A new code is on its way to your email.')
     } catch (e: any) {
-      setResendMessage(userMessage(e, { action: 'Could not resend code.' }))
-    } finally {
-      setResendLoading(false)
+      toast.failure(e, { action: "Couldn't send a new code. Please try again." })
     }
-  }
+  })
 
   return (
     <Screen
@@ -69,7 +58,10 @@ export default function VerifyEmailScreen() {
 
         <View style={styles.codeBlock}>
           <OtpInput value={code} onChange={setCode} error={!!error} autoFocus />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {/* Room for two lines, so a message doesn't push the page down. */}
+          <Text style={styles.error} numberOfLines={2}>
+            {error}
+          </Text>
         </View>
 
         <View style={styles.resend}>
@@ -79,7 +71,6 @@ export default function VerifyEmailScreen() {
             onPress={handleResend}
             disabled={resendLoading}
           />
-          {resendMessage ? <Text style={styles.resendMessage}>{resendMessage}</Text> : null}
         </View>
       </View>
     </Screen>
@@ -105,12 +96,10 @@ const styles = StyleSheet.create({
   error: {
     ...type.labelSm,
     color: colors.danger,
+    minHeight: type.labelSm.lineHeight * 2,
   },
   resend: {
     gap: space.xs,
   },
-  resendMessage: {
-    ...type.caption,
-    color: colors.mutedAlt,
-  },
+
 })

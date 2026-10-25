@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -15,6 +15,9 @@ import Chip from '../components/mockup/Chip'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
 import { toast } from '../services/toast'
+import FieldMessage from '../components/mockup/FieldMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateReport } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileReport'>
@@ -42,21 +45,15 @@ export default function FileReportScreen() {
 
   const [reason, setReason] = useState<ReportReason | null>(null)
   const [description, setDescription] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<'reason' | 'description'>>({})
 
-  async function handleSubmit() {
-    if (!reason) {
-      Alert.alert('Choose a reason', 'Please select what went wrong.')
-      return
-    }
-
+  // Guarded: a second tap while it sends is dropped (two reports otherwise).
+  const [handleSubmit, busy] = useSubmit(async () => {
+    const nextErrors = validateReport({ reason, description }, MIN_DESCRIPTION_LENGTH)
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors) || !reason) return
     const trimmed = description.trim()
-    if (trimmed.length > 0 && trimmed.length < MIN_DESCRIPTION_LENGTH) {
-      Alert.alert('More detail needed', `Please describe the issue in at least ${MIN_DESCRIPTION_LENGTH} characters, or leave it blank.`)
-      return
-    }
 
-    setBusy(true)
     try {
       await createReport({
         targetType,
@@ -68,10 +65,8 @@ export default function FileReportScreen() {
       nav.goBack()
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't send this report. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   return (
     <Screen
@@ -98,16 +93,29 @@ export default function FileReportScreen() {
               key={option.value}
               label={option.label}
               active={reason === option.value}
-              onPress={busy ? undefined : () => setReason(option.value)}
+              onPress={
+                busy
+                  ? undefined
+                  : () => {
+                      setReason(option.value)
+                      setErrors((current) => ({ ...current, reason: undefined }))
+                    }
+              }
             />
           ))}
         </View>
+        <FieldMessage message={errors.reason} />
       </View>
 
       <TextField
         label="Details (optional)"
         value={description}
-        onChangeText={setDescription}
+        onChangeText={(value) => {
+          setDescription(value)
+          if (errors.description) setErrors((current) => ({ ...current, description: undefined }))
+        }}
+        error={errors.description}
+        validated
         editable={!busy}
         multiline
         maxLength={1000}

@@ -27,6 +27,7 @@ import TextField from '../components/mockup/TextField'
 import PriceTable from '../components/mockup/PriceTable'
 import { listingDisplay } from '../components/mockup/listingFormat'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -114,7 +115,6 @@ export default function BookingRequestScreen() {
   const listingQuery = useQuery({ queryKey: queryKeys.listing(route.params.listingId), queryFn: () => getListing(route.params.listingId) })
   const listing = listingQuery.data ?? null
   const loading = listingQuery.isPending
-  const [submitting, setSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   // Date validation messages, shown under the date control.
   const [dateError, setDateError] = useState<string | null>(null)
@@ -170,8 +170,8 @@ export default function BookingRequestScreen() {
     setEndDate(day)
   }
 
-  async function handleSubmit() {
-    if (submitting) return
+  // Guarded: a second tap while it sends is dropped (two requests otherwise).
+  const [handleSubmit, submitting] = useSubmit(async () => {
     if (!listing) return
     if (!startDate || !endDate || rentalDays <= 0) {
       setDateError('Pick a start and end date from the calendar before sending your request.')
@@ -180,7 +180,6 @@ export default function BookingRequestScreen() {
     }
 
     setPaymentError(null)
-    setSubmitting(true)
 
     try {
       const booking = await createBooking({
@@ -197,10 +196,8 @@ export default function BookingRequestScreen() {
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
       setPaymentError(userMessage(err, { action: "Couldn't send your request. Please try again." }))
-    } finally {
-      setSubmitting(false)
     }
-  }
+  })
 
   if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Pick your dates" />
 

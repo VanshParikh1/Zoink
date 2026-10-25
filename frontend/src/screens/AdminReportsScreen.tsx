@@ -21,6 +21,7 @@ import { reportStatusBadge } from '../components/mockup/adminStatus'
 import { toast } from '../services/toast'
 import { LoadFailedPanel } from '../components/LoadStates'
 import { SkeletonCard } from '../components/mockup/Skeleton'
+import { useSubmit } from '../hooks/useSubmit'
 
 const REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -52,17 +53,16 @@ export default function AdminReportsScreen() {
 
   const [activeReport, setActiveReport] = useState<AdminReportListItem | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
-  const [resolving, setResolving] = useState(false)
 
   function openResolve(report: AdminReportListItem) {
     setActiveReport(report)
     setAdminNotes('')
   }
 
-  async function handleResolve(status: 'REVIEWED' | 'DISMISSED') {
+  // Guarded: one resolution at a time (the two buttons share it).
+  const [handleResolve, resolving] = useSubmit(async (status: 'REVIEWED' | 'DISMISSED') => {
     if (!activeReport) return
 
-    setResolving(true)
     try {
       await resolveReport(activeReport.id, {
         status,
@@ -74,10 +74,8 @@ export default function AdminReportsScreen() {
       toast.success(status === 'DISMISSED' ? 'Report dismissed.' : 'Report marked reviewed.')
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't update this report. Please try again." })
-    } finally {
-      setResolving(false)
     }
-  }
+  })
 
   const header = <ScreenHeader title="Report queue" back />
 

@@ -23,6 +23,8 @@ import Button from '../components/mockup/Button'
 import Card from '../components/mockup/Card'
 import Chip from '../components/mockup/Chip'
 import { userMessage } from '../utils/userMessage'
+import { useSubmit } from '../hooks/useSubmit'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'TermsAcceptance'>
 type ScreenRoute = RouteProp<RootStackParamList, 'TermsAcceptance'>
@@ -193,7 +195,6 @@ export default function TermsAcceptanceScreen() {
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [confirmedAge, setConfirmedAge] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
 
   const scrollViewRef = useRef<ScrollView>(null)
 
@@ -217,8 +218,8 @@ export default function TermsAcceptanceScreen() {
     scrollViewRef.current?.scrollTo({ y: 0, animated: false })
   }
 
-  async function handleAccept() {
-    setError('')
+  // One at a time: a second tap before the first answer is dropped.
+  const [handleAccept] = useSubmit(async () => {
     setSubmitting(true)
     try {
       if (mode === 'register') {
@@ -238,15 +239,15 @@ export default function TermsAcceptanceScreen() {
         await acceptTerms()
       }
     } catch (e: any) {
-      setError(userMessage(e, { action: 'Something went wrong.' }))
       setSubmitting(false)
-      if (mode === 'register') {
-        navigation.navigate('Register', { errorMessage: userMessage(e, { action: 'Something went wrong.' }), pendingRegistration })
-      }
+      const message = userMessage(e, { action: "Couldn't finish signing up. Please try again." })
+      // Back to the form to fix it there (Register shows it as a toast).
+      if (mode === 'register') navigation.navigate('Register', { errorMessage: message, pendingRegistration })
+      else toast.error(message)
       return
     }
     setSubmitting(false)
-  }
+  })
 
   function handleBack() {
     navigation.navigate('Register', { pendingRegistration })
@@ -279,8 +280,6 @@ export default function TermsAcceptanceScreen() {
       footer={
         !isView ? (
           <View style={styles.footer}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
             <Checkbox
               checked={agreedToTerms}
               onPress={() => setAgreedToTerms((v) => !v)}
@@ -364,7 +363,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: space.xxl, paddingBottom: space.xxl + space.sm },
   footer: { gap: space.lg },
-  error: { ...type.labelSm, color: colors.danger },
   checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: space.lg, minHeight: 44 },
   checkbox: {
     width: 24,

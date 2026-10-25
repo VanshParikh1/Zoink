@@ -25,6 +25,7 @@ import Badge from '../components/mockup/Badge'
 import Card from '../components/mockup/Card'
 import InkCard from '../components/mockup/InkCard'
 import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'Pay'>
@@ -85,11 +86,11 @@ function PayContent() {
   useRefreshOnFocus(queryKeys.booking(bookingId))
   const booking = bookingQuery.data ?? null
   const loading = bookingQuery.isPending
-  const [paying, setPaying] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
 
-  async function handlePay() {
-    if (!booking || paying) return
+  // Guarded: a second tap while the payment runs is dropped.
+  const [handlePay, paying] = useSubmit(async () => {
+    if (!booking) return
 
     setPaymentError(null)
 
@@ -101,8 +102,6 @@ function PayContent() {
       setPaymentError(message)
       return
     }
-
-    setPaying(true)
 
     try {
       const withIntent = await createBookingPaymentIntent(booking.id)
@@ -140,10 +139,8 @@ function PayContent() {
       nav.replace('BookingDetail', { bookingId: confirmed.id })
     } catch (err: any) {
       setPaymentError(userMessage(err, { action: "Couldn't complete your payment. Please try again." }))
-    } finally {
-      setPaying(false)
     }
-  }
+  })
 
   if (loading && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title="Pay for this rental" />
 

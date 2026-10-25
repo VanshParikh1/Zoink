@@ -21,6 +21,7 @@ import Constants from 'expo-constants'
 import { toast } from '../services/toast'
 import { isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
 import { DetailSkeleton, SkeletonCard } from '../components/mockup/Skeleton'
+import { useSubmit } from '../hooks/useSubmit'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -60,7 +61,6 @@ export default function SettingsScreen() {
     if (profileQuery.data) setPrefs(profileQuery.data.notificationPreferences)
   }, [profileQuery.data])
   const [savingKey, setSavingKey] = useState<keyof NotificationPreferences | null>(null)
-  const [deleting, setDeleting] = useState(false)
   // Separate from the profile fetch: a failure here shouldn't blank the page.
   const blocksQuery = useQuery({ queryKey: queryKeys.blocks, queryFn: getMyBlocks, enabled: Boolean(user?.id) })
   const blocks: BlockedUser[] = blocksQuery.data ?? []
@@ -132,16 +132,14 @@ export default function SettingsScreen() {
     )
   }
 
-  async function runDelete() {
-    setDeleting(true)
+  const [runDelete, deleting] = useSubmit(async () => {
     try {
       await deleteMyAccount()
       await logout()
     } catch (err: any) {
-      setDeleting(false)
       toast.failure(err, { action: "Couldn't delete your account. Please try again." })
     }
-  }
+  })
 
   function openUrl(url: string) {
     Linking.openURL(url).catch(() => toast.error("Couldn't open that link."))

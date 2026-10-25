@@ -29,6 +29,7 @@ import Timeline, { TimelineStep } from '../components/mockup/Timeline'
 import { formatDayOf, formatRentalDate } from '@zoink/shared'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -171,7 +172,7 @@ export default function BookingDetailScreen() {
   useRefreshOnFocus(queryKeys.booking(bookingId))
   const booking = bookingQuery.data ?? null
   const loading = bookingQuery.isPending
-  const [busy, setBusy] = useState(false)
+  const [loadingPhotos, setLoadingPhotos] = useState(false)
   const [photosModalVisible, setPhotosModalVisible] = useState(false)
   const [handoffPhotos, setHandoffPhotos] = useState<{ pickupPhotos: string[]; returnPhotos: string[] } | null>(null)
 
@@ -188,18 +189,17 @@ export default function BookingDetailScreen() {
   const isOwner = booking?.ownerId === user?.id
   const isRenter = booking?.renterId === user?.id
 
-  async function runAction(action: () => Promise<Booking>, onSuccess?: (updated: Booking) => void) {
-    setBusy(true)
+  // Accept, decline, cancel: one at a time; a second tap while one is in
+  // flight is dropped.
+  const [runAction, busy] = useSubmit(async (action: () => Promise<Booking>, onSuccess?: (updated: Booking) => void) => {
     try {
       const updated = await action()
       applyBookingUpdate(updated)
       onSuccess?.(updated)
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't update this booking. Please try again." })
-    } finally {
-      setBusy(false)
     }
-  }
+  })
 
   async function handleViewPhotos() {
     if (!booking) return
@@ -209,7 +209,7 @@ export default function BookingDetailScreen() {
     }
     setHandoffPhotos(bookingPhotos)
     setPhotosModalVisible(true)
-    setBusy(true)
+    setLoadingPhotos(true)
     try {
       const photos = await getHandoffPhotos(booking.id)
       setHandoffPhotos({
@@ -221,7 +221,7 @@ export default function BookingDetailScreen() {
         toast.failure(err, { action: "Couldn't load the handoff photos. Please try again." })
       }
     } finally {
-      setBusy(false)
+      setLoadingPhotos(false)
     }
   }
 
@@ -531,7 +531,7 @@ export default function BookingDetailScreen() {
                 label={action.label}
                 variant="secondary"
                 onPress={action.onPress}
-                disabled={busy}
+                disabled={busy || loadingPhotos}
                 compactLabel
                 style={styles.gridItem}
               />

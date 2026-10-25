@@ -20,6 +20,8 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
 import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
+import { validateListing } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -42,7 +44,6 @@ type LocationStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
 
 export default function CreateListingScreen() {
   const nav = useNavigation<Nav>()
-  const [loading, setLoading] = useState(false)
   const [photos, setPhotos] = useState<string[]>([])
   const [errors, setErrors] = useState<ListingFormErrors>({})
   const [formData, setFormData] = useState<FormData>({
@@ -184,31 +185,9 @@ export default function CreateListingScreen() {
     setPhotos((current) => current.filter((photo) => photo !== uri))
   }
 
-  // The wizard's per-step checks, all at once: same rules, one message per
-  // field, shown under that field.
+  // One message per field, shown under that field (utils/formValidation.ts).
   function validate(): ListingFormErrors {
-    const next: ListingFormErrors = {}
-    if (photos.length < MIN_PHOTOS) next.photos = 'Add at least one photo of your item.'
-    if (!formData.title.trim()) next.title = 'Add a name for your item.'
-    if (!formData.category) next.category = 'Pick a category.'
-    if (!formData.description.trim()) next.description = 'Write a short description.'
-
-    if (!formData.dailyPrice.trim()) next.dailyPrice = 'Add a daily price.'
-    else if (Number.isNaN(parsedDailyPrice) || parsedDailyPrice <= 0) next.dailyPrice = 'Daily price must be a positive number.'
-
-    if (formData.deposit.trim() && (Number.isNaN(parsedDeposit) || parsedDeposit < 0)) {
-      next.deposit = 'Deposit must be zero or more.'
-    }
-    if (formData.itemValue.trim() && (Number.isNaN(parsedItemValue) || parsedItemValue < 0)) {
-      next.itemValue = 'Item value must be zero or more.'
-    } else if (formData.deposit.trim() && !formData.itemValue.trim()) {
-      next.itemValue = "Add the item's value so we can validate your deposit amount."
-    } else if (formData.deposit.trim() && formData.itemValue.trim() && parsedDeposit > parsedItemValue) {
-      next.deposit = 'You cannot set the deposit amount greater than the item value.'
-    }
-
-    if (!formData.city.trim()) next.city = 'Add a city so renters can find your item.'
-    return next
+    return validateListing(formData, { photoCount: photos.length, minPhotos: MIN_PHOTOS })
   }
 
   async function geocodeTypedCity() {
@@ -224,17 +203,14 @@ export default function CreateListingScreen() {
     }
   }
 
-  async function handleGoLive() {
-    if (loading) return
-
+  // Guarded: a second tap while it posts is dropped (two listings otherwise).
+  const [handleGoLive, loading] = useSubmit(async () => {
     const nextErrors = validate()
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
       return
     }
-
-    setLoading(true)
 
     try {
       const coords = effectiveCoords ?? (await geocodeTypedCity()) ?? DEFAULT_COORDS
@@ -276,10 +252,8 @@ export default function CreateListingScreen() {
       nav.replace('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't post your listing. Please try again." })
-    } finally {
-      setLoading(false)
     }
-  }
+  })
 
   const hasErrors = Object.values(errors).some(Boolean)
   const mapCoords = effectiveCoords ?? DEFAULT_COORDS
@@ -290,7 +264,10 @@ export default function CreateListingScreen() {
       header={<ListingFormHeader title="Your stuff earns while you're in class." onBack={() => nav.goBack()} />}
       footer={
         <View style={styles.footer}>
-          {hasErrors ? <Text style={styles.error}>Fix the highlighted fields to list your item.</Text> : null}
+          {/* Its line is always there, so the button doesn't jump when it shows. */}
+          <Text style={styles.error} numberOfLines={1}>
+            {hasErrors ? 'Fix the highlighted fields to list your item.' : ''}
+          </Text>
           <Button label="List it" onPress={handleGoLive} loading={loading} />
         </View>
       }
@@ -369,9 +346,11 @@ export default function CreateListingScreen() {
           placeholder="e.g. Toronto"
           value={formData.city}
           onChangeText={(value) => updateForm('city', value)}
+          kind="city"
           maxLength={60}
           returnKeyType="done"
           error={errors.city}
+          validated
         />
       </ListingForm>
 
@@ -391,7 +370,7 @@ const styles = StyleSheet.create({
   field: { gap: space.sm },
   label: { ...type.labelSm, color: colors.ink },
   caption: { ...type.caption, color: colors.mutedAlt },
-  error: { ...type.caption, color: colors.danger, textAlign: 'center' },
+  error: { ...type.caption, color: colors.danger, textAlign: 'center', minHeight: type.caption.lineHeight },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',

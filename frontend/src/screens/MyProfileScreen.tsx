@@ -40,6 +40,8 @@ import { universityFromEmail } from '../utils/university'
 import { useRenderProbe } from '../utils/perfMarks'
 import { toast } from '../services/toast'
 import { DetailLoadingScreen, isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
+import { FieldErrors, hasErrors, validateProfile } from '../utils/formValidation'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -67,7 +69,6 @@ export default function MyProfileScreen() {
   const insideTabs = useMainTab() !== null
   const { user, logout } = useAuth()
   const queryClient = useQueryClient()
-  const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [showProfilePrompt, setShowProfilePrompt] = useState(false)
@@ -77,7 +78,7 @@ export default function MyProfileScreen() {
     phone: '',
     bio: '',
   })
-  const [formErrors, setFormErrors] = useState<{ firstName?: string; lastName?: string }>({})
+  const [formErrors, setFormErrors] = useState<FieldErrors<'firstName' | 'lastName' | 'phone'>>({})
 
   // Loaded the first time the Profile tab opens (it's mounted behind Home).
   const [opened, setOpened] = useState(false)
@@ -200,16 +201,13 @@ export default function MyProfileScreen() {
     }
   }
 
-  async function handleSave() {
-    const nextErrors = {
-      firstName: form.firstName.trim() ? undefined : 'First name is required.',
-      lastName: form.lastName.trim() ? undefined : 'Last name is required.',
-    }
+  // Guarded: a second tap while it saves is dropped.
+  const [handleSave, saving] = useSubmit(async () => {
+    const nextErrors = validateProfile(form)
     setFormErrors(nextErrors)
-    if (nextErrors.firstName || nextErrors.lastName) return
+    if (hasErrors(nextErrors)) return
 
     try {
-      setSaving(true)
       await updateMyProfile({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
@@ -222,26 +220,22 @@ export default function MyProfileScreen() {
       toast.success('Profile saved.')
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't save your profile. Please try again." })
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
-  async function handleSetupPayouts() {
+  // One Stripe onboarding link at a time.
+  const [handleSetupPayouts, startingPayouts] = useSubmit(async () => {
     try {
-      setSaving(true)
       const { url } = await onboardStripeConnect()
       Linking.openURL(url)
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't start payout setup. Please try again." })
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   function setField(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }))
-    if (key === 'firstName' || key === 'lastName') {
+    if (key === 'firstName' || key === 'lastName' || key === 'phone') {
       setFormErrors((current) => (current[key] ? { ...current, [key]: undefined } : current))
     }
   }
@@ -313,23 +307,29 @@ export default function MyProfileScreen() {
             value={form.firstName}
             onChangeText={(value) => setField('firstName', value)}
             placeholder="First name"
+            kind="givenName"
             maxLength={50}
             error={formErrors.firstName}
+            validated
           />
           <TextField
             label="Last name"
             value={form.lastName}
             onChangeText={(value) => setField('lastName', value)}
             placeholder="Last name"
+            kind="familyName"
             maxLength={50}
             error={formErrors.lastName}
+            validated
           />
           <TextField
             label="Phone"
             value={form.phone}
             onChangeText={(value) => setField('phone', value)}
             placeholder="Optional contact number"
-            keyboardType="phone-pad"
+            kind="phone"
+            error={formErrors.phone}
+            validated
           />
           <TextField
             label="Quote or bio"
@@ -367,7 +367,7 @@ export default function MyProfileScreen() {
       {!stripeStatus?.connected ? (
         <Card shadow={false} padding={space.xxl} contentStyle={styles.banner}>
           <Text style={styles.bannerText}>Connect Stripe to start accepting bookings and receive payouts from your rentals.</Text>
-          <Button label="Set up payouts" onPress={handleSetupPayouts} loading={saving} />
+          <Button label="Set up payouts" onPress={handleSetupPayouts} loading={startingPayouts} />
         </Card>
       ) : stripeStatus.payoutsEnabled ? (
         <Card shadow={false} padding={space.xxl} contentStyle={[styles.successBody, styles.bannerRow]}>
@@ -380,7 +380,7 @@ export default function MyProfileScreen() {
           <Button
             label={stripeStatus.detailsSubmitted ? 'Refresh payout status' : 'Finish payout setup'}
             onPress={stripeStatus.detailsSubmitted ? () => refreshStripeStatus(true) : handleSetupPayouts}
-            loading={saving}
+            loading={startingPayouts}
           />
         </Card>
       )}

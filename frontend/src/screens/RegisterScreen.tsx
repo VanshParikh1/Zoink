@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { University, UNIVERSITY_DOMAINS, UNIVERSITY_LABELS } from '@zoink/shared'
+import { FieldErrors, hasErrors, validateRegistration } from '../utils/formValidation'
+import { toast } from '../services/toast'
 import { RootStackParamList } from '../navigation'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
@@ -19,15 +21,7 @@ type ScreenRoute = RouteProp<RootStackParamList, 'Register'>
 
 const UNIVERSITY_OPTIONS = Object.keys(UNIVERSITY_LABELS) as University[]
 
-// Client-side mirror of the backend's Zod check (auth.schema.ts) — a UX
-// nicety only. The server re-validates the same domain match and is the
-// one that's actually trusted; this just surfaces the error before submit
-// instead of making the user wait for a round trip.
-function emailMatchesUniversity(email: string, university: University | null): boolean {
-  if (!university) return false
-  const domain = UNIVERSITY_DOMAINS[university]
-  return email.trim().toLowerCase().endsWith(`@${domain}`)
-}
+type Field = 'email' | 'university' | 'firstName' | 'lastName' | 'phone' | 'password'
 
 export default function RegisterScreen() {
   const navigation = useNavigation<Nav>()
@@ -42,22 +36,27 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState(pending?.password ?? '')
   const [university, setUniversity] = useState<University | null>(pending?.university ?? null)
   const [pickerVisible, setPickerVisible] = useState(false)
-  const [error, setError] = useState(route.params?.errorMessage ?? '')
+  // The client mirrors the server's checks (utils/formValidation.ts) so each
+  // problem shows under its field before a round trip; the server re-checks.
+  const [errors, setErrors] = useState<FieldErrors<Field>>({})
+
+  // Sign-up failed on the terms step and came back here to be fixed.
+  const returnedError = route.params?.errorMessage
+  useEffect(() => {
+    if (returnedError) {
+      toast.error(returnedError)
+      navigation.setParams({ errorMessage: undefined })
+    }
+  }, [returnedError, navigation])
+
+  function clearError(field: Field) {
+    if (errors[field]) setErrors((current) => ({ ...current, [field]: undefined }))
+  }
 
   function handleRegister() {
-    setError('')
-    if (!firstName || !lastName || !email || !phone || !password || !university) {
-      setError('Please fill in all fields.')
-      return
-    }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
-      return
-    }
-    if (!emailMatchesUniversity(email, university)) {
-      setError(`Please use your ${UNIVERSITY_LABELS[university]} student email (@${UNIVERSITY_DOMAINS[university]}).`)
-      return
-    }
+    const nextErrors = validateRegistration({ email, university, firstName, lastName, phone, password })
+    setErrors(nextErrors)
+    if (hasErrors(nextErrors) || !university) return
 
     // The account isn't created here — acceptance of the Terms and Privacy
     // Policy has to happen first, so registerUser() only fires after the
@@ -97,16 +96,17 @@ export default function RegisterScreen() {
           <AuthIntro />
 
           <View style={styles.form}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
             <TextField
               label="Student email"
               placeholder={university ? `Student email (@${UNIVERSITY_DOMAINS[university]})` : 'University email'}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              textContentType="emailAddress"
+              kind="email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(value) => {
+                setEmail(value)
+                clearError('email')
+              }}
+              error={errors.email}
+              validated
             />
 
             {/* Opens the picker; the field itself is display-only. */}
@@ -122,6 +122,8 @@ export default function RegisterScreen() {
                   value={university ? UNIVERSITY_LABELS[university] : ''}
                   editable={false}
                   leftIcon={<Feather name="book-open" size={18} color={colors.mutedAlt} />}
+                  error={errors.university}
+                  validated
                 />
               </View>
             </Pressable>
@@ -130,17 +132,29 @@ export default function RegisterScreen() {
               <TextField
                 label="First name"
                 placeholder="First name"
+                kind="givenName"
                 value={firstName}
-                onChangeText={setFirstName}
+                onChangeText={(value) => {
+                  setFirstName(value)
+                  clearError('firstName')
+                }}
                 maxLength={50}
+                error={errors.firstName}
+                validated={2}
                 style={styles.half}
               />
               <TextField
                 label="Last name"
                 placeholder="Last name"
+                kind="familyName"
                 value={lastName}
-                onChangeText={setLastName}
+                onChangeText={(value) => {
+                  setLastName(value)
+                  clearError('lastName')
+                }}
                 maxLength={50}
+                error={errors.lastName}
+                validated={2}
                 style={styles.half}
               />
             </View>
@@ -148,18 +162,26 @@ export default function RegisterScreen() {
             <TextField
               label="Phone number"
               placeholder="Phone number"
-              keyboardType="phone-pad"
-              textContentType="telephoneNumber"
+              kind="phone"
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={(value) => {
+                setPhone(value)
+                clearError('phone')
+              }}
+              error={errors.phone}
+              validated
             />
             <TextField
               label="Password"
               placeholder="Password (min 8 characters)"
-              secureTextEntry
-              textContentType="newPassword"
+              kind="newPassword"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(value) => {
+                setPassword(value)
+                clearError('password')
+              }}
+              error={errors.password}
+              validated
             />
           </View>
 
@@ -182,6 +204,7 @@ export default function RegisterScreen() {
                 style={({ pressed }) => [styles.modalRow, pressed ? styles.modalRowPressed : null]}
                 onPress={() => {
                   setUniversity(option)
+                  clearError('university')
                   setPickerVisible(false)
                 }}
                 accessibilityRole="button"
@@ -213,10 +236,6 @@ const styles = StyleSheet.create({
   },
   half: {
     flex: 1,
-  },
-  error: {
-    ...type.labelSm,
-    color: colors.danger,
   },
   footer: {
     gap: space.md,

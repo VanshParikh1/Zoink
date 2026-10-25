@@ -10,6 +10,7 @@ import Card from './Card'
 import Chip from './Chip'
 import TextField from './TextField'
 import IconButton from './IconButton'
+import FieldMessage from './FieldMessage'
 
 // Shared layout for creating and editing a listing. Each screen keeps its own
 // state, validation and API calls; this only lays the fields out.
@@ -70,9 +71,7 @@ export function ListingFormHeader({ title, onBack }: { title: string; onBack: ()
   )
 }
 
-function FieldError({ message }: { message?: string }) {
-  return message ? <Text style={styles.error}>{message}</Text> : null
-}
+const FieldError = FieldMessage
 
 /** What an owner keeps on an example rental, with the backend's own commission math. */
 function PayoutPreview({ dailyPrice }: { dailyPrice: string }) {
@@ -156,7 +155,15 @@ export default function ListingForm(props: Props) {
       </View>
 
       <View style={styles.field}>
-        <TextField label="What are you lending?" placeholder="e.g. Sony a7III Camera" value={props.title} onChangeText={props.onTitle} error={errors.title} />
+        <TextField
+          label="What are you lending?"
+          placeholder="e.g. Sony a7III Camera"
+          autoCapitalize="sentences"
+          value={props.title}
+          onChangeText={props.onTitle}
+          error={errors.title}
+          validated
+        />
       </View>
 
       <View style={styles.field}>
@@ -176,6 +183,7 @@ export default function ListingForm(props: Props) {
         onChangeText={props.onDescription}
         multiline
         error={errors.description}
+        validated
       />
 
       <View style={styles.priceRow}>
@@ -183,30 +191,33 @@ export default function ListingForm(props: Props) {
           label="Daily price"
           placeholder="0"
           variant="boxed"
-          keyboardType="decimal-pad"
+          kind="money"
           value={props.dailyPrice}
           onChangeText={props.onDailyPrice}
           error={errors.dailyPrice}
+          validated={2}
           style={styles.priceField}
         />
         <TextField
           label="Deposit"
           placeholder="Optional"
           variant="boxed"
-          keyboardType="decimal-pad"
+          kind="money"
           value={props.deposit}
           onChangeText={props.onDeposit}
           error={errors.deposit}
+          validated={2}
           style={styles.priceField}
         />
         <TextField
           label="Item value"
           placeholder="Optional"
           variant="boxed"
-          keyboardType="decimal-pad"
+          kind="money"
           value={props.itemValue}
           onChangeText={props.onItemValue}
           error={errors.itemValue}
+          validated={2}
           style={styles.priceField}
         />
       </View>
