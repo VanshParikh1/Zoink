@@ -19,7 +19,7 @@ import Chip from '../components/mockup/Chip'
 import InkCard from '../components/mockup/InkCard'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileDispute'>
@@ -59,9 +59,10 @@ export default function FileDisputeScreen() {
       await createDispute({ bookingId, reason, description: description.trim() })
       queryClient.invalidateQueries({ queryKey: queryKeys.booking(bookingId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.bookingDispute(bookingId) })
+      toast.success("Problem reported. We'll review it and let you both know.")
       nav.goBack()
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not file this dispute.' }))
+      toast.failure(err, { action: "Couldn't send your report. Please try again." })
     } finally {
       setBusy(false)
     }

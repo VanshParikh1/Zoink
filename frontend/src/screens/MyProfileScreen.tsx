@@ -39,6 +39,7 @@ import TextField from '../components/mockup/TextField'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { universityFromEmail } from '../utils/university'
 import { useRenderProbe } from '../utils/perfMarks'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -193,7 +194,7 @@ export default function MyProfileScreen() {
         current ? { ...current, avatarUrl: uploaded.avatarUrl ?? current.avatarUrl } : current
       )
     } catch (err: any) {
-      Alert.alert('Upload failed', userMessage(err, { action: 'Could not update your avatar.' }))
+      toast.failure(err, { action: "Couldn't update your photo. Please try again." })
     } finally {
       setUploading(false)
     }
@@ -218,8 +219,9 @@ export default function MyProfileScreen() {
       await profileQuery.refetch()
       queryClient.invalidateQueries({ queryKey: ['users', 'profile'] })
       setEditing(false)
+      toast.success('Profile saved.')
     } catch (err: any) {
-      Alert.alert('Save failed', userMessage(err, { action: 'Could not save your profile.' }))
+      toast.failure(err, { action: "Couldn't save your profile. Please try again." })
     } finally {
       setSaving(false)
     }
@@ -231,7 +233,7 @@ export default function MyProfileScreen() {
       const { url } = await onboardStripeConnect()
       Linking.openURL(url)
     } catch (err: any) {
-      Alert.alert('Payouts Error', userMessage(err, { action: 'Could not start payouts setup.' }))
+      toast.failure(err, { action: "Couldn't start payout setup. Please try again." })
     } finally {
       setSaving(false)
     }

@@ -19,6 +19,7 @@ import ScreenHeader from '../components/mockup/ScreenHeader'
 import Card from '../components/mockup/Card'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import Constants from 'expo-constants'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -78,7 +79,7 @@ export default function SettingsScreen() {
       )
     } catch (err: any) {
       setPrefs(previous)
-      Alert.alert('Could not save', userMessage(err, { action: 'Please try again.' }))
+      toast.failure(err, { action: "Couldn't save that setting. Please try again." })
     } finally {
       setSavingKey(null)
     }
@@ -98,8 +99,9 @@ export default function SettingsScreen() {
             // Their listings, profile and conversations can show again.
             queryClient.invalidateQueries({ queryKey: ['listings'] })
             queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
+            toast.success(`${name} is unblocked.`)
           } catch (err: any) {
-            Alert.alert('Could not unblock', userMessage(err, { action: 'Please try again.' }))
+            toast.failure(err, { action: "Couldn't unblock them. Please try again." })
           } finally {
             setUnblockingId(null)
           }
@@ -137,12 +139,12 @@ export default function SettingsScreen() {
       await logout()
     } catch (err: any) {
       setDeleting(false)
-      Alert.alert('Could not delete account', userMessage(err, { action: 'Please try again.' }))
+      toast.failure(err, { action: "Couldn't delete your account. Please try again." })
     }
   }
 
   function openUrl(url: string) {
-    Linking.openURL(url).catch(() => Alert.alert('Could not open link', url))
+    Linking.openURL(url).catch(() => toast.error("Couldn't open that link."))
   }
 
   return (

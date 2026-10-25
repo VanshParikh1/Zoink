@@ -104,7 +104,6 @@ function PayContent() {
       console.log('[stripe] EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is missing from this build')
       const message = "Payments aren't available in this version of the app."
       setPaymentError(message)
-      Alert.alert('Payment unavailable', message)
       return
     }
 
@@ -125,7 +124,6 @@ function PayContent() {
           console.log(`[stripe] payment sheet setup: ${initError.code}: ${initError.message}`)
           const message = "Payment couldn't start. Please try again."
           setPaymentError(message)
-          Alert.alert('Payment Setup Error', message)
           return
         }
 
@@ -138,7 +136,6 @@ function PayContent() {
           // was declined."); its plain message isn't always.
           const message = presentError.localizedMessage ?? "Your payment didn't go through. Please try again."
           setPaymentError(message)
-          Alert.alert('Payment Failed or Canceled', message)
           return
         }
       }
@@ -147,9 +144,7 @@ function PayContent() {
       applyBookingUpdate(confirmed)
       nav.replace('BookingDetail', { bookingId: confirmed.id })
     } catch (err: any) {
-      const message = userMessage(err, { action: 'Could not complete payment.' })
-      setPaymentError(message)
-      Alert.alert('Error', message)
+      setPaymentError(userMessage(err, { action: "Couldn't complete your payment. Please try again." }))
     } finally {
       setPaying(false)
     }

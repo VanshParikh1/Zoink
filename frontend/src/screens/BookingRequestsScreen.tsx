@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -21,6 +21,7 @@ import StatePanel from '../components/mockup/StatePanel'
 import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 import { sortBookingsLiveFirst } from '../utils/sortBookings'
 import { formatRentalDate } from '@zoink/shared'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -55,7 +56,7 @@ export default function BookingRequestsScreen() {
       const updated = action === 'accept' ? await acceptBooking(id) : await declineBooking(id)
       applyBookingUpdate(updated)
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not update this request.' }))
+      toast.failure(err, { action: "Couldn't update this request. Please try again." })
     } finally {
       setBusyId(null)
     }

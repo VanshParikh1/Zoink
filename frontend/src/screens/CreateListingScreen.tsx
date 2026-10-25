@@ -19,7 +19,7 @@ import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -175,7 +175,7 @@ export default function CreateListingScreen() {
       setPhotos((current) => (current.includes(nextUri) ? current : [...current, nextUri].slice(0, LISTING_PHOTOS_MAX)))
       setErrors((current) => ({ ...current, photos: undefined }))
     } catch {
-      Alert.alert('Photo picker error', 'Could not open your photo library right now.')
+      toast.error("Couldn't open your photo library. Please try again.")
     }
   }
 
@@ -255,19 +255,27 @@ export default function CreateListingScreen() {
         await setAvailability(listing.id, false)
       }
 
+      // Keep the listing live even if a photo upload fails, but say so.
+      let failedUploads = 0
       for (const uri of photos) {
         try {
           await uploadListingImage(listing.id, uri)
         } catch {
-          // Keep the listing live even if one photo upload fails.
+          failedUploads += 1
         }
       }
 
       queryClient.invalidateQueries({ queryKey: ['listings'] })
+      if (failedUploads > 0) {
+        toast.error(
+          `Your listing is up, but ${failedUploads === 1 ? 'a photo' : `${failedUploads} photos`} didn't upload. Add ${failedUploads === 1 ? 'it' : 'them'} from Edit details.`
+        )
+      } else {
+        toast.success('Your listing is live.')
+      }
       nav.replace('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
-      const msg = userMessage(err, { action: 'Something went wrong.' })
-      Alert.alert('Error', msg)
+      toast.failure(err, { action: "Couldn't post your listing. Please try again." })
     } finally {
       setLoading(false)
     }

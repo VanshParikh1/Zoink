@@ -201,9 +201,7 @@ export default function BookingRequestScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
-      const message = userMessage(err, { action: 'Could not create booking request.' })
-      setPaymentError(message)
-      Alert.alert('Error', message)
+      setPaymentError(userMessage(err, { action: "Couldn't send your request. Please try again." }))
     } finally {
       setSubmitting(false)
     }

@@ -13,7 +13,7 @@ import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
-import { userMessage } from '../utils/userMessage'
+import { isPickupPaymentFailure, userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
@@ -31,6 +31,7 @@ import HardShadow from '../components/mockup/HardShadow'
 import LogoPill from '../components/mockup/LogoPill'
 import Thumb from '../components/mockup/Thumb'
 import { dailyPriceLabel } from '../components/mockup/listingFormat'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -173,9 +174,19 @@ export default function ZoinkItScreen() {
         await handleSuccess(result.booking)
       }
     } catch (err: any) {
+      // The rent couldn't be captured (Phase 1 decision 4): the handoff is
+      // refused and both people have to know to keep the item, so it's an
+      // alert rather than a toast.
+      if (isPickupPaymentFailure(err)) {
+        setPressed(false)
+        Alert.alert("Pickup didn't go through", userMessage(err))
+        return
+      }
+      // Any other 409 is the other phone's tap winning the race; the poll
+      // shows the outcome.
       if (err?.response?.status === 409) return
       setPressed(false)
-      Alert.alert('Error', userMessage(err, { action: 'Could not confirm handoff.' }))
+      toast.failure(err, { action: "Couldn't confirm the handoff. Please try again." })
     } finally {
       tapInFlight.current = false
     }
@@ -194,7 +205,7 @@ export default function ZoinkItScreen() {
     }
     if (booking.status !== pendingStatus) {
       setPressed(false)
-      Alert.alert('Error', 'Could not confirm handoff.')
+      toast.error("This handoff can't be confirmed any more. Check the booking for where it stands.")
       return
     }
 
@@ -231,7 +242,7 @@ export default function ZoinkItScreen() {
   // to pickerUris until the uploader has the 2-3 shots the flow requires.
   async function capturePhoto() {
     if (pickerUris.length >= MAX_PHOTOS) {
-      Alert.alert('Maximum reached', `You can take up to ${MAX_PHOTOS} photos. Clear one to retake.`)
+      toast.info(`You can take up to ${MAX_PHOTOS} photos. Clear them to retake.`)
       return
     }
 
@@ -254,7 +265,7 @@ export default function ZoinkItScreen() {
       if (result.canceled) return
       setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, MAX_PHOTOS))
     } catch {
-      Alert.alert('Camera error', 'Could not open the camera right now.')
+      toast.error("Couldn't open the camera. Please try again.")
     }
   }
 
@@ -273,7 +284,7 @@ export default function ZoinkItScreen() {
       setPickerUris([])
       setEditing(false)
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not submit photos.' }))
+      toast.failure(err, { action: "Couldn't send your photos. Please try again." })
     } finally {
       setSaving(false)
     }

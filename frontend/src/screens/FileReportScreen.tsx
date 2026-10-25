@@ -14,7 +14,7 @@ import Card from '../components/mockup/Card'
 import Chip from '../components/mockup/Chip'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileReport'>
@@ -64,10 +64,10 @@ export default function FileReportScreen() {
         reason,
         description: trimmed.length > 0 ? trimmed : undefined,
       })
-      Alert.alert('Report submitted', 'Thanks — our team will take a look.')
+      toast.success('Report sent. Thanks, our team will take a look.')
       nav.goBack()
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not submit this report.' }))
+      toast.failure(err, { action: "Couldn't send this report. Please try again." })
     } finally {
       setBusy(false)
     }

@@ -14,6 +14,7 @@ import { FiraSans_700Bold } from '@expo-google-fonts/fira-sans/700Bold'
 import { FiraSans_900Black } from '@expo-google-fonts/fira-sans/900Black'
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono/700Bold'
 import ErrorBoundary from './src/components/mockup/ErrorBoundary'
+import ToastHost from './src/components/ToastHost'
 import { scrubBreadcrumb, scrubEvent } from './src/services/sentryScrub'
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN
@@ -65,6 +66,7 @@ export default function App() {
             <ErrorBoundary onError={reportRenderError}>
               <Navigation fontsReady={fontsLoaded || !!fontError} />
             </ErrorBoundary>
+            <ToastHost />
           </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

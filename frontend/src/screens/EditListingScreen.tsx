@@ -17,7 +17,7 @@ import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -115,11 +115,10 @@ export default function EditListingScreen() {
       queryClient.setQueryData(queryKeys.listing(listingId), updated)
       listingChanged()
 
-      Alert.alert('Saved', 'Your listing has been updated.', [
-        { text: 'OK', onPress: () => nav.navigate('ListingDetail', { listingId }) },
-      ])
+      toast.success('Listing updated.')
+      nav.navigate('ListingDetail', { listingId })
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not save changes.' }))
+      toast.failure(err, { action: "Couldn't save your changes. Please try again." })
     } finally {
       setSaving(false)
     }
@@ -147,8 +146,8 @@ export default function EditListingScreen() {
       // Re-fetch from backend so the UI shows the real persisted Cloudinary URL
       await queryClient.invalidateQueries({ queryKey: queryKeys.listing(listingId) })
       listingChanged()
-    } catch {
-      Alert.alert('Upload failed', 'Could not upload the photo.')
+    } catch (err) {
+      toast.failure(err, { action: "Couldn't upload that photo. Please try again." })
     } finally {
       setUploadingImg(false)
     }

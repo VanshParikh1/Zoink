@@ -28,6 +28,7 @@ import { ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { SCREEN_WIDTH, fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 import { initialsOf } from '../utils/initials'
 import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoink/shared'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -98,7 +99,7 @@ export default function ActiveRentalScreen() {
         title: booking.listing.title,
       })
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not open chat.' }))
+      toast.failure(err, { action: "Couldn't open the chat. Please try again." })
     } finally {
       setBusy(false)
     }

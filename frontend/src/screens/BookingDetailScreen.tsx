@@ -28,6 +28,7 @@ import Thumb from '../components/mockup/Thumb'
 import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
 import Timeline, { TimelineStep } from '../components/mockup/Timeline'
 import { formatDayOf, formatRentalDate } from '@zoink/shared'
+import { toast } from '../services/toast'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -200,7 +201,7 @@ export default function BookingDetailScreen() {
       applyBookingUpdate(updated)
       onSuccess?.(updated)
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not update this booking.' }))
+      toast.failure(err, { action: "Couldn't update this booking. Please try again." })
     } finally {
       setBusy(false)
     }
@@ -223,7 +224,7 @@ export default function BookingDetailScreen() {
       })
     } catch (err: any) {
       if ((booking.pickupPhotos?.length ?? 0) === 0 && (booking.returnPhotos?.length ?? 0) === 0) {
-        Alert.alert('Error', userMessage(err, { action: 'Could not load handoff photos.' }))
+        toast.failure(err, { action: "Couldn't load the handoff photos. Please try again." })
       }
     } finally {
       setBusy(false)

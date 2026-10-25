@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { listReports, resolveReport } from '../services/adminApi'
@@ -19,6 +19,7 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import StatePanel from '../components/mockup/StatePanel'
 import { reportStatusBadge } from '../components/mockup/adminStatus'
+import { toast } from '../services/toast'
 
 const REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -70,8 +71,9 @@ export default function AdminReportsScreen() {
       setActiveReport(null)
       // Every filter's list may have changed (the report left OPEN).
       queryClient.invalidateQueries({ queryKey: ['admin', 'reports'] })
+      toast.success(status === 'DISMISSED' ? 'Report dismissed.' : 'Report marked reviewed.')
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not resolve this report.' }))
+      toast.failure(err, { action: "Couldn't update this report. Please try again." })
     } finally {
       setResolving(false)
     }

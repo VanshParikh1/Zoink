@@ -4,7 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { HttpError, ResolvedRequest } from '../services/http'
 import { setSimulatedOffline } from '../services/onlineState'
-import { errorKind, isUnavailable, serverSentencesForTest, userMessage } from './userMessage'
+import { errorKind, isPickupPaymentFailure, isUnavailable, serverSentencesForTest, userMessage } from './userMessage'
 
 const request: ResolvedRequest = { method: 'post', url: '/bookings', headers: {} }
 
@@ -106,6 +106,17 @@ describe('userMessage', () => {
     assert.equal(userMessage(new TypeError("Cannot read properties of undefined (reading 'id')")), 'Something went wrong. Please try again.')
     assert.equal(userMessage(new Error('boom'), { action: "Couldn't open the chat. Please try again." }), "Couldn't open the chat. Please try again.")
     assert.equal(userMessage(undefined), 'Something went wrong. Please try again.')
+  })
+})
+
+describe('isPickupPaymentFailure', () => {
+  const sentence =
+    "The rental payment couldn't be collected, so the pickup didn't go through. Keep the item for now and try Zoink It again. If it keeps failing, contact support."
+
+  test('the refused handoff is told apart from a lost tap race', () => {
+    assert.equal(isPickupPaymentFailure(answered(409, { error: sentence })), true)
+    assert.equal(isPickupPaymentFailure(answered(409, { error: 'This booking was updated by someone else. Please refresh and try again.' })), false)
+    assert.equal(isPickupPaymentFailure(noAnswer()), false)
   })
 })
 

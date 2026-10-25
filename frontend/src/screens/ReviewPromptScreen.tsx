@@ -20,7 +20,7 @@ import HardShadow from '../components/mockup/HardShadow'
 import TextField from '../components/mockup/TextField'
 import Thumb from '../components/mockup/Thumb'
 import { formatRentalDate } from '@zoink/shared'
-import { userMessage } from '../utils/userMessage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ReviewPrompt'>
@@ -126,7 +126,7 @@ export default function ReviewPromptScreen() {
         routes: [{ name: 'MainApp' }],
       })
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not submit your review.' }))
+      toast.failure(err, { action: "Couldn't send your review. Please try again." })
     } finally {
       setBusy(false)
     }

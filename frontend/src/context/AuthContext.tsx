@@ -1,7 +1,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
-import { Alert, InteractionManager, Platform } from 'react-native'
+import { InteractionManager, Platform } from 'react-native'
 import api, { setApiToken, setSessionEndedHandler } from '../services/api'
 import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
@@ -10,6 +10,7 @@ import { queryClient } from '../services/queryClient'
 import { queryKeys } from '../services/queryKeys'
 import { getFirstPendingReview } from '../services/reviewsApi'
 import type { University } from '@zoink/shared'
+import { toast } from '../services/toast'
 
 const TOKEN_KEY = 'zoink_jwt'
 
@@ -124,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       queryClient.clear()
       setToken(null)
       setUser(null)
-      Alert.alert('Signed out', 'Your session has ended. Please log in again.')
+      toast.info('Your session has ended. Please log in again.')
     })
     return () => setSessionEndedHandler(null)
   }, [])

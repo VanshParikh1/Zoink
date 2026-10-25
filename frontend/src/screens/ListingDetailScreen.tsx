@@ -40,6 +40,7 @@ import Thumb from '../components/mockup/Thumb'
 import HardShadow from '../components/mockup/HardShadow'
 import { dailyPriceLabel, distanceLabel, listingDisplay } from '../components/mockup/listingFormat'
 import LocationMapPreview from '../components/LocationMapPreview'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -90,8 +91,8 @@ export default function ListingDetailScreen() {
       )
       queryClient.invalidateQueries({ queryKey: queryKeys.myListings })
       queryClient.invalidateQueries({ queryKey: ['listings', 'browse'] })
-    } catch {
-      Alert.alert('Error', 'Could not update availability.')
+    } catch (err) {
+      toast.failure(err, { action: "Couldn't change availability. Please try again." })
     } finally {
       setToggling(false)
     }
@@ -113,7 +114,7 @@ export default function ListingDetailScreen() {
               queryClient.invalidateQueries({ queryKey: ['listings'] })
               nav.navigate('MyListings')
             } catch (err: any) {
-              Alert.alert('Error', userMessage(err, { action: 'Could not delete listing.' }))
+              toast.failure(err, { action: "Couldn't delete this listing. Please try again." })
             }
           },
         },
@@ -151,7 +152,7 @@ export default function ListingDetailScreen() {
         title: listing.title,
       })
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not open conversation.' }))
+      toast.failure(err, { action: "Couldn't open the chat. Please try again." })
     }
   }
 

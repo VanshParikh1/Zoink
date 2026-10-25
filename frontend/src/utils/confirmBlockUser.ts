@@ -2,7 +2,7 @@ import { Alert } from 'react-native'
 import { blockUser } from '../services/usersApi'
 import { queryClient } from '../services/queryClient'
 import { queryKeys } from '../services/queryKeys'
-import { userMessage } from './userMessage'
+import { toast } from '../services/toast'
 
 // Confirm → block → onBlocked. Shared by PublicProfileScreen and
 // ConversationThreadScreen so the warning copy stays identical in both.
@@ -23,10 +23,10 @@ export function confirmBlockUser(user: { id: string; name: string }, onBlocked: 
             queryClient.invalidateQueries({ queryKey: ['listings'] })
             queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
             queryClient.invalidateQueries({ queryKey: queryKeys.blocks })
-            Alert.alert('User blocked', `You won't see ${user.name} on Zoink anymore.`)
+            toast.success(`${user.name} is blocked. You won't see each other on Zoink.`)
             onBlocked()
           } catch (err: any) {
-            Alert.alert('Could not block', userMessage(err, { action: 'Please try again.' }))
+            toast.failure(err, { action: "Couldn't block them. Please try again." })
           }
         },
       },

@@ -39,6 +39,10 @@ type ErrorLike = {
   response?: { status?: number; data?: unknown }
 }
 
+/** The handoff was refused because the rent couldn't be captured (backend PickupPaymentFailedError). */
+const PICKUP_PAYMENT_FAILED =
+  "The rental payment couldn't be collected, so the pickup didn't go through. Keep the item for now and try Zoink It again. If it keeps failing, contact support."
+
 /** Server sentences shown exactly as sent. */
 const SHOWN_AS_IS = new Set([
   // Sign-in, sign-up, verification
@@ -83,7 +87,7 @@ const SHOWN_AS_IS = new Set([
   'Handoff photos must be taken and uploaded in the Zoink app.',
   'Only the booking owner can initiate pickup.',
   'Only the booking renter can initiate return.',
-  "The rental payment couldn't be collected, so the pickup didn't go through. Keep the item for now and try Zoink It again. If it keeps failing, contact support.",
+  PICKUP_PAYMENT_FAILED,
   'Photos are only available after the rental is completed',
   // Messages, blocks, reports
   'Message body cannot be empty.',
@@ -240,6 +244,11 @@ export function userMessage(error: unknown, context: MessageContext = {}): strin
     return context.action ?? PLAIN[kind]
   }
   return PLAIN[kind]
+}
+
+/** The pickup was refused because the rent couldn't be collected: both people keep the item for now. */
+export function isPickupPaymentFailure(error: unknown): boolean {
+  return errorStatus(error) === 409 && serverSentences(error).includes(PICKUP_PAYMENT_FAILED)
 }
 
 /** A detail read that can't be shown to this person: gone, never theirs, or not an id the API knows. */

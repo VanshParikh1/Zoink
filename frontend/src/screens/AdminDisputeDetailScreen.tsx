@@ -24,6 +24,7 @@ import TextField from '../components/mockup/TextField'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { disputeStatusBadge } from '../components/mockup/adminStatus'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'AdminDisputeDetail'>
@@ -219,8 +220,9 @@ export default function AdminDisputeDetailScreen() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.adminDispute(disputeId) })
       queryClient.invalidateQueries({ queryKey: ['admin'] })
       queryClient.invalidateQueries({ queryKey: ['bookings'] })
+      toast.success('Dispute resolved.')
     } catch (err: any) {
-      Alert.alert('Error', userMessage(err, { action: 'Could not resolve this dispute.' }))
+      toast.failure(err, { action: "Couldn't resolve this dispute. Please try again." })
     } finally {
       setBusy(false)
     }
