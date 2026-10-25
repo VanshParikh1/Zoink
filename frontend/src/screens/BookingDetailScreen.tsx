@@ -30,6 +30,7 @@ import { formatDayOf, formatRentalDate } from '@zoink/shared'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { toast } from '../services/toast'
 import { useSubmit } from '../hooks/useSubmit'
+import { confirmCancel, confirmDecline } from '../utils/confirmBookingChange'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -418,7 +419,10 @@ export default function BookingDetailScreen() {
 
   const secondary: { label: string; onPress: () => void }[] = []
   if (isOwner && booking.status === 'PENDING') {
-    secondary.push({ label: 'Decline', onPress: () => runAction(() => declineBooking(booking.id)) })
+    secondary.push({
+      label: 'Decline',
+      onPress: () => confirmDecline(booking.renter.firstName, () => runAction(() => declineBooking(booking.id))),
+    })
   }
   if (booking.conversationId) {
     secondary.push({
@@ -436,7 +440,10 @@ export default function BookingDetailScreen() {
     })
   }
   if (['PENDING', 'ACCEPTED', 'CONFIRMED', 'PICKUP_PENDING'].includes(booking.status)) {
-    secondary.push({ label: 'Cancel booking', onPress: () => runAction(() => cancelBooking(booking.id)) })
+    secondary.push({
+      label: 'Cancel booking',
+      onPress: () => confirmCancel(otherParty.firstName, () => runAction(() => cancelBooking(booking.id))),
+    })
   }
 
   const priceRows: PriceRow[] = [

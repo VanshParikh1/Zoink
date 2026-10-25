@@ -22,6 +22,7 @@ import { sortBookingsLiveFirst } from '../utils/sortBookings'
 import { formatRentalDate } from '@zoink/shared'
 import { toast } from '../services/toast'
 import { LoadFailedPanel } from '../components/LoadStates'
+import { confirmDecline } from '../utils/confirmBookingChange'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -143,7 +144,7 @@ export default function BookingRequestsScreen() {
                     variant="secondary"
                     size="sm"
                     disabled={isBusy}
-                    onPress={() => handleAction(item.id, 'decline')}
+                    onPress={() => confirmDecline(item.renter.firstName, () => handleAction(item.id, 'decline'))}
                     style={styles.action}
                   />
                 </View>
