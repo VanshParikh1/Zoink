@@ -3,6 +3,7 @@ import { Linking } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import { parseDeepLink, routeDeepLink, targetForNotification } from './deepLinks'
 import { QA_TOOLS, simulateOffline } from '../services/network'
+import { armCrash } from '../services/qaCrash'
 
 /**
  * Listens for links (zoink://…) and notification taps for the whole life of
@@ -20,7 +21,8 @@ export function useDeepLinkSources() {
       const target = parseDeepLink(url, { qa: QA_TOOLS })
       if (!target) return
       if ('qa' in target) {
-        simulateOffline(target.mode)
+        if (target.qa === 'offline') simulateOffline(target.mode)
+        else armCrash(target.level)
         return
       }
       routeDeepLink(target)

@@ -17,7 +17,7 @@ export type DeepLinkTarget =
   | { screen: 'ConversationThread'; params: { conversationId: string } }
   | { screen: 'LinkNotFound'; params?: undefined }
 
-export type QaAction = { qa: 'offline'; mode: 'on' | 'off' | 'device' }
+export type QaAction = { qa: 'offline'; mode: 'on' | 'off' | 'device' } | { qa: 'crash'; level: 'root' | 'tab' | 'screen' }
 
 const SCHEME = 'zoink://'
 
@@ -45,6 +45,9 @@ export function parseDeepLink(url: string, { qa = false } = {}): DeepLinkTarget 
 
   if (kind === 'qa' && qa && id === 'offline' && (rest[0] === 'on' || rest[0] === 'off' || rest[0] === 'device')) {
     return { qa: 'offline', mode: rest[0] }
+  }
+  if (kind === 'qa' && qa && id === 'crash' && (rest[0] === 'root' || rest[0] === 'tab' || rest[0] === 'screen')) {
+    return { qa: 'crash', level: rest[0] }
   }
 
   if (id && ID.test(id) && rest.length === 0) {

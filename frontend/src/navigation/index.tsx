@@ -23,6 +23,7 @@ import TermsAcceptanceScreen from '../screens/TermsAcceptanceScreen'
 import VerifyEmailScreen from '../screens/VerifyEmailScreen'
 import VerificationGateScreen from '../screens/VerificationGateScreen'
 import MainAppScreen from '../screens/MainAppScreen'
+import QaCrashProbe from '../components/QaCrashProbe'
 
 // Held on RegisterScreen while the user goes through TermsAcceptance, so a
 // cancel/error round-trip doesn't lose what they typed. Password is carried
@@ -88,6 +89,7 @@ function screenLayout({
 }) {
   return (
     <ErrorBoundary scope="screen" name={route.name} onGoBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}>
+      <QaCrashProbe level="screen" isFocused={navigation.isFocused} />
       {children}
     </ErrorBoundary>
   )

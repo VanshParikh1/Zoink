@@ -39,7 +39,9 @@ describe('parseDeepLink', () => {
   test('QA links only in QA builds', () => {
     assert.deepEqual(parseDeepLink('zoink://qa/offline/on', { qa: true }), { qa: 'offline', mode: 'on' })
     assert.deepEqual(parseDeepLink('zoink://qa/offline/device', { qa: true }), { qa: 'offline', mode: 'device' })
+    assert.deepEqual(parseDeepLink('zoink://qa/crash/tab', { qa: true }), { qa: 'crash', level: 'tab' })
     assert.deepEqual(parseDeepLink('zoink://qa/offline/on'), { screen: 'LinkNotFound' })
+    assert.deepEqual(parseDeepLink('zoink://qa/crash/root'), { screen: 'LinkNotFound' })
   })
 })
 

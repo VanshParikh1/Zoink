@@ -15,6 +15,7 @@ import { FiraSans_900Black } from '@expo-google-fonts/fira-sans/900Black'
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono/700Bold'
 import ErrorBoundary from './src/components/mockup/ErrorBoundary'
 import OfflineFrame from './src/components/OfflineFrame'
+import QaCrashProbe from './src/components/QaCrashProbe'
 import ToastHost from './src/components/ToastHost'
 import { scrubBreadcrumb, scrubEvent } from './src/services/sentryScrub'
 
@@ -58,6 +59,7 @@ export default function App() {
           <AuthProvider>
             <OfflineFrame>
               <ErrorBoundary scope="root">
+                <QaCrashProbe level="root" />
                 <Navigation fontsReady={fontsLoaded || !!fontError} />
               </ErrorBoundary>
             </OfflineFrame>

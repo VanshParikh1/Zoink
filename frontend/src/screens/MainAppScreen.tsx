@@ -35,6 +35,7 @@ import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext
 import { MainTab, MainTabProvider } from '../context/MainTabContext'
 import { markStartup, useRenderProbe } from '../utils/perfMarks'
 import ErrorBoundary from '../components/mockup/ErrorBoundary'
+import QaCrashProbe from '../components/QaCrashProbe'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
 // Five equal columns: Home, Search, the "+" slot, Inbox, Profile.
@@ -122,21 +123,25 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
     () => ({
       home: (
         <ErrorBoundary scope="tab" name="Home">
+          <QaCrashProbe level="tab" tab="Home" />
           <HomeScreen />
         </ErrorBoundary>
       ),
       search: (
         <ErrorBoundary scope="tab" name="Search">
+          <QaCrashProbe level="tab" tab="Search" />
           <SearchScreen />
         </ErrorBoundary>
       ),
       inbox: (
         <ErrorBoundary scope="tab" name="Inbox">
+          <QaCrashProbe level="tab" tab="Inbox" />
           <InboxScreen />
         </ErrorBoundary>
       ),
       profile: (
         <ErrorBoundary scope="tab" name="Profile">
+          <QaCrashProbe level="tab" tab="MyProfile" />
           <MyProfileScreen />
         </ErrorBoundary>
       ),
