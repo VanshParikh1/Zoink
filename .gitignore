@@ -38,3 +38,9 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/launch.json
+.claude/settings.local.json
+
+# Local tooling output
+graphify-out/
+backend/graphify-out/
+Claude outputs/
