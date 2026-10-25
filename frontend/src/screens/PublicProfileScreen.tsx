@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react'
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native'
+import React from 'react'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -7,7 +7,6 @@ import { RootStackParamList } from '../navigation'
 import { getPublicProfile } from '../services/usersApi'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '../services/queryKeys'
-import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { colors } from '../theme/colors'
@@ -21,6 +20,7 @@ import Badge from '../components/mockup/Badge'
 import Button from '../components/mockup/Button'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'PublicProfile'>
@@ -35,12 +35,6 @@ export default function PublicProfileScreen() {
   })
   const profile: PublicProfile | null = profileQuery.data ?? null
   const loading = profileQuery.isPending
-  useEffect(() => {
-    if (profileQuery.isError && !profile) {
-      Alert.alert('Error', userMessage(profileQuery.error, { action: 'Could not load this profile.' }))
-      nav.goBack()
-    }
-  }, [profileQuery.isError, profileQuery.error, profile, nav])
 
   // Presented as a modal: a page sheet on iOS (nothing under it to clear),
   // full screen on Android (Screen's usual status-bar inset applies).
@@ -51,15 +45,20 @@ export default function PublicProfileScreen() {
     </View>
   )
 
-  if (loading) {
+  if (loading && !isWaitingOffline(profileQuery)) return <DetailLoadingScreen title="Profile" header={header} edgeToEdgeTop={sheet} />
+
+  if (!profile) {
     return (
-      <Screen scroll={false} edgeToEdgeTop={sheet} header={header} contentStyle={styles.centered}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </Screen>
+      <DetailFallbackScreen
+        query={profileQuery}
+        title="Profile"
+        what="this profile"
+        header={header}
+        edgeToEdgeTop={sheet}
+        unavailable={{ title: "This profile isn't available.", body: 'The account may have been closed.' }}
+      />
     )
   }
-
-  if (!profile) return null
 
   const isSelf = profile.id === user?.id
   const name = `${profile.firstName} ${profile.lastName}`

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
@@ -14,6 +14,7 @@ import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } 
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { isPickupPaymentFailure, userMessage } from '../utils/userMessage'
+import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useAuth } from '../context/AuthContext'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
@@ -135,15 +136,16 @@ export default function ZoinkItScreen() {
     : null
   const otherName = otherParty?.firstName ?? 'other party'
 
-  // One alert per outage: a failed poll every 3 s (e.g. the whole time the
-  // phone was offline) used to alert each time. Re-armed once a read succeeds.
+  // Once the booking is on screen, a failed poll is a toast, once per outage
+  // (a poll fails every 3 s while it lasts). Re-armed once a read succeeds.
+  // Before then the screen shows the failure itself (below).
   const outageAlerted = useRef(false)
   useEffect(() => {
-    if (bookingQuery.isError && !outageAlerted.current) {
+    if (bookingQuery.isError && bookingQuery.data && !outageAlerted.current) {
       outageAlerted.current = true
-      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
+      toast.failure(bookingQuery.error, { action: "Couldn't refresh this handoff. It'll keep trying." })
     }
-  }, [bookingQuery.isError, bookingQuery.error])
+  }, [bookingQuery.isError, bookingQuery.error, bookingQuery.data])
   useEffect(() => {
     outageAlerted.current = false
   }, [bookingQuery.dataUpdatedAt])
@@ -296,12 +298,10 @@ export default function ZoinkItScreen() {
   const loneTapAt = ownerTappedAt && !renterTappedAt ? ownerTappedAt : renterTappedAt && !ownerTappedAt ? renterTappedAt : null
   const remaining = useCountdown(success ? null : loneTapAt)
 
+  const title = mode === 'pickup' ? 'Pickup' : 'Return'
+  if (!booking && bookingQuery.isPending && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title={title} />
   if (!booking) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
-    )
+    return <DetailFallbackScreen query={bookingQuery} title={title} what="this booking" unavailable={BOOKING_UNAVAILABLE} />
   }
 
   const myTapAt = isOwner ? ownerTappedAt : renterTappedAt
@@ -496,7 +496,6 @@ export default function ZoinkItScreen() {
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   content: { gap: space.screen, paddingTop: space.xs },
   flex: { flex: 1 },
   centered: { alignSelf: 'center' },

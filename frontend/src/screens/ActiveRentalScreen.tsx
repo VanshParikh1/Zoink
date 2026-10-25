@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -12,7 +12,6 @@ import { openConversation } from '../services/conversationsApi'
 import { queryKeys } from '../services/queryKeys'
 import { queryClient } from '../services/queryClient'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { User } from '../types'
 import { colors } from '../theme/colors'
@@ -29,6 +28,7 @@ import { SCREEN_WIDTH, fillImageUrl, limitImageUrl } from '../utils/cloudinaryIm
 import { initialsOf } from '../utils/initials'
 import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoink/shared'
 import { toast } from '../services/toast'
+import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -63,12 +63,6 @@ export default function ActiveRentalScreen() {
   useRefreshOnFocus(queryKeys.booking(bookingId))
   const booking = bookingQuery.data ?? null
   const loading = bookingQuery.isPending
-  useEffect(() => {
-    if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this rental.' }))
-      nav.goBack()
-    }
-  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
   const [busy, setBusy] = useState(false)
   const bannerPulse = useRef(new Animated.Value(0.35)).current
   const isFocused = useIsFocused()
@@ -105,15 +99,11 @@ export default function ActiveRentalScreen() {
     }
   }
 
-  if (loading) {
-    return (
-      <Screen scroll={false} contentStyle={styles.centered}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </Screen>
-    )
-  }
+  if (loading && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title="Rental" hero />
 
-  if (!booking) return null
+  if (!booking) {
+    return <DetailFallbackScreen query={bookingQuery} title="Rental" what="this rental" unavailable={BOOKING_UNAVAILABLE} />
+  }
 
   const isOwner = booking.ownerId === user?.id
   const isRenter = booking.renterId === user?.id

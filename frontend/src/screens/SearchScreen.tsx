@@ -25,6 +25,7 @@ import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCa
 import StatePanel from '../components/mockup/StatePanel'
 import { useScrollPerfProbe, useRenderProbe } from '../utils/perfMarks'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
+import { isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
@@ -100,6 +101,9 @@ export default function SearchScreen() {
   // Drop anything from a user blocked since these were cached.
   const visible = (item: ListingCardItem) => !isBlockedThisSession(item.ownerId)
   const trending = (trendingQuery.data ?? []).filter(visible)
+  const trendingOffline = isWaitingOffline(trendingQuery)
+  // Waiting for a location, then for the first answer.
+  const trendingLoading = coords === undefined || (trendingQuery.isPending && !trendingOffline)
   const resultItems = results.items.filter(visible)
 
   useFocusEffect(
@@ -222,7 +226,28 @@ export default function SearchScreen() {
 
       {!isResultsState && (
         <Animated.View style={[styles.padded, { opacity: fadeAnim, transform: [{ translateY: translateAnim }] }]}>
-          {trending.length > 0 ? renderSection('Trending near you', trending) : null}
+          {trending.length > 0 ? (
+            renderSection('Trending near you', trending)
+          ) : trendingLoading ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Trending near you</Text>
+              <View style={styles.list}>
+                {Array.from({ length: SKELETON_COUNT }, (_, i) => (
+                  <ListingCardSkeleton key={i} />
+                ))}
+              </View>
+            </View>
+          ) : trendingQuery.isError || trendingOffline ? (
+            <View style={styles.section}>
+              <LoadFailedPanel error={trendingQuery.error} offline={trendingOffline} what="what's trending" onRetry={trendingQuery.refetch} />
+            </View>
+          ) : recent.length === 0 ? (
+            <StatePanel
+              style={styles.section}
+              title="Find what you need."
+              body="Search for a camera, a drill or a speaker, or pick a category above."
+            />
+          ) : null}
           {recent.length > 0 ? renderSection('Recently viewed', recent) : null}
         </Animated.View>
       )}
@@ -244,10 +269,19 @@ export default function SearchScreen() {
                     <ListingCardSkeleton key={i} />
                   ))}
                 </View>
+              ) : results.error || results.offline ? (
+                <LoadFailedPanel error={results.error} offline={results.offline} what="results" onRetry={results.retry} />
               ) : (
                 <StatePanel
                   title="Nothing found"
-                  body={selectedCategory !== 'All' ? `No ${selectedCategory.toLowerCase()} listings match this search yet.` : 'Try a different search term or category.'}
+                  body={selectedCategory !== 'All' ? `No ${selectedCategory.toLowerCase()} listings match this search yet. Try other words, or clear the search to browse.` : 'Try other words or another category.'}
+                  action={{
+                    label: 'Clear search',
+                    onPress: () => {
+                      setQuery('')
+                      setSelectedCategory('All')
+                    },
+                  }}
                 />
               )}
             </View>

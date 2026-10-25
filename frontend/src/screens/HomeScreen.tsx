@@ -29,6 +29,7 @@ import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
 import { markStartup, useScrollPerfProbe, useRenderProbe } from '../utils/perfMarks'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
+import { LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -85,7 +86,8 @@ export default function HomeScreen() {
   const feed = usePagedList<ListingCardItem>(browseKey, fetchPage, { enabled: coords !== null, refreshOnFocus: false })
   const listings = feed.items
   const loading = coords === null || feed.loading
-  const error = feed.error ? userMessage(feed.error, { action: 'Could not load nearby listings right now.' }) : ''
+  // A refresh that failed while listings are on screen: a line above them.
+  const refreshError = feed.error ? userMessage(feed.error, { action: "Couldn't refresh listings. Pull down to try again." }) : ''
 
   useEffect(() => {
     if (listings.length > 0) markStartup('home-content')
@@ -187,7 +189,7 @@ export default function HomeScreen() {
         </Card>
 
         <Text style={styles.sectionTitle}>Near you</Text>
-        {error && listings.length > 0 ? <Text style={styles.inlineError}>{error}</Text> : null}
+        {refreshError && listings.length > 0 ? <Text style={styles.inlineError}>{refreshError}</Text> : null}
       </View>
     </View>
   )
@@ -198,14 +200,14 @@ export default function HomeScreen() {
         ? Array.from({ length: SKELETON_COUNT }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)
         : null}
     </View>
-  ) : error ? (
-    <StatePanel
-      title="Couldn't load listings"
-      body={error}
-      action={{ label: 'Try again', onPress: onRefresh, variant: 'primary' }}
-    />
+  ) : feed.error || feed.offline ? (
+    <LoadFailedPanel error={feed.error} offline={feed.offline} what="listings near you" onRetry={feed.retry} />
   ) : (
-    <StatePanel title="No listings found" body="Nothing nearby right now — pull to refresh." />
+    <StatePanel
+      title="Nothing listed near you yet."
+      body="Be the first: list something you own and earn from it. Pull down to check again later."
+      action={{ label: 'List an item', onPress: () => nav.navigate('CreateListing'), variant: 'primary' }}
+    />
   )
 
   const openListing = useCallback((listing: ListingCardItem) => {

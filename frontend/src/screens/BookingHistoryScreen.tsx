@@ -8,7 +8,6 @@ import type { BookingListItem, BookingListPage } from '@zoink/shared'
 import { getBookingListPage } from '../services/bookingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -19,6 +18,7 @@ import ListingCard, { ListingCardSkeleton } from '../components/mockup/ListingCa
 import StatePanel from '../components/mockup/StatePanel'
 import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 import { formatRentalDate } from '@zoink/shared'
+import { LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -41,7 +41,6 @@ export default function BookingHistoryScreen() {
   )
   const { items: bookings, loading, refreshing } = feed
   const total = feed.firstPage?.total ?? bookings.length
-  const error = feed.error ? userMessage(feed.error, { action: 'Could not load your bookings.' }) : ''
 
   const activeRentals = bookings
     .filter((booking) => isLiveBooking(booking.status))
@@ -74,7 +73,9 @@ export default function BookingHistoryScreen() {
           <Text style={styles.summary}>
             {loading
               ? 'Loading your bookings…'
-              : total === 0
+              : feed.error || feed.offline
+                ? ''
+                : total === 0
                 ? 'Nothing booked yet'
                 : `${total} booking${total === 1 ? '' : 's'} tracked here`}
           </Text>
@@ -104,12 +105,8 @@ export default function BookingHistoryScreen() {
                 <ListingCardSkeleton key={i} />
               ))}
             </View>
-          ) : error ? (
-            <StatePanel
-              title="Your bookings couldn't load"
-              body={error}
-              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
-            />
+          ) : feed.error || feed.offline ? (
+            <LoadFailedPanel error={feed.error} offline={feed.offline} what="your rentals" onRetry={feed.retry} />
           ) : (
             <StatePanel
               title="No booking requests yet"

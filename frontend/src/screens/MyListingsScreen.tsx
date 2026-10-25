@@ -9,7 +9,6 @@ import type { MyListingItem } from '@zoink/shared'
 import { getMyListingsPage } from '../services/listingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import Screen from '../components/mockup/Screen'
@@ -19,6 +18,7 @@ import ListingGridCard from '../components/mockup/ListingGridCard'
 import StatePanel from '../components/mockup/StatePanel'
 import { BadgeVariant } from '../components/mockup/Badge'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
+import { LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -43,7 +43,6 @@ export default function MyListingsScreen() {
   // screen no longer loads the owner's whole booking list.
   const feed = usePagedList<MyListingItem>(queryKeys.myListings, getMyListingsPage)
   const { items: listings, loading, refreshing } = feed
-  const error = feed.error ? userMessage(feed.error, { action: 'Could not load your listings right now.' }) : ''
   const onRefresh = feed.refresh
 
   const openListing = useCallback(
@@ -108,12 +107,8 @@ export default function MyListingsScreen() {
                 ? Array.from({ length: SKELETON_COUNT }, (_, i) => <ListingGridCard.Skeleton key={i} width={cellWidth} />)
                 : null}
             </View>
-          ) : error ? (
-            <StatePanel
-              title="Your listings couldn't load"
-              body={error}
-              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
-            />
+          ) : feed.error || feed.offline ? (
+            <LoadFailedPanel error={feed.error} offline={feed.offline} what="your listings" onRetry={feed.retry} />
           ) : (
             <StatePanel
               title="You have not listed anything yet."

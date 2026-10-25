@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import React, { useMemo, useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -26,6 +26,7 @@ import Thumb from '../components/mockup/Thumb'
 import TextField from '../components/mockup/TextField'
 import PriceTable from '../components/mockup/PriceTable'
 import { listingDisplay } from '../components/mockup/listingFormat'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -127,12 +128,6 @@ export default function BookingRequestScreen() {
   const [endDate, setEndDate] = useState<Date | null>(null)
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    if (listingQuery.isError && !listing) {
-      Alert.alert('Error', userMessage(listingQuery.error, { action: 'Could not load this listing.' }))
-      nav.goBack()
-    }
-  }, [listingQuery.isError, listingQuery.error, listing, nav])
 
   const today = useMemo(() => startOfDay(new Date()), [])
   const visibleMonths = useMemo(
@@ -207,15 +202,18 @@ export default function BookingRequestScreen() {
     }
   }
 
-  if (loading) {
+  if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Pick your dates" />
+
+  if (!listing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
+      <DetailFallbackScreen
+        query={listingQuery}
+        title="Pick your dates"
+        what="this listing"
+        unavailable={LISTING_UNAVAILABLE}
+      />
     )
   }
-
-  if (!listing) return null
 
   const { priceLine, imageUrl } = listingDisplay(listing)
   const rangeLabel = startDate
@@ -413,7 +411,6 @@ export default function BookingRequestScreen() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   content: {
     gap: space.screen,
   },

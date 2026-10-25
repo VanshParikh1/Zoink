@@ -1,6 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   FlatList,
@@ -22,7 +21,6 @@ import { getListing, setAvailability, deleteListing } from '../services/listings
 import { openConversation } from '../services/conversationsApi'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
@@ -40,6 +38,7 @@ import Thumb from '../components/mockup/Thumb'
 import HardShadow from '../components/mockup/HardShadow'
 import { dailyPriceLabel, distanceLabel, listingDisplay } from '../components/mockup/listingFormat'
 import LocationMapPreview from '../components/LocationMapPreview'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { toast } from '../services/toast'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
@@ -71,13 +70,6 @@ export default function ListingDetailScreen() {
   const scrollY = useRef(new Animated.Value(0)).current
 
   const isOwner = listing?.ownerId === user?.id
-
-  useEffect(() => {
-    if (listingQuery.isError && !listing) {
-      Alert.alert('Error', userMessage(listingQuery.error, { action: 'Could not load listing.' }))
-      nav.goBack()
-    }
-  }, [listingQuery.isError, listingQuery.error, listing, nav])
 
   async function handleToggleAvailability() {
     if (!listing) return
@@ -156,15 +148,20 @@ export default function ListingDetailScreen() {
     }
   }
 
-  if (loading) {
+  if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Listing" hero />
+
+  // Gone (deleted, including soft-deleted, which the API answers 404), never
+  // existed (a stale link), offline with nothing cached, or failed to load.
+  if (!listing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
+      <DetailFallbackScreen
+        query={listingQuery}
+        title="Listing"
+        what="this listing"
+        unavailable={LISTING_UNAVAILABLE}
+      />
     )
   }
-
-  if (!listing) return null
 
   const photos = listing.images
   const heroHeight = listingHeroHeight(windowHeight, insets.top)
@@ -383,7 +380,6 @@ export default function ListingDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   screenContent: { paddingHorizontal: 0 },
   hero: {
     width: '100%',

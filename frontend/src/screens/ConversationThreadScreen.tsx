@@ -45,7 +45,12 @@ import DismissKeyboardView from '../components/DismissKeyboardView'
 import { initialsOf } from '../utils/initials'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
 import { fillImageUrl } from '../utils/cloudinaryImage'
-import { userMessage } from '../utils/userMessage'
+import { errorKind, isUnavailable, userMessage } from '../utils/userMessage'
+import { LoadFailedPanel } from '../components/LoadStates'
+import { SkeletonBlock } from '../components/mockup/Skeleton'
+import { useIsOffline } from '../services/network'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -131,7 +136,10 @@ export default function ConversationThreadScreen() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [body, setBody] = useState('')
-  const [error, setError] = useState('')
+  // The first load's failure, kept whole so a gone or someone else's
+  // conversation (a stale link or notification) reads differently from a
+  // network failure.
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [sendError, setSendError] = useState('')
   const isFocused = useIsFocused()
   // The header, lender CTA and payment banner, from one single-conversation
@@ -158,7 +166,7 @@ export default function ConversationThreadScreen() {
   const loadMessages = useCallback(async (incremental = false) => {
     try {
       if (!incremental) {
-        setError('')
+        setLoadError(null)
       }
       const nextMessages = await getConversationMessages(conversationId, incremental ? { after: latestMessageId.current } : {})
       if (incremental) {
@@ -174,7 +182,7 @@ export default function ConversationThreadScreen() {
       }
     } catch (err: any) {
       if (!incremental) {
-        setError(userMessage(err, { action: 'Could not load messages.' }))
+        setLoadError(err)
       }
     } finally {
       setLoading(false)
@@ -224,6 +232,14 @@ export default function ConversationThreadScreen() {
     }
   }, [loadMessages, route.params.conversationId, user?.id])
   usePolling(pollMessages, THREAD_MESSAGES_POLL_MS, isFocused)
+
+  // A first load that failed for want of a connection retries by itself
+  // when it returns (the polls only fetch what's new).
+  const offline = useIsOffline()
+  useEffect(() => {
+    if (!offline && loadError && errorKind(loadError) === 'offline') loadMessages()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offline])
 
   // The composer drops its safe-area padding while the keyboard is up (the
   // keyboard already covers the home indicator). iOS gets the "will" events so
@@ -390,11 +406,9 @@ export default function ConversationThreadScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loading}>
-        <ScreenBackground />
-        <ActivityIndicator size="large" color={colors.greenText} />
-        <Text style={styles.loadingText}>Loading the conversation...</Text>
-      </View>
+      <Screen scroll={false} header={<ScreenHeader title={route.params.title ?? 'Chat'} back />}>
+        <ChatSkeleton />
+      </Screen>
     )
   }
 
@@ -477,20 +491,25 @@ export default function ConversationThreadScreen() {
             </Card>
           ) : null}
 
-          {error ? (
+          {loadError ? (
             <View style={styles.stateWrap}>
-              <StatePanel
-                title="This conversation couldn't load"
-                body={error}
-                action={{
-                  label: 'Try again',
-                  variant: 'primary',
-                  onPress: () => {
+              {isUnavailable(loadError) ? (
+                <StatePanel
+                  title="This conversation isn't available."
+                  body="It may have been removed, or it belongs to another account. Your chats are in Inbox."
+                  action={{ label: 'Go to Inbox', variant: 'primary', onPress: () => nav.navigate('MainApp', { tab: 'Inbox' }) }}
+                />
+              ) : (
+                <LoadFailedPanel
+                  error={loadError}
+                  offline={errorKind(loadError) === 'offline'}
+                  what="this conversation"
+                  onRetry={() => {
                     setLoading(true)
                     loadMessages()
-                  },
-                }}
-              />
+                  }}
+                />
+              )}
             </View>
           ) : (
             <FlatList
@@ -582,6 +601,18 @@ export default function ConversationThreadScreen() {
   )
 }
 
+/** Placeholder bubbles while the thread loads, theirs on the left and mine on the right. */
+function ChatSkeleton() {
+  return (
+    <View style={styles.skeleton} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <SkeletonBlock width="62%" height={44} radius={18} />
+      <SkeletonBlock width="48%" height={44} radius={18} style={styles.skeletonMine} />
+      <SkeletonBlock width="70%" height={64} radius={18} />
+      <SkeletonBlock width="40%" height={44} radius={18} style={styles.skeletonMine} />
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   olderLoading: {
     marginVertical: space.md,
@@ -593,16 +624,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  loading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  skeleton: {
     gap: space.lg,
-    backgroundColor: colors.bg,
+    paddingTop: space.lg,
   },
-  loadingText: {
-    ...type.bodySm,
-    color: colors.mutedAlt,
+  skeletonMine: {
+    alignSelf: 'flex-end',
   },
   header: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import React, { useState } from 'react'
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
@@ -10,7 +10,6 @@ import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePaylo
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus, usePagedList } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -25,6 +24,8 @@ import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { disputeStatusBadge } from '../components/mockup/adminStatus'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 import { toast } from '../services/toast'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
+import { SkeletonCard } from '../components/mockup/Skeleton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'AdminDisputeDetail'>
@@ -141,12 +142,6 @@ export default function AdminDisputeDetailScreen() {
   useRefreshOnFocus(queryKeys.adminDispute(disputeId))
   const dispute = disputeQuery.data ?? null
   const loading = disputeQuery.isPending
-  useEffect(() => {
-    if (disputeQuery.isError && !dispute) {
-      Alert.alert('Error', userMessage(disputeQuery.error, { action: 'Could not load this dispute.' }))
-      nav.goBack()
-    }
-  }, [disputeQuery.isError, disputeQuery.error, dispute, nav])
   const [resolution, setResolution] = useState<ResolveDisputePayload['status'] | null>(null)
   const [notes, setNotes] = useState('')
   const [refundAmountInput, setRefundAmountInput] = useState('')
@@ -161,9 +156,6 @@ export default function AdminDisputeDetailScreen() {
   )
   const events = auditExpanded && !eventsFeed.loading ? eventsFeed.items : null
   const eventsLoading = auditExpanded && eventsFeed.loading
-  useEffect(() => {
-    if (eventsFeed.error) Alert.alert('Error', userMessage(eventsFeed.error, { action: 'Could not load the audit trail.' }))
-  }, [eventsFeed.error])
 
   function handleToggleAuditTrail() {
     setAuditExpanded((expanded) => !expanded)
@@ -230,15 +222,19 @@ export default function AdminDisputeDetailScreen() {
 
   const header = <ScreenHeader title="Dispute" back />
 
-  if (loading) {
+  if (loading && !isWaitingOffline(disputeQuery)) return <DetailLoadingScreen title="Dispute" header={header} />
+
+  if (!dispute) {
     return (
-      <Screen scroll={false} header={header} contentStyle={styles.centered}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </Screen>
+      <DetailFallbackScreen
+        query={disputeQuery}
+        title="Dispute"
+        what="this dispute"
+        header={header}
+        unavailable={{ title: "This dispute isn't available.", body: 'It may have been removed. The dispute queue has the current ones.' }}
+      />
     )
   }
-
-  if (!dispute) return null
 
   const isActive = ACTIVE_STATUSES.includes(dispute.status)
   const hasPickupPhotos = dispute.booking.pickupPhotos.length > 0
@@ -392,7 +388,12 @@ export default function AdminDisputeDetailScreen() {
 
       {auditExpanded ? (
         eventsLoading ? (
-          <ActivityIndicator color={colors.greenText} />
+          <View style={styles.auditSkeleton} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <SkeletonCard lines={2} />
+            <SkeletonCard lines={2} />
+          </View>
+        ) : eventsFeed.error || eventsFeed.offline ? (
+          <LoadFailedPanel error={eventsFeed.error} offline={eventsFeed.offline} what="the audit trail" onRetry={eventsFeed.retry} />
         ) : !events || events.length === 0 ? (
           <Text style={styles.body}>No events recorded for this booking.</Text>
         ) : (
@@ -443,6 +444,9 @@ export default function AdminDisputeDetailScreen() {
 const DOT = 12
 
 const styles = StyleSheet.create({
+  auditSkeleton: {
+    gap: space.md,
+  },
   centered: { alignItems: 'center', justifyContent: 'center' },
   content: { gap: space.lg },
   flex: { flex: 1 },

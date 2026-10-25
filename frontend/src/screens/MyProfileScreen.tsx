@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
-  ActivityIndicator,
   Alert,
   AppState,
   Platform,
@@ -40,6 +39,7 @@ import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { universityFromEmail } from '../utils/university'
 import { useRenderProbe } from '../utils/perfMarks'
 import { toast } from '../services/toast'
+import { DetailLoadingScreen, isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -88,8 +88,8 @@ export default function MyProfileScreen() {
     enabled: opened && Boolean(user?.id),
   })
   const profile = profileQuery.data ?? null
-  const loading = !opened || profileQuery.isPending
-  const error = profileQuery.isError ? userMessage(profileQuery.error, { action: 'Could not load your profile right now.' }) : ''
+  const loading = !opened || (profileQuery.isPending && !isWaitingOffline(profileQuery))
+  const error = profileQuery.isError ? userMessage(profileQuery.error, { action: "Couldn't load your profile. Please try again." }) : ''
 
   // The status endpoint makes a live Stripe API call, so routine reloads reuse
   // a recent answer; explicit refreshes (pull-to-refresh, the button, coming
@@ -253,20 +253,17 @@ export default function MyProfileScreen() {
 
   const header = <ScreenHeader title="Profile" back={!insideTabs} />
 
-  if (loading) {
-    return (
-      <Screen scroll={false} header={header} contentStyle={styles.centered}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </Screen>
-    )
-  }
+  if (loading) return <DetailLoadingScreen title="Profile" header={header} />
 
   if (!profile) {
     return (
-      <Screen scroll={false} header={header}>
-        <Card shadow={false} padding={space.xxl} contentStyle={styles.problem}>
-          <Text style={styles.problemText}>{error || 'Profile not found.'}</Text>
-        </Card>
+      <Screen scroll={false} header={header} contentStyle={styles.centered}>
+        <LoadFailedPanel
+          error={profileQuery.error}
+          offline={isWaitingOffline(profileQuery)}
+          what="your profile"
+          onRetry={profileQuery.refetch}
+        />
       </Screen>
     )
   }
@@ -414,6 +411,7 @@ export default function MyProfileScreen() {
       {error ? (
         <Card shadow={false} padding={space.xxl} style={styles.problemCard} contentStyle={styles.problem}>
           <Text style={styles.problemText}>{error}</Text>
+          <Button label="Try again" variant="link" onPress={refreshAll} />
         </Card>
       ) : null}
     </Screen>
@@ -422,7 +420,6 @@ export default function MyProfileScreen() {
 
 const styles = StyleSheet.create({
   centered: {
-    alignItems: 'center',
     justifyContent: 'center',
   },
   content: {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, StyleSheet, Text, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -18,6 +18,7 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
 import { toast } from '../services/toast'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -59,13 +60,6 @@ export default function EditListingScreen() {
     setDeposit(Number(listing.depositAmount) ? String(Number(listing.depositAmount)) : '')
     setCity(listing.city)
   }, [listing])
-
-  useEffect(() => {
-    if (listingQuery.isError && !listing) {
-      Alert.alert('Error', 'Could not load listing.')
-      nav.goBack()
-    }
-  }, [listingQuery.isError, listing, nav])
 
   // Anything showing this listing (lists, its page) picks the change up.
   function listingChanged() {
@@ -166,20 +160,17 @@ export default function EditListingScreen() {
               prev ? { ...prev, images: prev.images.filter((image) => image.id !== imageId) } : prev
             )
             listingChanged()
-          } catch {
-            Alert.alert('Error', 'Could not remove photo.')
+          } catch (err) {
+            toast.failure(err, { action: "Couldn't remove that photo. Please try again." })
           }
         },
       },
     ])
   }
 
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
-    )
+  if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Edit listing" />
+  if (!listing) {
+    return <DetailFallbackScreen query={listingQuery} title="Edit listing" what="this listing" unavailable={LISTING_UNAVAILABLE} />
   }
 
   const hasErrors = Object.values(errors).some(Boolean)
@@ -232,7 +223,6 @@ export default function EditListingScreen() {
 }
 
 const styles = StyleSheet.create({
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   footer: { gap: space.sm },
   error: { ...type.caption, color: colors.danger, textAlign: 'center' },
 })

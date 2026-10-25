@@ -23,6 +23,7 @@ import { Conversation } from '../types'
 import { initialsOf } from '../utils/initials'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 import { useRenderProbe } from '../utils/perfMarks'
+import { LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -137,6 +138,8 @@ export default function InboxScreen() {
             <View style={styles.skeletons}>
               {SKELETON_ROWS.map((key) => <SkeletonRow key={key} />)}
             </View>
+          ) : feed.error || feed.offline ? (
+            <LoadFailedPanel error={feed.error} offline={feed.offline} what="your messages" onRetry={feed.refresh} />
           ) : (
             <StatePanel
               title="No messages yet"

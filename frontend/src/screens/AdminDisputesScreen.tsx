@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -7,7 +7,6 @@ import { RootStackParamList } from '../navigation'
 import { listDisputes } from '../services/adminApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
@@ -19,6 +18,8 @@ import Chip from '../components/mockup/Chip'
 import Badge from '../components/mockup/Badge'
 import StatePanel from '../components/mockup/StatePanel'
 import { disputeStatusBadge } from '../components/mockup/adminStatus'
+import { LoadFailedPanel } from '../components/LoadStates'
+import { SkeletonCard } from '../components/mockup/Skeleton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -45,22 +46,15 @@ export default function AdminDisputesScreen() {
   const insets = useSafeAreaInsets()
   const feed = usePagedList<AdminDisputeListItem>(queryKeys.adminDisputes(filter), (cursor) => listDisputes(filter, cursor))
   const { items: disputes, loading, refreshing } = feed
-  const error = feed.error ? userMessage(feed.error, { action: 'Could not load disputes.' }) : ''
 
   const header = <ScreenHeader title="Dispute queue" back />
-
-  if (loading) {
-    return (
-      <Screen scroll={false} header={header} contentStyle={styles.centered}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </Screen>
-    )
-  }
 
   return (
     <Screen scroll={false} header={header} contentStyle={styles.screenContent}>
       <FlatList
-        data={disputes}
+        // While a filter's first page loads, its skeletons replace the list
+        // (the chips above stay).
+        data={loading ? [] : disputes}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl
@@ -82,20 +76,26 @@ export default function AdminDisputesScreen() {
           </View>
         }
         ListEmptyComponent={
-          error ? (
-            <StatePanel
-              title="Couldn't load disputes"
-              body={error}
-              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
-            />
+          loading ? (
+            <View style={styles.skeletons} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </View>
+          ) : feed.error || feed.offline ? (
+            <LoadFailedPanel error={feed.error} offline={feed.offline} what="disputes" onRetry={feed.retry} />
           ) : (
-            <StatePanel title="No disputes here" body="Nothing matches this filter right now." />
+            <StatePanel
+              title="No disputes here"
+              body={filter ? 'Nothing matches this filter right now. Try another one.' : 'Nothing to review right now. Pull down to check again.'}
+              action={filter ? { label: 'Show all disputes', onPress: () => setFilter(undefined) } : undefined}
+            />
           )
         }
         ItemSeparatorComponent={Separator}
         onEndReached={feed.loadMore}
         onEndReachedThreshold={1}
-        ListFooterComponent={feed.loadingMore ? <ActivityIndicator style={styles.footer} color={colors.greenText} /> : null}
+        ListFooterComponent={feed.loadingMore ? <SkeletonCard style={styles.footer} /> : null}
         renderItem={({ item }) => {
           const badge = disputeStatusBadge(item.status)
           return (
@@ -130,7 +130,7 @@ function Separator() {
 }
 
 const styles = StyleSheet.create({
-  centered: { alignItems: 'center', justifyContent: 'center' },
+  skeletons: { gap: space.lg },
   screenContent: { paddingHorizontal: 0, paddingBottom: 0 },
   content: { paddingHorizontal: space.screen },
   listHeader: { gap: space.lg, marginBottom: space.lg },

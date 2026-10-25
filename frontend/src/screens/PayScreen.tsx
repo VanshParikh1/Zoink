@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import React, { useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -10,6 +10,7 @@ import { applyBookingUpdate } from '../services/bookingCache'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
 import { userMessage } from '../utils/userMessage'
+import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useQuery } from '@tanstack/react-query'
 import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
@@ -86,12 +87,6 @@ function PayContent() {
   const loading = bookingQuery.isPending
   const [paying, setPaying] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
-  useEffect(() => {
-    if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
-      nav.goBack()
-    }
-  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
 
   async function handlePay() {
     if (!booking || paying) return
@@ -150,15 +145,11 @@ function PayContent() {
     }
   }
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
-    )
-  }
+  if (loading && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title="Pay for this rental" />
 
-  if (!booking) return null
+  if (!booking) {
+    return <DetailFallbackScreen query={bookingQuery} title="Pay for this rental" what="this booking" unavailable={BOOKING_UNAVAILABLE} />
+  }
 
   // Rent + insurance + HST is what the PaymentIntent authorizes now and
   // captures at pickup (paymentService.getRentalAuthorizationAmount). The
@@ -264,7 +255,6 @@ function PayContent() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   content: {
     gap: space.screen,
     paddingTop: space.xs,

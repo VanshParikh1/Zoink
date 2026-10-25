@@ -12,6 +12,8 @@ export type ConversationsFeed = {
   /** Unread conversations across every page (the tab badge). */
   unreadCount: number
   loading: boolean
+  /** Offline with nothing cached; loads when the connection returns. */
+  offline: boolean
   error: unknown
   refreshing: boolean
   refresh: () => Promise<void>
@@ -46,13 +48,14 @@ export function useConversationsFeed(active: boolean): ConversationsFeed {
       conversations: feed.items,
       unreadCount: feed.firstPage?.unreadCount ?? 0,
       loading: feed.loading,
+      offline: feed.offline,
       error: feed.error,
       refreshing: feed.refreshing,
       refresh: feed.refresh,
       loadMore: feed.loadMore,
       loadingMore: feed.loadingMore,
     }),
-    [feed.items, feed.firstPage, feed.loading, feed.error, feed.refreshing, feed.refresh, feed.loadMore, feed.loadingMore]
+    [feed.items, feed.firstPage, feed.loading, feed.offline, feed.error, feed.refreshing, feed.refresh, feed.loadMore, feed.loadingMore]
   )
 }
 

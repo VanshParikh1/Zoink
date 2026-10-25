@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
@@ -12,7 +12,6 @@ import { getMyDisputeForBooking } from '../services/disputesApi'
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { Booking, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
@@ -28,6 +27,7 @@ import Thumb from '../components/mockup/Thumb'
 import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
 import Timeline, { TimelineStep } from '../components/mockup/Timeline'
 import { formatDayOf, formatRentalDate } from '@zoink/shared'
+import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { toast } from '../services/toast'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
@@ -171,12 +171,6 @@ export default function BookingDetailScreen() {
   useRefreshOnFocus(queryKeys.booking(bookingId))
   const booking = bookingQuery.data ?? null
   const loading = bookingQuery.isPending
-  useEffect(() => {
-    if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
-      nav.goBack()
-    }
-  }, [bookingQuery.isError, bookingQuery.error, booking, nav])
   const [busy, setBusy] = useState(false)
   const [photosModalVisible, setPhotosModalVisible] = useState(false)
   const [handoffPhotos, setHandoffPhotos] = useState<{ pickupPhotos: string[]; returnPhotos: string[] } | null>(null)
@@ -239,15 +233,18 @@ export default function BookingDetailScreen() {
   const { width: windowWidth } = useWindowDimensions()
   const insets = useSafeAreaInsets()
 
-  if (loading) {
+  if (loading && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title="Booking" />
+
+  if (!booking) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.greenText} />
-      </View>
+      <DetailFallbackScreen
+        query={bookingQuery}
+        title="Booking"
+        what="this booking"
+        unavailable={BOOKING_UNAVAILABLE}
+      />
     )
   }
-
-  if (!booking) return null
 
   const disputeIsActive = ACTIVE_DISPUTE_STATUSES.includes(booking.disputeStatus)
   const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
@@ -587,7 +584,6 @@ export default function BookingDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   content: { gap: space.lg, paddingTop: space.xs },
   flex: { flex: 1, gap: 2 },
   stack: { gap: space.sm },

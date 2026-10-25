@@ -9,7 +9,6 @@ import { acceptBooking, declineBooking, getBookingListPage } from '../services/b
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { usePagedList } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -22,6 +21,7 @@ import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 import { sortBookingsLiveFirst } from '../utils/sortBookings'
 import { formatRentalDate } from '@zoink/shared'
 import { toast } from '../services/toast'
+import { LoadFailedPanel } from '../components/LoadStates'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -43,7 +43,6 @@ export default function BookingRequestsScreen() {
     getBookingListPage('owner', cursor)
   )
   const { items: bookings, loading, refreshing } = feed
-  const error = feed.error ? userMessage(feed.error, { action: 'Could not load incoming requests.' }) : ''
 
   // Live/confirmed rentals always sit at the top; the rest fall below, newest
   // rental first. (The server pages in this order too.)
@@ -83,7 +82,9 @@ export default function BookingRequestsScreen() {
           <Text style={styles.summary}>
             {loading
               ? 'Loading incoming requests…'
-              : bookings.length === 0
+              : feed.error || feed.offline
+                ? ''
+                : bookings.length === 0
                 ? 'No pending action right now'
                 : `${pendingCount} request${pendingCount === 1 ? '' : 's'} waiting on you`}
           </Text>
@@ -99,12 +100,8 @@ export default function BookingRequestsScreen() {
                 <ListingCardSkeleton key={i} />
               ))}
             </View>
-          ) : error ? (
-            <StatePanel
-              title="Incoming requests couldn't load"
-              body={error}
-              action={{ label: 'Try again', onPress: () => feed.retry(), variant: 'primary' }}
-            />
+          ) : feed.error || feed.offline ? (
+            <LoadFailedPanel error={feed.error} offline={feed.offline} what="your requests" onRetry={feed.retry} />
           ) : (
             <StatePanel
               title="No requests have landed yet"

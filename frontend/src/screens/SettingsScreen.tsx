@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Switch, Text } from 'react-native'
+import { Alert, Linking, Pressable, StyleSheet, Switch, Text } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -10,7 +10,6 @@ import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotifica
 import { BlockedUser, MyProfile, NotificationPreferences } from '../types'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -20,6 +19,8 @@ import Card from '../components/mockup/Card'
 import { GroupLabel, ListRow, RowGroup } from '../components/mockup/RowGroup'
 import Constants from 'expo-constants'
 import { toast } from '../services/toast'
+import { isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
+import { DetailSkeleton, SkeletonCard } from '../components/mockup/Skeleton'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -52,8 +53,7 @@ export default function SettingsScreen() {
   useRefreshOnFocus(queryKeys.myProfile(user?.id ?? ''), Boolean(user?.id))
   const email = profileQuery.data?.email ?? null
   const termsAcceptedAt = profileQuery.data?.termsAcceptedAt ?? null
-  const loading = profileQuery.isPending
-  const error = profileQuery.isError ? userMessage(profileQuery.error, { action: 'Could not load your settings.' }) : ''
+  const loading = profileQuery.isPending && !isWaitingOffline(profileQuery)
   // Toggles change at once and roll back if the save fails.
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null)
   useEffect(() => {
@@ -150,13 +150,16 @@ export default function SettingsScreen() {
   return (
     <Screen header={<ScreenHeader title="Settings" back />} contentStyle={styles.content}>
       {loading ? (
-        <ActivityIndicator size="large" color={colors.greenText} style={styles.loading} />
+        <DetailSkeleton cards={4} />
       ) : (
         <>
-          {error ? (
-            <Card shadow={false} padding={space.xxl} contentStyle={styles.problem}>
-              <Text style={styles.problemText}>{error}</Text>
-            </Card>
+          {profileQuery.isError || isWaitingOffline(profileQuery) ? (
+            <LoadFailedPanel
+              error={profileQuery.error}
+              offline={isWaitingOffline(profileQuery)}
+              what="your settings"
+              onRetry={profileQuery.refetch}
+            />
           ) : null}
 
           <GroupLabel>Account</GroupLabel>
@@ -187,7 +190,16 @@ export default function SettingsScreen() {
           <Text style={styles.footnote}>Verification and account-security alerts are always sent.</Text>
 
           <GroupLabel>Blocked users</GroupLabel>
-          {blocks.length === 0 ? (
+          {blocksQuery.isPending && !isWaitingOffline(blocksQuery) ? (
+            <SkeletonCard lines={2} />
+          ) : blocksQuery.isError || isWaitingOffline(blocksQuery) ? (
+            <LoadFailedPanel
+              error={blocksQuery.error}
+              offline={isWaitingOffline(blocksQuery)}
+              what="your blocked list"
+              onRetry={blocksQuery.refetch}
+            />
+          ) : blocks.length === 0 ? (
             <Card shadow={false} padding={space.xxl}>
               <Text style={styles.muted}>
                 You haven't blocked anyone. You can block someone from their profile or from a conversation.
@@ -262,16 +274,6 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: {
     gap: space.sm,
-  },
-  loading: {
-    marginTop: 80,
-  },
-  problem: {
-    backgroundColor: colors.tan,
-  },
-  problemText: {
-    ...type.bodySm,
-    color: colors.danger,
   },
   footnote: {
     ...type.caption,
