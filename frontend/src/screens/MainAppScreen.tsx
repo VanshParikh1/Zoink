@@ -34,6 +34,7 @@ import {
 import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
 import { MainTab, MainTabProvider } from '../context/MainTabContext'
 import { markStartup, useRenderProbe } from '../utils/perfMarks'
+import ErrorBoundary from '../components/mockup/ErrorBoundary'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
 // Five equal columns: Home, Search, the "+" slot, Inbox, Profile.
@@ -114,9 +115,32 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
   // The same elements on every render, so this screen re-rendering (a new
   // unread count, the tab changing) doesn't re-render all four tabs; each
-  // re-renders only for its own state, context or data.
+  // re-renders only for its own state, context or data. Each tab has its own
+  // error boundary: one that fails to render shows "Try again" while the
+  // other tabs and the tab bar keep working.
   const tabScreens = useMemo(
-    () => ({ home: <HomeScreen />, search: <SearchScreen />, inbox: <InboxScreen />, profile: <MyProfileScreen /> }),
+    () => ({
+      home: (
+        <ErrorBoundary scope="tab" name="Home">
+          <HomeScreen />
+        </ErrorBoundary>
+      ),
+      search: (
+        <ErrorBoundary scope="tab" name="Search">
+          <SearchScreen />
+        </ErrorBoundary>
+      ),
+      inbox: (
+        <ErrorBoundary scope="tab" name="Inbox">
+          <InboxScreen />
+        </ErrorBoundary>
+      ),
+      profile: (
+        <ErrorBoundary scope="tab" name="Profile">
+          <MyProfileScreen />
+        </ErrorBoundary>
+      ),
+    }),
     []
   )
 

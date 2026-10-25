@@ -41,6 +41,7 @@ import LocationMapPreview from '../components/LocationMapPreview'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { toast } from '../services/toast'
 import { useSubmit } from '../hooks/useSubmit'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'ListingDetail'>
@@ -55,6 +56,7 @@ function initialsOf(firstName?: string, lastName?: string) {
 
 export default function ListingDetailScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const route = useRoute<Route>()
   const insets = useSafeAreaInsets()
   const { width: windowWidth, height: windowHeight } = useWindowDimensions()
@@ -101,7 +103,9 @@ export default function ListingDetailScreen() {
               await deleteListing(listingId)
               queryClient.removeQueries({ queryKey: queryKeys.listing(listingId) })
               queryClient.invalidateQueries({ queryKey: ['listings'] })
-              nav.navigate('MyListings')
+              // Back to My listings if that's where this came from, without
+              // leaving the deleted listing underneath it.
+              nav.popTo('MyListings')
             } catch (err: any) {
               toast.failure(err, { action: "Couldn't delete this listing. Please try again." })
             }
@@ -237,7 +241,7 @@ export default function ListingDetailScreen() {
             accessibilityLabel="Go back"
             onPress={() => {
               haptics.tap()
-              nav.goBack()
+              goBack()
             }}
           >
             <Feather name="chevron-left" size={24} color={colors.ink} />

@@ -53,6 +53,7 @@ import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import { useSubmit } from '../hooks/useSubmit'
 import { haptics } from '../utils/haptics'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -125,6 +126,7 @@ function buildRows(messages: MessageListItem[], myId: string | undefined): Row[]
 
 export default function ConversationThreadScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const insets = useSafeAreaInsets()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
@@ -424,7 +426,7 @@ export default function ConversationThreadScreen() {
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <DismissKeyboardView>
           <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
-            <IconButton accessibilityLabel="Go back" onPress={() => nav.goBack()}>
+            <IconButton accessibilityLabel="Go back" onPress={goBack}>
               <Feather name="chevron-left" size={24} color={colors.ink} />
             </IconButton>
             <Thumb

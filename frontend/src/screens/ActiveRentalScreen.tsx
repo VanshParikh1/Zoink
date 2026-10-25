@@ -30,6 +30,7 @@ import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoi
 import { toast } from '../services/toast'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useSubmit } from '../hooks/useSubmit'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ActiveRental'>
@@ -56,6 +57,7 @@ function fullName(user: Pick<User, 'firstName' | 'lastName'>) {
 
 export default function ActiveRentalScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const insets = useSafeAreaInsets()
@@ -148,7 +150,7 @@ export default function ActiveRentalScreen() {
         {imageUrl ? (
           <Image source={{ uri: limitImageUrl(imageUrl, { width: SCREEN_WIDTH }) }} style={styles.heroImage} cachePolicy="memory-disk" />
         ) : null}
-        <IconButton accessibilityLabel="Go back" onPress={() => nav.goBack()} style={[styles.back, { top: insets.top + space.sm }]}>
+        <IconButton accessibilityLabel="Go back" onPress={goBack} style={[styles.back, { top: insets.top + space.sm }]}>
           <Feather name="chevron-left" size={24} color={colors.ink} />
         </IconButton>
       </View>

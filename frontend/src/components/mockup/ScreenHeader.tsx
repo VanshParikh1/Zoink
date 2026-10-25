@@ -1,26 +1,26 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useNavigation } from '@react-navigation/native'
 import Feather from '@expo/vector-icons/Feather'
 import { colors } from '../../theme/colors'
 import { space } from '../../theme/tokens'
 import { type } from '../../theme/typography'
 import IconButton from './IconButton'
+import { useGoBack } from '../../navigation/useGoBack'
 
 type Props = {
   title: string
-  /** Shows the back button. Defaults to navigation.goBack(). */
+  /** Shows the back button. Defaults to the previous screen, or the main tabs when there is none. */
   back?: boolean
   onBack?: () => void
   right?: React.ReactNode
 }
 
 export default function ScreenHeader({ title, back = false, onBack, right }: Props) {
-  const navigation = useNavigation()
+  const goBack = useGoBack()
   return (
     <View style={styles.row}>
       {back ? (
-        <IconButton accessibilityLabel="Go back" onPress={onBack ?? (() => navigation.goBack())}>
+        <IconButton accessibilityLabel="Go back" onPress={onBack ?? goBack}>
           <Feather name="chevron-left" size={24} color={colors.ink} />
         </IconButton>
       ) : null}

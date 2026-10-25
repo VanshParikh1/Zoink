@@ -21,6 +21,7 @@ import { toast } from '../services/toast'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { useSubmit } from '../hooks/useSubmit'
 import { hasErrors, validateListing } from '../utils/formValidation'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -29,6 +30,7 @@ const PHOTO = 72
 
 export default function EditListingScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const route = useRoute<Route>()
   const listingId = route.params.listingId
 
@@ -163,7 +165,7 @@ export default function EditListingScreen() {
   return (
     <Screen
       keyboardAvoiding
-      header={<ListingFormHeader title="Edit listing" onBack={() => nav.goBack()} />}
+      header={<ListingFormHeader title="Edit listing" onBack={goBack} />}
       footer={
         <View style={styles.footer}>
           {/* Its line is always there, so the button doesn't jump when it shows. */}

@@ -184,7 +184,7 @@ export default function TermsAcceptanceScreen() {
   const navigation = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
   const { mode, pendingRegistration, initialTab } = route.params
-  const { register, acceptTerms } = useAuth()
+  const { register, acceptTerms, logout } = useAuth()
 
   const isInteractive = mode === 'register' || mode === 'update'
   const isView = mode === 'view'
@@ -297,6 +297,12 @@ export default function TermsAcceptanceScreen() {
               disabled={!canAccept}
             />
 
+            {/* New terms can't be skipped, but they shouldn't be a dead end
+                either: someone who doesn't want to accept can sign out. */}
+            {mode === 'update' ? (
+              <Button label="Not now, sign out" variant="link" onPress={logout} disabled={submitting} style={styles.signOut} />
+            ) : null}
+
             {footnote}
           </View>
         ) : (
@@ -355,6 +361,7 @@ const mdStyles = StyleSheet.create({
 })
 
 const styles = StyleSheet.create({
+  signOut: { alignSelf: 'center' },
   header: { gap: space.xs },
   subtitle: { ...type.bodySm, color: colors.mutedAlt },
   tabRow: { flexDirection: 'row', gap: space.md, marginBottom: space.lg },

@@ -22,6 +22,7 @@ import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components
 import { toast } from '../services/toast'
 import { useSubmit } from '../hooks/useSubmit'
 import { validateListing } from '../utils/formValidation'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -44,6 +45,7 @@ type LocationStatus = 'idle' | 'loading' | 'granted' | 'denied' | 'error'
 
 export default function CreateListingScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const [photos, setPhotos] = useState<string[]>([])
   const [errors, setErrors] = useState<ListingFormErrors>({})
   const [formData, setFormData] = useState<FormData>({
@@ -261,7 +263,7 @@ export default function CreateListingScreen() {
   return (
     <Screen
       keyboardAvoiding
-      header={<ListingFormHeader title="Your stuff earns while you're in class." onBack={() => nav.goBack()} />}
+      header={<ListingFormHeader title="Your stuff earns while you're in class." onBack={goBack} />}
       footer={
         <View style={styles.footer}>
           {/* Its line is always there, so the button doesn't jump when it shows. */}

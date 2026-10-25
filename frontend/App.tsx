@@ -35,14 +35,6 @@ if (sentryDsn) {
   })
 }
 
-function reportRenderError(error: Error, componentStack: string | null | undefined) {
-  if (sentryDsn) {
-    Sentry.captureException(error, { extra: { componentStack } })
-  } else {
-    console.error('Unhandled render error', error, componentStack)
-  }
-}
-
 // The native splash stays up until the first real screen has drawn (see
 // navigation/index.tsx), instead of handing over to a blank root view and a
 // loading screen while fonts and the session load.
@@ -65,7 +57,7 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <OfflineFrame>
-              <ErrorBoundary onError={reportRenderError}>
+              <ErrorBoundary scope="root">
                 <Navigation fontsReady={fontsLoaded || !!fontError} />
               </ErrorBoundary>
             </OfflineFrame>

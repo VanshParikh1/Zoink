@@ -1,6 +1,7 @@
 import React from 'react'
 import { createNavigationContainerRef, NavigationContainer, StackActions } from '@react-navigation/native'
-import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack'
+import { createNativeStackNavigator, NativeStackNavigationOptions, NativeStackNavigationProp } from '@react-navigation/native-stack'
+import type { ParamListBase, RouteProp } from '@react-navigation/native'
 import { TERMS_VERSION, PRIVACY_VERSION, University } from '@zoink/shared'
 import { useAuth } from '../context/AuthContext'
 import LoadingGate from '../components/mockup/LoadingGate'
@@ -8,6 +9,7 @@ import { getFirstPendingReview } from '../services/reviewsApi'
 import { useQuery } from '@tanstack/react-query'
 import * as SplashScreen from 'expo-splash-screen'
 import { queryKeys } from '../services/queryKeys'
+import ErrorBoundary from '../components/mockup/ErrorBoundary'
 import { DeepLinkTarget, setDeepLinkOpener } from './deepLinks'
 import { useDeepLinkSources } from './useDeepLinks'
 
@@ -72,6 +74,25 @@ const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>()
 
+// Every screen gets its own error boundary: a screen that fails to render
+// shows "Go back" and "Try again" instead of taking the app down (the main
+// tabs have one each as well, see MainAppScreen; App.tsx has the last one).
+function screenLayout({
+  children,
+  navigation,
+  route,
+}: {
+  children: React.ReactElement
+  navigation: NativeStackNavigationProp<ParamListBase>
+  route: RouteProp<ParamListBase>
+}) {
+  return (
+    <ErrorBoundary scope="screen" name={route.name} onGoBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}>
+      {children}
+    </ErrorBoundary>
+  )
+}
+
 const stackOptions: NativeStackNavigationOptions = { headerShown: false }
 
 // A link or notification tap opens on top of what's showing, so Back returns
@@ -109,7 +130,7 @@ function VerifiedAppStack() {
   return (
     <Stack.Navigator
       screenOptions={stackOptions}
-     
+      screenLayout={screenLayout}
       initialRouteName={initialReview ? 'ReviewPrompt' : 'MainApp'}
     >
       <Stack.Screen name="MainApp" component={MainAppScreen} />
@@ -195,18 +216,18 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
     // (held since launch, see App.tsx) hides then, with nothing in between.
     <NavigationContainer ref={navigationRef} onReady={hideSplash}>
       {!user ? (
-        <Stack.Navigator screenOptions={stackOptions}>
+        <Stack.Navigator screenOptions={stackOptions} screenLayout={screenLayout}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="TermsAcceptance" component={TermsAcceptanceScreen} />
         </Stack.Navigator>
       ) : user.verificationStatus !== 'VERIFIED' ? (
-        <Stack.Navigator screenOptions={stackOptions}>
+        <Stack.Navigator screenOptions={stackOptions} screenLayout={screenLayout}>
           <Stack.Screen name="VerificationGate" component={VerificationGateScreen} />
           <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
         </Stack.Navigator>
       ) : user.termsVersion !== TERMS_VERSION || user.privacyVersion !== PRIVACY_VERSION ? (
-        <Stack.Navigator screenOptions={stackOptions}>
+        <Stack.Navigator screenOptions={stackOptions} screenLayout={screenLayout}>
           <Stack.Screen
             name="TermsAcceptance"
             component={TermsAcceptanceScreen}

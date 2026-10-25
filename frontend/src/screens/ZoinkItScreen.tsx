@@ -34,6 +34,7 @@ import Thumb from '../components/mockup/Thumb'
 import { dailyPriceLabel } from '../components/mockup/listingFormat'
 import { toast } from '../services/toast'
 import { useSubmit } from '../hooks/useSubmit'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
@@ -88,6 +89,7 @@ function useCountdown(firstTapAt: string | null) {
 
 export default function ZoinkItScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const { bookingId, mode } = route.params
@@ -356,7 +358,7 @@ export default function ZoinkItScreen() {
           onBack={() => {
             if (saving) return
             if (editing) setEditing(false)
-            else nav.goBack()
+            else goBack()
           }}
         />
       }
