@@ -1,6 +1,6 @@
 import React from 'react'
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { haptics } from '../utils/haptics'
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -24,6 +24,7 @@ import { initialsOf } from '../utils/initials'
 import { fillImageUrl } from '../utils/cloudinaryImage'
 import { useRenderProbe } from '../utils/perfMarks'
 import { LoadFailedPanel } from '../components/LoadStates'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -70,7 +71,7 @@ export default function InboxScreen() {
         accessibilityLabel={`${name}${item.unread ? ', unread' : ''}, ${item.listing.title}`}
         style={({ pressed }) => (pressed ? styles.pressed : null)}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          haptics.tap()
           nav.navigate('ConversationThread', { conversationId: item.id, title: item.listing.title })
         }}
       >
@@ -122,12 +123,7 @@ export default function InboxScreen() {
         renderItem={renderRow}
         ItemSeparatorComponent={Separator}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.greenText}
-            colors={[colors.green]}
-          />
+          <PullToRefresh refreshing={refreshing} onRefresh={refresh} />
         }
         onEndReached={feed.loadMore}
         onEndReachedThreshold={1}

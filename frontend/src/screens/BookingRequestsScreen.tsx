@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef } from 'react'
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -23,6 +23,8 @@ import { formatRentalDate } from '@zoink/shared'
 import { toast } from '../services/toast'
 import { LoadFailedPanel } from '../components/LoadStates'
 import { confirmDecline } from '../utils/confirmBookingChange'
+import { haptics } from '../utils/haptics'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -61,6 +63,7 @@ export default function BookingRequestsScreen() {
     try {
       const updated = action === 'accept' ? await acceptBooking(id) : await declineBooking(id)
       applyBookingUpdate(updated)
+      haptics.success()
     } catch (err: any) {
       toast.failure(err, { action: "Couldn't update this request. Please try again." })
     } finally {
@@ -78,12 +81,7 @@ export default function BookingRequestsScreen() {
         data={loading ? [] : orderedBookings}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={feed.refresh}
-            tintColor={colors.greenText}
-            colors={[colors.green]}
-          />
+          <PullToRefresh refreshing={refreshing} onRefresh={feed.refresh} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
         ListHeaderComponent={

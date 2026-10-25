@@ -1,5 +1,5 @@
 import React from 'react'
-import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native'
+import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -19,6 +19,7 @@ import StatePanel from '../components/mockup/StatePanel'
 import { bookingStatusBadge } from '../components/mockup/bookingStatus'
 import { formatRentalDate } from '@zoink/shared'
 import { LoadFailedPanel } from '../components/LoadStates'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -61,12 +62,7 @@ export default function BookingHistoryScreen() {
         keyExtractor={(item) => item.id}
         stickySectionHeadersEnabled={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={feed.refresh}
-            tintColor={colors.greenText}
-            colors={[colors.green]}
-          />
+          <PullToRefresh refreshing={refreshing} onRefresh={feed.refresh} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
         ListHeaderComponent={

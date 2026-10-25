@@ -31,6 +31,7 @@ import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaiti
 import { toast } from '../services/toast'
 import { useSubmit } from '../hooks/useSubmit'
 import { confirmCancel, confirmDecline } from '../utils/confirmBookingChange'
+import { haptics } from '../utils/haptics'
 
 const DISPUTABLE_BOOKING_STATUSES = ['ACTIVE', 'PICKUP_PENDING', 'RETURN_PENDING', 'COMPLETED']
 const ACTIVE_DISPUTE_STATUSES: DisputeStatus[] = ['OPEN', 'UNDER_REVIEW']
@@ -395,7 +396,7 @@ export default function BookingDetailScreen() {
   // ── Actions, chosen by the existing state logic ──────────────────────────
   let primary: { label: string; onPress: () => void } | null = null
   if (isOwner && booking.status === 'PENDING') {
-    primary = { label: busy ? 'Saving...' : 'Accept request', onPress: () => runAction(() => acceptBooking(booking.id)) }
+    primary = { label: busy ? 'Saving...' : 'Accept request', onPress: () => runAction(() => acceptBooking(booking.id), haptics.success) }
   } else if (isRenter && booking.status === 'ACCEPTED') {
     primary = { label: 'Pay now', onPress: () => nav.navigate('Pay', { bookingId: booking.id }) }
   } else if (isOwner && booking.status === 'CONFIRMED') {
@@ -421,7 +422,7 @@ export default function BookingDetailScreen() {
   if (isOwner && booking.status === 'PENDING') {
     secondary.push({
       label: 'Decline',
-      onPress: () => confirmDecline(booking.renter.firstName, () => runAction(() => declineBooking(booking.id))),
+      onPress: () => confirmDecline(booking.renter.firstName, () => runAction(() => declineBooking(booking.id), haptics.success)),
     })
   }
   if (booking.conversationId) {

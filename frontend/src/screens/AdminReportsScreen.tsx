@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { listReports, resolveReport } from '../services/adminApi'
@@ -22,6 +22,7 @@ import { toast } from '../services/toast'
 import { LoadFailedPanel } from '../components/LoadStates'
 import { SkeletonCard } from '../components/mockup/Skeleton'
 import { useSubmit } from '../hooks/useSubmit'
+import PullToRefresh from '../components/PullToRefresh'
 
 const REASON_LABELS: Record<string, string> = {
   SPAM: 'Spam',
@@ -87,12 +88,7 @@ export default function AdminReportsScreen() {
         data={loading ? [] : reports}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={feed.refresh}
-            tintColor={colors.greenText}
-            colors={[colors.green]}
-          />
+          <PullToRefresh refreshing={refreshing} onRefresh={feed.refresh} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
         keyboardShouldPersistTaps="handled"

@@ -3,7 +3,7 @@ import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import * as ImagePicker from 'expo-image-picker'
 import * as Location from 'expo-location'
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { LISTING_PHOTOS_MAX } from '@zoink/shared'
@@ -171,7 +171,7 @@ export default function CreateListingScreen() {
 
       if (result.canceled || !result.assets[0]?.uri) return
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+      haptics.success()
       const nextUri = result.assets[0].uri
       setPhotos((current) => (current.includes(nextUri) ? current : [...current, nextUri].slice(0, LISTING_PHOTOS_MAX)))
       setErrors((current) => ({ ...current, photos: undefined }))
@@ -181,7 +181,7 @@ export default function CreateListingScreen() {
   }
 
   function removePhoto(uri: string) {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    haptics.press()
     setPhotos((current) => current.filter((photo) => photo !== uri))
   }
 
@@ -208,7 +208,7 @@ export default function CreateListingScreen() {
     const nextErrors = validate()
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      haptics.error()
       return
     }
 
@@ -277,7 +277,7 @@ export default function CreateListingScreen() {
         photoMin={MIN_PHOTOS}
         photoMax={LISTING_PHOTOS_MAX}
         onAddPhoto={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+          haptics.tap()
           handlePickPhoto()
         }}
         title={formData.title}
@@ -301,7 +301,7 @@ export default function CreateListingScreen() {
             <Switch
               value={formData.availableNow}
               onValueChange={(value) => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                haptics.tap()
                 updateForm('availableNow', value)
               }}
               trackColor={{ false: colors.tan, true: colors.green }}

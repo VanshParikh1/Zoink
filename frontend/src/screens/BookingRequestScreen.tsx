@@ -28,6 +28,7 @@ import PriceTable from '../components/mockup/PriceTable'
 import { listingDisplay } from '../components/mockup/listingFormat'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { useSubmit } from '../hooks/useSubmit'
+import { haptics } from '../utils/haptics'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -193,6 +194,7 @@ export default function BookingRequestScreen() {
       queryClient.invalidateQueries({ queryKey: ['bookings', 'list'] })
       // The request opened (or reused) a conversation with its message.
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
+      haptics.success()
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
       setPaymentError(userMessage(err, { action: "Couldn't send your request. Please try again." }))

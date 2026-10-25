@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { FlatList, LayoutChangeEvent, Platform, RefreshControl, StyleSheet, View } from 'react-native'
+import { FlatList, LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -19,6 +19,7 @@ import StatePanel from '../components/mockup/StatePanel'
 import { BadgeVariant } from '../components/mockup/Badge'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
 import { LoadFailedPanel } from '../components/LoadStates'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -98,7 +99,7 @@ export default function MyListingsScreen() {
         ItemSeparatorComponent={Separator}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />
+          <PullToRefresh refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
           loading ? (

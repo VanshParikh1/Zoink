@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Animated, FlatList, Keyboard, Pressable, StyleSheet, Text, View } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import * as Location from 'expo-location'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useFocusEffect, useRoute } from '@react-navigation/native'
@@ -158,7 +158,7 @@ export default function SearchScreen() {
   }, [query, selectedCategory, hasText, isResultsState, fadeAnim, translateAnim])
 
   const handleListingPress = (item: ListingCardItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
     Keyboard.dismiss()
 
     // Add to top of recently viewed cache
@@ -195,13 +195,12 @@ export default function SearchScreen() {
           autoCorrect={false}
           autoCapitalize="none"
           returnKeyType="search"
-          onFocus={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})}
           leftIcon={<Feather name="search" size={18} color={colors.mutedAlt} />}
           rightAccessory={
             query.length > 0 ? (
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  haptics.tap()
                   setQuery('')
                 }}
                 hitSlop={14}
@@ -219,7 +218,7 @@ export default function SearchScreen() {
         categories={CATEGORIES}
         selected={selectedCategory}
         onSelect={(cat) => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+          haptics.tap()
           setSelectedCategory(cat)
         }}
       />

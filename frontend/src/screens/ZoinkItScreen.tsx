@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Image } from 'expo-image'
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import * as ImagePicker from 'expo-image-picker'
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
@@ -155,7 +155,7 @@ export default function ZoinkItScreen() {
     successHandled.current = true
     setBooking(nextBooking)
     setSuccess(true)
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    haptics.success()
     setTimeout(() => {
       nav.replace(mode === 'pickup' ? 'ActiveRental' : 'BookingDetail', { bookingId })
     }, 1500)
@@ -232,7 +232,7 @@ export default function ZoinkItScreen() {
   async function pressZoink() {
     if (locked) return
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    haptics.press()
     setTimedOut(false)
     setPressed(true)
     await tap()

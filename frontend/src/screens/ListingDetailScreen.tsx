@@ -10,7 +10,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import Feather from '@expo/vector-icons/Feather'
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -236,7 +236,7 @@ export default function ListingDetailScreen() {
           <IconButton
             accessibilityLabel="Go back"
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+              haptics.tap()
               nav.goBack()
             }}
           >
@@ -249,7 +249,7 @@ export default function ListingDetailScreen() {
             <IconButton
               accessibilityLabel="Share this listing"
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                haptics.tap()
                 handleShare()
               }}
             >

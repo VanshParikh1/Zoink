@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -20,6 +20,7 @@ import StatePanel from '../components/mockup/StatePanel'
 import { disputeStatusBadge } from '../components/mockup/adminStatus'
 import { LoadFailedPanel } from '../components/LoadStates'
 import { SkeletonCard } from '../components/mockup/Skeleton'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -57,12 +58,7 @@ export default function AdminDisputesScreen() {
         data={loading ? [] : disputes}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={feed.refresh}
-            tintColor={colors.greenText}
-            colors={[colors.green]}
-          />
+          <PullToRefresh refreshing={refreshing} onRefresh={feed.refresh} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space.xxl }]}
         ListHeaderComponent={

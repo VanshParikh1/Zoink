@@ -26,6 +26,7 @@ import Card from '../components/mockup/Card'
 import InkCard from '../components/mockup/InkCard'
 import PriceTable, { PriceRow } from '../components/mockup/PriceTable'
 import { useSubmit } from '../hooks/useSubmit'
+import { haptics } from '../utils/haptics'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'Pay'>
@@ -136,6 +137,7 @@ function PayContent() {
 
       const confirmed = await confirmBookingPayment(booking.id)
       applyBookingUpdate(confirmed)
+      haptics.success()
       nav.replace('BookingDetail', { bookingId: confirmed.id })
     } catch (err: any) {
       setPaymentError(userMessage(err, { action: "Couldn't complete your payment. Please try again." }))

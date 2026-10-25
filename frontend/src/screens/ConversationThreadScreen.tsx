@@ -52,6 +52,7 @@ import { useIsOffline } from '../services/network'
 import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import { useSubmit } from '../hooks/useSubmit'
+import { haptics } from '../utils/haptics'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -269,6 +270,7 @@ export default function ConversationThreadScreen() {
       setMessages((current) => appendNew(current, [message]))
       latestMessageId.current = message.id
       setBody('')
+      haptics.tap()
       // Explicitly, once the new row is laid out: the list keeps its visible
       // rows in place for older pages (maintainVisibleContentPosition), which
       // otherwise holds a reader far up the history where they were.

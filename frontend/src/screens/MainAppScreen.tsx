@@ -10,7 +10,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Feather from '@expo/vector-icons/Feather';
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import { RouteProp, useIsFocused, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -152,7 +152,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
   const transitionToTab = useCallback((nextTab: MainTab) => {
     if (nextTab === activeTab) return
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
 
     const nextIndex = TAB_ORDER.indexOf(nextTab)
     lastHapticIndex.current = nextIndex
@@ -180,7 +180,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
       currentIndex < TAB_ORDER.length &&
       lastHapticIndex.current !== currentIndex
     ) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+      haptics.tap()
       lastHapticIndex.current = currentIndex
     }
   }, [contentWidth])
@@ -298,7 +298,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
             offset={TAB_BAR_SHADOW}
             radius={TAB_FAB_SIZE / 2}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
+              haptics.press()
               navigation.navigate('CreateListing')
             }}
             accessibilityRole="button"

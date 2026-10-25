@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, LayoutChangeEvent, Platform, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { FlatList, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { haptics } from '../utils/haptics'
 import * as Location from 'expo-location'
 import Feather from '@expo/vector-icons/Feather'
 import { useNavigation } from '@react-navigation/native'
@@ -30,6 +30,7 @@ import StatePanel from '../components/mockup/StatePanel'
 import { markStartup, useScrollPerfProbe, useRenderProbe } from '../utils/perfMarks'
 import { prefetchListingHero } from '../utils/cloudinaryImage'
 import { LoadFailedPanel } from '../components/LoadStates'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -128,7 +129,7 @@ export default function HomeScreen() {
   // Home has no search or category filter of its own: both hand off to the
   // Search tab, which owns that logic.
   const openSearch = (category?: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
     nav.navigate('MainApp', { tab: 'Search', searchCategory: category })
   }
 
@@ -174,9 +175,8 @@ export default function HomeScreen() {
                 <IconButton
                   accessibilityLabel={action.label}
                   onPress={() => {
-                    Haptics.impactAsync(
-                      action.route === 'CreateListing' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-                    ).catch(() => { })
+                    if (action.route === 'CreateListing') haptics.press()
+                    else haptics.tap()
                     nav.navigate(action.route)
                   }}
                 >
@@ -211,7 +211,7 @@ export default function HomeScreen() {
   )
 
   const openListing = useCallback((listing: ListingCardItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
     prefetchListingHero(listing.images[0]?.url)
     nav.navigate('ListingDetail', { listingId: listing.id })
   }, [nav])
@@ -249,7 +249,7 @@ export default function HomeScreen() {
         onEndReachedThreshold={1}
         ListFooterComponent={footer}
         ItemSeparatorComponent={Separator}
-        refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={onRefresh} tintColor={colors.greenText} colors={[colors.green]} />}
+        refreshControl={<PullToRefresh refreshing={feed.refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{ paddingBottom: tabBarClearance + space.xxl }}
         ListHeaderComponent={header}
         ListEmptyComponent={<View style={styles.padded}>{emptyState}</View>}

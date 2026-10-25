@@ -3,7 +3,6 @@ import {
   Alert,
   AppState,
   Platform,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
@@ -12,7 +11,7 @@ import {
 import Feather from '@expo/vector-icons/Feather'
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
@@ -42,6 +41,7 @@ import { toast } from '../services/toast'
 import { DetailLoadingScreen, isWaitingOffline, LoadFailedPanel } from '../components/LoadStates'
 import { useSubmit } from '../hooks/useSubmit'
 import { FieldErrors, hasErrors, validateProfile } from '../utils/formValidation'
+import PullToRefresh from '../components/PullToRefresh'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 const PROFILE_PROMPT_KEY_PREFIX = 'zoink_profile_prompt_seen'
@@ -241,7 +241,7 @@ export default function MyProfileScreen() {
   }
 
   function go(action: () => void) {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
     action()
   }
 
@@ -282,12 +282,7 @@ export default function MyProfileScreen() {
       header={header}
       contentStyle={[styles.content, { paddingBottom: tabBarClearance + space.xxl }]}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refreshAll}
-          tintColor={colors.greenText}
-          colors={[colors.green]}
-        />
+        <PullToRefresh refreshing={refreshing} onRefresh={refreshAll} />
       }
     >
       {showProfilePrompt ? (
