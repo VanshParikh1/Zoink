@@ -27,12 +27,17 @@ config.resolver = {
 }
 
 // Node's assert polyfill -> a five-line shim (src/shims/assert.js says why).
+// In release bundles, Reanimated's dev-only worklets version check -> a
+// stub, which keeps semver out (src/shims/reanimatedWorkletsVersion.js).
 const assertShim = path.resolve(projectRoot, 'src/shims/assert.js')
+const workletsVersionShim = path.resolve(projectRoot, 'src/shims/reanimatedWorkletsVersion.js')
 const resolveRequest = config.resolver.resolveRequest
 config.resolver.resolveRequest = (context, moduleName, platform) =>
   moduleName === 'assert'
     ? { type: 'sourceFile', filePath: assertShim }
-    : (resolveRequest ?? context.resolveRequest)(context, moduleName, platform)
+    : !context.dev && moduleName === 'react-native-reanimated/scripts/validate-worklets-version'
+      ? { type: 'sourceFile', filePath: workletsVersionShim }
+      : (resolveRequest ?? context.resolveRequest)(context, moduleName, platform)
 
 // inlineRequires stays off (Expo's default): measured, it added 70 KB to the
 // bundle, while the screens that load heavy modules (Stripe, the image picker,
