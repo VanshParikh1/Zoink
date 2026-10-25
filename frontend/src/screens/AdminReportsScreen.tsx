@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { listReports, resolveReport } from '../services/adminApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { AdminReportListItem, ReportStatus, ReportTargetType } from '../types'
 import { colors } from '../theme/colors'
 import { radius, shadow, space } from '../theme/tokens'
@@ -47,7 +47,7 @@ export default function AdminReportsScreen() {
   const queryClient = useQueryClient()
   const feed = usePagedList<AdminReportListItem>(queryKeys.adminReports(filter), (cursor) => listReports(filter, cursor))
   const { items: reports, loading, refreshing } = feed
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load reports.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load reports.' }) : ''
 
   const [activeReport, setActiveReport] = useState<AdminReportListItem | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
@@ -71,7 +71,7 @@ export default function AdminReportsScreen() {
       // Every filter's list may have changed (the report left OPEN).
       queryClient.invalidateQueries({ queryKey: ['admin', 'reports'] })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not resolve this report.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not resolve this report.' }))
     } finally {
       setResolving(false)
     }

@@ -19,6 +19,7 @@ import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 
@@ -265,7 +266,7 @@ export default function CreateListingScreen() {
       queryClient.invalidateQueries({ queryKey: ['listings'] })
       nav.replace('ListingDetail', { listingId: listing.id })
     } catch (err: any) {
-      const msg = err?.response?.data?.error ?? 'Something went wrong.'
+      const msg = userMessage(err, { action: 'Something went wrong.' })
       Alert.alert('Error', msg)
     } finally {
       setLoading(false)

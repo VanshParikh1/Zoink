@@ -19,7 +19,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../services/queryKeys'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useIsTabActive, useMainTab, useTabLoad } from '../context/MainTabContext'
 import { PAYOUT_STATUS_MAX_AGE_MS } from '../config/polling'
 import { RootStackParamList } from '../navigation'
@@ -88,7 +88,7 @@ export default function MyProfileScreen() {
   })
   const profile = profileQuery.data ?? null
   const loading = !opened || profileQuery.isPending
-  const error = profileQuery.isError ? apiErrorMessage(profileQuery.error, 'Could not load your profile right now.') : ''
+  const error = profileQuery.isError ? userMessage(profileQuery.error, { action: 'Could not load your profile right now.' }) : ''
 
   // The status endpoint makes a live Stripe API call, so routine reloads reuse
   // a recent answer; explicit refreshes (pull-to-refresh, the button, coming
@@ -193,7 +193,7 @@ export default function MyProfileScreen() {
         current ? { ...current, avatarUrl: uploaded.avatarUrl ?? current.avatarUrl } : current
       )
     } catch (err: any) {
-      Alert.alert('Upload failed', err?.response?.data?.error ?? 'Could not update your avatar.')
+      Alert.alert('Upload failed', userMessage(err, { action: 'Could not update your avatar.' }))
     } finally {
       setUploading(false)
     }
@@ -219,7 +219,7 @@ export default function MyProfileScreen() {
       queryClient.invalidateQueries({ queryKey: ['users', 'profile'] })
       setEditing(false)
     } catch (err: any) {
-      Alert.alert('Save failed', err?.response?.data?.error ?? 'Could not save your profile.')
+      Alert.alert('Save failed', userMessage(err, { action: 'Could not save your profile.' }))
     } finally {
       setSaving(false)
     }
@@ -231,7 +231,7 @@ export default function MyProfileScreen() {
       const { url } = await onboardStripeConnect()
       Linking.openURL(url)
     } catch (err: any) {
-      Alert.alert('Payouts Error', err?.response?.data?.error ?? 'Could not start payouts setup.')
+      Alert.alert('Payouts Error', userMessage(err, { action: 'Could not start payouts setup.' }))
     } finally {
       setSaving(false)
     }

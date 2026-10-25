@@ -1,4 +1,4 @@
-import { createHttpClient } from './http'
+import { createHttpClient, ResolvedRequest } from './http'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import { DEMO_MODE } from '../config/demoMode'
@@ -66,6 +66,19 @@ api.interceptors.request.use(async (config) => {
   }
 
   return config
+})
+
+// The raw failure, for the device log and Sentry's breadcrumbs (scrubbed,
+// see sentryScrub.ts). What the person sees comes from utils/userMessage.ts.
+function logFailedRequest(config: ResolvedRequest | undefined, outcome: string) {
+  console.log(`[api] ${config?.method?.toUpperCase() ?? '?'} ${config?.url ?? '?'} → ${outcome}`)
+}
+
+api.interceptors.response.use(undefined, (error) => {
+  const status = error?.response?.status
+  const serverText = typeof error?.response?.data?.error === 'string' ? `: ${error.response.data.error.slice(0, 300)}` : ''
+  logFailedRequest(error?.config, status ? `${status}${serverText}` : 'no answer')
+  return Promise.reject(error)
 })
 
 api.interceptors.response.use(

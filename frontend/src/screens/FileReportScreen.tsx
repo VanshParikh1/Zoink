@@ -14,6 +14,7 @@ import Card from '../components/mockup/Card'
 import Chip from '../components/mockup/Chip'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileReport'>
@@ -66,7 +67,7 @@ export default function FileReportScreen() {
       Alert.alert('Report submitted', 'Thanks — our team will take a look.')
       nav.goBack()
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not submit this report.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not submit this report.' }))
     } finally {
       setBusy(false)
     }

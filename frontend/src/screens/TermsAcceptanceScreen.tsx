@@ -22,6 +22,7 @@ import ScreenHeader from '../components/mockup/ScreenHeader'
 import Button from '../components/mockup/Button'
 import Card from '../components/mockup/Card'
 import Chip from '../components/mockup/Chip'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'TermsAcceptance'>
 type ScreenRoute = RouteProp<RootStackParamList, 'TermsAcceptance'>
@@ -237,10 +238,10 @@ export default function TermsAcceptanceScreen() {
         await acceptTerms()
       }
     } catch (e: any) {
-      setError(e.response?.data?.error || 'Something went wrong.')
+      setError(userMessage(e, { action: 'Something went wrong.' }))
       setSubmitting(false)
       if (mode === 'register') {
-        navigation.navigate('Register', { errorMessage: e.response?.data?.error || 'Something went wrong.', pendingRegistration })
+        navigation.navigate('Register', { errorMessage: userMessage(e, { action: 'Something went wrong.' }), pendingRegistration })
       }
       return
     }

@@ -10,7 +10,7 @@ import { deleteMyAccount, getMyBlocks, getMyProfile, unblockUser, updateNotifica
 import { BlockedUser, MyProfile, NotificationPreferences } from '../types'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -52,7 +52,7 @@ export default function SettingsScreen() {
   const email = profileQuery.data?.email ?? null
   const termsAcceptedAt = profileQuery.data?.termsAcceptedAt ?? null
   const loading = profileQuery.isPending
-  const error = profileQuery.isError ? apiErrorMessage(profileQuery.error, 'Could not load your settings.') : ''
+  const error = profileQuery.isError ? userMessage(profileQuery.error, { action: 'Could not load your settings.' }) : ''
   // Toggles change at once and roll back if the save fails.
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null)
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function SettingsScreen() {
       )
     } catch (err: any) {
       setPrefs(previous)
-      Alert.alert('Could not save', err?.response?.data?.error ?? 'Please try again.')
+      Alert.alert('Could not save', userMessage(err, { action: 'Please try again.' }))
     } finally {
       setSavingKey(null)
     }
@@ -99,7 +99,7 @@ export default function SettingsScreen() {
             queryClient.invalidateQueries({ queryKey: ['listings'] })
             queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
           } catch (err: any) {
-            Alert.alert('Could not unblock', err?.response?.data?.error ?? 'Please try again.')
+            Alert.alert('Could not unblock', userMessage(err, { action: 'Please try again.' }))
           } finally {
             setUnblockingId(null)
           }
@@ -137,7 +137,7 @@ export default function SettingsScreen() {
       await logout()
     } catch (err: any) {
       setDeleting(false)
-      Alert.alert('Could not delete account', err?.response?.data?.error ?? 'Please try again.')
+      Alert.alert('Could not delete account', userMessage(err, { action: 'Please try again.' }))
     }
   }
 

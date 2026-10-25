@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing } from '../services/listingsApi'
 import { useQuery } from '@tanstack/react-query'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { createBooking } from '../services/bookingsApi'
 import { queryClient } from '../services/queryClient'
 import { queryKeys } from '../services/queryKeys'
@@ -129,7 +129,7 @@ export default function BookingRequestScreen() {
 
   useEffect(() => {
     if (listingQuery.isError && !listing) {
-      Alert.alert('Error', apiErrorMessage(listingQuery.error, 'Could not load this listing.'))
+      Alert.alert('Error', userMessage(listingQuery.error, { action: 'Could not load this listing.' }))
       nav.goBack()
     }
   }, [listingQuery.isError, listingQuery.error, listing, nav])
@@ -201,7 +201,7 @@ export default function BookingRequestScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
-      const message = err?.response?.data?.error ?? err?.message ?? 'Could not create booking request.'
+      const message = userMessage(err, { action: 'Could not create booking request.' })
       setPaymentError(message)
       Alert.alert('Error', message)
     } finally {

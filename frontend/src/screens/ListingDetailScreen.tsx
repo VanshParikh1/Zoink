@@ -22,7 +22,7 @@ import { getListing, setAvailability, deleteListing } from '../services/listings
 import { openConversation } from '../services/conversationsApi'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
@@ -73,7 +73,7 @@ export default function ListingDetailScreen() {
 
   useEffect(() => {
     if (listingQuery.isError && !listing) {
-      Alert.alert('Error', apiErrorMessage(listingQuery.error, 'Could not load listing.'))
+      Alert.alert('Error', userMessage(listingQuery.error, { action: 'Could not load listing.' }))
       nav.goBack()
     }
   }, [listingQuery.isError, listingQuery.error, listing, nav])
@@ -113,7 +113,7 @@ export default function ListingDetailScreen() {
               queryClient.invalidateQueries({ queryKey: ['listings'] })
               nav.navigate('MyListings')
             } catch (err: any) {
-              Alert.alert('Error', err?.response?.data?.error ?? 'Could not delete listing.')
+              Alert.alert('Error', userMessage(err, { action: 'Could not delete listing.' }))
             }
           },
         },
@@ -151,7 +151,7 @@ export default function ListingDetailScreen() {
         title: listing.title,
       })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not open conversation.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not open conversation.' }))
     }
   }
 

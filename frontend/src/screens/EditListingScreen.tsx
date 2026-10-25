@@ -17,6 +17,7 @@ import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
@@ -118,7 +119,7 @@ export default function EditListingScreen() {
         { text: 'OK', onPress: () => nav.navigate('ListingDetail', { listingId }) },
       ])
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not save changes.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not save changes.' }))
     } finally {
       setSaving(false)
     }

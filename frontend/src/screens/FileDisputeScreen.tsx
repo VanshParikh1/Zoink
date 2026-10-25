@@ -19,6 +19,7 @@ import Chip from '../components/mockup/Chip'
 import InkCard from '../components/mockup/InkCard'
 import TextField from '../components/mockup/TextField'
 import Button from '../components/mockup/Button'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'FileDispute'>
@@ -60,7 +61,7 @@ export default function FileDisputeScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.bookingDispute(bookingId) })
       nav.goBack()
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not file this dispute.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not file this dispute.' }))
     } finally {
       setBusy(false)
     }

@@ -3,13 +3,13 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { StripeProvider, useStripe } from '@stripe/stripe-react-native'
+import { PaymentSheetError, StripeProvider, useStripe } from '@stripe/stripe-react-native'
 import { RootStackParamList } from '../navigation'
 import { confirmBookingPayment, createBookingPaymentIntent, getBooking } from '../services/bookingsApi'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useQuery } from '@tanstack/react-query'
 import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
@@ -88,7 +88,7 @@ function PayContent() {
   const [paymentError, setPaymentError] = useState<string | null>(null)
   useEffect(() => {
     if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
+      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
       nav.goBack()
     }
   }, [bookingQuery.isError, bookingQuery.error, booking, nav])
@@ -99,9 +99,12 @@ function PayContent() {
     setPaymentError(null)
 
     if (!isStripePublishableKeyConfigured()) {
-      const message = 'The frontend is missing EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY. Stop Expo, restart it with a cleared cache, then try again.'
+      // A build without EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY (restart Expo with
+      // a cleared cache after setting it).
+      console.log('[stripe] EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is missing from this build')
+      const message = "Payments aren't available in this version of the app."
       setPaymentError(message)
-      Alert.alert('Stripe key missing', message)
+      Alert.alert('Payment unavailable', message)
       return
     }
 
@@ -119,15 +122,23 @@ function PayContent() {
         })
 
         if (initError) {
-          setPaymentError(initError.message)
-          Alert.alert('Payment Setup Error', initError.message)
+          console.log(`[stripe] payment sheet setup: ${initError.code}: ${initError.message}`)
+          const message = "Payment couldn't start. Please try again."
+          setPaymentError(message)
+          Alert.alert('Payment Setup Error', message)
           return
         }
 
         const { error: presentError } = await presentPaymentSheet()
         if (presentError) {
-          setPaymentError(presentError.message)
-          Alert.alert('Payment Failed or Canceled', presentError.message)
+          console.log(`[stripe] payment sheet: ${presentError.code}: ${presentError.message}`)
+          // Closing the sheet isn't a failure: nothing to say.
+          if (presentError.code === PaymentSheetError.Canceled) return
+          // Stripe's localized text is written for card holders ("Your card
+          // was declined."); its plain message isn't always.
+          const message = presentError.localizedMessage ?? "Your payment didn't go through. Please try again."
+          setPaymentError(message)
+          Alert.alert('Payment Failed or Canceled', message)
           return
         }
       }
@@ -136,7 +147,7 @@ function PayContent() {
       applyBookingUpdate(confirmed)
       nav.replace('BookingDetail', { bookingId: confirmed.id })
     } catch (err: any) {
-      const message = err?.response?.data?.error ?? err?.message ?? 'Could not complete payment.'
+      const message = userMessage(err, { action: 'Could not complete payment.' })
       setPaymentError(message)
       Alert.alert('Error', message)
     } finally {

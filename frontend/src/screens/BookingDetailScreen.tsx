@@ -12,7 +12,7 @@ import { getMyDisputeForBooking } from '../services/disputesApi'
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { Booking, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
@@ -172,7 +172,7 @@ export default function BookingDetailScreen() {
   const loading = bookingQuery.isPending
   useEffect(() => {
     if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
+      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
       nav.goBack()
     }
   }, [bookingQuery.isError, bookingQuery.error, booking, nav])
@@ -200,7 +200,7 @@ export default function BookingDetailScreen() {
       applyBookingUpdate(updated)
       onSuccess?.(updated)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not update this booking.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not update this booking.' }))
     } finally {
       setBusy(false)
     }
@@ -223,7 +223,7 @@ export default function BookingDetailScreen() {
       })
     } catch (err: any) {
       if ((booking.pickupPhotos?.length ?? 0) === 0 && (booking.returnPhotos?.length ?? 0) === 0) {
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load handoff photos.')
+        Alert.alert('Error', userMessage(err, { action: 'Could not load handoff photos.' }))
       }
     } finally {
       setBusy(false)

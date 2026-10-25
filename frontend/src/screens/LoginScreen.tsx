@@ -12,6 +12,7 @@ import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
 import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
 import { markStartup } from '../utils/perfMarks'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>
 
@@ -37,7 +38,7 @@ export default function LoginScreen() {
     try {
       await login(email.trim().toLowerCase(), password)
     } catch (e: any) {
-      setError(e.response?.data?.error || 'Something went wrong.')
+      setError(userMessage(e, { action: 'Something went wrong.' }))
     } finally {
       setLoading(false)
     }

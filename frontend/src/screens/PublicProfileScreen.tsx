@@ -7,7 +7,7 @@ import { RootStackParamList } from '../navigation'
 import { getPublicProfile } from '../services/usersApi'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '../services/queryKeys'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { PublicProfile } from '../types'
 import { colors } from '../theme/colors'
@@ -37,7 +37,7 @@ export default function PublicProfileScreen() {
   const loading = profileQuery.isPending
   useEffect(() => {
     if (profileQuery.isError && !profile) {
-      Alert.alert('Error', apiErrorMessage(profileQuery.error, 'Could not load this profile.'))
+      Alert.alert('Error', userMessage(profileQuery.error, { action: 'Could not load this profile.' }))
       nav.goBack()
     }
   }, [profileQuery.isError, profileQuery.error, profile, nav])

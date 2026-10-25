@@ -13,7 +13,7 @@ import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { colors } from '../theme/colors'
 import { border, radius, shadow, space } from '../theme/tokens'
@@ -140,7 +140,7 @@ export default function ZoinkItScreen() {
   useEffect(() => {
     if (bookingQuery.isError && !outageAlerted.current) {
       outageAlerted.current = true
-      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this booking.'))
+      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this booking.' }))
     }
   }, [bookingQuery.isError, bookingQuery.error])
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function ZoinkItScreen() {
     } catch (err: any) {
       if (err?.response?.status === 409) return
       setPressed(false)
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not confirm handoff.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not confirm handoff.' }))
     } finally {
       tapInFlight.current = false
     }
@@ -273,7 +273,7 @@ export default function ZoinkItScreen() {
       setPickerUris([])
       setEditing(false)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not submit photos.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not submit photos.' }))
     } finally {
       setSaving(false)
     }

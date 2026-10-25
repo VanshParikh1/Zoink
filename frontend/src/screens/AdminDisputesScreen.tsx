@@ -7,7 +7,7 @@ import { RootStackParamList } from '../navigation'
 import { listDisputes } from '../services/adminApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { AdminDisputeListItem, DisputeStatus } from '../types'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
@@ -45,7 +45,7 @@ export default function AdminDisputesScreen() {
   const insets = useSafeAreaInsets()
   const feed = usePagedList<AdminDisputeListItem>(queryKeys.adminDisputes(filter), (cursor) => listDisputes(filter, cursor))
   const { items: disputes, loading, refreshing } = feed
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load disputes.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load disputes.' }) : ''
 
   const header = <ScreenHeader title="Dispute queue" back />
 

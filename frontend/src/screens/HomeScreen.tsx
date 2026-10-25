@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { browseListingsPage } from '../services/listingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useTabLoad } from '../context/MainTabContext'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
@@ -85,7 +85,7 @@ export default function HomeScreen() {
   const feed = usePagedList<ListingCardItem>(browseKey, fetchPage, { enabled: coords !== null, refreshOnFocus: false })
   const listings = feed.items
   const loading = coords === null || feed.loading
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load nearby listings right now.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load nearby listings right now.' }) : ''
 
   useEffect(() => {
     if (listings.length > 0) markStartup('home-content')

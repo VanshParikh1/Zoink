@@ -8,7 +8,7 @@ import type { BookingListItem, BookingListPage } from '@zoink/shared'
 import { getBookingListPage } from '../services/bookingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -41,7 +41,7 @@ export default function BookingHistoryScreen() {
   )
   const { items: bookings, loading, refreshing } = feed
   const total = feed.firstPage?.total ?? bookings.length
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load your bookings.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load your bookings.' }) : ''
 
   const activeRentals = bookings
     .filter((booking) => isLiveBooking(booking.status))

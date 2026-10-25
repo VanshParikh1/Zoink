@@ -10,7 +10,7 @@ import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePaylo
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus, usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
 import { fonts, type } from '../theme/typography'
@@ -142,7 +142,7 @@ export default function AdminDisputeDetailScreen() {
   const loading = disputeQuery.isPending
   useEffect(() => {
     if (disputeQuery.isError && !dispute) {
-      Alert.alert('Error', apiErrorMessage(disputeQuery.error, 'Could not load this dispute.'))
+      Alert.alert('Error', userMessage(disputeQuery.error, { action: 'Could not load this dispute.' }))
       nav.goBack()
     }
   }, [disputeQuery.isError, disputeQuery.error, dispute, nav])
@@ -161,7 +161,7 @@ export default function AdminDisputeDetailScreen() {
   const events = auditExpanded && !eventsFeed.loading ? eventsFeed.items : null
   const eventsLoading = auditExpanded && eventsFeed.loading
   useEffect(() => {
-    if (eventsFeed.error) Alert.alert('Error', apiErrorMessage(eventsFeed.error, 'Could not load the audit trail.'))
+    if (eventsFeed.error) Alert.alert('Error', userMessage(eventsFeed.error, { action: 'Could not load the audit trail.' }))
   }, [eventsFeed.error])
 
   function handleToggleAuditTrail() {
@@ -220,7 +220,7 @@ export default function AdminDisputeDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['admin'] })
       queryClient.invalidateQueries({ queryKey: ['bookings'] })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not resolve this dispute.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not resolve this dispute.' }))
     } finally {
       setBusy(false)
     }

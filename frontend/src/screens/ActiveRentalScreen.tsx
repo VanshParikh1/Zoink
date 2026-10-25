@@ -12,7 +12,7 @@ import { openConversation } from '../services/conversationsApi'
 import { queryKeys } from '../services/queryKeys'
 import { queryClient } from '../services/queryClient'
 import { useRefreshOnFocus } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { useAuth } from '../context/AuthContext'
 import { User } from '../types'
 import { colors } from '../theme/colors'
@@ -64,7 +64,7 @@ export default function ActiveRentalScreen() {
   const loading = bookingQuery.isPending
   useEffect(() => {
     if (bookingQuery.isError && !booking) {
-      Alert.alert('Error', apiErrorMessage(bookingQuery.error, 'Could not load this rental.'))
+      Alert.alert('Error', userMessage(bookingQuery.error, { action: 'Could not load this rental.' }))
       nav.goBack()
     }
   }, [bookingQuery.isError, bookingQuery.error, booking, nav])
@@ -98,7 +98,7 @@ export default function ActiveRentalScreen() {
         title: booking.listing.title,
       })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not open chat.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not open chat.' }))
     } finally {
       setBusy(false)
     }

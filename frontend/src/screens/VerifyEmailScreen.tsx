@@ -9,6 +9,7 @@ import Screen from '../components/mockup/Screen'
 import ScreenHeader from '../components/mockup/ScreenHeader'
 import Button from '../components/mockup/Button'
 import OtpInput from '../components/mockup/OtpInput'
+import { userMessage } from '../utils/userMessage'
 
 const CODE_LENGTH = 6
 
@@ -34,7 +35,7 @@ export default function VerifyEmailScreen() {
       const res = await api.post('/auth/verify-email', { code })
       setVerified(res.data.token)
     } catch (e: any) {
-      setError(e.response?.data?.error || 'Something went wrong.')
+      setError(userMessage(e, { action: 'Something went wrong.' }))
     } finally {
       setLoading(false)
     }
@@ -48,7 +49,7 @@ export default function VerifyEmailScreen() {
       await api.post('/auth/resend-otp')
       setResendMessage('A new code has been sent to your email.')
     } catch (e: any) {
-      setResendMessage(e.response?.data?.error || 'Could not resend code.')
+      setResendMessage(userMessage(e, { action: 'Could not resend code.' }))
     } finally {
       setResendLoading(false)
     }

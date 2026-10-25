@@ -9,7 +9,7 @@ import type { MyListingItem } from '@zoink/shared'
 import { getMyListingsPage } from '../services/listingsApi'
 import { queryKeys } from '../services/queryKeys'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import Screen from '../components/mockup/Screen'
@@ -43,7 +43,7 @@ export default function MyListingsScreen() {
   // screen no longer loads the owner's whole booking list.
   const feed = usePagedList<MyListingItem>(queryKeys.myListings, getMyListingsPage)
   const { items: listings, loading, refreshing } = feed
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load your listings right now.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load your listings right now.' }) : ''
   const onRefresh = feed.refresh
 
   const openListing = useCallback(

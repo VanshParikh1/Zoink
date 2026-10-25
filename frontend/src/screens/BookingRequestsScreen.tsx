@@ -9,7 +9,7 @@ import { acceptBooking, declineBooking, getBookingListPage } from '../services/b
 import { queryKeys } from '../services/queryKeys'
 import { applyBookingUpdate } from '../services/bookingCache'
 import { usePagedList } from '../hooks/usePagedList'
-import { apiErrorMessage } from '../utils/apiError'
+import { userMessage } from '../utils/userMessage'
 import { colors } from '../theme/colors'
 import { space } from '../theme/tokens'
 import { type } from '../theme/typography'
@@ -42,7 +42,7 @@ export default function BookingRequestsScreen() {
     getBookingListPage('owner', cursor)
   )
   const { items: bookings, loading, refreshing } = feed
-  const error = feed.error ? apiErrorMessage(feed.error, 'Could not load incoming requests.') : ''
+  const error = feed.error ? userMessage(feed.error, { action: 'Could not load incoming requests.' }) : ''
 
   // Live/confirmed rentals always sit at the top; the rest fall below, newest
   // rental first. (The server pages in this order too.)
@@ -55,7 +55,7 @@ export default function BookingRequestsScreen() {
       const updated = action === 'accept' ? await acceptBooking(id) : await declineBooking(id)
       applyBookingUpdate(updated)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not update this request.')
+      Alert.alert('Error', userMessage(err, { action: 'Could not update this request.' }))
     } finally {
       setBusyId(null)
     }

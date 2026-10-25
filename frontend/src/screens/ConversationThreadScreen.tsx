@@ -45,6 +45,7 @@ import DismissKeyboardView from '../components/DismissKeyboardView'
 import { initialsOf } from '../utils/initials'
 import { confirmBlockUser } from '../utils/confirmBlockUser'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import { userMessage } from '../utils/userMessage'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -173,7 +174,7 @@ export default function ConversationThreadScreen() {
       }
     } catch (err: any) {
       if (!incremental) {
-        setError(err?.response?.data?.error ?? 'Could not load messages.')
+        setError(userMessage(err, { action: 'Could not load messages.' }))
       }
     } finally {
       setLoading(false)
@@ -260,7 +261,7 @@ export default function ConversationThreadScreen() {
       // The inbox shows the latest message.
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
     } catch (err: any) {
-      setSendError(err?.response?.data?.error ?? 'Could not send that message.')
+      setSendError(userMessage(err, { action: 'Could not send that message.' }))
     } finally {
       setSending(false)
     }
