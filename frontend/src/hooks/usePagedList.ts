@@ -88,8 +88,11 @@ export function usePagedList<TItem extends { id: string }, TPage extends Page<TI
   return {
     items,
     firstPage: query.data?.pages[0],
-    loading: query.isPending && enabled,
-    /** Null, or the failed load's error (see utils/apiError.ts for its message). */
+    /** First load in flight (not while it waits for the connection: see `offline`). */
+    loading: query.isPending && enabled && query.fetchStatus !== 'paused',
+    /** Offline with nothing cached: it loads by itself when the connection returns. */
+    offline: query.isPending && enabled && query.fetchStatus === 'paused',
+    /** Null, or the failed load's error (utils/userMessage.ts turns it into words). */
     error: query.isError && items.length === 0 ? query.error : null,
     refreshing,
     refresh,

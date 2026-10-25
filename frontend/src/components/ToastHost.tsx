@@ -8,6 +8,8 @@ import { border, radius, space } from '../theme/tokens'
 import { type } from '../theme/typography'
 import HardShadow from './mockup/HardShadow'
 import { currentToast, subscribeToasts, Toast, toast as toasts, toastDuration } from '../services/toast'
+import { useIsOffline } from '../services/network'
+import { OFFLINE_BAR_HEIGHT } from './OfflineFrame'
 
 const ICONS: Record<Toast['kind'], keyof typeof Feather.glyphMap> = {
   success: 'check',
@@ -22,6 +24,7 @@ const ICONS: Record<Toast['kind'], keyof typeof Feather.glyphMap> = {
  */
 export default function ToastHost() {
   const insets = useSafeAreaInsets()
+  const offline = useIsOffline()
   const [shown, setShown] = useState<Toast | null>(currentToast)
   const progress = useRef(new Animated.Value(0)).current
 
@@ -49,7 +52,7 @@ export default function ToastHost() {
     <Animated.View
       style={[
         styles.wrap,
-        { top: insets.top + space.sm },
+        { top: insets.top + (offline ? OFFLINE_BAR_HEIGHT : 0) + space.sm },
         { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] },
       ]}
     >

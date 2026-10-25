@@ -14,6 +14,7 @@ import { FiraSans_700Bold } from '@expo-google-fonts/fira-sans/700Bold'
 import { FiraSans_900Black } from '@expo-google-fonts/fira-sans/900Black'
 import { FiraMono_700Bold } from '@expo-google-fonts/fira-mono/700Bold'
 import ErrorBoundary from './src/components/mockup/ErrorBoundary'
+import OfflineFrame from './src/components/OfflineFrame'
 import ToastHost from './src/components/ToastHost'
 import { scrubBreadcrumb, scrubEvent } from './src/services/sentryScrub'
 
@@ -63,9 +64,11 @@ export default function App() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <ErrorBoundary onError={reportRenderError}>
-              <Navigation fontsReady={fontsLoaded || !!fontError} />
-            </ErrorBoundary>
+            <OfflineFrame>
+              <ErrorBoundary onError={reportRenderError}>
+                <Navigation fontsReady={fontsLoaded || !!fontError} />
+              </ErrorBoundary>
+            </OfflineFrame>
             <ToastHost />
           </AuthProvider>
         </QueryClientProvider>

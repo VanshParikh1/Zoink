@@ -1,5 +1,6 @@
 import { AppState, Platform } from 'react-native'
 import { focusManager, InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query'
+import { startNetworkWatch } from './network'
 
 // One cache for every server read in the app (@tanstack/react-query). Screens
 // show what's cached at once and refresh it behind the scenes
@@ -13,6 +14,8 @@ if (Platform.OS !== 'web') {
     const subscription = AppState.addEventListener('change', (state) => handleFocus(state === 'active'))
     return () => subscription.remove()
   })
+  // Offline: queries wait and resume when the connection returns (network.ts).
+  startNetworkWatch()
 }
 
 export const queryClient = new QueryClient({

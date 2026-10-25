@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import { DEMO_MODE } from '../config/demoMode'
 import { endsCurrentSession } from './sessionToken'
+import { refuseWhenOffline } from './offlineGate'
 
 const TOKEN_KEY = 'zoink_jwt'
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
@@ -73,6 +74,10 @@ api.interceptors.request.use(async (config) => {
 function logFailedRequest(config: ResolvedRequest | undefined, outcome: string) {
   console.log(`[api] ${config?.method?.toUpperCase() ?? '?'} ${config?.url ?? '?'} → ${outcome}`)
 }
+
+// Offline, writes are refused before they're sent (offlineGate.ts). Added
+// last, so it runs first, before the token lookup.
+api.interceptors.request.use(refuseWhenOffline)
 
 api.interceptors.response.use(undefined, (error) => {
   const status = error?.response?.status
