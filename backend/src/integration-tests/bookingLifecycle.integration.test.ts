@@ -82,6 +82,11 @@ beforeEach(async () => {
 })
 
 after(async () => {
+  // Fixture bookings carry made-up PaymentIntent ids (pi_mock_confirmed_...).
+  // Left in zoink_test after the run, a dev server's reconciliation cron
+  // pointed at that database asked Stripe about them every hour. after() runs
+  // even when tests fail; setup.ts also truncates at the end of every file.
+  await truncateAllTables()
   await disconnectTestPrisma()
 })
 

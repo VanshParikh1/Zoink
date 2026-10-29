@@ -91,6 +91,7 @@ if (STRIPE_KEY && !STRIPE_KEY.startsWith('sk_test_')) {
 }
 
 // ── Step 3: Now it is safe to import Prisma and app modules ──────────────────
+import { after as afterAllTests } from 'node:test'
 import jwt from 'jsonwebtoken'
 import { VerificationStatus, Role, Prisma } from '@prisma/client'
 // Import the app's singleton prisma — which is a Proxy that lazily builds its
@@ -174,6 +175,15 @@ export async function truncateAllTables(): Promise<void> {
     await client.end()
   }
 }
+
+// Every test file imports this module first, so this root-level hook runs at
+// the end of every file, pass or fail: no fixture row (and none of their fake
+// pi_mock_... PaymentIntent ids) is left behind in zoink_test for a dev
+// server's cron jobs to find. Each file's own beforeEach still truncates
+// first, so a crashed run that skipped this is cleaned up by the next one.
+afterAllTests(async () => {
+  await truncateAllTables()
+})
 
 // ── JWT helpers ───────────────────────────────────────────────────────────────
 export function signTestJwt(payload: {
