@@ -4,6 +4,7 @@ import { colors } from '../../theme/colors'
 import { space } from '../../theme/tokens'
 import { type } from '../../theme/typography'
 import { reportRenderError } from '../../services/reportError'
+import { disarmCrash } from '../../services/qaCrash'
 import Screen from './Screen'
 import LogoPill from './LogoPill'
 import Button from './Button'
@@ -39,6 +40,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     reportRenderError(error, info.componentStack, this.props.name ? `${this.props.scope}:${this.props.name}` : this.props.scope)
+    disarmCrash()
   }
 
   reset = () => this.setState({ error: null })
