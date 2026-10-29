@@ -54,6 +54,7 @@ import ScreenHeader from '../components/mockup/ScreenHeader'
 import { useSubmit } from '../hooks/useSubmit'
 import { haptics } from '../utils/haptics'
 import { useGoBack } from '../navigation/useGoBack'
+import { appendNew, prependOlder, threadRows, type Row } from '../utils/chatThread'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ConversationThread'>
@@ -66,64 +67,6 @@ const INPUT_MAX_LINES = 4
 const INPUT_PADDING_V = 10
 const BUBBLE_RADIUS = 20
 const BUBBLE_TAIL = 6
-const DAY_MS = 24 * 60 * 60 * 1000
-
-// A poll that was already in flight when a message was sent can return that
-// message too; keep one copy per id.
-function appendNew(current: MessageListItem[], incoming: MessageListItem[]) {
-  const seen = new Set(current.map((message) => message.id))
-  const fresh = incoming.filter((message) => !seen.has(message.id))
-  return fresh.length > 0 ? [...current, ...fresh] : current
-}
-
-type Row =
-  | { kind: 'day'; key: string; label: string }
-  | { kind: 'message'; key: string; message: MessageListItem; isMine: boolean; groupStart: boolean; groupEnd: boolean }
-
-/** "Today", "Yesterday", "Oct 20" (plus the year when it isn't this year). Upper-cased by type.eyebrow. */
-function dayLabel(date: Date) {
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  if (date.getTime() >= startOfToday) return 'Today'
-  if (date.getTime() >= startOfToday - DAY_MS) return 'Yesterday'
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
-  })
-}
-
-/**
- * Day separators plus sender groups: consecutive messages from the same person
- * on the same day form one group, and only its last bubble gets the tail
- * corner and the time.
- */
-function buildRows(messages: MessageListItem[], myId: string | undefined): Row[] {
-  const rows: Row[] = []
-  let lastDay = ''
-  messages.forEach((message, index) => {
-    const date = new Date(message.createdAt)
-    const day = date.toDateString()
-    const prev = messages[index - 1]
-    const next = messages[index + 1]
-    if (day !== lastDay) {
-      rows.push({ kind: 'day', key: `day-${day}`, label: dayLabel(date) })
-      lastDay = day
-    }
-    const sameAsPrev = Boolean(prev) && prev.senderId === message.senderId && new Date(prev.createdAt).toDateString() === day
-    const sameAsNext = Boolean(next) && next.senderId === message.senderId && new Date(next.createdAt).toDateString() === day
-    rows.push({
-      kind: 'message',
-      key: message.id,
-      message,
-      isMine: message.senderId === myId,
-      groupStart: !sameAsPrev,
-      groupEnd: !sameAsNext,
-    })
-  })
-  return rows
-}
-
 export default function ConversationThreadScreen() {
   const nav = useNavigation<Nav>()
   const goBack = useGoBack()
@@ -136,6 +79,7 @@ export default function ConversationThreadScreen() {
   // Older history is fetched a page at a time as the user scrolls up.
   const [hasOlder, setHasOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const olderInFlightRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   // The first load's failure, kept whole so a gone or someone else's
@@ -186,18 +130,20 @@ export default function ConversationThreadScreen() {
   // Scrolling up past the oldest loaded message fetches the page before it.
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]
-    if (!hasOlder || loadingOlder || !oldest) return
+    // The ref, not just the state: onEndReached can fire twice before the
+    // re-render that carries loadingOlder, and both calls would fetch the
+    // same page.
+    if (!hasOlder || loadingOlder || olderInFlightRef.current || !oldest) return
+    olderInFlightRef.current = true
     setLoadingOlder(true)
     try {
       const older = await getConversationMessages(conversationId, { before: oldest.id })
-      setMessages((current) => {
-        const seen = new Set(current.map((message) => message.id))
-        return [...older.filter((message) => !seen.has(message.id)), ...current]
-      })
+      setMessages((current) => prependOlder(current, older))
       setHasOlder(older.length === MESSAGES_PAGE_SIZE)
     } catch {
       // Stays as it is; scrolling up again retries.
     } finally {
+      olderInFlightRef.current = false
       setLoadingOlder(false)
     }
   }, [messages, hasOlder, loadingOlder, conversationId])
@@ -268,7 +214,7 @@ export default function ConversationThreadScreen() {
   })
 
   // Newest first, for the inverted list.
-  const rows = useMemo(() => buildRows(messages, user?.id).reverse(), [messages, user?.id])
+  const rows = useMemo(() => threadRows(messages, user?.id), [messages, user?.id])
 
   const isOwner = Boolean(conversation && conversation.ownerId === user?.id)
   const isRenter = Boolean(conversation && conversation.renterId === user?.id)
@@ -405,7 +351,8 @@ export default function ConversationThreadScreen() {
         Keyboard: iOS pads the whole column by the keyboard height so the
         composer sits right on the keyboard; Android already resizes the window
         (softwareKeyboardLayoutMode "resize"), so it only adjusts the height.
-        The list re-pins to the newest message whenever its height changes.
+        The list is inverted, so the newest message stays at the bottom edge
+        whatever its height.
       */}
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <DismissKeyboardView>
