@@ -1,5 +1,5 @@
 // Seeds zoink_bench with a realistic, deterministic data set for run.ts:
-// ~200 users, 450 listings (3 photos each), ~1,500 bookings across every
+// ~200 users, 462 listings (3 photos each; 12 of them the main renter's), ~1,500 bookings across every
 // status, 90 conversations (one with 500 messages), disputes, reports and
 // review obligations, plus one fresh fixture per measured write request so
 // every write in the run succeeds against its own row.
@@ -185,6 +185,9 @@ export async function seed(): Promise<BenchFixtures> {
     for (let k = 0; k < 10; k += 1) addListing(ownerId, listingIndex++)
   }
   const deletableListings = Array.from({ length: N }, () => addListing(owner, listingIndex++))
+  // The main renter lends a few things too, so My listings has something to
+  // show on a device check (docs/android-handoff.md check 1).
+  for (let k = 0; k < 12; k += 1) addListing(renter, listingIndex++)
   await prisma.listing.createMany({ data: listings })
   await prisma.listingImage.createMany({ data: images })
 
@@ -204,6 +207,9 @@ export async function seed(): Promise<BenchFixtures> {
   }) {
     const id = uid()
     const days = input.days ?? 3
+    // Paid bookings look paid: the pickup handoff is refused until the rent
+    // and the deposit hold are authorized (handoffService.assertPickupPaymentReady).
+    const paid = input.status === BookingStatus.CONFIRMED || input.status === BookingStatus.PICKUP_PENDING || input.status === BookingStatus.ACTIVE
     bookings.push({
       id,
       renterId: input.renterId,
@@ -217,6 +223,14 @@ export async function seed(): Promise<BenchFixtures> {
       commissionAmount: new Prisma.Decimal(7.5),
       ownerPayout: new Prisma.Decimal(52.5),
       hstAmount: new Prisma.Decimal(7.8),
+      ...(paid
+        ? {
+            paymentStatus: input.status === BookingStatus.ACTIVE ? PaymentStatus.CAPTURED : PaymentStatus.AUTHORIZED,
+            stripePaymentIntentId: `pi_bench_${id}`,
+            stripeDepositPaymentIntentId: `pi_bench_deposit_${id}`,
+            depositStatus: DepositStatus.AUTHORIZED,
+          }
+        : {}),
       ...input.extra,
     })
     return id
@@ -302,8 +316,11 @@ export async function seed(): Promise<BenchFixtures> {
   const accept = fixture(BookingStatus.PENDING)
   const decline = fixture(BookingStatus.PENDING)
   const cancel = fixture(BookingStatus.PENDING)
-  const paymentIntent = fixture(BookingStatus.ACCEPTED)
+  // No deposit on the pay fixtures: they sit weeks ahead, and a booking with a
+  // deposit can only be paid from the day before it starts.
+  const paymentIntent = fixture(BookingStatus.ACCEPTED, () => ({ depositAmount: new Prisma.Decimal(0) }))
   const confirm = fixture(BookingStatus.ACCEPTED, (id) => ({
+    depositAmount: new Prisma.Decimal(0),
     paymentStatus: PaymentStatus.AUTHORIZED,
     stripePaymentIntentId: `pi_bench_${id}`,
   }))
@@ -315,6 +332,7 @@ export async function seed(): Promise<BenchFixtures> {
   const pickupTap = fixture(BookingStatus.PICKUP_PENDING, (id) => ({
     paymentStatus: PaymentStatus.AUTHORIZED,
     stripePaymentIntentId: `pi_bench_${id}`,
+    depositStatus: DepositStatus.AUTHORIZED,
     pickupPhotos: photosFor(id),
     handoffInitiatedAt: new Date(),
   }))
