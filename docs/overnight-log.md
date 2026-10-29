@@ -46,3 +46,19 @@ Static review of `3d25ae4`:
 - **Edge case for Vansh:** a rental with a subtotal under $2.00 (e.g. a $1/day item for 1 day) is commissioned at the full subtotal, so the **owner gets $0**. Listing prices can go as low as $0.01/day. Consider a minimum daily price (e.g. $2) if you don't want owners to see "You keep $0.00".
 - Rounding: 15% half-up in integer cents. The $13.33 boundary: 15% = 199.95¢ → 200¢, exactly the minimum. $13.29 → 199.35¢ → lifted to 200¢. $13.37 → 201¢.
 - Tests: shared `money.test.ts` (rate/min, $13.33 boundary, tiny and large subtotals, the 700,000-quote property test now asserts the new formula), backend `paymentService.test.ts` + `bookingUtils.test.ts`, integration `bookingFullFlow` message.
+
+## Task 2: backend Dependabot fixes — **done** (`64c0eb5`, `1d8f3ea`)
+
+| Package | Before | After | Advisory |
+| --- | --- | --- | --- |
+| express | 5.2.1 | 5.3.0 | (carries body-parser) |
+| body-parser | 2.3.0 | 2.4.0 | DoS: trailing bytes after a compressed body (high) |
+| multer | 2.4.0 | 2.5.0 | DoS: pending async fileFilter after teardown (high) |
+| zod | 4.4.3 | 4.6.7 | memory exhaustion on oversized constrained collections (high) |
+| cloudinary | 1.41.3 | 2.11.0 | argument injection via `&` in params (high), major bump |
+
+`npm audit` (whole workspace): **before 45** (31 low, 7 moderate, 7 high) → after the first commit 42 (4 high) → **after 41** (31 low, 7 moderate, 3 high). Backend tree: 4 high → **0**. Every remaining alert is Expo/Metro build tooling in `frontend` (image-size, node-forge, postcss, fast-uri, uuid/xcode, @expo/*), left alone as instructed; no `audit fix --force`, no Expo downgrade.
+
+- Side effect in the lockfile: npm dropped two stale nested `semver@7.7.2` copies under react-native-reanimated / react-native-worklets, which the root `"semver": "7.8.5"` override already covers. Frontend typecheck + tests pass; worth a glance in the next native build (it's only used by their build-time version checks).
+- Cloudinary v2: the code only ever used `v2.uploader.upload_stream` and `v2.uploader.destroy`, unchanged in 2.x. The 2.0 breaking changes (secure URLs default, URL analytics default, Node 6/8 dropped) don't touch it: we store `result.secure_url` and build no URLs with the SDK. Typecheck, unit tests, and the upload/delete integration tests (which mock the network call) pass.
+- **Real upload can't be tested here** (no Cloudinary credentials/network). Manual steps are in `docs/morning-test-plan.md` (upload a listing photo, an avatar and handoff photos; delete a photo and a listing; check the Cloudinary Media Library).
