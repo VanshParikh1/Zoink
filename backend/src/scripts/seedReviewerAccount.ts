@@ -297,11 +297,15 @@ export async function seedReviewerAccount(
   // 2. Accepted, awaiting payment — "Pay now" leads straight to the Pay
   //    screen, where a Stripe test card (4242 4242 4242 4242) completes it.
   const speakerConvo = await ensureConversation(listings.speaker.id, [
-    { from: 'reviewer', body: 'Is the speaker free next weekend for a club event?' },
+    { from: 'reviewer', body: 'Is the speaker free tomorrow for a club event?' },
     { from: 'owner', body: 'It is! I accepted your request — go ahead and pay whenever you are ready.' },
   ])
-  const acceptedStart = dayOffset(7)
-  const acceptedEnd = dayOffset(8)
+  // Starts tomorrow: the speaker has a deposit, and a booking with a deposit
+  // can only be paid from 00:00 Toronto time the day before it starts
+  // (@zoink/shared deposits.ts). Re-run the seed shortly before submitting
+  // for review (in Toronto daytime) so the reviewer can pay straight away.
+  const acceptedStart = dayOffset(1)
+  const acceptedEnd = dayOffset(2)
   const accepted = await ensureBooking(
     'speaker',
     speakerConvo,
@@ -313,7 +317,7 @@ export async function seedReviewerAccount(
       stripePaymentIntentId: null,
       ...pricing(listings.speaker.dailyPrice, listings.speaker.depositAmount, acceptedStart, acceptedEnd),
     }),
-    (b) => b.status === BookingStatus.ACCEPTED && b.startDate.getTime() < dayOffset(2).getTime(),
+    (b) => b.status === BookingStatus.ACCEPTED && b.startDate.getTime() < dayOffset(1).getTime(),
   )
 
   // 3. Pickup documented by the owner today — Zoink It shows the owner's
