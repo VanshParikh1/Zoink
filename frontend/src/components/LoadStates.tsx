@@ -15,7 +15,7 @@ import { DetailSkeleton } from './mockup/Skeleton'
 type QueryLike = {
   error: unknown
   isPending: boolean
-  fetchStatus: 'fetching' | 'paused' | 'idle'
+  isPaused: boolean
   refetch: () => unknown
 }
 
@@ -31,9 +31,13 @@ export const LISTING_UNAVAILABLE = {
   body: 'The owner may have removed it. There are plenty more nearby on Home.',
 }
 
-/** Nothing cached and waiting for the connection to come back (React Query pauses it while offline). */
-export function isWaitingOffline(query: Pick<QueryLike, 'isPending' | 'fetchStatus'>) {
-  return query.isPending && query.fetchStatus === 'paused'
+/**
+ * Nothing cached and waiting for the connection to come back (React Query
+ * pauses it while offline). Reads isPaused, not fetchStatus, which would
+ * re-render the screen on every poll.
+ */
+export function isWaitingOffline(query: Pick<QueryLike, 'isPending' | 'isPaused'>) {
+  return query.isPending && query.isPaused
 }
 
 /**

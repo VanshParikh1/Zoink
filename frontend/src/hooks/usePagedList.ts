@@ -88,10 +88,13 @@ export function usePagedList<TItem extends { id: string }, TPage extends Page<TI
   return {
     items,
     firstPage: query.data?.pages[0],
+    // isPaused, not fetchStatus: React Query re-renders for every result
+    // field a component reads, and fetchStatus changes twice on every poll
+    // (that re-rendered the tabs every 15 s); isPaused changes only offline.
     /** First load in flight (not while it waits for the connection: see `offline`). */
-    loading: query.isPending && enabled && query.fetchStatus !== 'paused',
+    loading: query.isPending && enabled && !query.isPaused,
     /** Offline with nothing cached: it loads by itself when the connection returns. */
-    offline: query.isPending && enabled && query.fetchStatus === 'paused',
+    offline: query.isPending && enabled && query.isPaused,
     /** Null, or the failed load's error (utils/userMessage.ts turns it into words). */
     error: query.isError && items.length === 0 ? query.error : null,
     refreshing,
