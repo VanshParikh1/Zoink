@@ -692,7 +692,9 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
       // A repeated confirm (double tap, retry after a dropped response) finds
       // the first one's work done.
       const hasDeposit = Number(booking.depositAmount) > 0
-      if (booking.status === BookingStatus.CONFIRMED && (booking.stripeDepositPaymentIntentId || !hasDeposit)) {
+      const rentHeld = booking.paymentStatus === PaymentStatus.AUTHORIZED || booking.paymentStatus === PaymentStatus.CAPTURED
+      const confirmedHold = hasDeposit ? Boolean(booking.stripeDepositPaymentIntentId) : Boolean(booking.stripePaymentIntentId) && rentHeld
+      if (booking.status === BookingStatus.CONFIRMED && confirmedHold) {
         alreadyConfirmed = true
         return booking
       }
