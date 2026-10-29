@@ -14,7 +14,7 @@
  * Stripe-backed cases are skipped when api.stripe.com isn't reachable.
  */
 
-import test, { before, beforeEach, after, describe } from 'node:test'
+import test, { before, beforeEach, after, describe, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
 import {
@@ -29,6 +29,7 @@ import {
   getApp,
 } from './setup'
 import * as bookingService from '../services/bookingService'
+import * as bookingUtils from '../services/bookingUtils'
 import { BookingStatus, DepositStatus, PaymentStatus, Prisma } from '@prisma/client'
 
 type TestUser = { id: string; email: string; token: string }
@@ -43,6 +44,12 @@ before(async () => {
 
 beforeEach(async () => {
   await truncateAllTables()
+  mock.restoreAll()
+  // These flows predate the pilot deposit rules (deposit rentals of at most 3
+  // days, paid no earlier than 24 h before the start) and book deposit
+  // listings days ahead; depositRules.integration.test.ts covers the rules.
+  mock.method(bookingUtils, 'assertDepositRentalLength', () => {})
+  mock.method(bookingUtils, 'assertPaymentWindowOpen', () => {})
   owner = await createTestUser({ firstName: 'Owner', stripeAccountId: process.env.DEV_STRIPE_ACCOUNT_ID ?? null })
   listingId = (await createTestListing(owner.id, { dailyPrice: 20, itemValue: 200, depositAmount: 30 })).id
 })

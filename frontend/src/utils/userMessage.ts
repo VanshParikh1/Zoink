@@ -125,6 +125,11 @@ const SHOWN_PATTERNS: { source: string; pattern: RegExp }[] = [
     pattern: /^The dispute window has closed\. Disputes must be filed within \d+ hours of the booking completing\.$/,
   },
   {
+    source: 'Rentals with a deposit can be at most ${DEPOSIT_MAX_RENTAL_DAYS} days.',
+    pattern: /^Rentals with a deposit can be at most \d+ days\.$/,
+  },
+  { source: 'You can pay from ${formatDateTime(opensAt)}.', pattern: /^You can pay from .+\.$/ },
+  {
     source: 'Please use your ${UNIVERSITY_LABELS[data.university]} student email (${domains}).',
     pattern: /^Please use your [\w .'&-]+ student email \(@[\w.-]+(?:,? (?:or )?@[\w.-]+)*\)\.$/,
   },
@@ -136,6 +141,8 @@ const REWORDED: Record<string, string> = {
   'itemRating is required for this review.': 'Rate the item from 1 to 5 to send this review.',
   'photos must contain 2 to 3 Cloudinary URLs.': 'Take 2 or 3 photos, then try again.',
   'depositAmount cannot exceed itemValue.': "The deposit can't be more than the item's value.",
+  'itemValue cannot exceed 1000.': "The item's value can be at most $1,000.",
+  'depositAmount must be at least 1, or 0 for no deposit.': 'A deposit has to be at least $1, or leave it empty.',
   'Admin access required.': 'Only Zoink admins can do this.',
   'That file is too large.': 'That photo is too large. Choose a smaller one.',
 }

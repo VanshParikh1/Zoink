@@ -96,6 +96,13 @@ describe('listing', () => {
     assert.equal(validateListing({ ...good, deposit: '50', itemValue: '40' }).deposit, "Can't be more than the item value.")
     assert.deepEqual(validateListing({ ...good, deposit: '40', itemValue: '40' }), {})
     assert.equal(validateListing({ ...good, deposit: '-1', itemValue: '40' }).deposit, 'Must be $0 or more.')
+    assert.equal(validateListing({ ...good, deposit: '0.5', itemValue: '40' }).deposit, 'At least $1, or leave it empty.')
+    assert.equal(validateListing({ ...good, deposit: '0', itemValue: '40' }).deposit, undefined, '$0 means no deposit')
+  })
+
+  test('item value is at most $1,000', () => {
+    assert.equal(validateListing({ ...good, itemValue: '1000' }).itemValue, undefined)
+    assert.equal(validateListing({ ...good, itemValue: '1000.01' }).itemValue, 'At most $1,000.')
   })
 
   test('messages stay short enough for the narrow price fields', () => {

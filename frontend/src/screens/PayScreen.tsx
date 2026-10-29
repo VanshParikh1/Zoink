@@ -12,7 +12,7 @@ import { useRefreshOnFocus } from '../hooks/usePagedList'
 import { userMessage } from '../utils/userMessage'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useQuery } from '@tanstack/react-query'
-import { DEPOSIT_HOLD_HOURS, formatRentalDate } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, DEPOSIT_PAY_WINDOW_HOURS, formatDateTime, formatRentalDate, paymentOpensAt } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
 import { isStripePublishableKeyConfigured, STRIPE_PUBLISHABLE_KEY } from '../config/stripe'
 import { colors } from '../theme/colors'
@@ -162,7 +162,12 @@ function PayContent() {
   ]
   const banner = bannerFor(booking.status)
   const dateRange = `${formatRentalDate(booking.startDate, 'long')} – ${formatRentalDate(booking.endDate, 'long')}`
-  const payLabel = `Pay ${shortMoney(rentDue)}${hasDeposit ? ` + hold ${shortMoney(booking.depositAmount)}` : ''}`
+  // A booking with a deposit can only be paid from 24 h before it starts (the
+  // server refuses earlier), so the deposit hold lasts until the return.
+  const opensAt = booking.status === 'ACCEPTED' ? paymentOpensAt(booking) : null
+  const payLabel = opensAt
+    ? `You can pay from ${formatDateTime(opensAt)}`
+    : `Pay ${shortMoney(rentDue)}${hasDeposit ? ` + hold ${shortMoney(booking.depositAmount)}` : ''}`
 
   return (
     <Screen
@@ -174,6 +179,7 @@ function PayContent() {
             label={payLabel}
             onPress={handlePay}
             loading={paying}
+            disabled={opensAt !== null}
             compactLabel={payLabel.length > LONG_PAY_LABEL}
           />
         </View>
@@ -225,7 +231,8 @@ function PayContent() {
             </View>
             <Text style={styles.depositTitle}>The deposit is held, not charged.</Text>
             <Text style={styles.depositBody}>
-              It's released {DEPOSIT_HOLD_HOURS} hours after you return the item, unless a dispute is open then.
+              It's released {DEPOSIT_HOLD_HOURS} hours after you return the item, unless a dispute is open then. You can
+              pay from {DEPOSIT_PAY_WINDOW_HOURS} hours before the rental starts.
             </Text>
           </InkCard>
         ) : null}
@@ -235,7 +242,7 @@ function PayContent() {
           <Pressable
             style={({ pressed }) => [styles.methodRow, pressed ? styles.methodRowPressed : null]}
             onPress={handlePay}
-            disabled={paying}
+            disabled={paying || opensAt !== null}
             accessibilityRole="button"
             accessibilityLabel="Pay with card or phone wallet"
           >

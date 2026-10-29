@@ -1,4 +1,4 @@
-import { isUniversityEmail, University, universityDomainsText, UNIVERSITY_LABELS } from '@zoink/shared'
+import { DEPOSIT_MIN, isUniversityEmail, ITEM_VALUE_MAX, University, universityDomainsText, UNIVERSITY_LABELS } from '@zoink/shared'
 
 // Every form's client-side checks, in one place and unit-tested
 // (formValidation.test.ts). The server checks again and is the one trusted;
@@ -83,7 +83,9 @@ export function validateListing(
   const deposit = Number.parseFloat(form.deposit)
   const value = Number.parseFloat(form.itemValue)
   if (hasDeposit && (!Number.isFinite(deposit) || deposit < 0)) errors.deposit = 'Must be $0 or more.'
+  else if (hasDeposit && deposit > 0 && deposit < DEPOSIT_MIN) errors.deposit = `At least $${DEPOSIT_MIN}, or leave it empty.`
   if (hasValue && (!Number.isFinite(value) || value < 0)) errors.itemValue = 'Must be $0 or more.'
+  else if (hasValue && value > ITEM_VALUE_MAX) errors.itemValue = `At most $${ITEM_VALUE_MAX.toLocaleString('en-CA')}.`
   else if (hasDeposit && !hasValue) errors.itemValue = 'Needed with a deposit.'
   else if (hasDeposit && hasValue && !errors.deposit && deposit > value) errors.deposit = "Can't be more than the item value."
 

@@ -103,3 +103,29 @@ How payment works today (found while doing this): the renter's Pay authorizes th
   2. The deposit PI was marked AUTHORIZED whatever Stripe returned. Off-session confirmation can return `requires_action` (3-D Secure) or fail; now anything other than `requires_capture` fails the confirm and releases both holds, so a booking can't become CONFIRMED without a real deposit hold.
 - Not handled (product question): if the rent authorization fails or expires *after* CONFIRMED, the renter has no "pay again" path in the app; the handoff is now blocked, so the booking would have to be cancelled. Logged for you.
 - Tests: `backend/src/services/handoffPayment.test.ts` (unit, every status), `backend/src/integration-tests/pickupPaymentGuard.integration.test.ts` (5 tests over HTTP and the service against the local DB: refused + unchanged for PENDING_AUTH/FAILED, deposit hold released, paid with/without deposit, tap after a failed payment, no-deposit confirm). Payment status is set on the fixture rows, so no Stripe keys are needed.
+
+## Task 6: deposit rules — **done** (commit below)
+
+**Investigation first.** The deposit hold is created **at pay time**: when the renter pays, `confirmBookingPayment` authorizes the rent PaymentIntent and immediately creates the deposit as a second, off-session, manual-capture PaymentIntent. It's captured or cancelled after the return (dispute resolution, or `releaseDueDeposits` 24h after completion). Before tonight a renter could pay as soon as the owner accepted, possibly weeks ahead, and rentals could be 7 days, so the hold (valid ~7 days, ~5 for some Visa transactions) could expire before the return + dispute window.
+
+**Timing decision (enforced, not just logged).** It didn't need a payment-flow rework: it's one check on the two pay endpoints. Deposit bookings can be paid from **00:00 Toronto time the day before the rental starts** (start = 00:00 Toronto on the first day, the same instant `cancellationCutoff` uses). Worst case: paid 00:00 day −1, 3-day rental, returned end of day 3, released 24h later = **about 5 days of hold**. That fits the 7-day window but sits right at Visa's 5-day edge. Worth watching in Stripe (`charge.payment_method_details.card.capture_before` shows each hold's exact expiry).
+
+What's enforced (backend + app, constants in `packages/shared/src/deposits.ts`):
+
+| Rule | Backend | App |
+| --- | --- | --- |
+| Item value ≤ $1,000 | `listing.schema.ts` create + update (`itemValue cannot exceed 1000.`) | form validation "At most $1,000.", placeholder "Up to $1,000" |
+| Deposit is none, or ≥ $1 and ≤ item value | schema (`depositAmount must be at least 1, or 0 for no deposit.`; the existing ≤ item value rule kept) | "At least $1, or leave it empty." |
+| Deposit suggested at 30% of item value, whole dollars, editable | — | New **No deposit / Hold a deposit** chips on create + edit. Turning it on fills `round(0.3 × item value)`, which follows the item value until the owner types their own amount |
+| Deposit rentals ≤ 3 days | `createBooking` → 400 "Rentals with a deposit can be at most 3 days." | Booking calendar caps the range at 3 days for deposit listings ("Your dates (up to 3 days)", the same message) |
+| Pay only within 24h of the start (deposit bookings) | `POST /bookings/:id/payment-intent` and the confirm → 409 "You can pay from Nov 9, 12:00 AM." | Pay button disabled with "You can pay from {date, time}" on the Pay screen and Booking detail |
+| Failed payment = no handoff | Task 5 | Task 5 |
+| "Deposit-backed" label | — | Lime badge (existing `Badge` variant) on grid cards and list rows (replaces "$50 held"; the amount stays in the screen-reader label) and on listing detail next to "$50 held" |
+
+Decisions / things to check:
+- **$1 minimum deposit** is my addition: Stripe can't hold less than $0.50, so a $0.30 deposit would have failed at pay time.
+- The ≤ 3-day and pay-window checks live in `bookingUtils.ts`. Three older Stripe-backed flow test files (`bookingFullFlow`, `bookingLifecycle`, `bookingConcurrency`) book deposit listings 2–7 days ahead and for 5 days, so they **mock those two checks to no-ops** in `beforeEach`, with a comment. The rules themselves are covered by `depositRules.integration.test.ts` (5 tests, run here) and `bookingUtils.test.ts`. Those three files can't run here (no Stripe keys); please run them with test keys.
+- **Not changed:** a booking *without* a deposit can still be paid any time after acceptance, so its **rent** authorization can still expire before pickup if paid more than ~7 days ahead (the capture at pickup would then fail with the existing "payment couldn't be collected" message). Consider applying the same 24h window to all bookings.
+- Existing listings with an item value over $1,000 (or a deposit under $1) stay as they are, but saving an edit will ask the owner to fix them. The App Review seed listing (Canon kit, $1,100) is now $1,000.
+- `terms.md` §5/§10.2/§11 updated to say this (see the legal list in the summary).
+- Tests: shared `deposits.test.ts` (4), backend `bookingUtils.test.ts` (+2), `depositRules.integration.test.ts` (5: item cap, deposit min/max, 3-day limit, pay window refused and open, no-deposit any time), frontend `formValidation.test.ts` (+2), `userMessage.test.ts` (the new server sentences are shown as sent).

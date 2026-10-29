@@ -36,7 +36,7 @@ import Badge from '../components/mockup/Badge'
 import Card from '../components/mockup/Card'
 import Thumb from '../components/mockup/Thumb'
 import HardShadow from '../components/mockup/HardShadow'
-import { dailyPriceLabel, distanceLabel, listingDisplay } from '../components/mockup/listingFormat'
+import { dailyPriceLabel, DEPOSIT_BACKED, distanceLabel, listingDisplay } from '../components/mockup/listingFormat'
 import LocationMapPreview from '../components/LocationMapPreview'
 import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
 import { toast } from '../services/toast'
@@ -167,7 +167,7 @@ export default function ListingDetailScreen() {
 
   const photos = listing.images
   const heroHeight = listingHeroHeight(windowHeight, insets.top)
-  const { deposit } = listingDisplay(listing)
+  const { depositHeld } = listingDisplay(listing)
   // "$X / day · Category", plus the distance only when the API sent one.
   const distanceKm = (listing as { distanceKm?: number | null }).distanceKm
   const priceWithCategory = [dailyPriceLabel(listing.dailyPrice), listing.category, distanceLabel(distanceKm)]
@@ -334,8 +334,11 @@ export default function ListingDetailScreen() {
           <View style={styles.depositRow}>
             <Feather name="lock" size={18} color={colors.ink} />
             <Text style={styles.depositLabel}>Deposit</Text>
-            {deposit ? (
-              <Text style={styles.depositValue}>{deposit}</Text>
+            {depositHeld ? (
+              <>
+                <Badge label={DEPOSIT_BACKED} variant="lime" />
+                <Text style={styles.depositValue}>{depositHeld}</Text>
+              </>
             ) : (
               <Text style={styles.depositNone}>No deposit</Text>
             )}

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEPOSIT_MIN, ITEM_VALUE_MAX } from '@zoink/shared'
 import { pageQuery } from '../utils/pagination'
 
 /**
@@ -9,8 +10,8 @@ import { pageQuery } from '../utils/pagination'
  *   - description   String
  *   - category      String
  *   - dailyPrice    Decimal(10,2)  — must be positive
- *   - itemValue     Decimal(10,2)  — optional, >= 0
- *   - depositAmount Decimal(10,2)  — optional, >= 0, owner-configured on the listing
+ *   - itemValue     Decimal(10,2)  — optional, 0 to ITEM_VALUE_MAX ($1,000, pilot cap)
+ *   - depositAmount Decimal(10,2)  — optional, 0 (none) or DEPOSIT_MIN ($1) up to itemValue, owner-configured on the listing
  *   - isAvailable   Boolean        @default(true)
  *   - latitude    Float
  *   - longitude   Float
@@ -29,6 +30,14 @@ const depositNotOverItemValue = {
   message: 'depositAmount cannot exceed itemValue.',
   path: ['depositAmount'] as PropertyKey[],
 }
+
+const depositAtLeastMinimum = {
+  message: 'depositAmount must be at least 1, or 0 for no deposit.',
+  path: ['depositAmount'] as PropertyKey[],
+}
+
+const depositIsNoneOrAtLeastMinimum = (data: { depositAmount?: number }) =>
+  data.depositAmount === undefined || data.depositAmount === 0 || data.depositAmount >= DEPOSIT_MIN
 
 const itemValueRequiredForDeposit = {
   message: 'itemValue is required when depositAmount is set.',
@@ -51,12 +60,12 @@ export const CreateListingSchema = z.object({
       itemValue: z.coerce
         .number({ error: 'itemValue must be a number.' })
         .nonnegative('itemValue cannot be negative.')
-        .max(10000, 'itemValue cannot exceed 10000.')
+        .max(ITEM_VALUE_MAX, 'itemValue cannot exceed 1000.')
         .optional(),
       depositAmount: z.coerce
         .number({ error: 'depositAmount must be a number.' })
         .nonnegative('depositAmount cannot be negative.')
-        .max(5000, 'depositAmount cannot exceed 5000.')
+        .max(ITEM_VALUE_MAX, 'depositAmount cannot exceed itemValue.')
         .optional(),
       latitude: z.coerce
         .number({ error: 'latitude must be a number.' })
@@ -76,7 +85,8 @@ export const CreateListingSchema = z.object({
     .refine(
       (data) => data.depositAmount === undefined || data.itemValue !== undefined,
       itemValueRequiredForDeposit
-    ),
+    )
+    .refine(depositIsNoneOrAtLeastMinimum, depositAtLeastMinimum),
 })
 
 
@@ -90,8 +100,8 @@ export const UpdateListingSchema = z.object({
       description: z.string().min(1).max(1000).optional(),
       category: z.string().min(1).max(40).optional(),
       dailyPrice: z.coerce.number().positive().max(1000).optional(),
-      itemValue: z.coerce.number().nonnegative().max(10000).optional(),
-      depositAmount: z.coerce.number().nonnegative().max(5000).optional(),
+      itemValue: z.coerce.number().nonnegative().max(ITEM_VALUE_MAX, 'itemValue cannot exceed 1000.').optional(),
+      depositAmount: z.coerce.number().nonnegative().max(ITEM_VALUE_MAX, 'depositAmount cannot exceed itemValue.').optional(),
       latitude: z.coerce.number().min(-90).max(90).optional(),
       longitude: z.coerce.number().min(-180).max(180).optional(),
       city: z.string().min(1).max(60).optional(),
@@ -104,7 +114,8 @@ export const UpdateListingSchema = z.object({
     .refine(
       (data) => data.depositAmount === undefined || data.itemValue !== undefined,
       itemValueRequiredForDeposit
-    ),
+    )
+    .refine(depositIsNoneOrAtLeastMinimum, depositAtLeastMinimum),
 })
 
 // ── PATCH /listings/:id/availability ─────────────────────────────────────────

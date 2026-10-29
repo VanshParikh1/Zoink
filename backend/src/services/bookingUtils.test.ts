@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  assertDepositRentalLength,
+  assertPaymentWindowOpen,
   ensureValidBookingDates,
   getRentalDays,
   roundCurrency,
@@ -85,4 +87,22 @@ test('the server snapshots exactly the quote the request screen previews', () =>
       assert.equal(q.depositAmount, 25)
     }
   }
+})
+
+test('a rental of a listing with a deposit is at most 3 days', () => {
+  assert.doesNotThrow(() => assertDepositRentalLength(50, 3))
+  assert.doesNotThrow(() => assertDepositRentalLength(0, 7), 'no deposit: the usual 7-day limit applies')
+  assert.throws(() => assertDepositRentalLength(50, 4), { statusCode: 400, message: 'Rentals with a deposit can be at most 3 days.' })
+})
+
+test('a booking with a deposit can be paid from 00:00 Toronto time the day before it starts', () => {
+  const booking = { depositAmount: '50.00', startDate: new Date('2026-11-10T00:00:00.000Z') }
+  // Opens 00:00 EST Nov 9 = 05:00 UTC.
+  assert.throws(() => assertPaymentWindowOpen(booking, Date.parse('2026-11-09T04:59:00.000Z')), (error: any) => {
+    assert.equal(error.statusCode, 409)
+    assert.match(error.message, /^You can pay from Nov 9, 12:00\sAM\.$/)
+    return true
+  })
+  assert.doesNotThrow(() => assertPaymentWindowOpen(booking, Date.parse('2026-11-09T05:00:00.000Z')))
+  assert.doesNotThrow(() => assertPaymentWindowOpen({ ...booking, depositAmount: 0 }, Date.parse('2026-10-01T00:00:00.000Z')))
 })

@@ -1,7 +1,18 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
-import { calculateCommission, calculateOwnerPayout, COMMISSION_MIN_CENTS, COMMISSION_RATE, commissionIsMinimum, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import {
+  calculateCommission,
+  calculateOwnerPayout,
+  COMMISSION_MIN_CENTS,
+  COMMISSION_RATE,
+  commissionIsMinimum,
+  DEPOSIT_MAX_RENTAL_DAYS,
+  DEPOSIT_SUGGESTED_RATE,
+  ITEM_VALUE_MAX,
+  PAYOUT_HOLD_HOURS,
+  suggestedDeposit,
+} from '@zoink/shared'
 import { colors } from '../../theme/colors'
 import { border, radius, space } from '../../theme/tokens'
 import { fonts, type } from '../../theme/typography'
@@ -111,6 +122,33 @@ export default function ListingForm(props: Props) {
   const { photos, photoMin, photoMax, errors } = props
   const canAdd = photos.length < photoMax
 
+  // Deposits are optional and the owner's call. Turning one on fills in the
+  // suggestion (30% of the item value, whole dollars); it stays editable, and
+  // follows the item value until the owner types their own amount.
+  const [depositOn, setDepositOn] = useState(() => Number.parseFloat(props.deposit) > 0)
+  const depositIsSuggestion = useRef(false)
+  const itemValueNumber = Number.parseFloat(props.itemValue)
+  const suggestion = suggestedDeposit(itemValueNumber)
+  useEffect(() => {
+    // An edit screen fills the form after it loads.
+    if (Number.parseFloat(props.deposit) > 0) setDepositOn(true)
+  }, [props.deposit])
+  useEffect(() => {
+    if (depositOn && depositIsSuggestion.current && suggestion > 0) props.onDeposit(String(suggestion))
+    // Only when the item value (and so the suggestion) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion])
+  function setDeposit(on: boolean) {
+    setDepositOn(on)
+    if (on) {
+      depositIsSuggestion.current = !props.deposit.trim()
+      if (depositIsSuggestion.current && suggestion > 0) props.onDeposit(String(suggestion))
+    } else {
+      depositIsSuggestion.current = false
+      props.onDeposit('')
+    }
+  }
+
   return (
     <View style={styles.form}>
       <View style={styles.field}>
@@ -199,19 +237,8 @@ export default function ListingForm(props: Props) {
           style={styles.priceField}
         />
         <TextField
-          label="Deposit"
-          placeholder="Optional"
-          variant="boxed"
-          kind="money"
-          value={props.deposit}
-          onChangeText={props.onDeposit}
-          error={errors.deposit}
-          validated={2}
-          style={styles.priceField}
-        />
-        <TextField
           label="Item value"
-          placeholder="Optional"
+          placeholder={`Up to $${ITEM_VALUE_MAX.toLocaleString('en-CA')}`}
           variant="boxed"
           kind="money"
           value={props.itemValue}
@@ -220,6 +247,37 @@ export default function ListingForm(props: Props) {
           validated={2}
           style={styles.priceField}
         />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Deposit</Text>
+        <View style={styles.chips}>
+          <Chip label="No deposit" active={!depositOn} onPress={() => setDeposit(false)} />
+          <Chip label="Hold a deposit" active={depositOn} onPress={() => setDeposit(true)} />
+        </View>
+        {depositOn ? (
+          <>
+            <TextField
+              label="Deposit amount"
+              placeholder={suggestion > 0 ? String(suggestion) : 'Add an item value first'}
+              variant="boxed"
+              kind="money"
+              value={props.deposit}
+              onChangeText={(v) => {
+                depositIsSuggestion.current = false
+                props.onDeposit(v)
+              }}
+              error={errors.deposit}
+              validated={2}
+            />
+            <Text style={styles.caption}>
+              Suggested: {DEPOSIT_SUGGESTED_RATE * 100}% of the item value{suggestion > 0 ? ` ($${suggestion})` : ''}. Rentals with
+              a deposit are up to {DEPOSIT_MAX_RENTAL_DAYS} days.
+            </Text>
+          </>
+        ) : (
+          <FieldError message={errors.deposit} />
+        )}
       </View>
 
       <PayoutPreview dailyPrice={props.dailyPrice} />

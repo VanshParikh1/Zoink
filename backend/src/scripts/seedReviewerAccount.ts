@@ -48,7 +48,7 @@ const LISTINGS = [
     description: 'DSLR with 18-55mm kit lens, two batteries, charger and a 64GB card. Great for events and campus photo projects.',
     category: 'Cameras',
     dailyPrice: 38,
-    itemValue: 1100,
+    itemValue: 1000,
     depositAmount: 100,
     images: [img('photo-1519183071298-a2962feb14f4'), img('photo-1502920917128-1aa500764cbd')],
   },

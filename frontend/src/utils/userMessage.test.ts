@@ -40,6 +40,8 @@ describe('userMessage', () => {
       userMessage(answered(400, { error: 'Validation failed.', issues: [{ path: 'body', message: 'Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca).' }] })),
       'Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca).'
     )
+    assert.equal(userMessage(answered(409, { error: 'You can pay from Nov 9, 12:00\u202fAM.' })), 'You can pay from Nov 9, 12:00\u202fAM.')
+    assert.equal(userMessage(answered(400, { error: 'Rentals with a deposit can be at most 3 days.' })), 'Rentals with a deposit can be at most 3 days.')
     assert.equal(
       userMessage(answered(400, { error: 'Validation failed.', issues: [{ path: 'body', message: 'Please use your McMaster University student email (@mcmaster.ca).' }] })),
       'Please use your McMaster University student email (@mcmaster.ca).'

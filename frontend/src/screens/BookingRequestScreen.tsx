@@ -10,7 +10,7 @@ import { userMessage } from '../utils/userMessage'
 import { createBooking } from '../services/bookingsApi'
 import { queryClient } from '../services/queryClient'
 import { queryKeys } from '../services/queryKeys'
-import { DEPOSIT_HOLD_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, DEPOSIT_MAX_RENTAL_DAYS, DEPOSIT_PAY_WINDOW_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
@@ -115,6 +115,10 @@ export default function BookingRequestScreen() {
   // The listing page just loaded this, so it's usually cached already.
   const listingQuery = useQuery({ queryKey: queryKeys.listing(route.params.listingId), queryFn: () => getListing(route.params.listingId) })
   const listing = listingQuery.data ?? null
+  // A deposit is a card hold that has to last until the return, so deposit
+  // rentals are shorter (the server enforces the same limit).
+  const listingHasDeposit = Number(listing?.depositAmount ?? 0) > 0
+  const maxRentalDays = listingHasDeposit ? DEPOSIT_MAX_RENTAL_DAYS : MAX_RENTAL_DAYS
   const loading = listingQuery.isPending
   const [paymentError, setPaymentError] = useState<string | null>(null)
   // Date validation messages, shown under the date control.
@@ -163,8 +167,12 @@ export default function BookingRequestScreen() {
       return
     }
 
-    if (getRentalDays(startDate, day) > MAX_RENTAL_DAYS) {
-      setDateError(`Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`)
+    if (getRentalDays(startDate, day) > maxRentalDays) {
+      setDateError(
+        listingHasDeposit
+          ? `Rentals with a deposit can be at most ${DEPOSIT_MAX_RENTAL_DAYS} days. Pick a closer end date.`
+          : `Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`,
+      )
       return
     }
 
@@ -257,7 +265,7 @@ export default function BookingRequestScreen() {
         </View>
 
         <View style={styles.block}>
-          <Text style={styles.label}>Your dates (up to {MAX_RENTAL_DAYS} days)</Text>
+          <Text style={styles.label}>Your dates (up to {maxRentalDays} days)</Text>
           <Pressable
             style={({ pressed }) => [styles.dateTrigger, pressed ? styles.dateTriggerPressed : null]}
             onPress={() => setCalendarOpen((open) => !open)}
@@ -390,7 +398,9 @@ export default function BookingRequestScreen() {
             <Feather name="lock" size={18} color={colors.ink} />
             <View style={styles.depositText}>
               <Text style={styles.depositLabel}>Deposit hold</Text>
-              <Text style={styles.depositNote}>Released {DEPOSIT_HOLD_HOURS}h after return</Text>
+              <Text style={styles.depositNote}>
+                You pay up to {DEPOSIT_PAY_WINDOW_HOURS}h before pickup. Released {DEPOSIT_HOLD_HOURS}h after return
+              </Text>
             </View>
             <Text style={styles.depositValue}>${depositAmount.toFixed(2)}</Text>
           </Card>

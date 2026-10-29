@@ -6,6 +6,9 @@ export type ListingCardData = Pick<ListingBrowseItem, 'title' | 'category' | 'da
   distanceKm?: number | null
 }
 
+/** The badge on listings the owner has set a deposit for. */
+export const DEPOSIT_BACKED = 'Deposit-backed'
+
 /** Whole dollars when the amount is whole, otherwise cents: "$24", "$12.50". */
 function formatDollars(amount: string | number): string {
   const n = Number(amount)
@@ -26,8 +29,11 @@ export function distanceLabel(distanceKm: number | null | undefined): string | n
 export function listingDisplay(listing: ListingCardData) {
   const price = dailyPriceLabel(listing.dailyPrice)
   const distance = distanceLabel(listing.distanceKm)
-  // Deposits are optional; "0" means none.
-  const deposit = Number(listing.depositAmount) > 0 ? `${formatDollars(listing.depositAmount)} held` : null
+  // Deposits are optional; "0" means none. Cards say "Deposit-backed"; the
+  // amount is on the listing itself (depositHeld).
+  const hasDeposit = Number(listing.depositAmount) > 0
+  const deposit = hasDeposit ? DEPOSIT_BACKED : null
+  const depositHeld = hasDeposit ? `${formatDollars(listing.depositAmount)} held` : null
 
   const accessibilityLabel = [
     listing.title,
@@ -41,6 +47,7 @@ export function listingDisplay(listing: ListingCardData) {
   return {
     priceLine: distance ? `${price} · ${distance}` : price,
     deposit,
+    depositHeld,
     imageUrl: listing.images?.[0]?.url,
     accessibilityLabel,
   }

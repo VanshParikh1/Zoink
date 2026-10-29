@@ -4,7 +4,7 @@ import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
-import { ensureValidBookingDates, getRentalDays } from './bookingUtils'
+import { assertDepositRentalLength, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays } from './bookingUtils'
 import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
 import { assertNotBlocked } from './blockService'
@@ -435,6 +435,8 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
     throw new BadRequestError('Start and end dates are invalid.')
   }
 
+  assertDepositRentalLength(Number(listing.depositAmount), rentalDays)
+
   // The same quote the request screen previews (@zoink/shared quoteRental).
   const { totalPrice, depositAmount, commissionAmount, ownerPayout, hstAmount } = quoteRental(
     Number(listing.dailyPrice),
@@ -572,6 +574,8 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
       throw new ConflictError('This booking is not ready for payment.')
     }
 
+    assertPaymentWindowOpen(booking)
+
     // Every Pay tap used to mint a fresh PaymentIntent, leaving the previous
     // attempt's authorization (if the renter got that far) held on their card
     // for ~7 days. Reuse the previous PaymentIntent when it hasn't been paid yet
@@ -694,6 +698,7 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
       }
 
       assertBookingTransition(booking.status, BookingStatus.CONFIRMED)
+      assertPaymentWindowOpen(booking)
 
       // This is the new payment checkpoint — dates only truly lock once payment
       // is authorized, which is why the overlap check runs here: two different
