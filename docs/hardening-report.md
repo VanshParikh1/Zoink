@@ -262,3 +262,70 @@ Nine checks to run on an Android release build. The log lists each with exact st
 ### Tests
 
 Frontend 16 (new tests for the HTTP client), shared 19, backend unit 232, backend integration **592: 589 pass, 3 skipped on purpose, 0 fail**; both typechecks pass. Each change was also checked on the iOS simulator: paging on every list, the inbox badge and polling, accepting a request, a 500-message chat, review prompts, sign-in errors, and a photo upload through the new HTTP client.
+
+---
+
+## Phase 5: reliability and UX polish
+
+Before it started, the owner's four decisions were recorded: keep refusing to delete a listing with a booking in progress, keep `inlineRequires` off until cold start is measured on a phone, apply the approved privacy wording (done, word for word), and keep the new HTTP client.
+
+### What was wrong
+
+- **Raw technical text reached people.** A refund Stripe refused showed Stripe's internal error; an expired session showed "No token provided."; a bad form showed "Validation failed."; no connection showed "Network Error"; the Pay screen showed the payment sheet's raw errors.
+- **Screens that couldn't load popped an alert and threw you back**, even for an ordinary case like a deleted listing or a stale link. Some lists had no error state at all and showed "Nothing here" when they had failed; Settings said "You haven't blocked anyone" when it couldn't load the list.
+- **Offline, nothing said so**, and writes failed with whatever the error happened to say.
+- **A refused pickup said nothing (S2).** When the rent can't be captured, the pickup is refused (Phase 1's decision) and both people are told to keep the item. The Zoink It screen silently ignored that answer, so neither phone said why the pickup didn't happen.
+- **A double tap could submit twice (S2)**: two listings, two booking requests, a message sent twice. Cancelling a booking or declining a request took one tap, with no confirmation, and can't be undone.
+- **Forms jumped** when an error appeared, the email field autocorrected "utoronto" to "Toronto", and creating a listing silently dropped photos that failed to upload.
+- **No deep links**: tapping a notification just opened the app.
+
+### What changed
+
+- **Plain messages from one place.** Sentences the server writes for people are shown; everything else gets a plain sentence for its kind ("Couldn't reach Zoink. Check your connection and try again."). A test holds every listed sentence to the server's exact wording. The raw error is still logged.
+- **Every data screen** shows a skeleton while loading, an empty state that says what to do next, and an error with Try again. A deleted or someone else's item shows "no longer available" with a way Home.
+- **Offline:** a bar across the top; lists wait and load by themselves when the connection returns; anything you try to send says it wasn't sent, and a chat message stays in the box to retry.
+- **One toast system** for successes and errors that don't need an answer; alerts only for questions (destructive confirmations).
+- **Forms:** each message sits under its field in space that's always kept, so nothing moves; the right keyboard, autocorrect and autofill per field; every submit runs once at a time. Cancelling and declining now ask first.
+- **Light haptics** on the moments that matter (request sent, accept/decline, message sent, pull-to-refresh), following the phone's own setting on both iOS and Android.
+- **Links and notification taps** open the listing, booking or chat, whether the app was closed, open, or signed out (it opens right after sign-in). Unknown links land on a "Link not found" screen.
+- **No dead ends:** Back always goes somewhere; a part of the app that crashes shows "Try again" (and "Go back") instead of taking the whole app down.
+
+### Phase 3 and 4 numbers, re-measured
+
+| | After Phase 4 | After Phase 5 |
+|---|---|---|
+| iOS JS bundle (baseline 4,378,588 B) | 4,349,908 B | **4,356,268 B**, still 22 KB under |
+| Android JS bundle (baseline 4,385,144 B) | 4,356,504 B | **4,362,760 B**, still 22 KB under |
+| Renders while idle on Home | 0 a minute | **0** |
+| Home grid, fast flings | 0–2 dropped frames (16 of 20 at 0) | **0–2** (12 of 19 at 0), 59–60 JS FPS |
+
+Phase 5's code alone would have put the bundle 5 KB over the baseline; a library was shipping a version-check package used only in development builds, and leaving it out of release builds made room. Re-measuring also caught one regression from this phase (idle tabs re-rendering on every inbox poll), fixed before the numbers above.
+
+Cold start wasn't re-measured; per the owner's decision it gets measured on a real phone.
+
+### Checked on the iOS simulator
+
+Sign-in errors and fields; links (open, closed, signed out, deleted, someone else's, unknown) and Back from each; offline and back online (with a test switch, since the simulator has no airplane mode); the server being down; the crash screens at app, tab and screen level; the cancel confirmation; skeletons. Not possible on the simulator and on the device lists: real airplane mode, notification taps, haptics, the keyboard on the profile editor.
+
+### Needs a decision
+
+1. The review prompt has no way out except submitting (offline it can't be sent). Keep it strict, or add "Later"?
+2. Only `zoink://` links work; web links that open the app need the website set up. Should the Share button include a link?
+3. The privacy policy's "Last updated" date, version bump (which makes everyone re-accept) and the website copy.
+4. A declined card shows Stripe's own sentence ("Your card was declined."). Keep it?
+5. Toasts cover the top of the screen for about 3 seconds. Keep them at the top?
+6. A "review received" notification opens the booking; it could open your reviews instead.
+7. Existing haptics on navigation taps were kept. Fewer?
+
+### Android
+
+Moving to the owner's Windows machine. **`docs/android-handoff.md`** has the setup and every Android check from Phases 4 and 5 with exact steps (22 in all), including real airplane mode, links and notification taps, haptics with the system setting on and off, and the keyboard on every form.
+
+### Deploy notes
+
+- Backend first, as before. The app needs a new store build (another native module, `expo-network`, joins Phase 4's), not an over-the-air update.
+- Build store releases without `EXPO_PUBLIC_QA_TOOLS`.
+
+### Tests
+
+Frontend **145** (was 16): error messages and the guard on the server's wording, toasts, offline handling, deep-link routing, form validation and the double-submit guard. Shared 19, backend unit 232, backend integration **592: 589 pass, 3 skipped on purpose, 0 fail**; both typechecks pass. One backend unit test failed twice from a stray packet another program on this Mac sent to the test server's port (seen in Phases 1 and 2 too); a clean rerun passed 232/232.

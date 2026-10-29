@@ -777,12 +777,153 @@ Left for the owner, not changed (the decision covered the wording only):
 
 ---
 
-## Where to pick up (Phase 5 onward)
+## Phase 5: reliability and UX polish
 
-Phases 0 to 4 are done; their summaries are in `hardening-report.md`. **The run stopped after Phase 4, as instructed; Phase 5 hasn't started.**
+### Plan
 
-Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview; the key rotation is resolved), the proposed privacy.md edit, and the `inlineRequires` decision above. **Deploy the backend before any app build from Phase 4**: the app's paged lists need the Phase 3 routes (the backend still answers older builds the old way). The app build needs a new native build (expo-image, expo-splash-screen, expo-linear-gradient removed), not an OTA update.
+In the brief's order: one place for user-facing error messages (and the raw error logged once); one toast system; offline handling (bar, queries that wait and retry, writes refused with a clear message); loading, empty and error states on every data screen; forms (field types, messages that don't move the layout, the keyboard, double submits); haptics; deep links and notification taps; navigation fallbacks and error boundaries. Then all suites, the bundle against the baseline, the Phase 4 measurements again, and every item by hand on the iOS simulator Release build against the bench server.
 
-Next, from the brief: Phase 5 (reliability and UX polish: skeleton/empty/error states everywhere, offline bar, user-facing error messages, toasts, forms, haptics, deep links, navigation fallbacks), then accessibility, then the `verify` script and E2E.
+Before starting, the owner's four decisions were recorded and the privacy wording applied (`7734851`). The owner then removed an accidental commit (`b2c88d1` "App scaling") from under it and asked for `graphify-out/`, `backend/graphify-out/`, `Claude outputs/` and `.claude/settings.local.json` to be ignored (`00b4d82`). Files are staged by explicit path only from here on.
 
-Tooling: the bench (`backend/src/scripts/bench/run.ts`) and its server (`PORT=3000 npx ts-node src/scripts/bench/serve.ts --seed`); a Release build pointed at it (`EXPO_PUBLIC_API_URL=http://localhost:3000 EXPO_PUBLIC_DEMO_MODE=false EXPO_PUBLIC_PERF_LOG=1 npx expo run:ios --configuration Release`); `idb` (Homebrew `facebook/fb/idb-companion` plus `pip install fb-idb` in a venv) for taps, typing and flings; the cold-start script and the render probe described above. The bench accounts: `renter1@mail.utoronto.ca` and `owner2@mail.utoronto.ca`, password in `seed.ts`.
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | Raw server and network text reached the screen | A refund that Stripe refused showed "Failed to refund payment via Stripe: No such payment_intent…"; a dead session "No token provided."; a bad form "Validation failed."; a proxy's HTML error "Request failed with status code 502"; no connection "Network Error"; the Pay screen showed the Payment Sheet's raw errors and, in a build without the Stripe key, a developer instruction | S3 | `utils/userMessage.ts`: server sentences written for people pass through (listed; a test holds each to the backend's wording), API wording is reworded, everything else gets a plain message for its kind (offline, unreachable, session, forbidden, gone, conflict, too large, rate-limited, invalid, server). The raw failure is logged once in `api.ts` (`[api] METHOD path → status: text`, kept in Sentry breadcrumbs under the Phase 2 scrubbing). A closed Payment Sheet says nothing; a card refusal shows Stripe's localized text | `2d3a9eb` |
+| 2 | Detail screens alerted and popped back on any failed load | A stale link or a deleted listing: "Listing not found." in an alert, then dumped back; offline, the same | S3 | Skeleton while loading; then "no longer available" with a way Home (404/403/400, so soft-deleted listings too), "You're offline" (loads by itself on reconnect), or the plain error with Try again | `f914e97` |
+| 3 | Zoink It swallowed every 409, including the refused pickup | Phase 1 decision 4: when the rent can't be captured, both phones get a 409 telling them to keep the item. The screen treated every 409 as the other phone winning the tap race and returned silently, so neither phone said why the pickup didn't happen | S2 | That 409 is recognised (its sentence is pinned by the test above) and shown as an alert; other 409s stay silent as before | `5ec1af4` |
+| 4 | Create listing dropped failed photo uploads silently | One photo failing to upload left the listing live with fewer photos and no word | S3 | Says how many didn't upload and to add them from Edit details | `5ec1af4` |
+| 5 | Settings' blocked list said "You haven't blocked anyone" when it failed to load | Any failure of `/users/me/blocks` | S3 | Skeleton, then the error with Try again | `f914e97` |
+| 6 | Inbox and Search results had no error state | A failure showed the empty state ("No messages yet", "Nothing found") | S3 | Error state with Try again | `f914e97` |
+| 7 | Admin queues replaced the whole screen with a spinner on every load | Changing a filter blanked the screen, chips included | S3 | Skeleton cards under the chips | `f914e97` |
+| 8 | Double taps could submit twice | Busy flags were React state (`if (paying) return`), which only takes effect on the next render, so two taps in one frame both ran; Message, availability and the Requests rows had no guard at all. Seen risks: two listings, two booking requests, two reports, a message sent twice | S2 | `useSubmit` (ref-based guard, `utils/submitGuard.ts`, tested) on every submit; a per-row in-flight set on Requests | `fe16c67` |
+| 9 | Validation messages moved the form | Sign-in and sign-up put one error above the fields; the listing forms grew their footer; long messages wrapped under the narrow price fields | S3 | Per-field messages in a line that's always reserved (`TextField validated`, `FieldMessage` for chips and ratings); short messages (rules in `utils/formValidation.ts`, tested) | `fe16c67` |
+| 10 | Email fields autocorrected and capitalised; no autofill hints | Phase 1: "utoronto" was corrected to "Toronto" | S3 | `TextField kind`: email, password, newPassword, givenName, familyName, phone, money, city (keyboard, autocorrect, capitalisation, textContentType, autoComplete) | `fe16c67` |
+| 11 | Cancelling a booking and declining a request took one tap | Both are irreversible | S2 | Confirmation alert in Booking detail and Requests | `1e6852b` |
+| 12 | Nothing showed the device was offline | Writes failed with whatever the error said; lists spun or showed raw errors | S3 | Offline bar, React Query's onlineManager on the device state, writes refused before sending | `8ef2139` |
+| 13 | No deep links; tapping a notification just opened the app | The scheme `zoink://` existed but nothing routed it | S3 | Listing, booking and chat links; notification taps; cold, warm and signed-out | `4610bbb` |
+| 14 | Deleting a listing pushed My listings on top of the deleted listing | `navigate('MyListings')` from a listing opened elsewhere | S3 | `popTo('MyListings')` | `75da5f0` |
+| 15 | The updated-terms screen had no way out | Mandatory, no back, no sign out | S3 | "Not now, sign out" (accepting stays required) | `75da5f0` |
+| 16 | Android haptics ignored the system setting | expo-haptics' impact/notification calls drive the Vibrator, which ignores "Touch feedback" | S3 | `utils/haptics.ts` uses `performAndroidHapticsAsync` on Android | `1b8b4c1` |
+| 17 | semver shipped in release bundles | Reanimated imports its worklets version check at the top level and calls it only under `__DEV__` | S3 | Stubbed in release builds via the Metro resolver (dev keeps the real check) | `990d396` |
+| 18 | (Introduced and fixed in this phase) Idle tabs re-rendered on every inbox poll again | Found re-measuring: the new offline states read the query's `fetchStatus`, and React Query re-renders a component for each result field it reads; `fetchStatus` flips twice per 15 s poll, so MainApp and Inbox rendered 20 times in 75 s (Phase 4: 0) | — | Read `isPaused`, which only changes offline | `1146161` |
+
+Also: a QA-only crash trigger for checking the boundaries in a Release build (`02f94e4`), and the confirmation pair for cancel/decline (`1e6852b`, finding 11).
+
+### What each item does now
+
+1. **Loading, empty, error.** Every screen that loads data shows a skeleton (no full-screen spinners left, admin lists included), an empty state that names the next step (Home: "List an item"; Search: "Clear search"; Requests: "View my listings"; admin: "Show all"), and an error with Try again. Offline with nothing cached shows "You're offline… will load when you're back online" and loads by itself on reconnect. Shared pieces: `components/LoadStates.tsx`, `components/mockup/Skeleton.tsx`.
+2. **Messages.** `utils/userMessage.ts` is the one place server and network errors become words, including the detail screens' load errors (no more alert-and-pop). The raw failure goes to the device log once (`[api] METHOD path → status: text`).
+3. **Offline.** The bar, queries that wait and resume, and writes refused before sending with "You're offline, so this wasn't sent". Nothing is queued silently; a chat draft stays in the box.
+4. **Toasts.** `services/toast.ts` + `components/ToastHost.tsx`: successes and non-blocking errors. Alerts remain only for destructive confirmations (delete listing, delete account, block, unblock, remove photo, cancel booking, decline request), action menus, permissions, and the refused-pickup message both people must act on.
+5. **Forms.** Field kinds (email, password, newPassword, givenName, familyName, phone, money, city) set keyboards, autocorrect, capitalisation and autofill. Every validation message sits in a reserved line. All form screens pin the submit button in the keyboard-avoiding footer except Profile › Edit (Save sits under the bio field in the scroll) and the admin report modal (its own keyboard-avoiding view). `useSubmit` guards every submit.
+6. **Haptics.** `utils/haptics.ts`, following the system setting on both platforms. New: request sent, accept/decline, message sent, payment confirmed, pull-to-refresh. Existing navigation ticks (tabs, cards, chips, "+") kept, routed through the helper; the tick on focusing the search field removed.
+7. **Links.** `zoink://listing|booking|chat/<id>`, plus notification taps, cold, warm and signed out (held until sign-in, verification and new terms are done). Unknown links: "Link not found". Gone or someone else's: "no longer available" / "isn't available". Soft-deleted listings answer 404, so they show "This listing is no longer available."
+8. **Fallbacks.** Back always goes somewhere (`navigation/useGoBack.ts`); error boundaries at the root, per tab and per screen; "Not now, sign out" on the updated-terms screen.
+
+### Checked on the iOS simulator
+
+iPhone 17 Pro (iOS 26.5), Release build against the bench API (`EXPO_PUBLIC_PERF_LOG=1 EXPO_PUBLIC_QA_TOOLS=1`), 2026-10-28. `idb` is no longer installed; driven with the simulator tool, `xcrun simctl openurl`, and System Events typing.
+
+| Item | What was done | Result |
+|---|---|---|
+| Sign-in validation | Sign in with both fields empty | "Enter your student email." / "Enter your password." under the fields; the Password label and the button didn't move (same position before and after) |
+| Sign-in fields | Typed "renter1@mail.utoronto.ca" | Stayed lowercase, no autocorrect; iOS offered AutoFill on the email and "Save Password?" after signing in |
+| Sign-in submit | Go on the password field | Submitted |
+| Link, warm | `zoink://listing/<live id>` from Home | Listing opened on top; Back returned to Home |
+| Link, soft-deleted | `zoink://listing/<soft-deleted id>` (one bench listing given `deletedAt`) | Skeleton, then "This listing is no longer available." with Go to Home (which works) |
+| Link, someone else's booking | `zoink://booking/<other id>` | "This booking isn't available." |
+| Link, unknown | `zoink://profile/whatever` | "Link not found" with Go to Home |
+| Link, cold | Terminated the app, then `zoink://chat/<id>` | App started on that chat; Back went to Home |
+| Link, signed out | Signed out, opened `zoink://booking/<renter1's id>` | Login screen; after signing in the booking opened by itself; Back went to Home |
+| Offline (QA switch; see note) | `zoink://qa/offline/on` in a chat, sent a message | Yellow bar under the status bar, chat header not covered; "Not sent: tap to retry / You're offline, so this wasn't sent…", text kept; log `→ not sent, offline` |
+| Back online | `zoink://qa/offline/device`, tapped retry | Bar gone, "You're back online." toast, message sent and the list landed on it |
+| Offline, uncached screen | Offline, opened Bookings | "You're offline. Your rentals will load when you're back online."; on reconnect it switched to the skeleton and loaded by itself |
+| Offline, cached screen | Offline on Home | Cached listings still shown under the bar |
+| Server unreachable | Stopped the bench API, opened Requests | "Couldn't load your requests. Couldn't reach Zoink. Check your connection and try again."; restarted the API, Try again loaded it; empty state offered "View my listings" |
+| Tab boundary | `zoink://qa/crash/tab` on Home | "This tab hit a problem." with the tab bar working; Try again restored Home |
+| Screen boundary | Opened a listing, `zoink://qa/crash/screen` | "This screen hit a problem." with Go back / Try again; Go back returned to Home |
+| Root boundary | `zoink://qa/crash/root` | "Something broke."; Try again restored the app |
+| Cancel confirmation | Cancel booking on a pending booking | "Cancel this booking? This can't be undone, and lender will be told." with Cancel booking / Keep booking; Keep booking changed nothing |
+| Skeletons | Profile tab first open, Rentals, a listing link | Skeletons, no spinners |
+
+**Not checked on the simulator, and why:**
+- **Airplane mode.** The simulator shares the Mac's network and has no airplane mode, and turning off the Mac's network is a system setting I won't change. The QA switch (`zoink://qa/offline/on|off|device`, QA builds only) forces the same offline state the device reading feeds, and makes every request fail as with no connection. The real device reading (expo-network) needs a phone: on the Android list and the iOS device list below.
+- **The keyboard over submit buttons.** This simulator session wouldn't show its on-screen keyboard (the hardware-keyboard setting). Structurally every form but two pins its button above the keyboard (above); Profile › Edit and the admin report modal need a look on a device.
+- **Notification taps.** `simctl push` delivered a chat notification, but on the loaded Mac the banner went before the tap landed. The routing is unit-tested (`navigation/deepLinks.test.ts`); the tap needs a device.
+- **Haptics** (simulators have none) and **a double tap inside one frame** (the tools send taps hundreds of ms apart). The guard is unit-tested (`utils/submitGuard.test.ts`).
+
+### Results
+
+**Tests**
+
+| Suite | After Phase 4 | After Phase 5 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 (see note) |
+| backend integration | 592 (589 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 1,243 s (backend unchanged in this phase) |
+| frontend unit | 16 | **145**: error mapping and the backend-wording guard (87, one per listed sentence among them), toasts (4), offline state and the offline gate in the HTTP client (7), deep-link parsing, notification routing and the cold/warm/signed-out queue (12), form validation (16) and the double-submit guard (3) |
+
+Backend and frontend typecheck pass. Note: two backend unit runs each had one failure in `rateLimiter.test.ts` ("behind the edge, clients get their own budgets…"): `HPE_INVALID_CONSTANT`, the raw packet a JSON `{"Dns4":{"ProtectionState":"open"}…` that no part of this API sends. Another process on this Mac answered on the test server's loopback connection, the same environment flake as Phases 1 and 2. A clean rerun passed 232/232 (log kept this time).
+
+**Bundle** (`expo export --dump-sourcemap`, production, no QA or perf flags; the Phase 4 commit re-exported the same way gave 4,350,180 B against Phase 4's recorded 4,349,908):
+
+| | Phase 0 baseline | After Phase 4 | After Phase 5 |
+|---|---:|---:|---:|
+| iOS JS bundle | 4,378,588 B | 4,349,908 B | **4,356,268 B** (22.3 KB under baseline) |
+| Android JS bundle | 4,385,144 B | 4,356,504 B | **4,362,760 B** (22.4 KB under baseline) |
+| Assets | 8.6 MB | 1.7 MB | 1.7 MB |
+| Modules | 2,216 | 2,186 | 2,191 |
+
+Phase 5's code added about 33 KB of bytecode (all app code; `expo-network` is 5.6 KB of source). That would have put the bundle 4.7 KB over the baseline, so `990d396` keeps semver out of release builds: Reanimated imports its worklets version check at the top level but calls it only under `__DEV__`; release builds now resolve that module to a stub (−28 KB).
+
+**Idle re-renders** (render probe, Home untouched, 30 s settle then 75 s, inbox polling every 15 s): **0** (Phase 4: 0). Before `1146161`: 20.
+
+**Home grid** (fast flings with the simulator tool, one at a time, 150+ listings): 19 flings, **0–2 dropped JS frames each (12 at 0, 6 at 1, 1 at 2), JS FPS 59.0–59.9** (Phase 4: 0–2, 16 of 20 at 0, 59.1–59.8). Load average 4–8 during the run.
+
+**Cold start:** not re-measured. Phase 5 adds one network-state read at launch. The owner's decision is to measure on a real phone; until then Phase 4's numbers stand.
+
+### Dependency added
+
+- **`expo-network` ~8.0.8** (Expo SDK 54, first party; NWPathMonitor on iOS, ConnectivityManager on Android). React Native has no way to read the device's connection state; the alternative, `@react-native-community/netinfo`, is a third-party native module and larger. 11 lockfile lines, no dependencies; 5.6 KB of JS source. Needs a native build, like the Phase 4 changes already do.
+
+### Needs owner decision
+
+1. **The review prompt has no way out.** It opens at launch when a review is owed, with no Back, sign-out or "later". Offline it can't be submitted, so the app stays on it until the connection returns. Keep it strict, or add "Later" (or sign out)?
+2. **Universal links.** Only `zoink://` links work. `https://` links that open the app need a domain, an `apple-app-site-association` and `assetlinks.json` on the website, and app config. Also: the listing Share button shares text with no link. Add a link to it (which kind)?
+3. **The privacy policy's "Last updated" date, version bump and the website copy** (carried from the decisions above; unchanged).
+4. **Stripe's card-decline text on Pay.** A refused card now shows Stripe's own localized sentence ("Your card was declined.") rather than a generic one; Stripe writes it for card holders. Keep, or always use our own words?
+5. **Toasts sit at the top** and cover the screen's header for about 3 seconds (tap dismisses). Keep at the top, or move above the tab bar?
+6. **A "review received" notification opens the booking.** It could open your profile's reviews instead.
+7. **Navigation haptics** (tabs, listing cards, chips, quick actions, "+") were already there and are kept; only the search-focus tick was removed. Fewer?
+
+### Found, not fixed
+
+- Profile › Edit keeps Save in the scroll under the bio field rather than pinned. Whether the keyboard covers it couldn't be checked on this simulator (above); on the device list.
+- The paged list endpoints still keep their unpaginated forms for old app builds (Phase 4 note).
+
+### Android pending
+
+Everything Android, Phase 4's nine checks and Phase 5's, is in **`docs/android-handoff.md`** with Windows setup and exact steps: real airplane mode, links via `adb`, notification taps, haptics with Touch feedback on and off, the keyboard on every form, fields and autofill, reserved message lines, double taps, toasts over modals (no separate window on Android), error boundaries with hardware Back, the confirmations, and the updated-terms way out.
+
+**iOS device pending** (a real iPhone): airplane mode (the bar within a second or two, writes refused, recovery), a notification tap cold/background/foreground, haptics with System Haptics on and off, the keyboard on Profile › Edit and the admin report modal, and cold start (the `inlineRequires` decision).
+
+### Commits
+
+`7734851` (owner decisions), `00b4d82` (ignore rules), then `2d3a9eb` `5ec1af4` `8ef2139` `f914e97` `fe16c67` `1e6852b` `1b8b4c1` `4610bbb` `75da5f0` `990d396` `02f94e4` `1146161`, plus these docs. Nothing pushed.
+
+Also on 2026-10-25, at the owner's request: the accidental `b2c88d1` "App scaling" was removed from under the decisions commit (its files kept on disk, uncommitted) and the ignore rules added. Files are staged by explicit path only.
+
+---
+
+## Where to pick up (Phase 6 onward)
+
+Phases 0 to 5 are done; their summaries are in `hardening-report.md`. **The run stopped after Phase 5, as instructed; Phase 6 (accessibility) hasn't started.**
+
+**Android is moving to the owner's Windows machine.** `docs/android-handoff.md` has the setup (getting the branch over, the files to copy by hand, an API the emulator can reach, the release build with the QA switches) and every Android check from Phases 4 and 5 with exact steps. Phase 6's TalkBack and font-scale checks get added there when it runs.
+
+Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview), the privacy policy's date/version/website copy (decisions section above), and the Phase 5 decisions list. **Deploy the backend before any app build from Phase 4 or 5**: the app's paged lists need the Phase 3 routes. The app build needs a new native build (expo-image, expo-splash-screen, expo-network added; expo-linear-gradient removed), not an OTA update. Build store releases **without** `EXPO_PUBLIC_QA_TOOLS` (its switches and crash triggers then compile away).
+
+Next, from the brief: Phase 6, accessibility (the brief's seven items: screen reader labels and grouping, Dynamic Type, contrast from the theme tokens, 44 pt targets, focus order, reduced motion, VoiceOver through the main flows), then the `verify` script and E2E.
+
+Tooling: the bench (`backend/src/scripts/bench/run.ts`) and its server (`PORT=3000 npx ts-node src/scripts/bench/serve.ts --seed`); a Release build pointed at it (`LANG=en_US.UTF-8 EXPO_PUBLIC_API_URL=http://localhost:3000 EXPO_PUBLIC_DEMO_MODE=false EXPO_PUBLIC_PERF_LOG=1 EXPO_PUBLIC_QA_TOOLS=1 npx expo run:ios --configuration Release`; without a UTF-8 `LANG` CocoaPods fails with a Unicode normalization error); device log lines with `xcrun simctl spawn booted log stream --predicate 'eventMessage CONTAINS "[perf]" OR eventMessage CONTAINS "[api]"'`; the QA links `zoink://qa/offline/on|off|device` and `zoink://qa/crash/root|tab|screen`. `idb` is no longer installed; the simulator tool and `xcrun simctl openurl` covered this phase, and System Events keystrokes type symbols the simulator tool drops (`@`). The bench accounts: `renter1@mail.utoronto.ca` and `owner2@mail.utoronto.ca`, password in `seed.ts`. One bench listing ("Tools item 1") was soft-deleted by hand for the link check; `--seed` resets it.
