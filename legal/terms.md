@@ -1,7 +1,7 @@
 # Zoink — Terms of Service
 
 **Effective date:** September 8, 2026
-**Last updated:** September 8, 2026
+**Last updated:** October 30, 2026
 
 ---
 
@@ -138,15 +138,9 @@ Separately, a **security deposit** in the amount set by the Owner is authorized 
 
 ### 10.3 What an Owner receives — the commission
 
-Zoink charges a commission to the Owner only. It is deducted from the Owner's payout, and it is calculated on the rental price, based on the listing's **daily rate**:
+Zoink charges a commission to the Owner only. It is deducted from the Owner's payout. The commission is **15% of the rental price (minimum $2)** per booking. If the rental price is less than $2, the commission is the full rental price.
 
-| Listing daily rate | Zoink commission |
-| --- | --- |
-| $20.00 or less per day | 15% |
-| $20.01 to $50.00 per day | 12.5% |
-| More than $50.00 per day | 10% |
-
-The applicable rate is locked in at the time the booking is requested and shown to the Owner before they accept. The Owner's net payout is displayed in the app before acceptance.
+The commission is locked in at the time the booking is requested and shown to the Owner before they accept. The Owner's net payout is displayed in the app before acceptance.
 
 Commission is charged on the rental price only. It is **never** charged on a security deposit or on damage compensation.
 

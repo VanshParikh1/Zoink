@@ -52,7 +52,7 @@ Do not expand beyond these five universities without an explicit product decisio
 
 **Booking state machine:** `PENDING → ACCEPTED → PICKUP_PENDING → ACTIVE → RETURN_PENDING → COMPLETED` (with `DECLINED`/`CANCELLED` exits). State transitions are strictly enforced on the backend.
 
-**Payment model:** Owner-configured deposit (held in escrow) + 15% platform commission + optional 3% insurance (capped $1–$50). Payout held 24 hours post-completion; blocked if any open dispute exists.
+**Payment model:** Optional owner-configured deposit (held as a card authorization) + lender commission of 15% of the rental subtotal (minimum $2 per rental), no renter fee, never on deposits. Insurance is not offered (code path gated off). Payout held 24 hours post-completion; blocked if any open dispute exists.
 
 **Cancellation:** No fee pre-pickup (authorization released). No automatic refund post-pickup — requires admin/support.
 

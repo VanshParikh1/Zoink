@@ -4,7 +4,7 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily — cameras, speakers, tools, sports gear, event equipment — with verification, messaging, payments, deposit protection, and a photo-verified handoff built into the rental flow.
 
-The project is in active MVP development. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, a separately-authorized security deposit, 13% HST, tiered commission, a dispute-filing/resolution flow (renter/owner + admin), abuse reporting (listings and users), rate limiting, error tracking, a security-hardening pass (fail-closed Stripe webhook verification, DB-backed authorization, response-shape scrubbing on the dispute and handoff endpoints), and a neobrutalist app-wide design system are all implemented. Remaining major work: broader automated test coverage, production deployment, and TestFlight/release readiness.
+The project is in active MVP development. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, a separately-authorized security deposit, 13% HST, flat 15% commission ($2 minimum), a dispute-filing/resolution flow (renter/owner + admin), abuse reporting (listings and users), rate limiting, error tracking, a security-hardening pass (fail-closed Stripe webhook verification, DB-backed authorization, response-shape scrubbing on the dispute and handoff endpoints), and a neobrutalist app-wide design system are all implemented. Remaining major work: broader automated test coverage, production deployment, and TestFlight/release readiness.
 
 ---
 
@@ -45,7 +45,7 @@ The project is in active MVP development. The marketplace, the full booking → 
 **Pricing**
 
 - **13% Ontario HST** on the rental price only — not the deposit (a hold, not a sale) and not insurance. Charged on top of what the renter pays; never subtracted before commission/payout, so it has no effect on owner earnings. Snapshotted as `Booking.hstAmount` at request time. There is no per-listing jurisdiction field yet, so it applies to every booking. (`HST_RATE` is a hardcoded constant in `paymentService.ts`, not an env var.)
-- **Tiered platform commission** keyed on the listing's **daily** rate: ≤ $20/day → 15%, ≤ $50/day → 12.5%, otherwise 10%. Looked up once at request time and applied to the full rental total; never recomputed per day. `ownerPayout = totalPrice − commission`. (`COMMISSION_TIERS` is hardcoded in `paymentService.ts`; `PLATFORM_COMMISSION_RATE` is no longer used.)
+- **Flat platform commission**: 15% of the rental subtotal, minimum $2.00 per rental, never more than the subtotal; owner-side only (no renter fee), never on deposits. Computed once at request time in integer cents and snapshotted; `ownerPayout = totalPrice − commission`. (`COMMISSION_RATE` / `COMMISSION_MIN_CENTS` in `packages/shared/src/commission.ts`; `PLATFORM_COMMISSION_RATE` is no longer used. Bookings made under the old daily-rate tiers keep their snapshotted numbers.)
 - **No insurance, damage-protection, or protection fee is offered**, per terms.md §12. The renter is never charged anything beyond rental price, HST, and the (held, not charged) deposit. Dormant `insuranceFee` / `insuranceOptIn` plumbing remains in the schema but is fully disabled: `insuranceOptIn` is forced `false`, `calculateInsuranceFee()` short-circuits to `0`, and `booking.schema.ts` rejects any attempt to set it. The `INSURANCE_RATE` / `MIN_INSURANCE_FEE` / `MAX_INSURANCE_FEE` env vars are unused.
 
 **Security deposit lifecycle** (`Booking.depositStatus`: `AUTHORIZED` / `CAPTURED` / `RELEASED`)
@@ -361,7 +361,7 @@ SENTRY_DSN=
 - `DEV_STRIPE_ACCOUNT_ID` — dev/beta owner-payout account override. In `.env.test` it must be a real, fully-onboarded (`payouts_enabled: true`) Stripe Express test-mode Connect account id; the accept/payout integration tests call the live Connect API against it and fail fast if it's unset.
 - `STRIPE_CONNECT_RETURN_URL` / `STRIPE_CONNECT_REFRESH_URL` — **required**. Must be `http://localhost…` or `https://…` pointing at the backend's `/stripe-return` / `/stripe-refresh` pages (e.g. `<ngrok-url>/stripe-return`), not the `zoink://` scheme (Stripe rejects it). Missing/invalid → hard error, no fallback.
 - `DEPOSIT_HOLD_HOURS` — delay before an undisputed deposit is auto-released (`releaseDueDeposits`).
-- `HST_RATE` (0.13) and the commission tiers are **hardcoded in `paymentService.ts`**, not env vars. `PLATFORM_COMMISSION_RATE` is no longer read.
+- `HST_RATE` (0.13) and the commission (`COMMISSION_RATE`, `COMMISSION_MIN_CENTS`) are **hardcoded in `@zoink/shared`**, not env vars. `PLATFORM_COMMISSION_RATE` is no longer read.
 - `SENTRY_DSN` — backend error tracking (`instrument.ts`); blank or `NODE_ENV=test` skips Sentry entirely.
 - `EXPO_ACCESS_TOKEN` — optional Expo push access token.
 
