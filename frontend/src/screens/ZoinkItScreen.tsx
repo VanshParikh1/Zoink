@@ -7,7 +7,8 @@ import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS, rentalDayCount } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS, isPickupPaymentReady, rentalDayCount } from '@zoink/shared'
+import PickupPaymentNotice from '../components/PickupPaymentNotice'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
@@ -126,10 +127,14 @@ export default function ZoinkItScreen() {
   const isUploader = mode === 'pickup' ? isOwner : isRenter
   const isDocumented = booking?.status === pendingStatus
   const isReady = isDocumented
-  const locked = !isReady || pressed || success
+  // The server refuses every pickup step until the renter's payment is in
+  // place (rent, and the deposit hold if there is one).
+  const awaitingPayment =
+    mode === 'pickup' && !!booking && (booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING') && !isPickupPaymentReady(booking)
+  const locked = !isReady || pressed || success || awaitingPayment
   const existingPhotos = booking ? (mode === 'pickup' ? booking.pickupPhotos : booking.returnPhotos) ?? [] : []
   const needsFirstSubmission = isUploader && booking?.status === startStatus
-  const showPickerUI = needsFirstSubmission || editing
+  const showPickerUI = (needsFirstSubmission || editing) && !awaitingPayment
   const isPickerValid = pickerUris.length >= MIN_PHOTOS && pickerUris.length <= MAX_PHOTOS
   const otherParty = booking
     ? booking.ownerId === user?.id
@@ -323,7 +328,9 @@ export default function ZoinkItScreen() {
     { key: 'renter', label: isRenter ? 'Renter (you)' : 'Renter', tapped: !!renterTappedAt, isViewer: isRenter },
   ]
 
-  const footer = showPickerUI ? (
+  const footer = awaitingPayment ? (
+    <Button variant="zoink" label="Waiting for payment" onPress={() => {}} disabled />
+  ) : showPickerUI ? (
     <View style={styles.footerStack}>
       {pickerUris.length > 0 ? (
         <Button label="Clear photos" variant="link" onPress={clearPhotos} disabled={saving} style={styles.centered} />
@@ -365,6 +372,8 @@ export default function ZoinkItScreen() {
       footer={footer}
     >
       <View style={styles.content}>
+        {awaitingPayment ? <PickupPaymentNotice /> : null}
+
         {success ? (
           <Card contentStyle={styles.successCard} padding={space.xxl}>
             <View style={styles.successIcon}>

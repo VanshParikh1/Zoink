@@ -88,6 +88,7 @@ const SHOWN_AS_IS = new Set([
   'Only the booking owner can initiate pickup.',
   'Only the booking renter can initiate return.',
   PICKUP_PAYMENT_FAILED,
+  "Payment hasn't gone through. The renter needs to pay before pickup.",
   'Photos are only available after the rental is completed',
   // Messages, blocks, reports
   'Message body cannot be empty.',

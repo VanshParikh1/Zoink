@@ -29,7 +29,10 @@ export function errorHandler(
     if (err.statusCode >= 500) {
       Sentry.captureException(err)
     }
-    return res.status(err.statusCode).json({ error: err.message })
+    // A machine-readable code where the error class has one (e.g.
+    // PICKUP_PAYMENT_REQUIRED), next to the sentence for people.
+    const code = typeof (err as unknown as { code?: unknown }).code === 'string' ? (err as unknown as { code: string }).code : undefined
+    return res.status(err.statusCode).json(code ? { error: err.message, code } : { error: err.message })
   }
 
   // Upload limits (multer): an oversized file is 413, anything else malformed 400.

@@ -26,7 +26,8 @@ import Thumb from '../components/mockup/Thumb'
 import { ListRow, RowGroup } from '../components/mockup/RowGroup'
 import { SCREEN_WIDTH, fillImageUrl, limitImageUrl } from '../utils/cloudinaryImage'
 import { initialsOf } from '../utils/initials'
-import { daysBetween, formatRentalDate, rentalDayKey, torontoDayKey } from '@zoink/shared'
+import { daysBetween, formatRentalDate, isPickupPaymentReady, rentalDayKey, torontoDayKey } from '@zoink/shared'
+import PickupPaymentNotice from '../components/PickupPaymentNotice'
 import { toast } from '../services/toast'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useSubmit } from '../hooks/useSubmit'
@@ -110,13 +111,17 @@ export default function ActiveRentalScreen() {
   const otherParty = isOwner ? booking.renter : booking.owner
   const otherPartyRole = isOwner ? 'Renter' : 'Owner'
   const imageUrl = booking.listing.images[0]?.url
-  const showPickupBanner = booking.status === 'PICKUP_PENDING' && isRenter
+  // The server refuses the pickup until the rent (and deposit hold) are
+  // authorized, so the handoff isn't offered until then either.
+  const pickupAwaitingPayment = (booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING') && !isPickupPaymentReady(booking)
+  const showPickupBanner = booking.status === 'PICKUP_PENDING' && isRenter && !pickupAwaitingPayment
   const showReturnBanner = booking.status === 'RETURN_PENDING' && isOwner
   const showReadyBanner = showPickupBanner || showReturnBanner
   const readyLabel = showPickupBanner ? 'Owner is ready - tap to Zoink It' : 'Renter is ready - tap to Zoink It'
 
-  const action =
-    isOwner && booking.status === 'CONFIRMED'
+  const action = pickupAwaitingPayment
+    ? null
+    : isOwner && booking.status === 'CONFIRMED'
       ? { label: 'Start Handoff', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
       : booking.status === 'PICKUP_PENDING'
         ? { label: 'Zoink It', onPress: () => nav.navigate('ZoinkIt', { bookingId: booking.id, mode: 'pickup' }) }
@@ -154,6 +159,8 @@ export default function ActiveRentalScreen() {
           <Feather name="chevron-left" size={24} color={colors.ink} />
         </IconButton>
       </View>
+
+      {pickupAwaitingPayment ? <PickupPaymentNotice /> : null}
 
       {showReadyBanner ? (
         <Pressable

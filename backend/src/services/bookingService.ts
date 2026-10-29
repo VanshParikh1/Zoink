@@ -687,7 +687,8 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
 
       // A repeated confirm (double tap, retry after a dropped response) finds
       // the first one's work done.
-      if (booking.status === BookingStatus.CONFIRMED && booking.stripeDepositPaymentIntentId) {
+      const hasDeposit = Number(booking.depositAmount) > 0
+      if (booking.status === BookingStatus.CONFIRMED && (booking.stripeDepositPaymentIntentId || !hasDeposit)) {
         alreadyConfirmed = true
         return booking
       }
@@ -729,25 +730,35 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
       // it was (ACCEPTED) so the borrower can retry payment from scratch. A
       // booking must never end up CONFIRMED with only the rental portion
       // secured and no deposit hold in place.
-      try {
-        const stripeCustomerId = await getOrCreateStripeCustomer(
-          booking.renter.id,
-          booking.renter.email,
-          booking.renter.stripeCustomerId
-        )
-        const paymentMethodId = await getPaymentIntentPaymentMethod(booking.stripePaymentIntentId)
+      //
+      // A listing without a deposit has no deposit hold at all (Stripe refuses
+      // a $0 PaymentIntent), so its booking confirms on the rent alone.
+      if (hasDeposit) {
+        try {
+          const stripeCustomerId = await getOrCreateStripeCustomer(
+            booking.renter.id,
+            booking.renter.email,
+            booking.renter.stripeCustomerId
+          )
+          const paymentMethodId = await getPaymentIntentPaymentMethod(booking.stripePaymentIntentId)
 
-        if (!stripeCustomerId || !paymentMethodId) {
-          throw new Error('No saved payment method is available to authorize the deposit.')
+          if (!stripeCustomerId || !paymentMethodId) {
+            throw new Error('No saved payment method is available to authorize the deposit.')
+          }
+
+          const depositIntent = await createDepositPaymentIntent(booking, stripeCustomerId, paymentMethodId)
+          depositPaymentIntentId = depositIntent.id
+          // Off-session confirmation can come back needing the cardholder
+          // (requires_action) or declined: only an authorized hold counts.
+          if (depositIntent.status !== 'requires_capture') {
+            throw new Error(`the deposit hold was not authorized (${depositIntent.status})`)
+          }
+        } catch (error) {
+          rentalToRelease = booking
+          throw new ConflictError(
+            `Could not authorize the deposit — payment was not completed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}. Please try again.`
+          )
         }
-
-        const depositIntent = await createDepositPaymentIntent(booking, stripeCustomerId, paymentMethodId)
-        depositPaymentIntentId = depositIntent.id
-      } catch (error) {
-        rentalToRelease = booking
-        throw new ConflictError(
-          `Could not authorize the deposit — payment was not completed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}. Please try again.`
-        )
       }
 
       await tx.booking.update({
@@ -755,16 +766,18 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
         data: {
           status: BookingStatus.CONFIRMED,
           stripeDepositPaymentIntentId: depositPaymentIntentId,
-          depositStatus: DepositStatus.AUTHORIZED,
+          depositStatus: hasDeposit ? DepositStatus.AUTHORIZED : null,
           version: { increment: 1 },
         },
       })
 
       await createBookingEvent(tx, booking.id, actorId, BookingEventType.STATUS_CHANGE, { from: booking.status, to: BookingStatus.CONFIRMED })
-      await createBookingEvent(tx, booking.id, actorId, BookingEventType.PAYMENT_INTENT_CREATED, {
-        paymentIntentId: depositPaymentIntentId,
-        purpose: 'deposit',
-      })
+      if (depositPaymentIntentId) {
+        await createBookingEvent(tx, booking.id, actorId, BookingEventType.PAYMENT_INTENT_CREATED, {
+          paymentIntentId: depositPaymentIntentId,
+          purpose: 'deposit',
+        })
+      }
 
       return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, select: bookingSelect as any })
     })

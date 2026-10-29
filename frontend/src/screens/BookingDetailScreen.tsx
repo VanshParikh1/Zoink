@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { COMMISSION_MIN_CENTS, COMMISSION_RATE, DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import { COMMISSION_MIN_CENTS, COMMISSION_RATE, DEPOSIT_HOLD_HOURS, isPickupPaymentReady, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import PickupPaymentNotice from '../components/PickupPaymentNotice'
 import { RootStackParamList } from '../navigation'
 import { acceptBooking, cancelBooking, declineBooking, getBooking, getHandoffPhotos } from '../services/bookingsApi'
 import { getMyDisputeForBooking } from '../services/disputesApi'
@@ -397,8 +398,13 @@ export default function BookingDetailScreen() {
   ]
 
   // ── Actions, chosen by the existing state logic ──────────────────────────
+  // The server refuses the pickup until the rent (and deposit hold) are
+  // authorized, so the handoff isn't offered until then either.
+  const pickupAwaitingPayment = (booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING') && !isPickupPaymentReady(booking)
   let primary: { label: string; onPress: () => void } | null = null
-  if (isOwner && booking.status === 'PENDING') {
+  if (pickupAwaitingPayment) {
+    primary = null
+  } else if (isOwner && booking.status === 'PENDING') {
     primary = { label: busy ? 'Saving...' : 'Accept request', onPress: () => runAction(() => acceptBooking(booking.id), haptics.success) }
   } else if (isRenter && booking.status === 'ACCEPTED') {
     primary = { label: 'Pay now', onPress: () => nav.navigate('Pay', { bookingId: booking.id }) }
@@ -479,6 +485,8 @@ export default function BookingDetailScreen() {
             </Text>
           </View>
         </Card>
+
+        {pickupAwaitingPayment ? <PickupPaymentNotice /> : null}
 
         {closed ? (
           <Card shadow={false} contentStyle={styles.closedCard}>

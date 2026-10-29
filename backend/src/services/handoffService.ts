@@ -4,6 +4,7 @@ import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '.
 import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse, withBookingLock } from './bookingService'
 import { notifyUser } from './notificationService'
 import { capturePaymentIntent, retrievePaymentIntent } from './paymentService'
+import { isPickupPaymentReady } from '@zoink/shared'
 import { ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { Sentry } from '../instrument'
 import { loggableError, loggableMessage } from '../utils/sentryScrub'
@@ -19,6 +20,31 @@ export class PickupPaymentFailedError extends ConflictError {
     super("The rental payment couldn't be collected, so the pickup didn't go through. Keep the item for now and try Zoink It again. If it keeps failing, contact support.")
   }
 }
+/** The pickup handoff was refused because the booking's payment isn't in
+ *  place: the rent isn't authorized, or the booking has a deposit and its hold
+ *  isn't. Nothing changes hands until the renter has paid. */
+export class PickupPaymentRequiredError extends ConflictError {
+  readonly code = 'PICKUP_PAYMENT_REQUIRED'
+  constructor() {
+    super("Payment hasn't gone through. The renter needs to pay before pickup.")
+  }
+}
+
+/** Pickup only goes ahead on a paid booking: the rent's authorization is in
+ *  place and, when there is a deposit, so is the deposit hold. Those statuses
+ *  are only set once Stripe has authorized the PaymentIntent (the renter's
+ *  confirm, or its webhook), and a webhook can move them again after CONFIRMED
+ *  (an authorization that failed, was cancelled or expired), so this is checked
+ *  on every pickup step, not only when the booking became CONFIRMED. */
+export function assertPickupPaymentReady(booking: { paymentStatus: string; depositAmount: unknown; depositStatus: string | null }) {
+  const ready = isPickupPaymentReady({
+    paymentStatus: booking.paymentStatus,
+    depositAmount: Number(booking.depositAmount),
+    depositStatus: booking.depositStatus,
+  })
+  if (!ready) throw new PickupPaymentRequiredError()
+}
+
 // The same window the stale-tap cleanup and the app's countdown use. No env
 // override: it's a contract term (see config/bookingWindows.ts).
 const CONFIRM_WINDOW_MS = ZOINK_TAP_WINDOW_MS
@@ -141,6 +167,7 @@ export async function initiateHandoff(bookingId: string, actorId: string, phase:
   if (!isFirstSubmission && !isPhotoEdit) {
     throw new BadRequestError('That booking transition is not allowed.')
   }
+  if (phase === 'pickup') assertPickupPaymentReady(booking)
 
   const now = new Date()
   const updated: any = await prisma.$transaction(async (tx) => {
@@ -214,6 +241,7 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
   if (booking.status === completedStatus(phase)) {
     return { bothConfirmed: true, booking: toBookingResponse(booking, actorId) }
   }
+  if (phase === 'pickup') assertPickupPaymentReady(booking)
 
   const now = new Date()
   const { actorField, otherField } = tapFields(phase, isOwner)
