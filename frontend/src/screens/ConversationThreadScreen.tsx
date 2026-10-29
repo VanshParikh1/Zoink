@@ -136,7 +136,6 @@ export default function ConversationThreadScreen() {
   // Older history is fetched a page at a time as the user scrolls up.
   const [hasOlder, setHasOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const userScrolledRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   // The first load's failure, kept whole so a gone or someone else's
@@ -156,15 +155,6 @@ export default function ConversationThreadScreen() {
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const latestMessageId = useRef<string | undefined>(undefined)
   const listRef = useRef<FlatList<Row>>(null)
-  // Tracks whether the user is scrolled near the bottom already, so an
-  // incoming message doesn't yank them away from history they're reading.
-  // Starts true so the very first load (fresh open, or reopening into
-  // unread messages) always lands on the newest message.
-  const isNearBottomRef = useRef(true)
-  const hasScrolledRef = useRef(false)
-  // Set by sending: keep jumping to the end as rows below get laid out, until
-  // the user drags. One jump into a long, partly measured list lands short.
-  const pinToEndRef = useRef(false)
 
   const loadMessages = useCallback(async (incremental = false) => {
     try {
@@ -194,11 +184,9 @@ export default function ConversationThreadScreen() {
   }, [conversationId])
 
   // Scrolling up past the oldest loaded message fetches the page before it.
-  // Only after the user has scrolled: the list starts at the top for a moment
-  // before it jumps to the newest message.
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]
-    if (!userScrolledRef.current || !hasOlder || loadingOlder || !oldest) return
+    if (!hasOlder || loadingOlder || !oldest) return
     setLoadingOlder(true)
     try {
       const older = await getConversationMessages(conversationId, { before: oldest.id })
@@ -265,18 +253,13 @@ export default function ConversationThreadScreen() {
     setSendError('')
     try {
       const message = await sendMessage(route.params.conversationId, trimmed)
-      // Sending your own message should always carry you down to it,
-      // even if you had scrolled up to read older history.
-      isNearBottomRef.current = true
-      pinToEndRef.current = true
       setMessages((current) => appendNew(current, [message]))
       latestMessageId.current = message.id
       setBody('')
       haptics.tap()
-      // Explicitly, once the new row is laid out: the list keeps its visible
-      // rows in place for older pages (maintainVisibleContentPosition), which
-      // otherwise holds a reader far up the history where they were.
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 50)
+      // Sending your own message carries you down to it, even from far up
+      // the history (the list is inverted: offset 0 is the newest message).
+      listRef.current?.scrollToOffset({ offset: 0, animated: false })
       // The inbox shows the latest message.
       queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
     } catch (err: any) {
@@ -284,7 +267,8 @@ export default function ConversationThreadScreen() {
     }
   })
 
-  const rows = useMemo(() => buildRows(messages, user?.id), [messages, user?.id])
+  // Newest first, for the inverted list.
+  const rows = useMemo(() => buildRows(messages, user?.id).reverse(), [messages, user?.id])
 
   const isOwner = Boolean(conversation && conversation.ownerId === user?.id)
   const isRenter = Boolean(conversation && conversation.renterId === user?.id)
@@ -521,38 +505,16 @@ export default function ConversationThreadScreen() {
               style={styles.flex}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
-              onScrollBeginDrag={() => {
-                userScrolledRef.current = true
-                pinToEndRef.current = false
-              }}
-              onStartReached={loadOlder}
-              onStartReachedThreshold={0.5}
-              // Prepending older messages keeps the ones on screen in place.
-              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-              ListHeaderComponent={loadingOlder ? <ActivityIndicator style={styles.olderLoading} color={colors.greenText} /> : null}
-              onScroll={(e) => {
-                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-                const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
-                isNearBottomRef.current = pinToEndRef.current || distanceFromBottom < 120
-              }}
-              scrollEventThrottle={100}
-              onContentSizeChange={() => {
-                if (isNearBottomRef.current) {
-                  // The first jump is instant: an animated one reports
-                  // mid-scroll offsets that would clear isNearBottomRef before
-                  // the pinned card / keyboard resize re-pins the list.
-                  listRef.current?.scrollToEnd({ animated: hasScrolledRef.current && !pinToEndRef.current })
-                  hasScrolledRef.current = true
-                }
-              }}
-              // The keyboard opening shrinks the list from the bottom; without
-              // this the newest messages would slide under the composer.
-              // Deferred a frame so the list has its new height first.
-              onLayout={() => {
-                if (isNearBottomRef.current) {
-                  requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }))
-                }
-              }}
+              // Inverted: offset 0 is the newest message, so the thread opens
+              // there, stays there as messages arrive or the keyboard opens,
+              // and older pages are appended at the far end without moving
+              // what's on screen. (The non-inverted list kept its place with
+              // maintainVisibleContentPosition, which on Android anchored on
+              // the wrong row and jumped about six pages per load.)
+              inverted
+              onEndReached={loadOlder}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={loadingOlder ? <ActivityIndicator style={styles.olderLoading} color={colors.greenText} /> : null}
               ListEmptyComponent={
                 <StatePanel
                   title="No messages yet"
@@ -700,11 +662,13 @@ const styles = StyleSheet.create({
   stateWrap: {
     padding: space.xxl,
   },
+  // The list is inverted, so paddingTop is the space above the composer and
+  // paddingBottom the space under the oldest message.
   listContent: {
     flexGrow: 1,
     paddingHorizontal: space.xxl,
-    paddingTop: space.sm,
-    paddingBottom: space.xxl,
+    paddingTop: space.xxl,
+    paddingBottom: space.sm,
   },
   dayWrap: {
     alignItems: 'center',
