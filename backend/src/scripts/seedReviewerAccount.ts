@@ -98,8 +98,8 @@ function pricing(dailyPrice: number, depositAmount: number, startDate: Date, end
   return {
     totalPrice: new Prisma.Decimal(totalPrice),
     depositAmount: new Prisma.Decimal(depositAmount),
-    commissionAmount: new Prisma.Decimal(calculateCommission(totalPrice, dailyPrice)),
-    ownerPayout: new Prisma.Decimal(calculateOwnerPayout(totalPrice, dailyPrice)),
+    commissionAmount: new Prisma.Decimal(calculateCommission(totalPrice)),
+    ownerPayout: new Prisma.Decimal(calculateOwnerPayout(totalPrice)),
     hstAmount: new Prisma.Decimal(calculateHst(totalPrice)),
   }
 }

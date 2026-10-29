@@ -73,14 +73,14 @@ test('getRentalDays agrees with the app\'s calendar-day count across DST changes
 test('the server snapshots exactly the quote the request screen previews', () => {
   // createBooking prices a booking with @zoink/shared quoteRental; this pins
   // that it equals the formulas it used before (daily x days rounded to the
-  // cent, tiered commission, 13% HST on rent only).
+  // cent, flat 15% commission with a $2 minimum, 13% HST on rent only).
   for (const dailyPrice of [0.01, 4.99, 15, 19.99, 20, 20.01, 33.33, 50, 50.01, 999.99]) {
     for (let days = 1; days <= MAX_RENTAL_DAYS; days += 1) {
       const q = quoteRental(dailyPrice, days, 25)
       const total = roundCurrency(dailyPrice * days)
       assert.equal(q.totalPrice, total)
-      assert.equal(q.commissionAmount, calculateCommission(total, dailyPrice))
-      assert.equal(q.ownerPayout, calculateOwnerPayout(total, dailyPrice))
+      assert.equal(q.commissionAmount, calculateCommission(total))
+      assert.equal(q.ownerPayout, calculateOwnerPayout(total))
       assert.equal(q.hstAmount, calculateHst(total))
       assert.equal(q.depositAmount, 25)
     }

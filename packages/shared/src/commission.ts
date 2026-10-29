@@ -2,25 +2,14 @@
 // keeps with exactly the backend's math (backend/src/services/paymentService.ts
 // wraps these for Prisma.Decimal inputs).
 
-// Bracket is keyed on the listing's DAILY rate, not the booking's total value —
-// a long rental of a cheap item stays in the cheap-item tier, it doesn't creep
-// into a lower rate just because rentalDays pushed totalPrice up. The bracket
-// is looked up once (at booking-request time, alongside every other snapshotted
-// price field — see createBooking() in bookingService.ts) and applied to the
-// full rental total; it is never recomputed per day or re-derived later.
-export const COMMISSION_TIERS: { maxDailyRate: number; rate: number }[] = [
-  { maxDailyRate: 20, rate: 0.15 },
-  { maxDailyRate: 50, rate: 0.125 },
-  { maxDailyRate: Infinity, rate: 0.1 },
-]
-
-export function getCommissionRate(dailyRate: number): number {
-  // Boundaries are inclusive on the lower-rate side ($20/day exactly is still
-  // the 15% tier, $50/day exactly is still the 12.5% tier) — the same
-  // convention as INSURANCE_RATE's min/max clamp in paymentService.
-  const tier = COMMISSION_TIERS.find((t) => dailyRate <= t.maxDailyRate)
-  return tier!.rate
-}
+// Pilot model: a flat 15% of the rental subtotal (daily price x days, before
+// HST), with a $2.00 minimum per rental. It is taken from the owner's payout;
+// the renter pays no fee on top, and deposits are never commissioned. The
+// commission is computed once, at booking-request time, alongside every other
+// snapshotted price field (see createBooking() in bookingService.ts); it is
+// never recomputed for an existing booking.
+export const COMMISSION_RATE = 0.15
+export const COMMISSION_MIN_CENTS = 200
 
 /** Whole cents in a dollar amount that is already rounded to the cent. */
 export function dollarsToCents(value: number) {
@@ -37,10 +26,28 @@ export function applyRateHalfUp(cents: number, rate: number) {
   return Math.floor((cents * basisPoints + 5_000) / 10_000)
 }
 
-export function calculateCommission(totalPrice: number, dailyRate: number) {
-  return applyRateHalfUp(dollarsToCents(totalPrice), getCommissionRate(dailyRate)) / 100
+/** The commission in whole cents on a rental subtotal in whole cents: 15%
+ *  half-up, at least $2.00, and never more than the subtotal itself (a rental
+ *  under $2 is commissioned at its full subtotal, so the owner keeps $0). */
+export function calculateCommissionCents(subtotalCents: number) {
+  if (subtotalCents <= 0) return 0
+  const percentage = applyRateHalfUp(subtotalCents, COMMISSION_RATE)
+  return Math.min(subtotalCents, Math.max(COMMISSION_MIN_CENTS, percentage))
 }
 
-export function calculateOwnerPayout(totalPrice: number, dailyRate: number) {
-  return (dollarsToCents(totalPrice) - dollarsToCents(calculateCommission(totalPrice, dailyRate))) / 100
+/** The commission in dollars on a rental subtotal in dollars. */
+export function calculateCommission(totalPrice: number) {
+  return calculateCommissionCents(dollarsToCents(totalPrice)) / 100
+}
+
+/** What the owner keeps of a rental subtotal: the subtotal minus the commission. */
+export function calculateOwnerPayout(totalPrice: number) {
+  const cents = dollarsToCents(totalPrice)
+  return (cents - calculateCommissionCents(cents)) / 100
+}
+
+/** True when the $2 minimum (not 15%) set the commission on this subtotal. */
+export function commissionIsMinimum(totalPrice: number) {
+  const cents = dollarsToCents(totalPrice)
+  return cents > 0 && calculateCommissionCents(cents) > applyRateHalfUp(cents, COMMISSION_RATE)
 }

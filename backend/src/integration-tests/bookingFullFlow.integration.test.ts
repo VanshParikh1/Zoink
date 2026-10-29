@@ -189,7 +189,7 @@ describe('full new booking flow, end-to-end', () => {
     assert.equal(withIntent.hstAmount, 13, '13% HST on the $100 rental snapshot, not the changed $4995 price')
     // Commission/ownerPayout are unaffected by HST — it's additive on top of
     // what the borrower pays, never subtracted from totalPrice beforehand.
-    assert.equal(withIntent.commissionAmount, 15, '15% commission (tier 1, $20/day) on $100 — unaffected by HST')
+    assert.equal(withIntent.commissionAmount, 15, 'flat 15% commission on $100 — unaffected by HST')
     assert.equal(withIntent.ownerPayout, 85, '$100 - $15 commission — unaffected by HST')
 
     if (stripeAvailable) {

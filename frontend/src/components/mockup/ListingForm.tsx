@@ -1,7 +1,7 @@
 import React from 'react'
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import Feather from '@expo/vector-icons/Feather'
-import { calculateCommission, calculateOwnerPayout, getCommissionRate, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import { calculateCommission, calculateOwnerPayout, COMMISSION_MIN_CENTS, COMMISSION_RATE, commissionIsMinimum, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 import { colors } from '../../theme/colors'
 import { border, radius, space } from '../../theme/tokens'
 import { fonts, type } from '../../theme/typography'
@@ -78,13 +78,13 @@ function PayoutPreview({ dailyPrice }: { dailyPrice: string }) {
   const price = Number.parseFloat(dailyPrice)
   const valid = Number.isFinite(price) && price > 0
   const rent = valid ? Math.round(price * EXAMPLE_RENTAL_DAYS * 100) / 100 : 0
-  const ratePct = valid ? getCommissionRate(price) * 100 : null
+  const commissionLabel = valid && commissionIsMinimum(rent) ? `minimum $${COMMISSION_MIN_CENTS / 100}` : `${COMMISSION_RATE * 100}%`
 
   return (
     <Card radius="hero" shadow="xl" padding={space.xl} contentStyle={styles.payout}>
       <View>
         <Text style={styles.payoutTitle}>What you'd keep</Text>
-        <Text style={styles.caption}>On a {EXAMPLE_RENTAL_DAYS}-day rental. Commission drops as your price goes up.</Text>
+        <Text style={styles.caption}>On a {EXAMPLE_RENTAL_DAYS}-day rental. Zoink takes {COMMISSION_RATE * 100}% (minimum ${COMMISSION_MIN_CENTS / 100}) per rental.</Text>
       </View>
       <View style={styles.table}>
         <View style={styles.tableRow}>
@@ -92,12 +92,12 @@ function PayoutPreview({ dailyPrice }: { dailyPrice: string }) {
           <Text style={styles.rowValue}>{valid ? money(rent) : '—'}</Text>
         </View>
         <View style={[styles.tableRow, styles.tableDivider]}>
-          <Text style={styles.rowLabel}>Zoink commission{ratePct != null ? ` (${Number(ratePct.toFixed(1))}%)` : ''}</Text>
-          <Text style={styles.rowValue}>{valid ? `−${money(calculateCommission(rent, price))}` : '—'}</Text>
+          <Text style={styles.rowLabel}>Zoink commission ({commissionLabel})</Text>
+          <Text style={styles.rowValue}>{valid ? `−${money(calculateCommission(rent))}` : '—'}</Text>
         </View>
         <View style={[styles.tableRow, styles.keepRow]}>
           <Text style={styles.keepText}>You keep</Text>
-          <Text style={styles.keepText}>{valid ? money(calculateOwnerPayout(rent, price)) : '—'}</Text>
+          <Text style={styles.keepText}>{valid ? money(calculateOwnerPayout(rent)) : '—'}</Text>
         </View>
       </View>
       <Text style={styles.caption}>

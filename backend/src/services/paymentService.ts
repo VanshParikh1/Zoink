@@ -3,7 +3,6 @@ import {
   calculateCommission as sharedCalculateCommission,
   calculateHst as sharedCalculateHst,
   calculateOwnerPayout as sharedCalculateOwnerPayout,
-  getCommissionRate as sharedGetCommissionRate,
 } from '@zoink/shared'
 import { InternalServerError, ConflictError } from '../utils/errors'
 import prisma from '../utils/prisma'
@@ -87,19 +86,15 @@ export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
   return sharedCalculateHst(Number(rentalTotalPrice))
 }
 
-// The commission tiers and math live in @zoink/shared (commission.ts) so the
-// app's payout preview can't drift from what's charged. These wrappers keep
-// the Prisma.Decimal | number signatures callers already use.
-export function getCommissionRate(dailyRate: Prisma.Decimal | number): number {
-  return sharedGetCommissionRate(Number(dailyRate))
+// The commission (flat 15%, $2 minimum) lives in @zoink/shared (commission.ts)
+// so the app's payout preview can't drift from what's charged. These wrappers
+// take the Prisma.Decimal | number amounts callers already have.
+export function calculateCommission(totalPrice: Prisma.Decimal | number) {
+  return sharedCalculateCommission(Number(totalPrice))
 }
 
-export function calculateCommission(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
-  return sharedCalculateCommission(Number(totalPrice), Number(dailyRate))
-}
-
-export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
-  return sharedCalculateOwnerPayout(Number(totalPrice), Number(dailyRate))
+export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
+  return sharedCalculateOwnerPayout(Number(totalPrice))
 }
 
 // Rental + insurance + HST — the deposit is authorized separately (see

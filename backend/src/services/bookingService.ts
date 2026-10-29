@@ -230,8 +230,10 @@ function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
     totalPrice,
     paymentStatus: booking.paymentStatus,
     depositAmount: Number(booking.depositAmount),
-    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice, booking.listing?.dailyPrice ?? 0)),
-    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice, booking.listing?.dailyPrice ?? 0)),
+    // Snapshotted at request time; the fallback only covers a row that
+    // predates the snapshot columns.
+    commissionAmount: Number(booking.commissionAmount ?? calculateCommission(totalPrice)),
+    ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
     hstAmount: Number(booking.hstAmount ?? calculateHst(totalPrice)),

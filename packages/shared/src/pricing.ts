@@ -37,8 +37,8 @@ export function quoteRental(dailyPrice: number, rentalDays: number, depositAmoun
     rentalDays,
     totalPrice,
     hstAmount,
-    commissionAmount: calculateCommission(totalPrice, dailyPrice),
-    ownerPayout: calculateOwnerPayout(totalPrice, dailyPrice),
+    commissionAmount: calculateCommission(totalPrice),
+    ownerPayout: calculateOwnerPayout(totalPrice),
     depositAmount,
     chargedAtPickup: roundCurrency(totalPrice + hstAmount),
   }

@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  COMMISSION_TIERS,
+  COMMISSION_MIN_CENTS,
+  COMMISSION_RATE,
   calculateCommission,
+  calculateCommissionCents,
   calculateOwnerPayout,
-  getCommissionRate,
+  commissionIsMinimum,
 } from '../src/commission'
 import { HST_RATE, calculateHst, quoteRental, roundCurrency } from '../src/pricing'
 import {
@@ -22,26 +24,54 @@ import {
 
 const cents = (value: number) => Math.round(value * 100)
 
-test('commission is tiered by daily rate: 15% up to $20, 12.5% up to $50, 10% above', () => {
-  assert.deepEqual(COMMISSION_TIERS, [
-    { maxDailyRate: 20, rate: 0.15 },
-    { maxDailyRate: 50, rate: 0.125 },
-    { maxDailyRate: Infinity, rate: 0.1 },
-  ])
-  assert.equal(getCommissionRate(0.01), 0.15)
-  assert.equal(getCommissionRate(20), 0.15, '$20/day exactly is still 15%')
-  assert.equal(getCommissionRate(20.01), 0.125)
-  assert.equal(getCommissionRate(50), 0.125, '$50/day exactly is still 12.5%')
-  assert.equal(getCommissionRate(50.01), 0.1)
-  assert.equal(getCommissionRate(1000), 0.1)
+test('commission is a flat 15% of the rental subtotal with a $2.00 minimum', () => {
+  assert.equal(COMMISSION_RATE, 0.15)
+  assert.equal(COMMISSION_MIN_CENTS, 200)
+  // The daily price no longer matters: only the subtotal does.
+  assert.equal(calculateCommission(105), 15.75)
+  assert.equal(calculateOwnerPayout(105), 89.25)
+  assert.equal(calculateCommission(100), 15)
+  assert.equal(calculateCommission(420), 63)
+  assert.equal(calculateOwnerPayout(420), 357)
 })
 
-test('the bracket is the daily rate, never the booking total', () => {
-  // A 7-day rental of a $15/day item is $105 but stays in the 15% tier.
-  assert.equal(calculateCommission(105, 15), 15.75)
-  assert.equal(calculateOwnerPayout(105, 15), 89.25)
-  assert.equal(calculateCommission(100, 25), 12.5)
-  assert.equal(calculateCommission(420, 60), 42)
+test('the $2 minimum: boundary at a $13.33 subtotal', () => {
+  // 15% of $13.33 is 199.95 cents -> 200 half-up, exactly the minimum.
+  assert.equal(calculateCommission(13.33), 2)
+  assert.equal(commissionIsMinimum(13.33), false)
+  // 15% of $13.32 is 199.8 cents -> 200 half-up as well: still $2.
+  assert.equal(calculateCommission(13.32), 2)
+  // 15% of $13.30 is 199.5 -> 200; $13.29 is 199.35 -> 199, so the minimum lifts it.
+  assert.equal(calculateCommission(13.29), 2)
+  assert.equal(commissionIsMinimum(13.29), true)
+  // Above the boundary the percentage takes over.
+  assert.equal(calculateCommission(13.37), 2.01)
+  assert.equal(calculateCommission(13.4), 2.01)
+  assert.equal(commissionIsMinimum(13.4), false)
+  assert.equal(calculateOwnerPayout(13.33), 11.33)
+})
+
+test('tiny subtotals: the commission never exceeds the subtotal', () => {
+  assert.equal(calculateCommission(0), 0)
+  assert.equal(calculateOwnerPayout(0), 0)
+  assert.equal(calculateCommission(0.01), 0.01)
+  assert.equal(calculateOwnerPayout(0.01), 0)
+  assert.equal(calculateCommission(1), 1)
+  assert.equal(calculateOwnerPayout(1), 0)
+  assert.equal(calculateCommission(1.99), 1.99)
+  assert.equal(calculateCommission(2), 2)
+  assert.equal(calculateOwnerPayout(2), 0)
+  assert.equal(calculateCommission(5), 2)
+  assert.equal(calculateOwnerPayout(5), 3)
+  assert.equal(calculateCommissionCents(-100), 0)
+})
+
+test('large subtotals: plain 15%, in whole cents', () => {
+  // The listing cap ($1,000/day) x the longest rental (7 days).
+  assert.equal(calculateCommission(7000), 1050)
+  assert.equal(calculateOwnerPayout(7000), 5950)
+  assert.equal(calculateCommission(999.99), 150)
+  assert.equal(calculateOwnerPayout(999.99), 849.99)
 })
 
 test('HST is 13% of the rental price only', () => {
@@ -92,23 +122,20 @@ test('property: every quote is whole cents and its lines add up exactly', () => 
 
       // Rounding: commission and HST are exact half-up to the cent, including
       // on an exact half cent (the float formula used to round some down).
-      const rate = getCommissionRate(dailyPrice)
-      const [num, den] = rate === 0.15 ? [15, 100] : rate === 0.125 ? [125, 1000] : [1, 10]
-      assert.equal(cents(q.commissionAmount), halfUp(totalCents * num, den))
+      assert.equal(cents(q.commissionAmount), Math.min(totalCents, Math.max(200, halfUp(totalCents * 15, 100))))
       assert.equal(cents(q.hstAmount), halfUp(totalCents * 13, 100))
     }
   }
 })
 
 test('an exact half cent rounds up', () => {
-  // $0.50 of rent at 13% HST is 6.5 cents; $1.00 at 12.5% is 12.5 cents. Both
-  // used to be products the float formula could round either way.
+  // $0.50 of rent at 13% HST is 6.5 cents, a product the float formula could
+  // round either way.
   const q = quoteRental(0.5, 1)
   assert.equal(q.hstAmount, 0.07)
-  assert.equal(calculateCommission(1, 30), 0.13)
-  assert.equal(calculateOwnerPayout(1, 30), 0.87)
   // $20.50 x 1 day at 15%: 307.5 cents -> $3.08, payout $17.42.
-  assert.equal(calculateCommission(20.5, 20), 3.08)
+  assert.equal(calculateCommission(20.5), 3.08)
+  assert.equal(calculateOwnerPayout(20.5), 17.42)
 })
 
 test('roundCurrency rounds to the cent', () => {

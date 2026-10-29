@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
 import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import { COMMISSION_MIN_CENTS, COMMISSION_RATE, DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
 import { acceptBooking, cancelBooking, declineBooking, getBooking, getHandoffPhotos } from '../services/bookingsApi'
 import { getMyDisputeForBooking } from '../services/disputesApi'
@@ -252,10 +252,13 @@ export default function BookingDetailScreen() {
   const disputeIsResolved = RESOLVED_DISPUTE_STATUSES.includes(booking.disputeStatus)
   const canFileDispute = DISPUTABLE_BOOKING_STATUSES.includes(booking.status) && !disputeIsActive
 
-  // Derived, not stored — always computed from the two amounts the API
-  // already gives us, so it stays correct if the backend's commission tiers
-  // ever change without this screen needing to know what they are.
+  // Derived, not stored — always computed from the two amounts the booking
+  // snapshotted, so a booking made under the old tiered commission still shows
+  // the rate it was actually charged. Above 15% means the $2 minimum applied.
   const commissionRatePct = booking.totalPrice > 0 ? (booking.commissionAmount / booking.totalPrice) * 100 : 0
+  const commissionLabel = commissionRatePct > COMMISSION_RATE * 100 + 0.05
+    ? `minimum $${COMMISSION_MIN_CENTS / 100}`
+    : `${Number(commissionRatePct.toFixed(1))}%`
   const ownerDepositLabel = ownerDepositStatusLabel(booking.depositStatus)
   const renterDepositLabel = renterDepositStatusLabel(booking.depositStatus)
   const hasDeposit = booking.depositAmount > 0
@@ -503,7 +506,7 @@ export default function BookingDetailScreen() {
             <PriceTable
               rows={[
                 { label: 'Rental price', value: money(booking.totalPrice) },
-                { label: `Zoink commission (${commissionRatePct.toFixed(1)}%)`, value: `−${money(booking.commissionAmount)}` },
+                { label: `Zoink commission (${commissionLabel})`, value: `−${money(booking.commissionAmount)}` },
               ]}
               total={{ label: 'You get', value: money(booking.ownerPayout) }}
               highlight="green"
