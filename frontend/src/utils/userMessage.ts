@@ -124,8 +124,8 @@ const SHOWN_PATTERNS: { source: string; pattern: RegExp }[] = [
     pattern: /^The dispute window has closed\. Disputes must be filed within \d+ hours of the booking completing\.$/,
   },
   {
-    source: 'Please use your ${UNIVERSITY_LABELS[data.university]} student email (@${domain}).',
-    pattern: /^Please use your [\w .'&-]+ student email \(@[\w.-]+\)\.$/,
+    source: 'Please use your ${UNIVERSITY_LABELS[data.university]} student email (${domains}).',
+    pattern: /^Please use your [\w .'&-]+ student email \(@[\w.-]+(?:,? (?:or )?@[\w.-]+)*\)\.$/,
   },
 ]
 

@@ -62,3 +62,31 @@ Static review of `3d25ae4`:
 - Side effect in the lockfile: npm dropped two stale nested `semver@7.7.2` copies under react-native-reanimated / react-native-worklets, which the root `"semver": "7.8.5"` override already covers. Frontend typecheck + tests pass; worth a glance in the next native build (it's only used by their build-time version checks).
 - Cloudinary v2: the code only ever used `v2.uploader.upload_stream` and `v2.uploader.destroy`, unchanged in 2.x. The 2.0 breaking changes (secure URLs default, URL analytics default, Node 6/8 dropped) don't touch it: we store `result.secure_url` and build no URLs with the SDK. Typecheck, unit tests, and the upload/delete integration tests (which mock the network call) pass.
 - **Real upload can't be tested here** (no Cloudinary credentials/network). Manual steps are in `docs/morning-test-plan.md` (upload a listing photo, an avatar and handoff photos; delete a photo and a listing; check the Cloudinary Media Library).
+
+## Task 4: university email domains — **done** (commit below)
+
+What I found: the list was already one-domain-per-school in `packages/shared/src/universities.ts` (a `University` enum key → one domain), used by backend `RegisterSchema` and the app's inline check. **`uoguelph.ca` is not in the code, docs or git history**, so there was nothing to keep; I did not add Guelph (not in the target list). Laurier (`mylaurier.ca`) and Waterloo (`uwaterloo.ca`) were present and are kept.
+
+Change: `UNIVERSITY_EMAIL_DOMAINS: Record<University, string[]>` is now the single source of truth; `UNIVERSITY_DOMAINS` (first = student domain, for placeholders) is derived from it. `isUniversityEmail` / `universityForEmail` / `universityDomainsText` are shared and used by the backend schema, the app's inline validation and the profile's school badge. Backend and app now show the **same sentence**: "Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca)." No schema/migration change (no new schools).
+
+Final list:
+
+| School | Domains (first is the hint) |
+| --- | --- |
+| University of Toronto | `mail.utoronto.ca`, `utoronto.ca` (added) |
+| Toronto Metropolitan University | `torontomu.ca`, `ryerson.ca` (added, legacy) |
+| Wilfrid Laurier University | `mylaurier.ca` |
+| York University | `my.yorku.ca`, `yorku.ca` (added) |
+| Ontario Tech University | `ontariotechu.net`, `ontariotechu.ca` (added) |
+| McMaster University | `mcmaster.ca` |
+| University of Waterloo | `uwaterloo.ca` |
+
+Domains I'm less sure of (from general knowledge, not verifiable here):
+- `utoronto.ca`, `yorku.ca`, `ontariotechu.ca` are mostly **staff/faculty** addresses; students normally have `mail.utoronto.ca`, `my.yorku.ca`, `ontariotechu.net`. Added because you asked; it means staff can sign up too.
+- `ryerson.ca`: TMU moved students to `torontomu.ca` in 2022–23; old addresses forwarded for a while. Possibly only alumni still have one. Harmless to keep, remove if you'd rather.
+- `mcmaster.ca` is the student domain as far as I know (students are `macid@mcmaster.ca`).
+- Matching is exact: `@cs.utoronto.ca` or any other subdomain is **not** accepted.
+- Also: the landing page's campus strip and waitlist dropdown list six schools without Waterloo; PRODUCT.md said "five universities" and listed `wlu.ca` (code says `mylaurier.ca`). PRODUCT.md is updated; the landing page is a locked brand asset per PRODUCT.md, so I left it.
+- README had a stale `ALLOWED_EMAIL_DOMAINS` example (including gmail.com/hotmail.com) for an env var nothing reads any more; removed.
+
+Tests: shared `universities.test.ts` (the full list pinned, exact/subdomain/case matching), backend `src/schemas/auth.schema.test.ts` (added `src/schemas/*.test.ts` to the unit glob), frontend `formValidation.test.ts` and `userMessage.test.ts` (new message, still matched by its pattern).

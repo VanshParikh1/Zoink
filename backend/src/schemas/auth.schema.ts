@@ -1,10 +1,10 @@
 import { z } from 'zod'
-import { UNIVERSITY_DOMAINS, UNIVERSITY_LABELS, type University } from '@zoink/shared'
+import { isUniversityEmail, universityDomainsText, UNIVERSITY_EMAIL_DOMAINS, UNIVERSITY_LABELS, type University } from '@zoink/shared'
 
 /**
  * Auth-domain request schemas.
  *
- * The university email allowlist (UNIVERSITY_DOMAINS) lives in
+ * The university email allowlist (UNIVERSITY_EMAIL_DOMAINS) lives in
  * packages/shared/src/universities.ts so backend validation and the frontend
  * picker/inline check can't drift from each other. Structural + domain
  * validation both happen here in Zod — the frontend's client-side check is
@@ -25,7 +25,7 @@ export function normalizePhone(phone: string): string {
   return `+1${tenDigits}`
 }
 
-const UNIVERSITY_KEYS = Object.keys(UNIVERSITY_DOMAINS) as [University, ...University[]]
+const UNIVERSITY_KEYS = Object.keys(UNIVERSITY_EMAIL_DOMAINS) as [University, ...University[]]
 
 export const RegisterSchema = z.object({
   body: z
@@ -48,12 +48,13 @@ export const RegisterSchema = z.object({
       ageAttested: z.literal(true, { message: 'You must confirm you are 18 or older.' }),
     })
     .superRefine((data, ctx) => {
-      const domain = UNIVERSITY_DOMAINS[data.university]
-      if (!data.email.toLowerCase().endsWith(`@${domain}`)) {
+      if (!isUniversityEmail(data.university, data.email)) {
+        // The app's inline check (frontend formValidation.ts) says the same.
+        const domains = universityDomainsText(data.university)
         ctx.addIssue({
           code: 'custom',
           path: ['email'],
-          message: `Please use your ${UNIVERSITY_LABELS[data.university]} student email (@${domain}).`,
+          message: `Please use your ${UNIVERSITY_LABELS[data.university]} student email (${domains}).`,
         })
       }
     }),

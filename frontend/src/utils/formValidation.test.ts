@@ -44,7 +44,15 @@ describe('registration', () => {
   })
 
   test("the email must be the chosen university's", () => {
-    assert.equal(validateRegistration({ ...goodRegistration, email: 'sam@gmail.com' }).email, 'Use your @mail.utoronto.ca address.')
+    assert.equal(
+      validateRegistration({ ...goodRegistration, email: 'sam@gmail.com' }).email,
+      'Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca).',
+    )
+    // Either UofT domain is fine; a look-alike subdomain or another school's isn't.
+    assert.equal(validateRegistration({ ...goodRegistration, email: 'sam@utoronto.ca' }).email, undefined)
+    assert.equal(validateRegistration({ ...goodRegistration, email: 'Sam@Mail.UToronto.ca' }).email, undefined)
+    assert.ok(validateRegistration({ ...goodRegistration, email: 'sam@evil.utoronto.ca' }).email)
+    assert.ok(validateRegistration({ ...goodRegistration, email: 'sam@my.yorku.ca' }).email)
   })
 
   test('phone: the forms the server accepts pass, others do not', () => {

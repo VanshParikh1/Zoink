@@ -37,8 +37,12 @@ describe('userMessage', () => {
   test('a sentence with a number in it is matched by its pattern', () => {
     assert.equal(userMessage(answered(400, { error: 'Bookings cannot exceed 7 days.' })), 'Bookings cannot exceed 7 days.')
     assert.equal(
-      userMessage(answered(400, { error: 'Validation failed.', issues: [{ path: 'body', message: 'Please use your University of Toronto student email (@mail.utoronto.ca).' }] })),
-      'Please use your University of Toronto student email (@mail.utoronto.ca).'
+      userMessage(answered(400, { error: 'Validation failed.', issues: [{ path: 'body', message: 'Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca).' }] })),
+      'Please use your University of Toronto student email (@mail.utoronto.ca or @utoronto.ca).'
+    )
+    assert.equal(
+      userMessage(answered(400, { error: 'Validation failed.', issues: [{ path: 'body', message: 'Please use your McMaster University student email (@mcmaster.ca).' }] })),
+      'Please use your McMaster University student email (@mcmaster.ca).'
     )
   })
 

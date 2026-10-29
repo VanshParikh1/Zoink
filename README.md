@@ -327,7 +327,6 @@ DATABASE_URL="postgresql://youruser@localhost:5432/zoink"
 JWT_SECRET="your-secret-key"
 PORT=3000
 
-ALLOWED_EMAIL_DOMAINS="utoronto.ca,mail.utoronto.ca,torontomu.ca,wlu.ca,yorku.ca,mcmaster.ca,ontariotechu.ca,gmail.com,hotmail.com"
 OTP_EXPIRY_MINUTES=15
 
 AWS_REGION=

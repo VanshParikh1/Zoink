@@ -1,4 +1,4 @@
-import { University, UNIVERSITY_DOMAINS } from '@zoink/shared'
+import { isUniversityEmail, University, universityDomainsText, UNIVERSITY_LABELS } from '@zoink/shared'
 
 // Every form's client-side checks, in one place and unit-tested
 // (formValidation.test.ts). The server checks again and is the one trusted;
@@ -44,8 +44,9 @@ export function validateRegistration(form: {
   const errors: FieldErrors<RegistrationField> = {}
   const email = form.email.trim().toLowerCase()
   if (!email) errors.email = 'Enter your student email.'
-  else if (form.university && !email.endsWith(`@${UNIVERSITY_DOMAINS[form.university]}`)) {
-    errors.email = `Use your @${UNIVERSITY_DOMAINS[form.university]} address.`
+  else if (form.university && !isUniversityEmail(form.university, email)) {
+    // The same sentence the server sends (backend auth.schema.ts RegisterSchema).
+    errors.email = `Please use your ${UNIVERSITY_LABELS[form.university]} student email (${universityDomainsText(form.university)}).`
   }
   if (!form.university) errors.university = 'Choose your university.'
   if (blank(form.firstName)) errors.firstName = 'Enter your first name.'

@@ -14,7 +14,7 @@ adaptive
 
 **Operator: Admins** — Platform team managing dispute resolution, marketplace integrity, and payout decisions.
 
-All users are verified students at one of five GTA universities (see Capabilities and Constraints).
+All users are verified students at one of the supported Ontario universities (see Capabilities and Constraints).
 
 ## Product Purpose
 
@@ -40,15 +40,16 @@ Facebook Marketplace and campus group chats have no answer for: "item comes back
 
 ## Capabilities and Constraints
 
-**Verified university access only.** Supported email domains (GTA universities):
-- University of Toronto: `utoronto.ca`, `mail.utoronto.ca`
-- Toronto Metropolitan University: `torontomu.ca`
-- Wilfrid Laurier University: `wlu.ca`
-- York University: `yorku.ca`
+**Verified university access only.** Supported email domains (single source of truth: `UNIVERSITY_EMAIL_DOMAINS` in `packages/shared/src/universities.ts`; the first domain is the student address shown in hints):
+- University of Toronto: `mail.utoronto.ca`, `utoronto.ca`
+- Toronto Metropolitan University: `torontomu.ca`, `ryerson.ca` (legacy)
+- Wilfrid Laurier University: `mylaurier.ca`
+- York University: `my.yorku.ca`, `yorku.ca`
 - McMaster University: `mcmaster.ca`
-- Ontario Tech University: `ontariotechu.ca`
+- Ontario Tech University: `ontariotechu.net`, `ontariotechu.ca`
+- University of Waterloo: `uwaterloo.ca`
 
-Do not expand beyond these five universities without an explicit product decision.
+Sign-up stays open to every school above (decision 2026-10-29), even though the marketing pilot targets one campus. Do not add or remove a school without an explicit product decision.
 
 **Booking state machine:** `PENDING → ACCEPTED → PICKUP_PENDING → ACTIVE → RETURN_PENDING → COMPLETED` (with `DECLINED`/`CANCELLED` exits). State transitions are strictly enforced on the backend.
 
