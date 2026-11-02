@@ -4,7 +4,21 @@
 
 Zoink helps university students rent useful things from nearby students instead of buying items they only need temporarily — cameras, speakers, tools, sports gear, event equipment — with verification, messaging, payments, deposit protection, and a photo-verified handoff built into the rental flow.
 
-The project is in active MVP development. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, a separately-authorized security deposit, 13% HST, flat 15% commission ($2 minimum), a dispute-filing/resolution flow (renter/owner + admin), abuse reporting (listings and users), rate limiting, error tracking, a security-hardening pass (fail-closed Stripe webhook verification, DB-backed authorization, response-shape scrubbing on the dispute and handoff endpoints), and a neobrutalist app-wide design system are all implemented. Remaining major work: broader automated test coverage, production deployment, and TestFlight/release readiness.
+The project is in pre-launch. The marketplace, the full booking → pay → handoff → payout lifecycle, messaging with real per-user read tracking, reviews, push notifications, Stripe Connect onboarding, an optional separately-authorized security deposit with pilot deposit rules, 13% HST, flat 15% commission ($2 minimum), a dispute-filing/resolution flow (renter/owner + admin), abuse reporting and user blocking, rate limiting, error tracking, and a neobrutalist app-wide design system are all implemented. A six-phase quality pass (correctness, security, backend and frontend performance, reliability/UX) and a launch-prep pass (commission, deposit rules, payment gate on pickup, store docs) have landed on `main`. Remaining work: the device/Stripe test-key checks in [`docs/morning-test-plan.md`](docs/morning-test-plan.md), the owner-only steps in [`docs/launch-checklist.md`](docs/launch-checklist.md), production deployment, and store submission.
+
+### Docs
+
+| Doc | What it's for |
+|---|---|
+| [`docs/launch-checklist.md`](docs/launch-checklist.md) | Steps only the owner can do before launch, in order (incl. SQL for leftover `pi_mock_%` rows) |
+| [`docs/morning-test-plan.md`](docs/morning-test-plan.md) | One Android emulator + one iOS simulator session covering the launch-prep changes |
+| [`docs/overnight-log.md`](docs/overnight-log.md) | Launch-prep record: every change, decision and test number |
+| [`docs/hardening-report.md`](docs/hardening-report.md) / [`docs/hardening-log.md`](docs/hardening-log.md) | Quality-pass summary by phase / the full working record |
+| [`docs/android-handoff.md`](docs/android-handoff.md) | Android build and check notes for Windows |
+| [`docs/store/`](docs/store/) | Play listing, Play Data safety, TestFlight / App Review info |
+| [`docs/reskin-*.md`](docs/) | Design-system reskin audit, dev notes and what's left |
+| [`CODEBASE_OVERVIEW.md`](CODEBASE_OVERVIEW.md) / [`PRODUCT.md`](PRODUCT.md) | File-by-file map / product brief |
+| [`legal/`](legal/) | Terms and privacy source (`npm run generate:legal` regenerates the app and landing copies) |
 
 ---
 
@@ -15,16 +29,21 @@ The project is in active MVP development. The marketplace, the full booking → 
 **Accounts & verification**
 
 - JWT-protected routes; bcrypt password hashing.
-- University email OTP verification and verified-only marketplace access.
+- University email OTP verification and verified-only marketplace access. Accepted domains live in one shared list (`UNIVERSITY_EMAIL_DOMAINS` in `packages/shared/src/universities.ts`, exact match, no subdomains): U of T (`mail.utoronto.ca`, `utoronto.ca`), TMU (`torontomu.ca`, `ryerson.ca`), Laurier (`mylaurier.ca`), York (`my.yorku.ca`, `yorku.ca`), Ontario Tech (`ontariotechu.net`, `ontariotechu.ca`), McMaster (`mcmaster.ca`), Waterloo (`uwaterloo.ca`). App and server show the same error sentence.
+- An account isn't active until its code is verified: before that it can only verify, read or delete itself. A new sign-up on the same email replaces an unverified one, and unverified accounts with no activity are deleted after 24 h. Codes: 10/day per email, 50/day per network, one resend a minute.
+- When the server ends a session (expired, deleted), the app signs out to Login with a notice. A phone's push token belongs to one account at a time.
+- Users can block each other (`POST/DELETE /users/:id/block`, list in Settings). Account deletion (`DELETE /users/me`) anonymises the account, hides its listings and removes the profile photo — see "To do next" for the gap against the privacy policy.
 - Phone number required at registration — 10-digit Canadian/NANP, accepts common formats (`(416) 555-0192`), normalized to `+1XXXXXXXXXX` before storage. `User.phone` is `NOT NULL`.
 - User profiles, public profile surfaces, avatars, reputation, and review summaries.
 
 **Listings & discovery**
 
 - Listings with photos, categories, daily pricing, item value, an owner-configured security deposit, and real device-GPS location.
-- `depositAmount` is owner-set per listing (optional, defaults to `0`). If a deposit is set, `itemValue` is required and the deposit cannot exceed it.
+- `depositAmount` is owner-set per listing (optional, defaults to `0`). If a deposit is set it must be at least $1 and no more than `itemValue`, which is then required. `itemValue` is capped at $1,000. The listing form has **No deposit / Hold a deposit** chips; turning it on suggests 30% of the item value (whole dollars) until the owner types their own amount. Deposit listings show a "Deposit-backed" badge. Rules are in `packages/shared/src/deposits.ts`.
+- A listing with booking or chat history is **soft-deleted** (`listings.deletedAt`): hidden everywhere, photos removed from Cloudinary, no new bookings/chats/edits; past bookings keep its title and prices. A booking still in progress blocks the delete.
 - Location step uses `expo-location` GPS with a draggable/pinch-zoom map (`LocationMapPreview` → `LocationMapModal`), tiles from MapTiler (`EXPO_PUBLIC_MAPTILER_API_KEY`) with a raw-OSM fallback for local dev only. `MapAttribution` switches its label to match whichever provider is serving.
-- Browse/search with geo-distance, category, price, and availability filtering. The browse endpoint returns an `{ items, meta: { total, offset, limit, hasMore } }` envelope.
+- Browse/search with geo-distance, category, price, and availability filtering.
+- Every growing list (browse/search, My listings, booking lists, inbox, chat history, admin disputes/reports, booking timeline) is **cursor-paginated** (`limit` + `cursor` → `nextCursor`). A request without `limit` gets the old response shape, capped at 100 rows, so older app builds keep working. Responses over 1 KB are gzipped and listing reads revalidate (304).
 
 **Messaging**
 
@@ -35,9 +54,10 @@ The project is in active MVP development. The marketplace, the full booking → 
 
 - Booking states: `PENDING → ACCEPTED → CONFIRMED → PICKUP_PENDING → ACTIVE → RETURN_PENDING → COMPLETED` (plus `DECLINED` / `CANCELLED`). See "Booking Lifecycle" below.
 - **Accepting no longer takes payment.** The owner just needs Stripe payouts enabled, and the dates must not overlap a `CONFIRMED`/`ACTIVE` booking. Accepting a request auto-declines any other still-`PENDING` request on the same listing that overlaps those dates; auto-declined requests do not revive if the accepted one is later cancelled.
-- **Payment happens at `ACCEPTED → CONFIRMED`**, on the `Pay` screen: the renter creates the rental PaymentIntent (`POST /bookings/:id/payment-intent`), pays through Stripe PaymentSheet, then confirms (`PATCH /bookings/:id/confirm`). On confirm the backend authorizes the **security deposit as its own off-session PaymentIntent**, reusing the card just saved. If the deposit authorization fails, the rental PaymentIntent is cancelled and the booking stays `ACCEPTED` so the renter can retry — a booking never becomes `CONFIRMED` with only the rental secured.
+- **Payment happens at `ACCEPTED → CONFIRMED`**, on the `Pay` screen: the renter creates the rental PaymentIntent (`POST /bookings/:id/payment-intent`), pays through Stripe PaymentSheet, then confirms (`PATCH /bookings/:id/confirm`). If the listing has a deposit, the backend then authorizes the **security deposit as its own off-session PaymentIntent**, reusing the card just saved. Only a deposit PaymentIntent that actually reaches `requires_capture` counts; anything else (e.g. `requires_action` for 3-D Secure, or a decline) releases both holds and leaves the booking `ACCEPTED` so the renter can retry. A **no-deposit booking confirms on the rent alone** (no deposit PaymentIntent, `depositStatus` null). Paying and confirming take row locks and re-check overlaps; a repeated confirm returns the first result.
 - While a booking sits `ACCEPTED`-unpaid, the renter sees a "payment needed" badge in the inbox row and a banner in the conversation thread (`Conversation.acceptedUnpaidBookingId`), both linking straight to `Pay`.
-- Rentals are capped at **7 days** (`MAX_RENTAL_DAYS`) — card-network authorization holds are only reliably valid for about a week.
+- Rentals are capped at **7 days** (`MAX_RENTAL_DAYS`, `packages/shared/src/bookingWindows.ts`). **Deposit rentals are capped at 3 days** (`DEPOSIT_MAX_RENTAL_DAYS`) and can only be paid from **00:00 Toronto time the day before the start** (409 "You can pay from …" before that; the Pay button shows the same). Worst-case deposit hold is about 5 days. No-deposit bookings can be paid any time after acceptance.
+- **No pickup without payment.** Every pickup step (start, photo re-submit, Zoink It tap) requires the rent to be `AUTHORIZED`/`CAPTURED` and, for deposit bookings, the deposit `AUTHORIZED`; otherwise 409 `{ error, code: "PICKUP_PAYMENT_REQUIRED" }`. The rule is `isPickupPaymentReady` in `@zoink/shared`, so the app hides the handoff and shows the same notice. If the rent capture fails at pickup, the booking stays put (never goes `ACTIVE` unpaid) and both people are told to keep the item and retry.
 - Photo-verified synchronized handoff ("Zoink It"): pickup is initiated by the owner from `CONFIRMED`, return by the renter from `ACTIVE`; each phase needs 2–3 photos and both parties tapping within `ZOINK_TAP_WINDOW_MS`. Synchronized pickup → `ACTIVE` and captures the rental PaymentIntent; synchronized return → `COMPLETED` → `PAYOUT_PENDING` and creates review obligations. Re-submitting photos before the phase confirms does not re-notify or re-transition. Listing and handoff photos open in a full-screen pinch-zoom viewer (`PhotoViewerScreen`).
 - Owner payout is held in `PAYOUT_PENDING` for `PAYOUT_HOLD_HOURS` (default 24), then released as a Stripe Transfer by the cleanup job — unless the booking has an unresolved dispute or was resolved `RESOLVED_REFUND` (see "Payout Rules").
 - The cleanup/reconciliation jobs run on `node-cron`: stale-handoff cleanup + payout release + deposit release every 15 minutes, Stripe reconciliation hourly (all skipped when `NODE_ENV=test`).
@@ -45,12 +65,12 @@ The project is in active MVP development. The marketplace, the full booking → 
 **Pricing**
 
 - **13% Ontario HST** on the rental price only — not the deposit (a hold, not a sale) and not insurance. Charged on top of what the renter pays; never subtracted before commission/payout, so it has no effect on owner earnings. Snapshotted as `Booking.hstAmount` at request time. There is no per-listing jurisdiction field yet, so it applies to every booking. (`HST_RATE` is a hardcoded constant in `paymentService.ts`, not an env var.)
-- **Flat platform commission**: 15% of the rental subtotal, minimum $2.00 per rental, never more than the subtotal; owner-side only (no renter fee), never on deposits. Computed once at request time in integer cents and snapshotted; `ownerPayout = totalPrice − commission`. (`COMMISSION_RATE` / `COMMISSION_MIN_CENTS` in `packages/shared/src/commission.ts`; `PLATFORM_COMMISSION_RATE` is no longer used. Bookings made under the old daily-rate tiers keep their snapshotted numbers.)
+- **Flat platform commission**: 15% of the rental subtotal, minimum $2.00 per rental, never more than the subtotal (so on a rental under $2 the owner keeps $0); owner-side only (no renter fee), never on deposits. Computed once at request time in integer cents, rounded half-up, and snapshotted; `ownerPayout = totalPrice − commission`. Booking detail shows "minimum $2" when the minimum applied. (`COMMISSION_RATE` / `COMMISSION_MIN_CENTS` in `packages/shared/src/commission.ts`; `PLATFORM_COMMISSION_RATE` is no longer used. Bookings made under the old daily-rate tiers keep their snapshotted numbers.)
 - **No insurance, damage-protection, or protection fee is offered**, per terms.md §12. The renter is never charged anything beyond rental price, HST, and the (held, not charged) deposit. Dormant `insuranceFee` / `insuranceOptIn` plumbing remains in the schema but is fully disabled: `insuranceOptIn` is forced `false`, `calculateInsuranceFee()` short-circuits to `0`, and `booking.schema.ts` rejects any attempt to set it. The `INSURANCE_RATE` / `MIN_INSURANCE_FEE` / `MAX_INSURANCE_FEE` env vars are unused.
 
 **Security deposit lifecycle** (`Booking.depositStatus`: `AUTHORIZED` / `CAPTURED` / `RELEASED`)
 
-- Authorized at `CONFIRMED` as its own manual-capture, off-session PaymentIntent (`stripeDepositPaymentIntentId`), so it stays held through the whole rental rather than being released as a side effect of the rental capture at pickup.
+- Only for listings with a deposit. Authorized at `CONFIRMED` as its own manual-capture, off-session PaymentIntent (`stripeDepositPaymentIntentId`), so it stays held through the whole rental rather than being released as a side effect of the rental capture at pickup. Cancelling a paid booking releases both holds.
 - Auto-**released** 24 hours after completion (`DEPOSIT_HOLD_HOURS`, `cleanupJob.releaseDueDeposits`) if no dispute is open.
 - A dispute filed against a `COMPLETED` booking resolves **against the deposit**: `RESOLVED_REFUND` with a charge captures part or all of the hold (damage found) and transfers it to the owner **in full, no commission cut** (`transferDepositCompensation`); `RESOLVED_REFUND` with no charge cancels the hold (no damage). A manual-capture PaymentIntent can only be captured once, so only the first dispute can resolve the deposit.
 
@@ -84,6 +104,11 @@ The project is in active MVP development. The marketplace, the full booking → 
 - **Authorization is enforced against the live DB, not the token.** `requireAuth` re-reads `role` and `verificationStatus` from the `User` row on every request (the same lookup that already checks `deletedAt`), so revoking an admin or a user's verification takes effect on their next request instead of when their 30-day JWT expires. The JWT still carries `role`/`verificationStatus`, but only as hints — `requireAdmin` / `requireVerified` act on the DB value.
 - **Dispute reads are shaped per caller.** `GET /disputes/:id` and `GET /disputes` no longer return the raw row: `resolvedByAdminId` is admin-only, the raiser's free-text `description` is withheld from the counterparty the dispute was raised against, and the embedded booking is narrowed to id / status / dates / listing title.
 - **Handoff responses are scrubbed.** The pickup/return/tap endpoints route their booking payload through the shared `toBookingResponse` serializer, so `renter`/`owner` are the `UserSummary` shape — `renter.stripeCustomerId`, `renter.email`, and `owner.stripeAccountId` are no longer sent to the booking counterparty.
+- **Personal data is scrubbed from logs, Sentry (server and app) and stored error messages** by one shared rule set (`packages/shared/src/redact.ts`): credentials, emails, push tokens, JWTs, phone numbers, Prisma call arguments.
+- **Stricter input.** Unknown request fields are a 400 naming them; the API enforces the app's own limits (no past start dates, bounded passwords/search terms, normalized phones). Error JSON carries `code` when the error has one.
+- **Per-user caps** on top of the IP limiter: Stripe calls 30/h, payout status 120/h, new listings 20/day, opening conversations 60/h. Production refuses to start with a `JWT_SECRET` under 32 characters.
+- **Deleted photos are removed from Cloudinary** (soft-deleted listings, deleted avatars); only this app's own uploads are ever deleted.
+- **Stripe webhooks only move payment state forward**; the deposit/payout jobs and dispute filing lock the booking and re-check before acting. Reconciliation records a missing PaymentIntent once (`RECONCILIATION_MISMATCH`, `reason: payment_intent_missing`) and skips it after that.
 
 **Admin role**
 
@@ -94,18 +119,30 @@ The project is in active MVP development. The marketplace, the full booking → 
 
 - App-wide neobrutalist / flat-card language matched to the landing page: one type scale, a radius scale, a solid offset "block" shadow (`HardBlock`, since RN's native shadow always renders soft), a green gradient + triangle-texture screen background (`ScreenBackground`), all in `frontend/src/theme/colors.ts`. New shared components: `HardBlock`, `DismissKeyboardView`, `PaymentNeededBadge`, `LocationMapPreview`, `LocationMapModal`, `MapAttribution`. `DraggableLocationMap` was removed.
 
+**App performance & reliability**
+
+- One shared React Query cache for server reads (stale-while-revalidate, infinite scroll, cleared on account change); a small built-in HTTP client (`frontend/src/services/http.ts`) replaced axios.
+- Photos via `expo-image` with memory + disk cache, fetched as WebP; only the four Fira weights in use ship (assets 8.7 MB → 1.7 MB).
+- The splash stays up until the first screen is ready; non-initial screens and payments load lazily. Idle tabs don't re-render on inbox polls; the handoff screen polls only while visible. The chat thread is an inverted list, so loading older messages doesn't jump.
+- Plain-language errors from one place (`frontend/src/utils/userMessage.ts`), skeleton/empty/error states on every data screen, an offline bar, one toast system, single-submit guards, confirmations before cancel/decline, light haptics, and per-section crash boundaries.
+- Deep links and notification taps open the listing, booking or chat (also from cold start or signed out).
+
 **Tests**
 
-- Unit tests across services, middleware, controllers, and scripts (`npm test`).
-- Integration tests (`npm run test:integration`) against a real `zoink_test` Postgres DB + Stripe test mode: `bookingLifecycle`, `bookingCancellation`, `bookingFullFlow` (the new accept → pay → confirm → handoff flow), `bookingListingSortOrder`, `disputeResolution`, `payoutRelease`, `reportFlow`, `stripeWebhooks`, `handoffRace` (concurrent handoff-confirm).
-- `packages/shared` holds Prisma-generated TypeScript interfaces (`packages/shared/generated/prisma-models.ts`) and hand-written response DTOs (`packages/shared/src/dto.ts`); the frontend's `src/types/index.ts` re-exports from `@zoink/shared` so API shapes can't silently drift.
+- Backend unit tests across services, middleware, controllers, schemas and scripts (`npm test`, 232). Frontend unit tests (`cd frontend && npm test`, 155). Shared package tests (`cd packages/shared && npm test`, 30 — money/commission property tests, deposits, dates across time zones and DST, universities, redaction).
+- Integration tests (`npm run test:integration`, ~600) against a real `zoink_test` Postgres DB + Stripe test mode: booking lifecycle / full flow / cancellation / concurrency, state machine over HTTP, pickup capture and payment guard, deposit rules, dispute resolution, payout release, webhooks and webhook ordering, job races, reconciliation, authorization on every route, push tokens, code send limits, unverified accounts, Cloudinary cleanup, listing soft-delete, user blocking. About 80 of them need real Stripe test keys and `DEV_STRIPE_ACCOUNT_ID`. Every integration file truncates the DB when it finishes, so no test rows are left behind.
+- `packages/shared` holds Prisma-generated TypeScript interfaces (`packages/shared/generated/prisma-models.ts`), hand-written response DTOs (`packages/shared/src/dto.ts`), and the business rules both sides use (commission, pricing, deposits, booking windows, dates, handoff, universities, redaction); the frontend's `src/types/index.ts` re-exports from `@zoink/shared` so API shapes can't silently drift.
+- `backend/src/scripts/bench/` seeds a benchmark DB and times every route; `EXPO_PUBLIC_PERF_LOG=1` turns on startup/scroll timing in the app.
 
 ### To do next
 
-- Give admins an in-app (or at least internal-tool) way to grant/revoke the `ADMIN` role — still CLI-only.
-- Broader integration coverage: review obligations, notification delivery.
-- Production deployment infra, environment separation, operational monitoring.
-- Confirm a working TestFlight build, then finish release readiness.
+- **Before launch:** run [`docs/morning-test-plan.md`](docs/morning-test-plan.md), including one deposit and one no-deposit booking end to end with Stripe test keys, then work through [`docs/launch-checklist.md`](docs/launch-checklist.md).
+- **Privacy policy vs. account deletion don't match.** `legal/privacy.md` §7–8 promise a 30-day purge and that an open booking or dispute blocks deletion; the code anonymises immediately, only hides the user's listings (their photos stay), and doesn't block on open bookings. Reword the policy or build the missing parts.
+- Decide whether to bump `CURRENT_TERMS_VERSION` (still 1.0) — terms §5, §10.2, §10.3 and §11 changed in launch-prep.
+- Consider a minimum daily price (the $2 commission minimum leaves the owner $0 on rentals under $2) and applying the 24 h pay window to no-deposit bookings too.
+- No in-app "pay again" if the rent authorization fails or expires after `CONFIRMED`; the booking has to be cancelled.
+- Give admins an in-app (or at least internal-tool) way to grant/revoke the `ADMIN` role — still CLI-only. JWTs can't be revoked before their 30 days.
+- Production deployment, environment separation, operational monitoring; App Store / Play submission.
 
 ---
 
@@ -113,9 +150,10 @@ The project is in active MVP development. The marketplace, the full booking → 
 
 ```text
 Renter:
-Search → Message → Request booking (optional insurance) → [owner accepts]
-  → Pay (rental PaymentIntent + PaymentSheet + deposit authorized) → CONFIRMED
-  → Pickup photos → Zoink It → use item → Return photos → Zoink It → Review
+Search → Message → Request booking → [owner accepts]
+  → Pay (rental PaymentIntent + PaymentSheet + deposit authorized if the listing has one;
+         deposit bookings payable from 00:00 Toronto the day before the start) → CONFIRMED
+  → Pickup photos (refused until payment has gone through) → Zoink It → use item → Return photos → Zoink It → Review
 
 Owner:
 List item → Message renter → Accept request (no payment) → [renter pays] → CONFIRMED
@@ -216,7 +254,8 @@ Admin routes are gated by `requireAuth` + `requireAdmin`.
 ### Cancellation rules
 
 - Before acceptance, or after acceptance but before payment (`PENDING` / `ACCEPTED`): no PaymentIntent exists yet, so nothing is charged or released — the Stripe call is skipped entirely.
-- After payment (`CONFIRMED`), before pickup: **no cancellation fee** — the rental authorization hold is fully released. This is a launch product decision, not a limitation: `bookingService.calculateCancellationFeeCents()` still contains the tiered logic (5% of total, min $5, max $25) behind an unconditional `return 0`, retained for a planned owner opt-in "cancellation fee" toggle.
+- Cancelling is allowed until **00:00 Toronto time on the rental day** (correct across DST, whatever the device time zone).
+- After payment (`CONFIRMED` / `PICKUP_PENDING`), before pickup completes: **no cancellation fee** — the rental and deposit holds are both released. This is a launch product decision, not a limitation: `bookingService.calculateCancellationFeeCents()` still contains the tiered logic (5% of total, min $5, max $25) behind an unconditional `return 0`, retained for a planned owner opt-in "cancellation fee" toggle.
 - After pickup: no automatic refund — admin/dispute intervention.
 
 ### Payout rules
@@ -246,7 +285,8 @@ Runs a backend-only users → listing → booking → handoff flow in forced moc
 | Database | PostgreSQL + Prisma 7 (`@prisma/adapter-pg` + `pg`) |
 | Shared types | `packages/shared` — Prisma-generated interfaces + response DTOs, consumed as `@zoink/shared` |
 | Validation | Zod v4 (`src/schemas/*.schema.ts` + `src/middleware/validate.ts`) |
-| Image storage | Cloudinary (via `multer` memory storage) |
+| Image storage | Cloudinary SDK 2.x (via `multer` memory storage); app reads through `expo-image` |
+| App data layer | `@tanstack/react-query` + a small built-in fetch client (`frontend/src/services/http.ts`) |
 | Email | AWS SES |
 | Payments | Stripe (rental + separate deposit PaymentIntents, Connect transfers) |
 | Push notifications | Expo Push Notifications |
@@ -436,8 +476,18 @@ Zoink/
     shared/
       generated/prisma-models.ts   # Prisma-generated TS interfaces
       src/dto.ts  src/index.ts      # response DTOs, exported as @zoink/shared
+      src/commission.ts  deposits.ts  bookingWindows.ts  dates.ts
+      src/handoff.ts  pricing.ts  universities.ts  redact.ts   # shared business rules
+      legal/                        # generated from legal/*.md
+      test/
+  legal/
+    terms.md  privacy.md            # source of truth for the legal text
   landing/
-    index.html  assets/
+    index.html  terms.html  privacy.html  delete-account.html  assets/
+  docs/
+    launch-checklist.md  morning-test-plan.md  overnight-log.md
+    hardening-report.md  hardening-log.md  android-handoff.md
+    store/                          # Play listing, Data safety, TestFlight info
 ```
 
 ---
@@ -459,6 +509,14 @@ Frontend:
 ```bash
 cd frontend
 npx tsc --noEmit
+npm test
+```
+
+Shared package (not wired into the root scripts):
+
+```bash
+cd packages/shared
+npm test
 ```
 
 From the repo root: `npm run typecheck:backend`, `npm run typecheck:frontend`, `npm run test:backend`, `npm run generate`.
@@ -482,9 +540,11 @@ No lint/format scripts are configured.
 | 9 | Push notifications and UI polish | Done |
 | 10 | Stripe Connect onboarding, real payment UX, active rentals | Done |
 | 11 | Admin/disputes + abuse reports (backend + frontend), integration tests, hardening | Done — rate limiting, helmet, Sentry, Zod validation in place; a follow-up security pass added fail-closed Stripe webhook verification, DB-backed authorization (no stale-JWT admin), and response scrubbing on the dispute/handoff endpoints; admin-role grant still CLI-only |
-| 12 | Booking-flow rework (`CONFIRMED` + Pay screen), separate deposit PaymentIntent, HST, tiered commission | Done |
+| 12 | Booking-flow rework (`CONFIRMED` + Pay screen), separate deposit PaymentIntent, HST, commission (tiered, later flat 15%) | Done |
 | 13 | App-wide neobrutalist design system | Done |
-| 14 | Deployment, TestFlight, production readiness | In progress — production EAS builds verified on iOS + Android; TestFlight not yet confirmed |
+| 14 | Quality hardening: correctness, security, backend + frontend performance, reliability/UX ([report](docs/hardening-report.md)) | Done |
+| 15 | Launch prep: flat 15% commission, deposit rules, payment gate on pickup, university domains, dependency fixes, store docs ([log](docs/overnight-log.md)) | Done — device + Stripe test-key checks pending |
+| 16 | Deployment, TestFlight, store submission | In progress — production EAS builds verified on iOS + Android; see [launch checklist](docs/launch-checklist.md) |
 
 ---
 
@@ -492,7 +552,8 @@ No lint/format scripts are configured.
 
 - The backend is the source of truth for booking state, pricing, payment status, deposit status, and handoff state. All prices (`totalPrice`, `commissionAmount`, `ownerPayout`, `hstAmount`, `insuranceFee`, `depositAmount`) are snapshotted onto the `Booking` at request time.
 - Payment API calls are synchronous; final payment state is webhook-driven (`stripeWebhookController.ts`).
-- The rental and the security deposit are **two independent PaymentIntents**. The deposit is authorized off-session at `CONFIRMED` and resolved at return handoff or by dispute — never released as a side effect of the pickup capture.
+- The rental and the security deposit are **two independent PaymentIntents**. The deposit (when the listing has one) is authorized off-session at `CONFIRMED` and resolved after the return (auto-release or dispute) — never released as a side effect of the pickup capture.
+- Business rules that both app and server enforce (commission, deposits, booking windows, pickup-payment readiness, dates, university domains) live once in `@zoink/shared`, so the app's previews and gates match what the server will do.
 - Every critical booking transition is a `version`-guarded transactional `updateMany`. `BookingEvent` is an immutable audit log for payment, handoff, webhook, reconciliation, dispute, and error events.
 - Dispute resolution holds a `SELECT … FOR UPDATE` row lock on the booking across validation, the Stripe call, and the write, so sequential partial refunds can't collectively exceed the remaining balance.
 - Local dev runs mock Stripe with `STRIPE_SECRET_KEY` empty; real beta/prod needs Connect onboarding with payouts enabled before an owner can accept. Stripe native payment collection needs an EAS build, not Expo Go.

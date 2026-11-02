@@ -58,7 +58,7 @@ Still open: an ACCEPTED request whose dates were taken stays payable (it's refus
 
 These are business rules. If one of these tests fails, a contract term or the revenue model changed. That needs a product decision and a terms update, not a test edit.
 
-- Commission is 15% up to $20/day, 12.5% up to $50/day, 10% above, keyed on the daily rate. HST is 13% of the rental price only.
+- Commission is 15% up to $20/day, 12.5% up to $50/day, 10% above, keyed on the daily rate. HST is 13% of the rental price only. *(Superseded in launch-prep: commission is now a flat 15% of the rental price, minimum $2, capped at the price. See [`overnight-log.md`](overnight-log.md) Task 3.)*
 - Every quote from $0.01 to $1,000/day for 1 to 7 days is whole cents. Commission plus payout equals the rental total. The pickup charge is rent plus HST. Commission and HST are exact half-up.
 - Deposit and payout holds are 24 h. The Zoink It window is 5 minutes. Handoffs take 2 to 3 photos, listings up to 8.
 - Nine booking states, no skipped steps. Every action is allowed only from its own states and by its own party.
