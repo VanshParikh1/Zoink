@@ -1,4 +1,4 @@
-import { DEPOSIT_MIN, isUniversityEmail, ITEM_VALUE_MAX, University, universityDomainsText, UNIVERSITY_LABELS } from '@zoink/shared'
+import { DAILY_PRICE_MIN, DEPOSIT_MIN, isUniversityEmail, ITEM_VALUE_MAX, University, universityDomainsText, UNIVERSITY_LABELS } from '@zoink/shared'
 
 // Every form's client-side checks, in one place and unit-tested
 // (formValidation.test.ts). The server checks again and is the one trusted;
@@ -76,7 +76,7 @@ export function validateListing(
 
   const price = Number.parseFloat(form.dailyPrice)
   if (blank(form.dailyPrice)) errors.dailyPrice = 'Add a price.'
-  else if (!Number.isFinite(price) || price <= 0) errors.dailyPrice = 'Must be more than $0.'
+  else if (!Number.isFinite(price) || price < DAILY_PRICE_MIN) errors.dailyPrice = `Must be at least $${DAILY_PRICE_MIN}.`
 
   const hasDeposit = !blank(form.deposit)
   const hasValue = !blank(form.itemValue)
