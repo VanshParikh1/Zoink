@@ -975,7 +975,15 @@ function toBookingListItem(row: BookingListRow): BookingListItem {
  *  and records both taps; there's no route that skips it. */
 export type DirectBookingTransition = 'ACCEPTED' | 'DECLINED' | 'CONFIRMED' | 'CANCELLED'
 
-export async function transitionBookingStatus(bookingId: string, actorId: string, nextStatus: DirectBookingTransition): Promise<BookingResponse> {
+// allowAfterStart: account deletion (userService.deleteMe) cancels bookings
+// that never reached pickup even after the start time, since nothing has
+// changed hands and the deleted party can't finish them.
+export async function transitionBookingStatus(
+  bookingId: string,
+  actorId: string,
+  nextStatus: DirectBookingTransition,
+  { allowAfterStart = false }: { allowAfterStart?: boolean } = {}
+): Promise<BookingResponse> {
   if (nextStatus === BookingStatus.CONFIRMED) {
     return confirmBookingPayment(bookingId, actorId)
   }
@@ -1013,7 +1021,7 @@ export async function transitionBookingStatus(bookingId: string, actorId: string
   // status. See legal/OPEN-ITEMS.md B7. The start time is 00:00 Toronto on the
   // rental day; startDate itself (midnight UTC) is 7-8 PM the evening before.
   const cutoff = cancellationCutoff(booking.startDate) ?? booking.startDate
-  if (nextStatus === 'CANCELLED' && new Date() >= cutoff) {
+  if (nextStatus === 'CANCELLED' && !allowAfterStart && new Date() >= cutoff) {
     throw new ConflictError('Once the rental start time has passed, this booking can no longer be cancelled.')
   }
 

@@ -58,6 +58,7 @@ const SHOWN_AS_IS = new Set([
   'Please update the app to continue — our terms have changed.',
   'Please verify your university email to continue.',
   'This account is no longer active.',
+  'Finish your current rentals and any open disputes before deleting your account.',
   "Email addresses with a '+' can't be used to sign up. Please use your plain student email address.",
   'Enter a valid 10-digit Canadian phone number, e.g. (416) 555-0192.',
   'Enter the 6-digit code from the email.',

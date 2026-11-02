@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { DEPOSIT_MIN, ITEM_VALUE_MAX } from '@zoink/shared'
+import { DAILY_PRICE_MIN, DEPOSIT_MIN, ITEM_VALUE_MAX } from '@zoink/shared'
 import { pageQuery } from '../utils/pagination'
 
 /**
@@ -9,7 +9,7 @@ import { pageQuery } from '../utils/pagination'
  *   - title         String
  *   - description   String
  *   - category      String
- *   - dailyPrice    Decimal(10,2)  — must be positive
+ *   - dailyPrice    Decimal(10,2)  — at least DAILY_PRICE_MIN ($1)
  *   - itemValue     Decimal(10,2)  — optional, 0 to ITEM_VALUE_MAX ($1,000, pilot cap)
  *   - depositAmount Decimal(10,2)  — optional, 0 (none) or DEPOSIT_MIN ($1) up to itemValue, owner-configured on the listing
  *   - isAvailable   Boolean        @default(true)
@@ -55,7 +55,7 @@ export const CreateListingSchema = z.object({
       category: z.string().min(1, 'category is required.').max(40, 'category cannot exceed 40 characters.'),
       dailyPrice: z.coerce
         .number({ error: 'dailyPrice must be a number.' })
-        .positive('dailyPrice must be greater than 0.')
+        .min(DAILY_PRICE_MIN, `dailyPrice must be at least ${DAILY_PRICE_MIN}.`)
         .max(1000, 'dailyPrice cannot exceed 1000.'),
       itemValue: z.coerce
         .number({ error: 'itemValue must be a number.' })
@@ -99,7 +99,7 @@ export const UpdateListingSchema = z.object({
       title: z.string().min(1).max(80).optional(),
       description: z.string().min(1).max(1000).optional(),
       category: z.string().min(1).max(40).optional(),
-      dailyPrice: z.coerce.number().positive().max(1000).optional(),
+      dailyPrice: z.coerce.number().min(DAILY_PRICE_MIN).max(1000).optional(),
       itemValue: z.coerce.number().nonnegative().max(ITEM_VALUE_MAX, 'itemValue cannot exceed 1000.').optional(),
       depositAmount: z.coerce.number().nonnegative().max(ITEM_VALUE_MAX, 'depositAmount cannot exceed itemValue.').optional(),
       latitude: z.coerce.number().min(-90).max(90).optional(),

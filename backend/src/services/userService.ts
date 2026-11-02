@@ -1,11 +1,13 @@
 import { randomBytes } from 'crypto'
 import type { MyProfileResponse, NotificationPreferences, PublicProfileResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
-import { BadRequestError, NotFoundError } from '../utils/errors'
+import { BookingStatus, DisputeStatus } from '@prisma/client'
+import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors'
 import { CANADIAN_PHONE_REGEX, normalizePhone, PHONE_FORMAT_MESSAGE } from '../schemas/auth.schema'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { signJWT } from './authService'
 import { isBlockedBetween } from './blockService'
+import { transitionBookingStatus } from './bookingService'
 
 const NOTIFICATION_PREF_COLUMNS = [
   'notifyMessages',
@@ -128,6 +130,39 @@ export async function deleteMe(userId: string): Promise<{ avatarUrl: string | nu
   })
   if (!user) throw new NotFoundError('User not found.')
   if (user.deletedAt) return { avatarUrl: null }
+
+  // An item that is with someone, or an open dispute, needs both people: the
+  // other party couldn't finish the return or get their payout or deposit back.
+  const mine = { OR: [{ renterId: userId }, { ownerId: userId }] }
+  const unfinished = await prisma.booking.count({
+    where: {
+      AND: [
+        mine,
+        {
+          OR: [
+            { status: { in: [BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING] } },
+            { disputes: { some: { status: { in: [DisputeStatus.OPEN, DisputeStatus.UNDER_REVIEW] } } } },
+          ],
+        },
+      ],
+    },
+  })
+  if (unfinished > 0) {
+    throw new ConflictError('Finish your current rentals and any open disputes before deleting your account.')
+  }
+
+  // Bookings that haven't reached pickup are cancelled, releasing any rent and
+  // deposit holds, so the other person isn't left waiting on a deleted account.
+  const pending = await prisma.booking.findMany({
+    where: {
+      ...mine,
+      status: { in: [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.CONFIRMED, BookingStatus.PICKUP_PENDING] },
+    },
+    select: { id: true },
+  })
+  for (const { id } of pending) {
+    await transitionBookingStatus(id, userId, 'CANCELLED', { allowAfterStart: true })
+  }
 
   await prisma.$transaction([
     prisma.user.update({
