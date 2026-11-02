@@ -36,7 +36,7 @@ import * as bookingUtils from '../services/bookingUtils'
 import * as handoffService from '../services/handoffService'
 import * as conversationService from '../services/conversationService'
 import * as paymentService from '../services/paymentService'
-import { PaymentStatus, BookingStatus } from '@prisma/client'
+import { PaymentStatus, BookingStatus, DepositStatus } from '@prisma/client'
 
 // notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
 // from the caller's perspective — it does its own async DB lookup before writing the
@@ -523,6 +523,8 @@ describe('pickup handoff', () => {
       data: {
         status: BookingStatus.CONFIRMED,
         paymentStatus: PaymentStatus.AUTHORIZED,
+        // The listing holds a deposit, and pickup needs that hold in place too.
+        depositStatus: DepositStatus.AUTHORIZED,
         stripePaymentIntentId: `pi_mock_confirmed_${Date.now()}`,
         version: { increment: 1 },
       },
