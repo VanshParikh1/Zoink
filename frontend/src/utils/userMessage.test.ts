@@ -34,6 +34,11 @@ describe('userMessage', () => {
     )
   })
 
+  test('a refused account deletion says why', () => {
+    const sentence = 'Finish your current rentals and any open disputes before deleting your account.'
+    assert.equal(userMessage(answered(409, { error: sentence }), { action: "Couldn't delete your account. Please try again." }), sentence)
+  })
+
   test('a sentence with a number in it is matched by its pattern', () => {
     assert.equal(userMessage(answered(400, { error: 'Bookings cannot exceed 7 days.' })), 'Bookings cannot exceed 7 days.')
     assert.equal(
