@@ -10,13 +10,12 @@ function create(dailyPrice: number) {
   })
 }
 
-// Stripe refuses payments under $0.50, so a 25¢ one-day rental could never be paid.
-test('a listing costs at least $1 a day, on create and on edit', () => {
-  assert.equal(create(0.25).success, false)
-  assert.match(JSON.stringify(create(0.25).error?.issues), /at least 1/)
-  assert.equal(create(1).success, true, JSON.stringify(create(1).error?.issues))
+test('a listing costs at least $5 a day, on create and on edit', () => {
+  assert.equal(create(4.99).success, false)
+  assert.match(JSON.stringify(create(4.99).error?.issues), /at least 5/)
+  assert.equal(create(5).success, true, JSON.stringify(create(5).error?.issues))
 
   const edit = (dailyPrice: number) => UpdateListingSchema.safeParse({ params: { id: LISTING_ID }, body: { dailyPrice } })
-  assert.equal(edit(0.5).success, false)
-  assert.equal(edit(2).success, true)
+  assert.equal(edit(1).success, false)
+  assert.equal(edit(5).success, true)
 })

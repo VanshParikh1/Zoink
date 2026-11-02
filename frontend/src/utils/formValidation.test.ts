@@ -87,11 +87,10 @@ describe('listing', () => {
 
   test('price must be a positive number', () => {
     assert.equal(validateListing({ ...good, dailyPrice: '' }).dailyPrice, 'Add a price.')
-    assert.equal(validateListing({ ...good, dailyPrice: '0' }).dailyPrice, 'Must be at least $1.')
-    assert.equal(validateListing({ ...good, dailyPrice: 'abc' }).dailyPrice, 'Must be at least $1.')
-    // Stripe can't take a payment under $0.50, so a 25¢ one-day rental could never be paid.
-    assert.equal(validateListing({ ...good, dailyPrice: '0.25' }).dailyPrice, 'Must be at least $1.')
-    assert.equal(validateListing({ ...good, dailyPrice: '1' }).dailyPrice, undefined)
+    assert.equal(validateListing({ ...good, dailyPrice: '0' }).dailyPrice, 'Must be at least $5.')
+    assert.equal(validateListing({ ...good, dailyPrice: 'abc' }).dailyPrice, 'Must be at least $5.')
+    assert.equal(validateListing({ ...good, dailyPrice: '4.99' }).dailyPrice, 'Must be at least $5.')
+    assert.equal(validateListing({ ...good, dailyPrice: '5' }).dailyPrice, undefined)
   })
 
   test('a deposit needs an item value at least as large', () => {

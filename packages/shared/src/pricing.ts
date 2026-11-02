@@ -8,9 +8,9 @@ import { applyRateHalfUp, calculateCommission, calculateOwnerPayout, dollarsToCe
 // taken out of the owner's payout.
 export const HST_RATE = 0.13
 
-/** Lowest daily price a listing can have, in dollars. Stripe won't take a
- *  payment under $0.50, so a cheaper one-day rental could never be paid. */
-export const DAILY_PRICE_MIN = 1
+/** Lowest daily price a listing can have, in dollars. A product floor that
+ *  also keeps every rental well above Stripe's $0.50 minimum charge. */
+export const DAILY_PRICE_MIN = 5
 
 /** Rounds to whole cents the way every money field on a booking is rounded. */
 export function roundCurrency(value: number) {

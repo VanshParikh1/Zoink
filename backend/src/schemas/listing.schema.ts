@@ -9,7 +9,7 @@ import { pageQuery } from '../utils/pagination'
  *   - title         String
  *   - description   String
  *   - category      String
- *   - dailyPrice    Decimal(10,2)  — at least DAILY_PRICE_MIN ($1)
+ *   - dailyPrice    Decimal(10,2)  — at least DAILY_PRICE_MIN ($5)
  *   - itemValue     Decimal(10,2)  — optional, 0 to ITEM_VALUE_MAX ($1,000, pilot cap)
  *   - depositAmount Decimal(10,2)  — optional, 0 (none) or DEPOSIT_MIN ($1) up to itemValue, owner-configured on the listing
  *   - isAvailable   Boolean        @default(true)
