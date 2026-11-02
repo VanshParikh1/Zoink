@@ -1,6 +1,27 @@
-import { test, describe } from 'node:test'
+import { test, describe, mock, beforeEach } from 'node:test'
 import assert from 'node:assert'
 import * as reportService from './reportService'
+import * as emailService from './emailService'
+
+// Every report emails support; no test may reach SES.
+let sent: { to: string; subject: string; text: string }[] = []
+let sendFails = false
+mock.method(emailService, 'sendEmail', async (to: string, subject: string, text: string) => {
+  sent.push({ to, subject, text })
+  if (sendFails) throw new Error('SES is down')
+})
+beforeEach(() => {
+  sent = []
+  sendFails = false
+})
+
+const people: Record<string, any> = {
+  'reporter-1': { id: 'reporter-1', firstName: 'Ria', lastName: 'Shah', email: 'ria@mail.utoronto.ca' },
+  'owner-1': { id: 'owner-1', firstName: 'Omar', lastName: 'Ali', email: 'omar@mail.utoronto.ca' },
+}
+const createdReport = (data: any) => ({ id: 'report-1', createdAt: new Date('2026-11-02T12:00:00Z'), ...data })
+// Lets the un-awaited alert finish before asserting on it.
+const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 describe('reportService', () => {
   test('createReport throws NotFoundError when the reported user does not exist', async () => {
@@ -259,4 +280,66 @@ describe('reportService', () => {
       assert.strictEqual(missing.targetLabel, '[deleted message]')
     })
   })
+
+  describe('support email', () => {
+    test('a listing report emails support with the type, reporter, listing and ids', async () => {
+      const mockDb: any = {
+        listing: {
+          findUnique: async (args: any) =>
+            args.select?.owner ? { title: 'Canon EOS', owner: people['owner-1'] } : { id: 'l-1', ownerId: 'owner-1' },
+        },
+        user: { findUnique: async ({ where }: any) => people[where.id] ?? null },
+        report: { create: async ({ data }: any) => createdReport(data) },
+      }
+
+      await reportService.createReport('reporter-1', 'LISTING', 'l-1', 'SCAM', 'Asks for e-transfer', mockDb)
+      await flush()
+
+      assert.strictEqual(sent.length, 1)
+      assert.strictEqual(sent[0].to, 'zoinksupport@gmail.com')
+      assert.match(sent[0].subject, /listing, SCAM/)
+      assert.match(sent[0].text, /"Canon EOS" \(listing l-1\), listed by Omar Ali <omar@mail\.utoronto\.ca>/)
+      assert.match(sent[0].text, /Reporter: Ria Shah <ria@mail\.utoronto\.ca> \(user reporter-1\)/)
+      assert.match(sent[0].text, /Details: Asks for e-transfer/)
+      assert.match(sent[0].text, /Report report-1/)
+    })
+
+    test('a message report quotes the message and its sender', async () => {
+      const mockDb: any = {
+        message: {
+          findUnique: async (args: any) =>
+            args.select?.body
+              ? { body: 'Pay me cash outside the app', conversationId: 'c-1', sender: people['owner-1'] }
+              : { senderId: 'owner-1', conversation: { renterId: 'reporter-1', ownerId: 'owner-1' } },
+        },
+        user: { findUnique: async ({ where }: any) => people[where.id] ?? null },
+        report: { create: async ({ data }: any) => createdReport(data) },
+      }
+
+      await reportService.createReport('reporter-1', 'MESSAGE', 'm-1', 'SCAM', undefined, mockDb)
+      await flush()
+
+      assert.match(sent[0].text, /message m-1 in conversation c-1, sent by Omar Ali/)
+      assert.match(sent[0].text, /"Pay me cash outside the app"/)
+      assert.match(sent[0].text, /Details: \(none\)/)
+    })
+
+    test('a failed send never fails the report', async () => {
+      sendFails = true
+      const warn = mock.method(console, 'warn', () => {})
+      const mockDb: any = {
+        user: { findUnique: async ({ where }: any) => people[where.id] ?? { id: where.id, firstName: 'X', lastName: 'Y', email: 'x@y' } },
+        report: { create: async ({ data }: any) => createdReport(data) },
+      }
+
+      const report = await reportService.createReport('reporter-1', 'USER', 'owner-1', 'HARASSMENT', undefined, mockDb)
+      await flush()
+
+      assert.strictEqual(report.status, 'OPEN')
+      assert.strictEqual(sent.length, 1)
+      assert.ok(warn.mock.calls.some((c: any) => /Report alert email failed for report report-1/.test(String(c.arguments[0]))))
+      warn.mock.restore()
+    })
+  })
 })
+

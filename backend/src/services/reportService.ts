@@ -1,6 +1,8 @@
 import { Report, ReportReason, ReportStatus, ReportTargetType } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors'
+import { loggableMessage } from '../utils/sentryScrub'
+import * as emailService from './emailService'
 
 export async function createReport(
   reporterId: string,
@@ -37,7 +39,7 @@ export async function createReport(
     if (message.senderId === reporterId) throw new BadRequestError('You cannot report your own message.')
   }
 
-  return db.report.create({
+  const report = await db.report.create({
     data: {
       reporterId,
       targetType,
@@ -47,6 +49,55 @@ export async function createReport(
       status: 'OPEN',
     },
   })
+  // Not awaited: a slow or failing send never delays or fails the report.
+  void notifySupportOfReport(report, db)
+  return report
+}
+
+type Person = { id: string; firstName: string; lastName: string; email: string } | null
+const person = (u: Person) => (u ? `${u.firstName} ${u.lastName} <${u.email}> (user ${u.id})` : 'unknown user')
+const personSelect = { id: true, firstName: true, lastName: true, email: true } as const
+
+/** Emails support about a new report so it's seen within the promised 24
+ *  hours (nothing else alerts anyone). Never throws. */
+export async function notifySupportOfReport(report: Report, db: typeof prisma = prisma) {
+  // The integration suite runs with real SES credentials; it mustn't mail support.
+  if (process.env.NODE_ENV === 'test') return
+  try {
+    const reporter = await db.user.findUnique({ where: { id: report.reporterId }, select: personSelect })
+    let target: string
+    if (report.targetType === 'USER') {
+      target = person(await db.user.findUnique({ where: { id: report.targetId }, select: personSelect }))
+    } else if (report.targetType === 'LISTING') {
+      const listing = await db.listing.findUnique({
+        where: { id: report.targetId },
+        select: { title: true, owner: { select: personSelect } },
+      })
+      target = `"${listing?.title}" (listing ${report.targetId}), listed by ${person(listing?.owner ?? null)}`
+    } else {
+      const message = await db.message.findUnique({
+        where: { id: report.targetId },
+        select: { body: true, conversationId: true, sender: { select: personSelect } },
+      })
+      target =
+        `message ${report.targetId} in conversation ${message?.conversationId}, sent by ${person(message?.sender ?? null)}:\n` +
+        `"${(message?.body ?? '').slice(0, 500)}"`
+    }
+
+    const text = [
+      `New ${report.targetType.toLowerCase()} report (${report.reason}).`,
+      '',
+      `Reported: ${target}`,
+      `Reporter: ${person(reporter)}`,
+      `Details: ${report.description || '(none)'}`,
+      '',
+      `Report ${report.id}, filed ${report.createdAt.toISOString()}.`,
+      'Review it in the app: Profile › Admin › Review reports.',
+    ].join('\n')
+    await emailService.sendEmail(emailService.SUPPORT_EMAIL, `Zoink report: ${report.targetType.toLowerCase()}, ${report.reason}`, text)
+  } catch (error) {
+    console.warn(`Report alert email failed for report ${report.id}: ${loggableMessage(error)}`)
+  }
 }
 
 export async function resolveReport(

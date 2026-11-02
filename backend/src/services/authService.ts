@@ -299,15 +299,8 @@ export async function resendOTP(userId: string) {
 
 // ── Email ────────────────────────────────────────────────────────────────────
 
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses'
-
-const sesClient = new SESClient({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-})
+import { SendEmailCommand } from '@aws-sdk/client-ses'
+import { sesClient } from './emailService'
 
 // The first name is whatever the person typed at sign-up; in the HTML part it
 // must stay text.
