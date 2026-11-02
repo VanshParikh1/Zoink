@@ -1,17 +1,16 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import {
   Animated,
   LayoutChangeEvent,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
   ScrollView,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Feather from '@expo/vector-icons/Feather';
-import * as Haptics from 'expo-haptics'
+import { haptics } from '../utils/haptics'
 import { RouteProp, useIsFocused, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
@@ -19,14 +18,29 @@ import HomeScreen from './HomeScreen'
 import InboxScreen from './InboxScreen'
 import MyProfileScreen from './MyProfileScreen'
 import SearchScreen from './SearchScreen'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
+import { colors } from '../theme/colors'
+import { border, radius } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import HardShadow from '../components/mockup/HardShadow'
+import Badge from '../components/mockup/Badge'
+import {
+  TAB_BAR_GAP,
+  TAB_BAR_PADDING,
+  TAB_BAR_SHADOW,
+  TAB_FAB_OVERFLOW,
+  TAB_FAB_SIZE,
+  TAB_ITEM_MIN_HEIGHT,
+} from '../components/mockup/tabBarMetrics'
 import { InboxFeedProvider, useConversationsFeed } from '../context/InboxContext'
 import { MainTab, MainTabProvider } from '../context/MainTabContext'
+import { markStartup, useRenderProbe } from '../utils/perfMarks'
+import ErrorBoundary from '../components/mockup/ErrorBoundary'
+import QaCrashProbe from '../components/QaCrashProbe'
 
 const TAB_ORDER: MainTab[] = ['Home', 'Search', 'Inbox', 'MyProfile']
-const CENTER_SLOT_WIDTH = 72
-const BAR_HORIZONTAL_PADDING = 14
+// Five equal columns: Home, Search, the "+" slot, Inbox, Profile.
+const COLUMNS = 5
+const BAR_MARGIN = 14
 
 type ScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList>
@@ -37,7 +51,7 @@ type MainAppRoute = RouteProp<RootStackParamList, 'MainApp'>
 const TAB_ICONS: Record<MainTab, keyof typeof Feather.glyphMap> = {
   Home: 'home',
   Search: 'search',
-  Inbox: 'mail',
+  Inbox: 'message-square',
   MyProfile: 'user',
 }
 
@@ -52,31 +66,37 @@ function NavItem({
   active,
   tab,
   onPress,
-  badge = false,
+  unreadCount = 0,
 }: {
   active: boolean
   tab: MainTab
   onPress: () => void
-  badge?: boolean
+  unreadCount?: number
 }) {
+  const color = active ? colors.ink : colors.onInk
   return (
-    <TouchableOpacity style={styles.navItem} onPress={onPress} activeOpacity={0.7}>
+    <Pressable
+      style={styles.navItem}
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={unreadCount > 0 ? `${TAB_LABELS[tab]}, ${unreadCount} unread` : TAB_LABELS[tab]}
+    >
       <View>
-        <Feather
-          name={TAB_ICONS[tab]}
-          size={20}
-          color={active ? theme.primary : 'rgba(255, 255, 255, 0.55)'}
-        />
-        {badge ? <View style={styles.navBadge} /> : null}
+        <Feather name={TAB_ICONS[tab]} size={20} color={color} />
+        {unreadCount > 0 ? (
+          <Badge label={unreadCount > 9 ? '9+' : String(unreadCount)} variant="lime" style={styles.navBadge} />
+        ) : null}
       </View>
-      <Text style={[styles.navLabel, active ? styles.navLabelActive : styles.navLabelInactive]}>
+      <Text style={[styles.navLabel, { color, fontFamily: active ? fonts.black : fonts.bold }]} numberOfLines={1}>
         {TAB_LABELS[tab]}
       </Text>
-    </TouchableOpacity>
+    </Pressable>
   )
 }
 
 export default function MainAppScreen({ navigation }: ScreenProps) {
+  useRenderProbe('main-app')
   const route = useRoute<MainAppRoute>()
   const insets = useSafeAreaInsets()
   const [activeTab, setActiveTab] = useState<MainTab>(route.params?.tab ?? 'Home')
@@ -92,22 +112,55 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
   // when focus returns (e.g. ConversationThread pops back) and polls only while
   // this screen is focused and the app is in the foreground.
   const inboxFeed = useConversationsFeed(useIsFocused())
-  const hasUnreadInbox = inboxFeed.conversations.some((conversation) => conversation.unread)
+  const unreadInboxCount = inboxFeed.unreadCount
 
-  const tabWidth = bottomBarWidth
-    ? (bottomBarWidth - CENTER_SLOT_WIDTH - BAR_HORIZONTAL_PADDING * 2) / 4
-    : 0
+  // The same elements on every render, so this screen re-rendering (a new
+  // unread count, the tab changing) doesn't re-render all four tabs; each
+  // re-renders only for its own state, context or data. Each tab has its own
+  // error boundary: one that fails to render shows "Try again" while the
+  // other tabs and the tab bar keep working.
+  const tabScreens = useMemo(
+    () => ({
+      home: (
+        <ErrorBoundary scope="tab" name="Home">
+          <QaCrashProbe level="tab" tab="Home" />
+          <HomeScreen />
+        </ErrorBoundary>
+      ),
+      search: (
+        <ErrorBoundary scope="tab" name="Search">
+          <QaCrashProbe level="tab" tab="Search" />
+          <SearchScreen />
+        </ErrorBoundary>
+      ),
+      inbox: (
+        <ErrorBoundary scope="tab" name="Inbox">
+          <QaCrashProbe level="tab" tab="Inbox" />
+          <InboxScreen />
+        </ErrorBoundary>
+      ),
+      profile: (
+        <ErrorBoundary scope="tab" name="Profile">
+          <QaCrashProbe level="tab" tab="MyProfile" />
+          <MyProfileScreen />
+        </ErrorBoundary>
+      ),
+    }),
+    []
+  )
 
+  const tabWidth = bottomBarWidth ? (bottomBarWidth - TAB_BAR_PADDING * 2) / COLUMNS : 0
+
+  // Column index per tab: the "+" takes column 2, so Inbox and Profile skip it.
   const tabHighlightX = scrollX.interpolate({
     inputRange: contentWidth > 0 ? [0, contentWidth, contentWidth * 2, contentWidth * 3] : [0, 1, 2, 3],
-    outputRange: [
-      0,
-      tabWidth,
-      tabWidth * 2 + CENTER_SLOT_WIDTH,
-      tabWidth * 3 + CENTER_SLOT_WIDTH,
-    ],
+    outputRange: [0, tabWidth, tabWidth * 3, tabWidth * 4],
     extrapolate: 'clamp',
   })
+
+  useEffect(() => {
+    markStartup('main-app')
+  }, [])
 
   useEffect(() => {
     if (contentWidth > 0 && scrollViewRef.current) {
@@ -128,7 +181,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
 
   const transitionToTab = useCallback((nextTab: MainTab) => {
     if (nextTab === activeTab) return
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+    haptics.tap()
 
     const nextIndex = TAB_ORDER.indexOf(nextTab)
     lastHapticIndex.current = nextIndex
@@ -156,7 +209,7 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
       currentIndex < TAB_ORDER.length &&
       lastHapticIndex.current !== currentIndex
     ) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { })
+      haptics.tap()
       lastHapticIndex.current = currentIndex
     }
   }, [contentWidth])
@@ -198,15 +251,15 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
       <NavItem active={activeTab === 'Home'} tab="Home" onPress={() => transitionToTab('Home')} />
       <NavItem active={activeTab === 'Search'} tab="Search" onPress={() => transitionToTab('Search')} />
 
-      <View style={styles.centerSlot} />
+      <View style={styles.navItem} />
 
-      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} badge={hasUnreadInbox} />
+      <NavItem active={activeTab === 'Inbox'} tab="Inbox" onPress={() => transitionToTab('Inbox')} unreadCount={unreadInboxCount} />
       <NavItem active={activeTab === 'MyProfile'} tab="MyProfile" onPress={() => transitionToTab('MyProfile')} />
     </View>
   )
 
   return (
-    <ScreenBackground>
+    <View style={styles.screen}>
       <View
         style={styles.content}
         onLayout={(event) => {
@@ -239,47 +292,65 @@ export default function MainAppScreen({ navigation }: ScreenProps) {
               style={styles.tabStrip}
             >
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <HomeScreen />
+                {tabScreens.home}
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <SearchScreen />
+                {tabScreens.search}
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
                 <InboxFeedProvider value={inboxFeed}>
-                  <InboxScreen />
+                  {tabScreens.inbox}
                 </InboxFeedProvider>
               </View>
               <View style={[styles.tabPanel, { width: contentWidth }]}>
-                <MyProfileScreen />
+                {tabScreens.profile}
               </View>
             </Animated.ScrollView>
           </MainTabProvider>
         )}
       </View>
 
-      <View style={[styles.bottomWrap, { bottom: insets.bottom + 16 }]}>
-        <View style={styles.tabShadowWrapper}>
-          <BlurView intensity={75} style={styles.blurWrapper} tint="dark">
-            {renderBottomBarContent()}
-          </BlurView>
-        </View>
+      {/*
+        The wrapper's top padding makes room for the raised "+", so the button
+        sits inside its parent's bounds. Android only delivers touches inside a
+        view's bounds, so a "+" hanging outside the bar wouldn't be tappable
+        there.
+      */}
+      <View style={[styles.bottomWrap, { bottom: insets.bottom + TAB_BAR_GAP }]} pointerEvents="box-none">
+        <HardShadow offset={TAB_BAR_SHADOW} color={colors.green} radius={radius.pill}>
+          {renderBottomBarContent()}
+        </HardShadow>
 
-        <TouchableOpacity 
-          style={styles.createButton} 
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { })
-            navigation.navigate('CreateListing')
-          }} 
-          activeOpacity={0.9}
-        >
-          <Text style={styles.createButtonText}>+</Text>
-        </TouchableOpacity>
+        <View style={styles.fabSlot} pointerEvents="box-none">
+          <HardShadow
+            pressable
+            offset={TAB_BAR_SHADOW}
+            radius={TAB_FAB_SIZE / 2}
+            onPress={() => {
+              haptics.press()
+              navigation.navigate('CreateListing')
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="List an item"
+            // Balances the shadow's right padding so the circle itself is centred.
+            style={{ marginLeft: TAB_BAR_SHADOW }}
+          >
+            <View style={styles.fab}>
+              <Feather name="plus" size={28} color={colors.ink} />
+            </View>
+          </HardShadow>
+        </View>
       </View>
-    </ScreenBackground>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  // Each tab paints its own mockup Screen; this only shows during the first layout.
+  screen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   content: {
     flex: 1,
     overflow: 'hidden',
@@ -293,92 +364,60 @@ const styles = StyleSheet.create({
   },
   bottomWrap: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    backgroundColor: 'transparent',
-  },
-  tabShadowWrapper: {
-    borderRadius: 32,
-    shadowColor: theme.shadow,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 8,
-  },
-  blurWrapper: {
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    backgroundColor: 'rgba(15, 255, 80, 0.12)',
-    overflow: 'hidden',
+    left: BAR_MARGIN,
+    right: BAR_MARGIN,
+    paddingTop: TAB_FAB_OVERFLOW,
   },
   bottomBar: {
-    height: 64,
+    minHeight: TAB_ITEM_MIN_HEIGHT + TAB_BAR_PADDING * 2,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: BAR_HORIZONTAL_PADDING,
+    alignItems: 'stretch',
+    padding: TAB_BAR_PADDING,
+    borderRadius: radius.pill,
+    backgroundColor: colors.ink,
   },
   activeTabHighlight: {
     position: 'absolute',
-    left: BAR_HORIZONTAL_PADDING,
-    top: 6,
-    bottom: 6,
-    borderRadius: 14,
-    backgroundColor: theme.primarySurface,
+    left: TAB_BAR_PADDING,
+    top: TAB_BAR_PADDING,
+    bottom: TAB_BAR_PADDING,
+    borderRadius: radius.pill,
+    backgroundColor: colors.green,
   },
   navItem: {
     flex: 1,
+    minHeight: TAB_ITEM_MIN_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
   },
   navBadge: {
     position: 'absolute',
-    top: -3,
-    right: -5,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: theme.primary,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
+    top: -9,
+    left: 12,
+    paddingHorizontal: 5,
+    paddingVertical: 0,
   },
   navLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: 1,
+    ...type.tab,
   },
-  navLabelActive: {
-    color: theme.primary,
-  },
-  navLabelInactive: {
-    color: 'rgba(255, 255, 255, 0.55)',
-  },
-  centerSlot: {
-    width: CENTER_SLOT_WIDTH,
-  },
-  createButton: {
+  fabSlot: {
     position: 'absolute',
-    alignSelf: 'center',
-    top: -24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: theme.primary,
+    top: 0,
+    left: 0,
+    // The bar's own hard shadow pads its right edge, so centre the "+" on the
+    // bar itself, not on the wrapper.
+    right: TAB_BAR_SHADOW,
+    alignItems: 'center',
+  },
+  fab: {
+    width: TAB_FAB_SIZE,
+    height: TAB_FAB_SIZE,
+    borderRadius: TAB_FAB_SIZE / 2,
+    backgroundColor: colors.green,
+    borderWidth: border.thick,
+    borderColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  createButtonText: {
-    color: '#050A05',
-    fontSize: 32,
-    fontWeight: '400',
-    lineHeight: 34,
-    marginTop: -2,
   },
 })

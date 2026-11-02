@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How to delete your Zoink account, and what is removed or kept when you do.">
+  <title>Delete your account | Zoink</title>
+  <link rel="icon" href="assets/logo.png">
+  <style>
+    :root {
+      --acid: #00ef20;
+      --acid-soft: #c8ff59;
+      --forest: #248232;
+      --ink: #040f0f;
+      --slate: #2d3a3a;
+      --cream: #f4ede1;
+      --paper: #fff9ef;
+      --sand: #e5dccb;
+      --muted: #6d756d;
+      --line: rgba(4, 15, 15, 0.14);
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      color-scheme: light;
+      font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
+      color: var(--ink);
+      background: var(--cream);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      line-height: 1.6;
+      background:
+        radial-gradient(circle at 14% 4%, rgba(0, 239, 32, 0.20), transparent 24rem),
+        radial-gradient(circle at 86% 2%, rgba(200, 255, 89, 0.22), transparent 20rem),
+        var(--cream);
+    }
+    a { color: var(--forest); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover, a:focus-visible { color: var(--ink); }
+    img { max-width: 100%; display: block; }
+    p, h1, h2, h3, h4, ul, ol, table { margin-top: 0; }
+
+    .shell { width: min(880px, calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(244, 237, 225, 0.82);
+      border-bottom: 2px solid var(--ink);
+      backdrop-filter: blur(18px);
+    }
+    .nav-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand { display: inline-flex; align-items: center; }
+    .brand-plate {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--ink);
+      box-shadow: 4px 4px 0 var(--acid);
+    }
+    .brand img { width: 128px; height: auto; }
+    .nav a.back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 900;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .nav a.back:hover, .nav a.back:focus-visible {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 var(--ink);
+      outline: none;
+    }
+
+    main { padding: 52px 0 72px; }
+    .doc-head { margin-bottom: 34px; padding-bottom: 22px; border-bottom: 3px solid var(--ink); }
+    .kicker {
+      display: inline-block;
+      margin-bottom: 16px;
+      padding: 7px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      box-shadow: 4px 4px 0 var(--ink);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      font-size: clamp(36px, 6vw, 60px);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      font-weight: 950;
+      margin-bottom: 10px;
+    }
+    .updated { color: var(--muted); font-weight: 850; font-size: 14px; }
+
+    .toc {
+      margin-bottom: 40px;
+      padding: 20px 22px;
+      border: 3px solid var(--ink);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: 8px 8px 0 var(--ink);
+    }
+    .toc strong {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 28px; }
+    .toc li { margin-bottom: 6px; break-inside: avoid; }
+    .toc a { color: var(--slate); text-decoration: none; font-weight: 800; }
+    .toc a:hover { color: var(--forest); text-decoration: underline; }
+
+    .doc h2 {
+      margin-top: 44px;
+      margin-bottom: 12px;
+      padding-top: 8px;
+      font-size: clamp(24px, 3.4vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 950;
+      scroll-margin-top: 90px;
+    }
+    .doc h3 {
+      margin-top: 30px;
+      margin-bottom: 10px;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+      font-weight: 900;
+      scroll-margin-top: 90px;
+    }
+    .doc p { margin-bottom: 16px; }
+    .doc ul, .doc ol { margin-bottom: 18px; padding-left: 24px; }
+    .doc li { margin-bottom: 8px; }
+    .doc hr { border: none; border-top: 2px dashed var(--line); margin: 8px 0 24px; }
+    .doc strong { font-weight: 900; }
+
+    .table-wrap { overflow-x: auto; margin-bottom: 22px; }
+    .doc table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid var(--ink);
+      font-size: 15px;
+    }
+    .doc th, .doc td {
+      padding: 10px 12px;
+      border: 1px solid var(--ink);
+      text-align: left;
+      vertical-align: top;
+    }
+    .doc th { background: var(--acid-soft); font-weight: 950; }
+    .doc tbody tr:nth-child(even) td { background: rgba(255, 249, 239, 0.6); }
+
+    .footer { padding: 26px 0 40px; border-top: 3px solid var(--ink); background: var(--paper); }
+    .footer-inner {
+      width: min(1160px, calc(100% - 36px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--slate);
+      font-weight: 850;
+    }
+    .footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-weight: 950; }
+    .footer-links a { color: var(--slate); text-decoration: none; }
+    .footer-links a:hover, .footer-links a:focus-visible { color: var(--forest); outline: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+    @media (max-width: 680px) {
+      .brand img { width: 108px; }
+      .toc ol { columns: 1; }
+      main { padding-top: 36px; }
+      .footer-inner { display: block; }
+      .footer-links { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="Zoink home">
+        <span class="brand-plate"><img src="assets/ZoinkTransparent.png" alt="Zoink"></span>
+      </a>
+      <a class="back" href="index.html">&larr; Back to Zoink</a>
+    </div>
+  </nav>
+
+    <main class="shell">
+    <div class="doc-head">
+      <span class="kicker">Account</span>
+      <h1>Delete your Zoink account</h1>
+      <p class="updated">Last updated October 30, 2026</p>
+    </div>
+
+    <article class="doc">
+<p>Zoink lets students safely rent from and lend to each other on campus. You can delete your account at any time, from inside the app, without contacting us.</p>
+
+<h2 id="in-app">1. Delete your account in the app</h2>
+<ol>
+<li>Open Zoink and sign in.</li>
+<li>Go to <strong>Profile</strong>, then <strong>Settings</strong>.</li>
+<li>Tap <strong>Delete account</strong> and confirm.</li>
+</ol>
+<p>Deletion takes effect straight away and you are signed out. It cannot be undone; if you want to use Zoink again later, register again with your student email.</p>
+<p>Before you delete, finish or cancel any booking that is still in progress, and wait for any open dispute to be resolved. Payouts that are still on their way to you go to your Stripe account as normal.</p>
+
+<h2 id="email">2. Can't open the app?</h2>
+<p>Email <a href="mailto:zoinksupport@gmail.com?subject=Delete%20my%20Zoink%20account">zoinksupport@gmail.com</a> from the student email address on your account, with the subject "Delete my Zoink account". We will confirm the request with you and delete the account within 30 days.</p>
+
+<h2 id="removed">3. What is removed</h2>
+<p>As soon as you delete your account:</p>
+<ul>
+<li>Your <strong>name, phone number, bio and profile photo</strong> are removed. Your profile photo file is deleted from our image host.</li>
+<li>Your <strong>email address</strong> is replaced with a placeholder, so it is no longer linked to Zoink and you can register with it again.</li>
+<li>Your <strong>password</strong> is replaced with a random value, so nobody can sign in to the account again.</li>
+<li>Your <strong>push notification token</strong> is removed, so this device stops getting Zoink notifications.</li>
+<li>Your <strong>listings</strong> are taken down and can no longer be found or booked.</li>
+</ul>
+<p>Anything still left on your account is shown as "Deleted User".</p>
+
+<h2 id="kept">4. What is kept, and for how long</h2>
+<p>Some records have to outlive your account, for tax law, for the other person in a rental, or to handle disputes. They stay attached to "Deleted User", not to your name, and are deleted or anonymised when their period ends:</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Record</th><th>Kept for</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Bookings, payments, commission, payouts and tax records</td><td><strong>7 years</strong> from the end of the tax year</td><td>Canadian tax and accounting rules</td></tr>
+<tr><td>Handoff and condition photos from your rentals</td><td><strong>12 months</strong> after the rental, or 90 days after a dispute about it is resolved, whichever is later</td><td>Evidence if the other person raises a problem</td></tr>
+<tr><td>Messages you sent</td><td><strong>24 months</strong> after the conversation's last booking completes</td><td>They stay in the other person's conversation</td></tr>
+<tr><td>Reviews you wrote</td><td>Indefinitely, shown as from a deleted user</td><td>They are part of the other person's public reputation</td></tr>
+<tr><td>Disputes and reports</td><td><strong>3 years</strong> after they are resolved</td><td>Detecting repeat abuse, and legal defence</td></tr>
+<tr><td>The text and pickup city of a listing someone messaged you about or booked</td><td>As long as those conversations and bookings are kept (above)</td><td>So the other person can still see what was arranged</td></tr>
+<tr><td>Error and diagnostic logs</td><td><strong>90 days</strong></td><td>Fixing bugs</td></tr>
+</tbody>
+</table>
+</div>
+<p>Payment card details are never stored by Zoink; they are held by Stripe. If you received payouts, your Stripe Connect account is held by Stripe under its own terms. You can close it with Stripe directly.</p>
+<p>The full details are in section 7 ("How long we keep it") and section 8 ("Deleting your account") of our <a href="privacy.html">Privacy Policy</a>.</p>
+
+<h2 id="contact">5. Questions</h2>
+<p>Write to <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>.</p>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Copyright 2026 Zoink campus rentals</span>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

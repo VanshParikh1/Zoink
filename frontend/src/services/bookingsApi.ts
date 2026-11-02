@@ -1,8 +1,9 @@
 import api from './api'
 import { Booking } from '../types'
+import type { BookingListPage } from '@zoink/shared'
 import { DEMO_MODE } from '../config/demoMode'
 import { getImageUploadPart } from './uploadFormData'
-// Demo-mode mocks load only when the build sets EXPO_PUBLIC_DEMO_MODE to
+// Demo-mode mocks load only in a dev build that sets EXPO_PUBLIC_DEMO_MODE to
 // 'true'. That value is inlined at build time, so in every other build this
 // condition folds to false and Metro drops the require — the mock modules and
 // their data never reach the bundle. (Calls below sit behind DEMO_MODE, which
@@ -20,7 +21,9 @@ const {
   mockGetMyBookings,
   mockInitiateHandoff,
   mockUploadHandoffPhoto,
-} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockWeek6') : {}) as typeof import('./mockWeek6')
+} = (__DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockWeek6') : {}) as typeof import('./mockWeek6')
+
+const PAGE_SIZE = 20
 
 // insuranceOptIn deliberately omitted — Zoink offers no insurance product at
 // launch (terms.md §12) and the backend no longer accepts the field. See
@@ -39,17 +42,17 @@ export async function createBooking(data: CreateBookingPayload): Promise<Booking
   return res.data
 }
 
-export async function getMyBookings(): Promise<Booking[]> {
-  if (DEMO_MODE) return mockGetMyBookings()
+// One page of the renter's rentals (party 'renter') or the owner's requests
+// ('owner'): live rentals first, then the rest, newest start first.
+export async function getBookingListPage(party: 'renter' | 'owner', cursor?: string): Promise<BookingListPage> {
+  if (DEMO_MODE) {
+    const items = await (party === 'renter' ? mockGetMyBookings() : mockGetIncomingRequests())
+    return { items, nextCursor: null, total: items.length, pendingCount: items.filter((b) => b.status === 'PENDING').length }
+  }
 
-  const res = await api.get('/bookings/me')
-  return res.data
-}
-
-export async function getIncomingRequests(): Promise<Booking[]> {
-  if (DEMO_MODE) return mockGetIncomingRequests()
-
-  const res = await api.get('/bookings/requests')
+  const res = await api.get(party === 'renter' ? '/bookings/me' : '/bookings/requests', {
+    params: { limit: PAGE_SIZE, cursor },
+  })
   return res.data
 }
 

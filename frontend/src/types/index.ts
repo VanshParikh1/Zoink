@@ -17,10 +17,8 @@ export type {
   ListingImageSummary as ListingImage,
   ListingResponse as Listing,
   ListingBrowseItem,
-  UserReputationResponse as UserReputation,
   BookingResponse as Booking,
   BookingListingSnapshot as ListingPreview,
-  ReviewResponse as Review,
   PendingReviewResponse as PendingReview,
   SubmitReviewResult as SubmittedReviewResult,
   ConversationResponse as Conversation,
@@ -65,14 +63,6 @@ export type MyProfile = PublicProfileResponse &
     spotlightTags?: string[]
     reviewHighlights?: ProfileReviewHighlight[]
   }
-
-// Frontend-facing shape: flattened from the backend's { items, meta } envelope
-// by listingsApi.browseListings, which reads meta.total / meta.hasMore.
-export interface BrowseListingsResult {
-  items: ListingBrowseItem[]
-  total: number
-  hasMore: boolean
-}
 
 // Admin dispute endpoints return raw Prisma rows (not the DTO-mapped shapes used
 // elsewhere), so totalPrice comes through as a Decimal-serialized string, not a number.

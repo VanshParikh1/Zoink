@@ -1,8 +1,11 @@
 import api from './api'
 import { AdminDisputeDetail, AdminDisputeListItem, AdminReportListItem, BookingEvent, DisputeStatus, ReportStatus } from '../types'
+import type { Page } from '@zoink/shared'
 
-export async function listDisputes(status?: DisputeStatus): Promise<AdminDisputeListItem[]> {
-  const res = await api.get('/admin/disputes', { params: status ? { status } : undefined })
+const PAGE_SIZE = 20
+
+export async function listDisputes(status: DisputeStatus | undefined, cursor?: string): Promise<Page<AdminDisputeListItem>> {
+  const res = await api.get('/admin/disputes', { params: { status, limit: PAGE_SIZE, cursor } })
   return res.data
 }
 
@@ -23,13 +26,14 @@ export async function resolveDispute(id: string, data: ResolveDisputePayload): P
   return res.data
 }
 
-export async function getBookingEvents(bookingId: string): Promise<BookingEvent[]> {
-  const res = await api.get(`/admin/bookings/${bookingId}/events`)
+/** The booking's audit trail, oldest first, a page at a time. */
+export async function getBookingEvents(bookingId: string, cursor?: string): Promise<Page<BookingEvent>> {
+  const res = await api.get(`/admin/bookings/${bookingId}/events`, { params: { limit: 50, cursor } })
   return res.data
 }
 
-export async function listReports(status?: ReportStatus): Promise<AdminReportListItem[]> {
-  const res = await api.get('/admin/reports', { params: status ? { status } : undefined })
+export async function listReports(status: ReportStatus | undefined, cursor?: string): Promise<Page<AdminReportListItem>> {
+  const res = await api.get('/admin/reports', { params: { status, limit: PAGE_SIZE, cursor } })
   return res.data
 }
 

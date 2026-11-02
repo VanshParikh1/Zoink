@@ -1,8 +1,11 @@
 import { TERMS_VERSION, PRIVACY_VERSION } from '@zoink/shared'
 
-// Exactly 'true' (lowercase), the same comparison the API modules use to decide
-// at build time whether to bundle the mock data at all.
-export const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true'
+import { resolveDemoMode } from './demoModeGate'
+
+// Dev builds only, and EXPO_PUBLIC_DEMO_MODE exactly 'true' (lowercase). The API
+// modules repeat the same `__DEV__ && …` check inline so Metro can drop the
+// mock modules from release bundles.
+export const DEMO_MODE = resolveDemoMode(__DEV__, process.env.EXPO_PUBLIC_DEMO_MODE)
 
 export const DEMO_TOKEN = 'zoink-demo-token'
 

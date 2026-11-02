@@ -1,27 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native'
-import HardBlock from '../components/HardBlock'
+import React, { useMemo, useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import Feather from '@expo/vector-icons/Feather'
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getListing } from '../services/listingsApi'
+import { useQuery } from '@tanstack/react-query'
+import { userMessage } from '../utils/userMessage'
 import { createBooking } from '../services/bookingsApi'
+import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
+import { DEPOSIT_HOLD_HOURS, DEPOSIT_MAX_RENTAL_DAYS, DEPOSIT_PAY_WINDOW_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
 import { Listing } from '../types'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import BackButton from '../components/BackButton'
-import DismissKeyboardView from '../components/DismissKeyboardView'
+import { colors } from '../theme/colors'
+import { border, radius, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import { categoryAbbreviation } from '../config/categories'
+import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Button from '../components/mockup/Button'
+import IconButton from '../components/mockup/IconButton'
+import Card from '../components/mockup/Card'
+import Thumb from '../components/mockup/Thumb'
+import TextField from '../components/mockup/TextField'
+import PriceTable from '../components/mockup/PriceTable'
+import { listingDisplay } from '../components/mockup/listingFormat'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
+import { haptics } from '../utils/haptics'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'BookingRequest'>
@@ -35,12 +42,6 @@ type CalendarDay = {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_COUNT = 2
-// Mirrors MAX_RENTAL_DAYS in backend/src/services/bookingUtils.ts — keep in sync.
-const MAX_RENTAL_DAYS = 7
-// Mirrors HST_RATE in backend/src/services/paymentService.ts — keep in sync.
-// This is a client-side preview only; the real hstAmount is snapshotted
-// server-side in createBooking() and is what actually gets charged.
-const HST_RATE = 0.13
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -68,15 +69,6 @@ function isBeforeDay(left: Date, right: Date) {
 function isWithinRange(date: Date, startDate: Date | null, endDate: Date | null) {
   if (!startDate || !endDate) return false
   return date.getTime() > startDate.getTime() && date.getTime() < endDate.getTime()
-}
-
-function formatDateLabel(date: Date | null) {
-  if (!date) return 'Select'
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 function formatApiDate(date: Date) {
@@ -111,36 +103,36 @@ function buildMonthDays(monthDate: Date) {
   return days
 }
 
+function formatShortDate(date: Date) {
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+const SUMMARY_THUMB = 52
+
 export default function BookingRequestScreen() {
   const nav = useNavigation<Nav>()
   const route = useRoute<ScreenRoute>()
-  const [listing, setListing] = useState<Listing | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
+  // The listing page just loaded this, so it's usually cached already.
+  const listingQuery = useQuery({ queryKey: queryKeys.listing(route.params.listingId), queryFn: () => getListing(route.params.listingId) })
+  const listing = listingQuery.data ?? null
+  // A deposit is a card hold that has to last until the return, so deposit
+  // rentals are shorter (the server enforces the same limit).
+  const listingHasDeposit = Number(listing?.depositAmount ?? 0) > 0
+  const maxRentalDays = listingHasDeposit ? DEPOSIT_MAX_RENTAL_DAYS : MAX_RENTAL_DAYS
+  const loading = listingQuery.isPending
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  // Date validation messages, shown under the date control.
+  const [dateError, setDateError] = useState<string | null>(null)
   // Zoink offers no insurance product at launch (terms.md §12) — there was
   // never a UI control wired to this, and the API no longer accepts the
   // field at all. Removed rather than left dead. See legal/OPEN-ITEMS.md B1.
   const [calendarMonth, setCalendarMonth] = useState(() => new Date())
+  // The date trigger shows and hides the calendar; it starts open.
+  const [calendarOpen, setCalendarOpen] = useState(true)
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    async function loadListing() {
-      try {
-        const nextListing = await getListing(route.params.listingId)
-        setListing(nextListing)
-      } catch (err: any) {
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this listing.')
-        nav.goBack()
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadListing()
-  }, [nav, route.params.listingId])
 
   const today = useMemo(() => startOfDay(new Date()), [])
   const visibleMonths = useMemo(
@@ -148,15 +140,16 @@ export default function BookingRequestScreen() {
     [calendarMonth]
   )
   const rentalDays = useMemo(() => getRentalDays(startDate, endDate), [endDate, startDate])
-  const totalPrice = useMemo(
-    () => (listing && rentalDays > 0 ? Number((Number(listing.dailyPrice) * rentalDays).toFixed(2)) : 0),
+  // The same quote the server snapshots onto the booking when it's requested.
+  const quote = useMemo(
+    () => quoteRental(listing && rentalDays > 0 ? Number(listing.dailyPrice) : 0, Math.max(rentalDays, 0), Number(listing?.depositAmount ?? 0)),
     [listing, rentalDays]
   )
-  const depositAmount = Number(listing?.depositAmount ?? 0)
-  const hstAmount = useMemo(() => Number((totalPrice * HST_RATE).toFixed(2)), [totalPrice])
+  const { totalPrice, hstAmount, depositAmount } = quote
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return
+    setDateError(null)
 
     if (!startDate || (startDate && endDate)) {
       setStartDate(day)
@@ -174,24 +167,28 @@ export default function BookingRequestScreen() {
       return
     }
 
-    if (getRentalDays(startDate, day) > MAX_RENTAL_DAYS) {
-      Alert.alert('Date range too long', `Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`)
+    if (getRentalDays(startDate, day) > maxRentalDays) {
+      setDateError(
+        listingHasDeposit
+          ? `Rentals with a deposit can be at most ${DEPOSIT_MAX_RENTAL_DAYS} days. Pick a closer end date.`
+          : `Bookings cannot exceed ${MAX_RENTAL_DAYS} days. Pick a closer end date.`,
+      )
       return
     }
 
     setEndDate(day)
   }
 
-  async function handleSubmit() {
-    if (submitting) return
+  // Guarded: a second tap while it sends is dropped (two requests otherwise).
+  const [handleSubmit, submitting] = useSubmit(async () => {
     if (!listing) return
     if (!startDate || !endDate || rentalDays <= 0) {
-      Alert.alert('Choose dates', 'Pick a start and end date from the calendar before sending your request.')
+      setDateError('Pick a start and end date from the calendar before sending your request.')
+      setCalendarOpen(true)
       return
     }
 
     setPaymentError(null)
-    setSubmitting(true)
 
     try {
       const booking = await createBooking({
@@ -201,386 +198,384 @@ export default function BookingRequestScreen() {
         message,
       })
 
+      queryClient.setQueryData(queryKeys.booking(booking.id), booking)
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'list'] })
+      // The request opened (or reused) a conversation with its message.
+      queryClient.invalidateQueries({ queryKey: queryKeys.inbox })
+      haptics.success()
       nav.replace('BookingDetail', { bookingId: booking.id })
     } catch (err: any) {
-      const message = err?.response?.data?.error ?? err?.message ?? 'Could not create booking request.'
-      setPaymentError(message)
-      Alert.alert('Error', message)
-    } finally {
-      setSubmitting(false)
+      setPaymentError(userMessage(err, { action: "Couldn't send your request. Please try again." }))
     }
-  }
+  })
 
-  if (loading) {
+  if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Pick your dates" />
+
+  if (!listing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <DetailFallbackScreen
+        query={listingQuery}
+        title="Pick your dates"
+        what="this listing"
+        unavailable={LISTING_UNAVAILABLE}
+      />
     )
   }
 
-  if (!listing) return null
+  const { priceLine, imageUrl } = listingDisplay(listing)
+  const rangeLabel = startDate
+    ? endDate && !isSameDay(startDate, endDate)
+      ? `${formatShortDate(startDate)} – ${formatShortDate(endDate)}`
+      : endDate
+        ? formatShortDate(startDate)
+        : `${formatShortDate(startDate)} – pick an end date`
+    : 'Choose your dates'
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={styles.content}>
-      <BackButton style={styles.backLink} />
-
-      <Text style={styles.title}>Request this item</Text>
-      <Text style={styles.subtitle}>
-        {listing.title} in {listing.city}
-      </Text>
-
-      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.lg} style={styles.cardWrap} contentStyle={styles.card}>
-        <Text style={styles.sectionEyebrow}>YOUR DATES</Text>
-        <Text style={styles.sectionTitle}>Pick a rental range</Text>
-        <Text style={styles.sectionSubtitle}>
-          Tap a start date, then an end date. Your total updates automatically.
-        </Text>
-
-        <View style={styles.dateSummaryRow}>
-          <View style={styles.dateSummaryCard}>
-            <Text style={styles.summaryLabel}>Start</Text>
-            <Text style={styles.summaryValue}>{formatDateLabel(startDate)}</Text>
-          </View>
-          <View style={styles.dateSummaryCard}>
-            <Text style={styles.summaryLabel}>End</Text>
-            <Text style={styles.summaryValue}>{formatDateLabel(endDate)}</Text>
+    <Screen
+      keyboardAvoiding
+      header={<ScreenHeader title="Pick your dates" back />}
+      footer={
+        <View style={styles.footer}>
+          {paymentError ? <Text style={styles.error}>{paymentError}</Text> : null}
+          <Button
+            label={rentalDays > 0 ? `Request ${rentalDays} ${rentalDays === 1 ? 'day' : 'days'}` : 'Send request'}
+            onPress={handleSubmit}
+            loading={submitting}
+          />
+        </View>
+      }
+    >
+      <View style={styles.content}>
+        <View style={styles.summaryRow}>
+          <Thumb
+            size={SUMMARY_THUMB}
+            source={imageUrl ? { uri: fillImageUrl(imageUrl, { width: SUMMARY_THUMB, height: SUMMARY_THUMB }) } : undefined}
+            initials={categoryAbbreviation(listing.category)}
+            initialsSize={15}
+          />
+          <View style={styles.summaryText}>
+            <Text style={styles.summaryTitle} numberOfLines={1}>
+              {listing.title}
+            </Text>
+            <Text style={type.price} numberOfLines={1}>
+              {priceLine} · {listing.city}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.calendarHeader}>
-          <TouchableOpacity
-            style={styles.calendarArrow}
-            onPress={() => setCalendarMonth((current) => addMonths(current, -1))}
+        <View style={styles.block}>
+          <Text style={styles.label}>Your dates (up to {maxRentalDays} days)</Text>
+          <Pressable
+            style={({ pressed }) => [styles.dateTrigger, pressed ? styles.dateTriggerPressed : null]}
+            onPress={() => setCalendarOpen((open) => !open)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: calendarOpen }}
+            accessibilityLabel={`${rangeLabel}${rentalDays > 0 ? `, ${rentalDays} days` : ''}. ${calendarOpen ? 'Hide' : 'Show'} calendar`}
           >
-            <Text style={styles.calendarArrowText}>‹</Text>
-          </TouchableOpacity>
-          <Text style={styles.calendarHeaderText}>Choose your dates</Text>
-          <TouchableOpacity
-            style={styles.calendarArrow}
-            onPress={() => setCalendarMonth((current) => addMonths(current, 1))}
-          >
-            <Text style={styles.calendarArrowText}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        {visibleMonths.map((monthDate) => {
-          const days = buildMonthDays(monthDate)
-          return (
-            <View key={monthDate.toISOString()} style={styles.monthBlock}>
-              <Text style={styles.monthTitle}>
-                {monthDate.toLocaleDateString(undefined, {
-                  month: 'long',
-                  year: 'numeric',
-                })}
+            <Feather name="calendar" size={18} color={colors.ink} />
+            <Text style={styles.dateRange} numberOfLines={1}>
+              {rangeLabel}
+            </Text>
+            {rentalDays > 0 ? (
+              <Text style={styles.dateDays}>
+                {rentalDays} {rentalDays === 1 ? 'day' : 'days'}
               </Text>
+            ) : null}
+          </Pressable>
+          {dateError ? <Text style={styles.error}>{dateError}</Text> : null}
+        </View>
 
-              <View style={styles.weekdayRow}>
-                {DAY_LABELS.map((label) => (
-                  <Text key={label} style={styles.weekdayLabel}>
-                    {label}
-                  </Text>
-                ))}
-              </View>
-
-              <View style={styles.calendarGrid}>
-                {days.map((day) => {
-                  const isPast = isBeforeDay(day.date, today)
-                  const isStart = isSameDay(day.date, startDate)
-                  const isEnd = isSameDay(day.date, endDate)
-                  const isRange = isWithinRange(day.date, startDate, endDate)
-
-                  return (
-                    <TouchableOpacity
-                      key={day.key}
-                      style={styles.dayCell}
-                      onPress={() => handleDayPress(day.date)}
-                      disabled={isPast}
-                      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                    >
-                      <View
-                        style={[
-                          styles.dayPill,
-                          isRange && styles.dayPillRange,
-                          (isStart || isEnd) && styles.dayPillSelected,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dayText,
-                            !day.inCurrentMonth && styles.dayTextMuted,
-                            isPast && styles.dayTextDisabled,
-                            isRange && styles.dayTextRange,
-                            (isStart || isEnd) && styles.dayTextSelected,
-                          ]}
-                        >
-                          {day.label}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  )
-                })}
-              </View>
+        {calendarOpen ? (
+          <Card shadow={false} contentStyle={styles.calendarCard}>
+            <View style={styles.calendarHeader}>
+              <IconButton accessibilityLabel="Previous month" onPress={() => setCalendarMonth((current) => addMonths(current, -1))}>
+                <Feather name="chevron-left" size={22} color={colors.ink} />
+              </IconButton>
+              <Text style={styles.calendarHeaderText}>Tap a start date, then an end date</Text>
+              <IconButton accessibilityLabel="Next month" onPress={() => setCalendarMonth((current) => addMonths(current, 1))}>
+                <Feather name="chevron-right" size={22} color={colors.ink} />
+              </IconButton>
             </View>
-          )
-        })}
 
-        {(startDate || endDate) ? (
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => {
-              setStartDate(null)
-              setEndDate(null)
-            }}
-          >
-            <Text style={styles.clearButtonText}>Clear dates</Text>
-          </TouchableOpacity>
+            {visibleMonths.map((monthDate) => {
+              const days = buildMonthDays(monthDate)
+              return (
+                <View key={monthDate.toISOString()} style={styles.monthBlock}>
+                  <Text style={styles.monthTitle}>
+                    {monthDate.toLocaleDateString(undefined, {
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </Text>
+
+                  <View style={styles.weekdayRow}>
+                    {DAY_LABELS.map((label) => (
+                      <Text key={label} style={styles.weekdayLabel}>
+                        {label}
+                      </Text>
+                    ))}
+                  </View>
+
+                  <View style={styles.calendarGrid}>
+                    {days.map((day) => {
+                      const isPast = isBeforeDay(day.date, today)
+                      const isStart = isSameDay(day.date, startDate)
+                      const isEnd = isSameDay(day.date, endDate)
+                      const isRange = isWithinRange(day.date, startDate, endDate)
+                      const isToday = isSameDay(day.date, today)
+                      const isSelected = isStart || isEnd
+
+                      return (
+                        <Pressable
+                          key={day.key}
+                          style={[styles.dayCell, isPast && styles.dayCellDisabled]}
+                          onPress={() => handleDayPress(day.date)}
+                          disabled={isPast}
+                          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected || isRange, disabled: isPast }}
+                          accessibilityLabel={day.date.toDateString()}
+                        >
+                          <View
+                            style={[
+                              styles.dayPill,
+                              isToday && !isSelected && styles.dayPillToday,
+                              isRange && styles.dayPillRange,
+                              isSelected && styles.dayPillSelected,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.dayText,
+                                !day.inCurrentMonth && styles.dayTextMuted,
+                                isSelected && styles.dayTextSelected,
+                              ]}
+                            >
+                              {day.label}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                </View>
+              )
+            })}
+
+            {startDate || endDate ? (
+              <Button
+                label="Clear dates"
+                variant="link"
+                onPress={() => {
+                  setStartDate(null)
+                  setEndDate(null)
+                  setDateError(null)
+                }}
+              />
+            ) : null}
+          </Card>
         ) : null}
 
-        <Text style={styles.label}>Message to owner</Text>
-        <TextInput
+        <Card shadow={false} contentStyle={styles.breakdownCard}>
+          <Text style={styles.sectionTitle}>Price breakdown</Text>
+          <PriceTable
+            rows={[
+              { label: 'Daily rate', value: `$${Number(listing.dailyPrice).toFixed(2)}` },
+              { label: 'Rental days', value: rentalDays > 0 ? `${rentalDays}` : '—' },
+              { label: 'Rental total', value: `$${totalPrice.toFixed(2)}` },
+              { label: 'HST (13%)', value: `$${hstAmount.toFixed(2)}` },
+            ]}
+            // Same split as Checkout: rent + HST is what's captured at pickup;
+            // the deposit is a separate hold, never part of this total.
+            total={{ label: 'Charged at pickup', value: `$${quote.chargedAtPickup.toFixed(2)}` }}
+            highlight="lime"
+          />
+        </Card>
+
+        {depositAmount > 0 ? (
+          <Card shadow={false} padding={space.lg} contentStyle={styles.depositRow}>
+            <Feather name="lock" size={18} color={colors.ink} />
+            <View style={styles.depositText}>
+              <Text style={styles.depositLabel}>Deposit hold</Text>
+              <Text style={styles.depositNote}>
+                You pay up to {DEPOSIT_PAY_WINDOW_HOURS}h before pickup. Released {DEPOSIT_HOLD_HOURS}h after return
+              </Text>
+            </View>
+            <Text style={styles.depositValue}>${depositAmount.toFixed(2)}</Text>
+          </Card>
+        ) : null}
+
+        <TextField
+          label="Message to owner"
           value={message}
           onChangeText={setMessage}
           placeholder="Add pickup timing, questions, or a quick intro"
-          placeholderTextColor={theme.textDisabled}
-          style={[styles.input, styles.textarea]}
           multiline
-          textAlignVertical="top"
           maxLength={500}
         />
-      </HardBlock>
-
-      <HardBlock radius={theme.radius.lg} offset={theme.hard.offset.md} style={styles.cardWrap} contentStyle={styles.card}>
-        <Text style={styles.breakdownTitle}>Price breakdown</Text>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Daily rate</Text>
-          <Text style={styles.rowValue}>${Number(listing.dailyPrice).toFixed(2)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Rental days</Text>
-          <Text style={styles.rowValue}>{rentalDays > 0 ? rentalDays : '—'}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Rental total</Text>
-          <Text style={styles.rowValue}>${totalPrice.toFixed(2)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Deposit hold</Text>
-          <Text style={styles.rowValue}>${depositAmount.toFixed(2)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>HST (13%)</Text>
-          <Text style={styles.rowValue}>${hstAmount.toFixed(2)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Total</Text>
-          <Text style={styles.rowValue}>${(totalPrice + depositAmount + hstAmount).toFixed(2)}</Text>
-        </View>
-      </HardBlock>
-
-      {paymentError ? <Text style={styles.errorText}>{paymentError}</Text> : null}
-
-      <View style={styles.submitButtonWrap}>
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-          {submitting ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Send request</Text>}
-        </TouchableOpacity>
       </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 24, paddingTop: 64, paddingBottom: 120, gap: 18 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  backLink: { marginBottom: 18 },
-  title: { ...theme.type.screenTitle },
-  subtitle: { color: theme.textMuted, fontSize: 15, marginTop: 4, marginBottom: 12 },
-  cardWrap: {
-    marginBottom: 0,
+  content: {
+    gap: space.screen,
   },
-  card: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: theme.radius.lg,
-    padding: 24,
-    gap: 16,
-  },
-  sectionEyebrow: {
-    color: theme.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  sectionTitle: {
-    color: theme.text,
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  sectionSubtitle: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  dateSummaryRow: {
+  summaryRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
+    alignItems: 'center',
+    gap: space.lg,
   },
-  dateSummaryCard: {
+  summaryText: {
     flex: 1,
-    backgroundColor: theme.screen,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
+    gap: 2,
   },
-  summaryLabel: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    marginBottom: 4,
-    textTransform: 'uppercase',
+  summaryTitle: {
+    ...type.body,
+    fontFamily: fonts.bold,
+    lineHeight: 20,
+    color: colors.ink,
   },
-  summaryValue: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: '900',
+  block: {
+    gap: space.sm,
+  },
+  label: {
+    ...type.labelSm,
+    color: colors.ink,
+  },
+  dateTrigger: {
+    height: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingHorizontal: 18,
+    borderRadius: radius.pill,
+    borderWidth: border.base,
+    borderColor: colors.ink,
+    backgroundColor: colors.surface,
+  },
+  dateTriggerPressed: {
+    backgroundColor: colors.tan,
+  },
+  dateRange: {
+    ...type.bodySm,
+    color: colors.ink,
+    flex: 1,
+  },
+  dateDays: {
+    ...type.bodySm,
+    fontFamily: fonts.black,
+    color: colors.ink,
+  },
+  error: {
+    ...type.labelSm,
+    color: colors.danger,
+  },
+  calendarCard: {
+    gap: space.lg,
   },
   calendarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  calendarArrow: {
-    width: 44,
-    height: 44,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.screen,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  calendarArrowText: {
-    color: theme.text,
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 26,
+    gap: space.sm,
   },
   calendarHeaderText: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: '800',
+    ...type.caption,
+    color: colors.mutedAlt,
+    flex: 1,
+    textAlign: 'center',
   },
   monthBlock: {
-    marginTop: 8,
+    gap: space.sm,
   },
   monthTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 12,
+    ...type.label,
+    color: colors.ink,
   },
   weekdayRow: {
     flexDirection: 'row',
-    marginBottom: 8,
   },
   weekdayLabel: {
-    flex: 1,
+    ...type.caption,
+    color: colors.mutedAlt,
+    width: `${100 / 7}%`,
     textAlign: 'center',
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
   dayCell: {
-    width: '14.2857%',
-    paddingVertical: 4,
+    width: `${100 / 7}%`,
     alignItems: 'center',
+    paddingVertical: 3,
+  },
+  dayCellDisabled: {
+    opacity: 0.35,
   },
   dayPill: {
-    width: 40,
-    height: 40,
-    borderRadius: theme.radius.pill,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: border.thin,
+    borderColor: 'transparent',
   },
-  dayPillSelected: {
-    backgroundColor: theme.primary,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
+  dayPillToday: {
+    borderColor: colors.ink,
   },
   dayPillRange: {
-    backgroundColor: theme.primarySurface,
+    backgroundColor: colors.lime,
+  },
+  dayPillSelected: {
+    backgroundColor: colors.green,
+    borderColor: colors.ink,
   },
   dayText: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: '700',
+    ...type.labelSm,
+    color: colors.ink,
   },
   dayTextMuted: {
-    color: theme.textDisabled,
-  },
-  dayTextDisabled: {
-    color: 'rgba(4, 15, 15, 0.22)',
-  },
-  dayTextRange: {
-    color: theme.primary,
+    color: colors.mutedAlt,
   },
   dayTextSelected: {
-    color: theme.textOnPrimary,
+    fontFamily: fonts.black,
   },
-  clearButton: {
-    alignSelf: 'flex-start',
-    marginTop: 6,
-  },
-  clearButtonText: {
-    color: theme.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  label: { color: theme.text, fontSize: 14, fontWeight: '800', marginTop: 4 },
-  input: {
-    backgroundColor: theme.screen,
-    borderRadius: theme.radius.md,
-    borderWidth: theme.hard.borderThin,
-    borderColor: theme.hard.ink,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: theme.text,
-    fontSize: 15,
-  },
-  textarea: { minHeight: 110 },
-  breakdownTitle: { color: theme.text, fontSize: 16, fontWeight: '900', marginBottom: 4 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rowLabel: { color: theme.textMuted, fontSize: 14 },
-  rowValue: { color: theme.text, fontSize: 15, fontWeight: '800' },
-  errorText: { color: theme.danger, fontSize: 14, fontWeight: '800', lineHeight: 20 },
-  submitButtonWrap: {
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.hard.ink,
-  },
-  submitButton: {
-    backgroundColor: theme.primary,
-    borderRadius: theme.radius.pill,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    minHeight: 56,
+  depositRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: theme.hard.offset.md,
-    marginBottom: theme.hard.offset.md,
+    gap: space.md,
   },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
+  depositText: {
+    flex: 1,
+    gap: 2,
+  },
+  depositLabel: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  depositNote: {
+    ...type.caption,
+    color: colors.mutedAlt,
+  },
+  depositValue: {
+    ...type.bodySm,
+    fontFamily: fonts.black,
+    color: colors.ink,
+  },
+  breakdownCard: {
+    gap: space.sm,
+  },
+  sectionTitle: {
+    ...type.section,
+    color: colors.ink,
+  },
+  footer: {
+    gap: space.sm,
+  },
 })

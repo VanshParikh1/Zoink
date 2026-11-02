@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto'
 import type { MyProfileResponse, NotificationPreferences, PublicProfileResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
-import { NotFoundError } from '../utils/errors'
+import { BadRequestError, NotFoundError } from '../utils/errors'
+import { CANADIAN_PHONE_REGEX, normalizePhone, PHONE_FORMAT_MESSAGE } from '../schemas/auth.schema'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { signJWT } from './authService'
 import { isBlockedBetween } from './blockService'
@@ -118,14 +119,15 @@ export async function updateNotificationPreferences(
 // Booking/Review/Dispute/Report — those stay intact for the other party's
 // transaction history, now pointing at an anonymized row. The user's listings
 // are pulled from circulation. Idempotent: a second call on an already-deleted
-// row is a no-op.
-export async function deleteMe(userId: string): Promise<void> {
+// row is a no-op. Returns the profile photo URL the caller should delete from
+// Cloudinary (the row only drops the link to it), or null.
+export async function deleteMe(userId: string): Promise<{ avatarUrl: string | null }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, deletedAt: true },
+    select: { id: true, deletedAt: true, avatarUrl: true },
   })
   if (!user) throw new NotFoundError('User not found.')
-  if (user.deletedAt) return
+  if (user.deletedAt) return { avatarUrl: null }
 
   await prisma.$transaction([
     prisma.user.update({
@@ -150,6 +152,7 @@ export async function deleteMe(userId: string): Promise<void> {
       data: { isAvailable: false },
     }),
   ])
+  return { avatarUrl: user.avatarUrl }
 }
 
 // ── Public profile (safe fields only — no email, no phone) ───────────────────
@@ -226,6 +229,15 @@ export async function updateMe(userId: string, data: UpdateMeInput) {
     Object.entries(data).filter(([, v]) => v !== undefined)
   )
 
+  // Same rule as sign-up, stored the same way (+1 and ten digits). Checked here
+  // rather than in UpdateMeSchema so the app, which shows `error`, gets this
+  // message instead of "Validation failed.".
+  if (typeof cleaned.phone === 'string') {
+    const phone = cleaned.phone.trim()
+    if (!CANADIAN_PHONE_REGEX.test(phone)) throw new BadRequestError(PHONE_FORMAT_MESSAGE)
+    cleaned.phone = normalizePhone(phone)
+  }
+
   const user = await prisma.user.update({
     where: { id: userId },
     data: cleaned,
@@ -256,13 +268,34 @@ export async function updateAvatar(userId: string, avatarUrl: string) {
 
 // ── Update Expo push token ───────────────────────────────────────────────────
 
+// One phone, one account: registering a device's token takes it off every
+// other account in the same transaction. A session can end without a sign-out
+// (expiry, or sign-out couldn't reach the server), and the next person to sign
+// in on that phone must not keep getting the previous account's notifications.
 export async function updateExpoPushToken(userId: string, expoPushToken: string | null) {
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data: { expoPushToken },
-    select: { id: true, expoPushToken: true },
-  })
+  const select = { id: true, expoPushToken: true }
+  if (expoPushToken === null) {
+    return prisma.user.update({ where: { id: userId }, data: { expoPushToken: null }, select })
+  }
+  const [, user] = await prisma.$transaction([
+    prisma.user.updateMany({
+      where: { expoPushToken, id: { not: userId } },
+      data: { expoPushToken: null },
+    }),
+    prisma.user.update({ where: { id: userId }, data: { expoPushToken }, select }),
+  ])
   return user
+}
+
+// Signing a phone out: clears the account's token only while it is still this
+// phone's, so signing out on an old phone doesn't silence the one the account
+// uses now.
+export async function releaseExpoPushToken(userId: string, expoPushToken: string) {
+  const result = await prisma.user.updateMany({
+    where: { id: userId, expoPushToken },
+    data: { expoPushToken: null },
+  })
+  return { released: result.count === 1 }
 }
 
 // ── Stripe Connect ────────────────────────────────────────────────────────────

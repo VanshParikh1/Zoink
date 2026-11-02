@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import type { BlockedUserResponse } from '@zoink/shared'
 import prisma from '../utils/prisma'
+import { createdAtOrder, LEGACY_LIST_CAP } from '../utils/pagination'
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors'
 
 // Blocking is symmetric in effect: a UserBlock row in EITHER direction hides
@@ -28,9 +29,11 @@ export async function unblockUser(blockerId: string, blockedId: string, db: type
 }
 
 export async function listMyBlocks(blockerId: string, db: typeof prisma = prisma): Promise<BlockedUserResponse[]> {
+  // Capped like every unpaginated list; nobody blocks a hundred people.
   const blocks = await db.userBlock.findMany({
     where: { blockerId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: createdAtOrder('desc'),
+    take: LEGACY_LIST_CAP,
     select: {
       createdAt: true,
       blocked: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },

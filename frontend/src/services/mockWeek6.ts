@@ -1,4 +1,5 @@
 import { Booking, BookingStatus, Conversation, Dispute, ListingPreview, Message, PendingReview, SubmittedReviewResult, User } from '../types'
+import { calculateCommission, calculateOwnerPayout } from '@zoink/shared'
 import { CreateBookingPayload } from './bookingsApi'
 import { CreateDisputePayload } from './disputesApi'
 import { demoProfile, publicProfiles, toDemoUser } from './mockProfiles'
@@ -261,7 +262,7 @@ function toBooking(seed: BookingSeed): Booking {
   const listing = listingById(seed.listingId)
   const days = rentalDays(seed.startDate, seed.endDate)
   const totalPrice = Number((Number(listing.dailyPrice) * days).toFixed(2))
-  const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
+  const commissionAmount = calculateCommission(totalPrice)
   const hstAmount = Number((totalPrice * 0.13).toFixed(2))
   const depositAmount = Number(listing.depositAmount ?? 0)
   const renter = userOf(seed.renterId)
@@ -277,7 +278,7 @@ function toBooking(seed: BookingSeed): Booking {
     totalPrice,
     depositAmount,
     commissionAmount,
-    ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
+    ownerPayout: calculateOwnerPayout(totalPrice),
     insuranceOptIn: false,
     insuranceFee: 0,
     hstAmount,
@@ -518,7 +519,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   // longer accepts insuranceOptIn, so demo mode mirrors the backend and always
   // books with no insurance.
   const insuranceFee = 0
-  const commissionAmount = Number((totalPrice * 0.15).toFixed(2))
+  const commissionAmount = calculateCommission(totalPrice)
   const hstAmount = Number((totalPrice * 0.13).toFixed(2))
 
   const booking: Booking = {
@@ -531,7 +532,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
     totalPrice,
     depositAmount,
     commissionAmount,
-    ownerPayout: Number((totalPrice - commissionAmount).toFixed(2)),
+    ownerPayout: calculateOwnerPayout(totalPrice),
     insuranceOptIn: false,
     insuranceFee,
     hstAmount,

@@ -1,13 +1,16 @@
 import React from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { StyleSheet, Text, View } from 'react-native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useAuth } from '../context/AuthContext'
 import { RootStackParamList } from '../navigation'
-import ZoinkFullLogo from '../components/ZoinkFullLogo'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import Badge from '../components/mockup/Badge'
+import LogoPill from '../components/mockup/LogoPill'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'VerificationGate'>
 
@@ -16,56 +19,50 @@ export default function VerificationGateScreen() {
   const { user, logout } = useAuth()
 
   return (
-    <ScreenBackground>
-      <View style={styles.container}>
-        <ZoinkFullLogo width={160} height={50} style={styles.logo} />
-        <Text style={styles.kicker}>one quick step</Text>
+    <Screen
+      glow="topLeft"
+      footer={
+        <View style={styles.footer}>
+          <Button label="Enter verification code" onPress={() => navigation.navigate('VerifyEmail')} />
+          <Button label="Sign out" variant="link" onPress={logout} style={styles.signOut} />
+        </View>
+      }
+    >
+      <View style={styles.content}>
+        <LogoPill size="lg" />
+        <Badge label="ONE QUICK STEP" variant="lime" />
         <Text style={styles.title}>Verify your email</Text>
-        <Text style={styles.subtitle}>
+        <Text style={styles.body}>
           We need to confirm your university email before you can start renting on Zoink.
         </Text>
-        <Text style={styles.email}>{user?.email}</Text>
-
-        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('VerifyEmail')}>
-          <Text style={styles.buttonText}>Enter verification code</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={logout}>
-          <Text style={styles.link}>Sign out</Text>
-        </TouchableOpacity>
+        {user?.email ? <Text style={styles.email}>{user.email}</Text> : null}
       </View>
-    </ScreenBackground>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    alignItems: 'center',
+  content: {
+    gap: space.xxl,
+    paddingTop: space.sm,
   },
-  logo: { marginBottom: 20 },
-  kicker: {
-    color: theme.primary,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-    marginBottom: 8,
+  title: {
+    ...type.h1,
+    color: colors.ink,
   },
-  title: { ...theme.type.screenTitle, marginBottom: 10, textAlign: 'center' },
-  subtitle: { fontSize: 15, color: theme.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 14 },
-  email: { fontSize: 14, fontWeight: '800', color: theme.primary, marginBottom: 28 },
-  button: {
-    backgroundColor: theme.primary,
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginBottom: 16,
-    width: '100%',
+  body: {
+    ...type.body,
+    color: colors.mutedAlt,
   },
-  buttonText: { color: theme.textOnPrimary, fontSize: 15, fontWeight: '900' },
-  link: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
+  email: {
+    ...type.body,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  footer: {
+    gap: space.xs,
+  },
+  signOut: {
+    alignSelf: 'center',
+  },
 })
-

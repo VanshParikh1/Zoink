@@ -1,11 +1,16 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
-import { Platform } from 'react-native'
-import api, { setApiToken } from '../services/api'
+import { InteractionManager, Platform } from 'react-native'
+import api, { setApiToken, setSessionEndedHandler } from '../services/api'
+import { decodeJwtPayload, isJwtExpired } from '../services/sessionToken'
 import { DEMO_MODE, DEMO_TOKEN, DEMO_USER } from '../config/demoMode'
-import { clearPushToken, syncPushToken } from '../services/pushNotifications'
+import { releasePushToken, syncPushToken } from '../services/pushNotifications'
+import { queryClient } from '../services/queryClient'
+import { queryKeys } from '../services/queryKeys'
+import { getFirstPendingReview } from '../services/reviewsApi'
 import type { University } from '@zoink/shared'
+import { toast } from '../services/toast'
 
 const TOKEN_KEY = 'zoink_jwt'
 
@@ -73,12 +78,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function loadToken() {
       try {
         const stored = await getTokenAsync(TOKEN_KEY)
-        setApiToken(stored ?? null)
         if (stored) {
-          const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : parseJWT(stored)
+          const payload = DEMO_MODE && stored === DEMO_TOKEN ? DEMO_USER : tryParseJWT(stored)
+          if (!payload) {
+            // e.g. a demo-mode token left behind after switching demo mode off,
+            // or a session past its expiry. Drop it and start signed out
+            // instead of opening the app "signed in" with every request failing.
+            console.warn('Stored session token is unusable or expired; clearing it')
+            // A lapsed session still has this phone's push token on its
+            // account; release it so that account stops notifying a phone
+            // that's now signed out.
+            if (!DEMO_MODE && decodeJwtPayload(stored)) void releasePushToken(stored)
+            await deleteTokenAsync(TOKEN_KEY)
+            setApiToken(null)
+            return
+          }
+          setApiToken(stored)
           setToken(stored)
           setUser(payload)
           api.defaults.headers.common['Authorization'] = `Bearer ${stored}`
+          // The first screen depends on whether a review is owed; ask now,
+          // in parallel with the fonts, rather than once they've loaded.
+          if (payload.verificationStatus === 'VERIFIED') {
+            queryClient.prefetchQuery({ queryKey: queryKeys.firstPendingReview, queryFn: getFirstPendingReview })
+          }
+        } else {
+          setApiToken(null)
         }
       } catch (e) {
         console.error('Failed to load token', e)
@@ -89,14 +114,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadToken()
   }, [])
 
+  // The server stopped accepting the session mid-use (token expired, account
+  // deleted): api.ts has already dropped the stored token; sign out here so
+  // navigation goes back to Login, and say why once. The phone's push token is
+  // released too, or the lapsed account would keep notifying a signed-out phone.
+  useEffect(() => {
+    setSessionEndedHandler((endedToken) => {
+      if (!DEMO_MODE) void releasePushToken(endedToken)
+      delete api.defaults.headers.common['Authorization']
+      queryClient.clear()
+      setToken(null)
+      setUser(null)
+      toast.info('Your session has ended. Please log in again.')
+    })
+    return () => setSessionEndedHandler(null)
+  }, [])
+
   useEffect(() => {
     if (!token || !user || user.verificationStatus !== 'VERIFIED' || DEMO_MODE) {
       return
     }
 
-    syncPushToken().catch((error) => {
-      console.warn('Failed to sync push token', error)
+    // Not needed for the first screen: wait until launch animations and the
+    // first renders are done.
+    const task = InteractionManager.runAfterInteractions(() => {
+      syncPushToken().catch((error) => {
+        console.warn('Failed to sync push token', error)
+      })
     })
+    return () => task.cancel()
   }, [token, user])
 
   // `newUser` is only used in DEMO_MODE, where there's no real JWT to decode.
@@ -107,6 +153,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // terms screen until an app reload re-decoded the token.
   const saveSession = useCallback(async (newToken: string, newUser: User) => {
     await setTokenAsync(TOKEN_KEY, newToken)
+    // Nothing cached for a previous account may show to this one.
+    queryClient.clear()
     setApiToken(newToken)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
     const resolvedUser = DEMO_MODE && newToken === DEMO_TOKEN ? newUser : parseJWT(newToken)
@@ -162,12 +210,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [saveSession])
 
   const logout = useCallback(async () => {
+    // Not awaited: it carries its own copy of the session token, so signing
+    // out doesn't wait on the network.
     if (!DEMO_MODE && token) {
-      await clearPushToken()
+      void releasePushToken(token)
     }
     await deleteTokenAsync(TOKEN_KEY)
     setApiToken(null)
     delete api.defaults.headers.common['Authorization']
+    queryClient.clear()
     setToken(null)
     setUser(null)
   }, [token])
@@ -215,10 +266,21 @@ export function useAuth() {
   return ctx
 }
 
+// null when the token isn't a decodable JWT or has expired.
+function tryParseJWT(token: string): User | null {
+  const json = decodeJwtPayload(token)
+  if (!json || isJwtExpired(json)) return null
+  return toUser(json)
+}
+
 // Decode JWT payload without a library — JWTs are just base64 encoded JSON
 function parseJWT(token: string): User {
-  const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-  const json = JSON.parse(atob(base64))
+  const json = decodeJwtPayload(token)
+  if (!json) throw new Error('Session token could not be decoded')
+  return toUser(json)
+}
+
+function toUser(json: Record<string, any>): User {
   return {
     id: json.userId,
     email: json.email ?? '',

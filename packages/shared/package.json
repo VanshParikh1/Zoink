@@ -8,6 +8,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --require ts-node/register test/*.test.ts"
   }
 }

@@ -3,6 +3,7 @@ import { ZodError } from 'zod'
 import multer from 'multer'
 import { AppError } from '../utils/errors'
 import { Sentry } from '../instrument'
+import { loggableError } from '../utils/sentryScrub'
 
 export function errorHandler(
   err: any,
@@ -28,7 +29,10 @@ export function errorHandler(
     if (err.statusCode >= 500) {
       Sentry.captureException(err)
     }
-    return res.status(err.statusCode).json({ error: err.message })
+    // A machine-readable code where the error class has one (e.g.
+    // PICKUP_PAYMENT_REQUIRED), next to the sentence for people.
+    const code = typeof (err as unknown as { code?: unknown }).code === 'string' ? (err as unknown as { code: string }).code : undefined
+    return res.status(err.statusCode).json(code ? { error: err.message, code } : { error: err.message })
   }
 
   // Upload limits (multer): an oversized file is 413, anything else malformed 400.
@@ -54,7 +58,7 @@ export function errorHandler(
   }
 
   // Fallback to 500 for unrecognized errors, logging them server-side
-  console.error('Unhandled error:', err)
+  console.error('Unhandled error:', loggableError(err))
   Sentry.captureException(err)
   return res.status(500).json({ error: 'Something went wrong.' })
 }

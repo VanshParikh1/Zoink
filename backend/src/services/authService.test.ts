@@ -11,18 +11,29 @@ import { loginUser, registerUser } from './authService'
 const originalFindUnique = prisma.user.findUnique
 const originalCreate = prisma.user.create
 const originalTokenCreate = prisma.verificationToken.create
+const originalTransaction = prisma.$transaction
 const originalSesSend = SESClient.prototype.send
 
 afterEach(() => {
   ;(prisma.user as any).findUnique = originalFindUnique
   ;(prisma.user as any).create = originalCreate
   ;(prisma.verificationToken as any).create = originalTokenCreate
+  ;(prisma as any).$transaction = originalTransaction
   ;(SESClient.prototype as any).send = originalSesSend
 })
 
 function stubHappyPathCollaborators(createSpy: (args: any) => void) {
   ;(prisma.user as any).findUnique = async () => null
   ;(prisma.verificationToken as any).create = async () => ({ id: 'token-1' })
+  // The per-address send cap (reserveVerificationEmail): nothing sent yet.
+  ;(prisma as any).$transaction = async (fn: (tx: any) => Promise<unknown>) =>
+    fn({
+      $queryRaw: async () => [],
+      verificationEmailSend: { findMany: async () => [], create: async () => ({ id: 'send-1' }) },
+      // Creating the account runs in its own transaction (replacing an
+      // unverified sign-up); route it to the stubbed create below.
+      user: { create: (args: any) => (prisma.user as any).create(args) },
+    })
   ;(SESClient.prototype as any).send = async () => ({})
   ;(prisma.user as any).create = async (args: any) => {
     createSpy(args)
@@ -144,10 +155,42 @@ test('registerUser responds without waiting for the verification email to send',
   assert.equal(sendCalled, true, 'the verification email is still sent')
 })
 
+test('the verification email keeps the first name as text in its HTML', { timeout: 20_000 }, async () => {
+  stubHappyPathCollaborators(() => {})
+  let html = ''
+  let text = ''
+  const sent = new Promise<void>((resolve) => {
+    ;(SESClient.prototype as any).send = async (command: any) => {
+      html = command.input.Message.Body.Html.Data
+      text = command.input.Message.Body.Text.Data
+      resolve()
+      return {}
+    }
+  })
+
+  await registerUser(
+    'student@mail.utoronto.ca',
+    'password123',
+    '<a href="https://evil.example">Ada</a>',
+    'Lovelace',
+    '+14165550192',
+    'UOFT',
+    CURRENT_TERMS_VERSION,
+    CURRENT_PRIVACY_VERSION,
+    true
+  )
+  await sent
+
+  assert.ok(!html.includes('<a href'), html)
+  assert.ok(html.includes('Hi &lt;a href=&quot;https://evil.example&quot;&gt;Ada&lt;/a&gt;,'), html)
+  assert.ok(text.includes('Hi <a href="https://evil.example">Ada</a>,'), 'the plain-text part is left as typed')
+})
+
 test('a failed verification email never logs the code in production', { timeout: 20_000 }, async () => {
   stubHappyPathCollaborators(() => {})
   ;(SESClient.prototype as any).send = async () => {
-    throw new Error('Email address is not verified.')
+    // SES's own wording names the recipient.
+    throw new Error('Email address is not verified. The following identities failed the check in region US-EAST-1: student@mail.utoronto.ca')
   }
   const warnings: string[] = []
   const originalWarn = console.warn

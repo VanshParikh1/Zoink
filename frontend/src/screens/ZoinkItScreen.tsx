@@ -1,59 +1,121 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Animated,
-  Alert,
-  Dimensions,
-  Easing,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Image } from 'expo-image'
+import { haptics } from '../utils/haptics'
 import * as ImagePicker from 'expo-image-picker'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
+import Feather from '@expo/vector-icons/Feather'
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native'
+import { useQuery } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { DEPOSIT_HOLD_HOURS, HANDOFF_PHOTOS_MAX, HANDOFF_PHOTOS_MIN, ZOINK_TAP_WINDOW_MS, isPickupPaymentReady, rentalDayCount } from '@zoink/shared'
+import PickupPaymentNotice from '../components/PickupPaymentNotice'
 import { RootStackParamList } from '../navigation'
 import { Booking } from '../types'
 import { confirmHandoff, getBooking, initiateHandoff, uploadHandoffPhotoImage } from '../services/bookingsApi'
+import { queryKeys } from '../services/queryKeys'
+import { applyBookingUpdate } from '../services/bookingCache'
+import { isPickupPaymentFailure, userMessage } from '../utils/userMessage'
+import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useAuth } from '../context/AuthContext'
-import { theme } from '../theme/colors'
-import ZoinkLogo from '../components/ZoinkLogo'
-import BackButton from '../components/BackButton'
+import { colors } from '../theme/colors'
+import { border, radius, shadow, space } from '../theme/tokens'
+import { fonts, type } from '../theme/typography'
+import { categoryAbbreviation } from '../config/categories'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import { HANDOFF_POLL_MS } from '../config/polling'
+import Screen from '../components/mockup/Screen'
+import ScreenHeader from '../components/mockup/ScreenHeader'
+import Button from '../components/mockup/Button'
+import Badge from '../components/mockup/Badge'
+import Card from '../components/mockup/Card'
+import InkCard from '../components/mockup/InkCard'
+import HardShadow from '../components/mockup/HardShadow'
+import LogoPill from '../components/mockup/LogoPill'
+import Thumb from '../components/mockup/Thumb'
+import { dailyPriceLabel } from '../components/mockup/listingFormat'
+import { toast } from '../services/toast'
+import { useSubmit } from '../hooks/useSubmit'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type ScreenRoute = RouteProp<RootStackParamList, 'ZoinkIt'>
 
-const TIMEOUT_MS = 5 * 60 * 1000
-const BUTTON_SIZE = 200
-const RIPPLE_SIZE = Math.max(Dimensions.get('window').width, Dimensions.get('window').height) * 1.4
+const MIN_PHOTOS = HANDOFF_PHOTOS_MIN
+const MAX_PHOTOS = HANDOFF_PHOTOS_MAX
+const VISIBLE_PHOTOS = 3
+const ITEM_THUMB = 52
+const PHOTO_THUMB = 30
+const WINDOW_MINUTES = Math.round(ZOINK_TAP_WINDOW_MS / 60000)
+
+/** Calendar days, inclusive. After pickup the start is the real handoff time,
+ *  which made the old millisecond count come out a day off. */
+function rentalDays(startIso: string, endIso: string) {
+  return rentalDayCount(startIso, endIso)
+}
+
+function formatRemaining(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(total / 60)}:${`${total % 60}`.padStart(2, '0')}`
+}
+
+/** One sentence on what happens once both taps land, per phase and role. */
+function explainerFor(mode: 'pickup' | 'return', isOwner: boolean) {
+  if (mode === 'pickup') {
+    return isOwner
+      ? "The renter's payment is captured only when both taps land."
+      : 'Your rent is charged only when both taps land.'
+  }
+  return isOwner
+    ? `When both taps land the rental completes. You have ${DEPOSIT_HOLD_HOURS}h to report a problem before the deposit is released.`
+    : `When both taps land the rental completes. Your deposit is released ${DEPOSIT_HOLD_HOURS}h later unless a problem is reported.`
+}
+
+/**
+ * Ticks once a second while a lone tap is waiting, from the server's tap
+ * timestamp, so it never drifts. Stops (and clears its interval) when there's
+ * nothing to count, on unmount, and while the screen is not focused.
+ */
+function useCountdown(firstTapAt: string | null) {
+  const isFocused = useIsFocused()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!firstTapAt || !isFocused) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [firstTapAt, isFocused])
+  if (!firstTapAt) return null
+  return Date.parse(firstTapAt) + ZOINK_TAP_WINDOW_MS - now
+}
 
 export default function ZoinkItScreen() {
   const nav = useNavigation<Nav>()
-  const insets = useSafeAreaInsets()
+  const goBack = useGoBack()
   const route = useRoute<ScreenRoute>()
   const { user } = useAuth()
   const { bookingId, mode } = route.params
-  const [booking, setBooking] = useState<Booking | null>(null)
+  // Both phones watch the booking for the other one's tap: every 3 s, but
+  // only while this screen is the one showing and the app is in front (the
+  // interval used to keep running behind the camera, other screens and the
+  // lock screen until the screen was closed).
+  const isFocused = useIsFocused()
+  const bookingQuery = useQuery({
+    queryKey: queryKeys.booking(bookingId),
+    queryFn: () => getBooking(bookingId),
+    refetchInterval: isFocused ? HANDOFF_POLL_MS : false,
+    // Always the latest on (re)focus: the other phone may have tapped.
+    staleTime: 0,
+  })
+  const booking = bookingQuery.data ?? null
+  const setBooking = applyBookingUpdate
   const [pressed, setPressed] = useState(false)
   const [success, setSuccess] = useState(false)
   const [timedOut, setTimedOut] = useState(false)
-  const pulse = useRef(new Animated.Value(0)).current
-  const pulseTrail = useRef(new Animated.Value(0)).current
-  const ripple = useRef(new Animated.Value(0)).current
-  const bounce = useRef(new Animated.Value(1)).current
-  const statusOpacity = useRef(new Animated.Value(1)).current
   const successHandled = useRef(false)
 
   // Photo picking/editing — merged in from what used to be a separate HandoffPhotoScreen.
   const [pickerUris, setPickerUris] = useState<string[]>([])
   const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
 
   const pendingStatus = mode === 'pickup' ? 'PICKUP_PENDING' : 'RETURN_PENDING'
   const completedStatus = mode === 'pickup' ? 'ACTIVE' : 'COMPLETED'
@@ -65,11 +127,15 @@ export default function ZoinkItScreen() {
   const isUploader = mode === 'pickup' ? isOwner : isRenter
   const isDocumented = booking?.status === pendingStatus
   const isReady = isDocumented
-  const locked = !isReady || pressed || success
+  // The server refuses every pickup step until the renter's payment is in
+  // place (rent, and the deposit hold if there is one).
+  const awaitingPayment =
+    mode === 'pickup' && !!booking && (booking.status === 'CONFIRMED' || booking.status === 'PICKUP_PENDING') && !isPickupPaymentReady(booking)
+  const locked = !isReady || pressed || success || awaitingPayment
   const existingPhotos = booking ? (mode === 'pickup' ? booking.pickupPhotos : booking.returnPhotos) ?? [] : []
   const needsFirstSubmission = isUploader && booking?.status === startStatus
-  const showPickerUI = needsFirstSubmission || editing
-  const isPickerValid = pickerUris.length === 2 || pickerUris.length === 3
+  const showPickerUI = (needsFirstSubmission || editing) && !awaitingPayment
+  const isPickerValid = pickerUris.length >= MIN_PHOTOS && pickerUris.length <= MAX_PHOTOS
   const otherParty = booking
     ? booking.ownerId === user?.id
       ? booking.renter
@@ -77,112 +143,30 @@ export default function ZoinkItScreen() {
     : null
   const otherName = otherParty?.firstName ?? 'other party'
 
+  // Once the booking is on screen, a failed poll is a toast, once per outage
+  // (a poll fails every 3 s while it lasts). Re-armed once a read succeeds.
+  // Before then the screen shows the failure itself (below).
+  const outageAlerted = useRef(false)
   useEffect(() => {
-    let active = true
-    // One alert per outage: this polls every 3 s, and used to alert on every
-    // failed read (e.g. the whole time the phone was offline). Re-armed once a
-    // read succeeds.
-    let alertShown = false
-    const load = async () => {
-      try {
-        const next = await getBooking(bookingId)
-        if (!active) return
-        alertShown = false
-        setBooking(next)
-      } catch (err: any) {
-        if (!active || alertShown) return
-        alertShown = true
-        Alert.alert('Error', err?.response?.data?.error ?? 'Could not load this booking.')
-      }
+    if (bookingQuery.isError && bookingQuery.data && !outageAlerted.current) {
+      outageAlerted.current = true
+      toast.failure(bookingQuery.error, { action: "Couldn't refresh this handoff. It'll keep trying." })
     }
-
-    load()
-    const id = setInterval(load, 3000)
-    return () => {
-      active = false
-      clearInterval(id)
-    }
-  }, [bookingId])
-
+  }, [bookingQuery.isError, bookingQuery.error, bookingQuery.data])
   useEffect(() => {
-    if (!isReady || success) {
-      pulse.stopAnimation()
-      pulseTrail.stopAnimation()
-      pulse.setValue(0)
-      pulseTrail.setValue(0)
-      return
-    }
-
-    // Two rings, offset by half a cycle, so it reads as a continuous sonar
-    // sweep instead of one ring resetting — pressed tightens and speeds the
-    // sweep up to signal "sent, waiting on them."
-    const duration = pressed ? 750 : 1700
-    const ring = (value: Animated.Value) =>
-      Animated.loop(
-        Animated.timing(value, {
-          toValue: 1,
-          duration,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: true,
-        })
-      )
-
-    pulse.setValue(0)
-    pulseTrail.setValue(0)
-    const primary = ring(pulse)
-    primary.start()
-
-    const trailDelay = setTimeout(() => {
-      pulseTrail.setValue(0)
-      ring(pulseTrail).start()
-    }, duration / 2)
-
-    return () => {
-      clearTimeout(trailDelay)
-      primary.stop()
-      pulseTrail.stopAnimation()
-    }
-  }, [isReady, pressed, pulse, pulseTrail, success])
-
-  useEffect(() => {
-    if (pressed && !success) {
-      Animated.sequence([
-        Animated.timing(statusOpacity, { toValue: 0, duration: 140, useNativeDriver: true }),
-        Animated.timing(statusOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-      ]).start()
-    }
-  }, [pressed, statusOpacity, success])
+    outageAlerted.current = false
+  }, [bookingQuery.dataUpdatedAt])
 
   const handleSuccess = useCallback(async (nextBooking: Booking) => {
     if (successHandled.current) return
     successHandled.current = true
     setBooking(nextBooking)
     setSuccess(true)
-    Animated.timing(ripple, {
-      toValue: 1,
-      duration: 850,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start()
-    Animated.sequence([
-      Animated.timing(bounce, {
-        toValue: 1.14,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.spring(bounce, {
-        toValue: 1,
-        friction: 4,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-    ]).start()
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    haptics.success()
     setTimeout(() => {
       nav.replace(mode === 'pickup' ? 'ActiveRental' : 'BookingDetail', { bookingId })
     }, 1500)
-  }, [bounce, bookingId, mode, nav, ripple])
+  }, [bookingId, mode, nav])
 
   // One confirm per tap, never two at once. Both phones tapping in the same
   // instant can make one write lose the booking's version check (409); that's
@@ -199,9 +183,19 @@ export default function ZoinkItScreen() {
         await handleSuccess(result.booking)
       }
     } catch (err: any) {
+      // The rent couldn't be captured (Phase 1 decision 4): the handoff is
+      // refused and both people have to know to keep the item, so it's an
+      // alert rather than a toast.
+      if (isPickupPaymentFailure(err)) {
+        setPressed(false)
+        Alert.alert("Pickup didn't go through", userMessage(err))
+        return
+      }
+      // Any other 409 is the other phone's tap winning the race; the poll
+      // shows the outcome.
       if (err?.response?.status === 409) return
       setPressed(false)
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not confirm handoff.')
+      toast.failure(err, { action: "Couldn't confirm the handoff. Please try again." })
     } finally {
       tapInFlight.current = false
     }
@@ -220,7 +214,7 @@ export default function ZoinkItScreen() {
     }
     if (booking.status !== pendingStatus) {
       setPressed(false)
-      Alert.alert('Error', 'Could not confirm handoff.')
+      toast.error("This handoff can't be confirmed any more. Check the booking for where it stands.")
       return
     }
 
@@ -237,7 +231,7 @@ export default function ZoinkItScreen() {
     const timeout = setTimeout(() => {
       setPressed(false)
       setTimedOut(true)
-    }, TIMEOUT_MS)
+    }, ZOINK_TAP_WINDOW_MS)
 
     return () => clearTimeout(timeout)
   }, [pressed, success])
@@ -245,7 +239,7 @@ export default function ZoinkItScreen() {
   async function pressZoink() {
     if (locked) return
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    haptics.press()
     setTimedOut(false)
     setPressed(true)
     await tap()
@@ -256,8 +250,8 @@ export default function ZoinkItScreen() {
   // photo. launchCameraAsync captures one frame per call, so each press appends
   // to pickerUris until the uploader has the 2-3 shots the flow requires.
   async function capturePhoto() {
-    if (pickerUris.length >= 3) {
-      Alert.alert('Maximum reached', 'You can take up to 3 photos. Clear one to retake.')
+    if (pickerUris.length >= MAX_PHOTOS) {
+      toast.info(`You can take up to ${MAX_PHOTOS} photos. Clear them to retake.`)
       return
     }
 
@@ -278,9 +272,9 @@ export default function ZoinkItScreen() {
       })
 
       if (result.canceled) return
-      setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, 3))
+      setPickerUris((prev) => [...prev, ...result.assets.map((asset) => asset.uri)].slice(0, MAX_PHOTOS))
     } catch {
-      Alert.alert('Camera error', 'Could not open the camera right now.')
+      toast.error("Couldn't open the camera. Please try again.")
     }
   }
 
@@ -288,10 +282,9 @@ export default function ZoinkItScreen() {
     setPickerUris([])
   }
 
-  async function submitPhotos() {
+  // Guarded: a second tap while the photos upload is dropped (they'd upload twice).
+  const [submitPhotos, saving] = useSubmit(async () => {
     if (!isPickerValid) return
-
-    setSaving(true)
     try {
       const uploaded = await Promise.all(pickerUris.map((uri) => uploadHandoffPhotoImage(bookingId, uri, mode)))
       const updated = await initiateHandoff(bookingId, mode, uploaded)
@@ -299,295 +292,317 @@ export default function ZoinkItScreen() {
       setPickerUris([])
       setEditing(false)
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not submit photos.')
-    } finally {
-      setSaving(false)
+      toast.failure(err, { action: "Couldn't send your photos. Please try again." })
     }
-  }
+  })
 
+  const ownerTappedAt = booking?.[ownerTapField] ?? null
+  const renterTappedAt = booking?.[renterTapField] ?? null
+  // The countdown runs from the one tap that's waiting for the other.
+  const loneTapAt = ownerTappedAt && !renterTappedAt ? ownerTappedAt : renterTappedAt && !ownerTappedAt ? renterTappedAt : null
+  const remaining = useCountdown(success ? null : loneTapAt)
+
+  const title = mode === 'pickup' ? 'Pickup' : 'Return'
+  if (!booking && bookingQuery.isPending && !isWaitingOffline(bookingQuery)) return <DetailLoadingScreen title={title} />
   if (!booking) {
-    return (
-      <View style={styles.screen}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
-    )
+    return <DetailFallbackScreen query={bookingQuery} title={title} what="this booking" unavailable={BOOKING_UNAVAILABLE} />
   }
 
-  if (showPickerUI) {
-    return (
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={[styles.pickerContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-          <BackButton
-            onPress={() => (editing ? setEditing(false) : nav.goBack())}
-            disabled={saving}
-            accessibilityLabel={editing ? 'Cancel editing' : 'Go back'}
-            style={styles.backLink}
-          />
+  const myTapAt = isOwner ? ownerTappedAt : renterTappedAt
+  const myTapLive = !!myTapAt && remaining != null && remaining > 0
+  const viewerTapped = pressed || myTapLive || success
+  const windowClosed = timedOut || (remaining != null && remaining <= 0)
+  const photos = showPickerUI ? pickerUris : existingPhotos
+  const uploaderName = mode === 'pickup' ? booking.owner.firstName : booking.renter.firstName
+  const days = rentalDays(booking.startDate, booking.endDate)
+  const itemImage = booking.listing.images?.[0]?.url
+  const canAddPhoto = showPickerUI ? pickerUris.length < MAX_PHOTOS && !saving : isUploader && !pressed && !success
 
-          <Text style={styles.title}>{mode === 'pickup' ? 'Document the Item' : 'Document the Return'}</Text>
-
-          <TouchableOpacity style={styles.uploadArea} onPress={capturePhoto} disabled={saving || pickerUris.length >= 3}>
-            <Text style={styles.uploadText}>
-              {pickerUris.length >= 3 ? 'Maximum reached' : pickerUris.length ? 'Take another photo' : 'Take photo'}
-            </Text>
-            <Text style={styles.uploadSubtext}>{pickerUris.length}/3 taken · need 2-3</Text>
-          </TouchableOpacity>
-
-          {pickerUris.length > 0 ? (
-            <>
-              <View style={styles.thumbnailRow}>
-                {pickerUris.map((uri) => (
-                  <Image key={uri} source={{ uri }} style={styles.thumbnail} />
-                ))}
-              </View>
-              <TouchableOpacity onPress={clearPhotos} disabled={saving}>
-                <Text style={styles.editPhotosText}>Clear photos</Text>
-              </TouchableOpacity>
-            </>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.submitButton, (!isPickerValid || saving) && styles.submitButtonDisabled]}
-            onPress={submitPhotos}
-            disabled={!isPickerValid || saving}
-          >
-            {saving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.submitText}>Submit</Text>}
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    )
+  function onAddPhoto() {
+    if (showPickerUI) capturePhoto()
+    else setEditing(true)
   }
 
-  const statusText = success
-    ? 'Zoinked'
-    : timedOut
-      ? "Time's up - try again"
-      : pressed
-        ? `Waiting for ${otherName}...`
-        : isReady
-          ? "Press when you're ready"
-          : 'Waiting for photos...'
+  const parties = [
+    { key: 'owner', label: isOwner ? 'Owner (you)' : 'Owner', tapped: !!ownerTappedAt, isViewer: isOwner },
+    { key: 'renter', label: isRenter ? 'Renter (you)' : 'Renter', tapped: !!renterTappedAt, isViewer: isRenter },
+  ]
 
-  const ringScale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, pressed ? 1.45 : 1.28],
-  })
-  const ringOpacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [pressed ? 0.8 : 0.42, 0],
-  })
-  const trailScale = pulseTrail.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, pressed ? 1.45 : 1.28],
-  })
-  const trailOpacity = pulseTrail.interpolate({
-    inputRange: [0, 1],
-    outputRange: [pressed ? 0.8 : 0.42, 0],
-  })
-  const rippleScale = ripple.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  })
-  const rippleOpacity = ripple.interpolate({
-    inputRange: [0, 0.68, 1],
-    outputRange: [0.45, 0.22, 0],
-  })
+  const footer = awaitingPayment ? (
+    <Button variant="zoink" label="Waiting for payment" onPress={() => {}} disabled />
+  ) : showPickerUI ? (
+    <View style={styles.footerStack}>
+      {pickerUris.length > 0 ? (
+        <Button label="Clear photos" variant="link" onPress={clearPhotos} disabled={saving} style={styles.centered} />
+      ) : null}
+      <Button label="Submit photos" onPress={submitPhotos} loading={saving} disabled={!isPickerValid} />
+    </View>
+  ) : (
+    <Button
+      variant="zoink"
+      label={
+        success
+          ? 'Zoinked'
+          : viewerTapped
+            ? `Zoinked. Waiting for ${otherName}`
+            : isReady
+              ? 'Zoink It'
+              : 'Waiting for photos'
+      }
+      onPress={pressZoink}
+      disabled={locked || viewerTapped}
+      compactLabel={viewerTapped && !success}
+    />
+  )
 
   return (
-    <View style={styles.screen}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.screenRipple,
-          {
-            opacity: rippleOpacity,
-            transform: [{ scale: rippleScale }],
-          },
-        ]}
-      />
+    <Screen
+      glow="bottomRight"
+      header={
+        <ScreenHeader
+          title={mode === 'pickup' ? 'Zoink It at pickup.' : 'Zoink It at return.'}
+          back
+          onBack={() => {
+            if (saving) return
+            if (editing) setEditing(false)
+            else goBack()
+          }}
+        />
+      }
+      footer={footer}
+    >
+      <View style={styles.content}>
+        {awaitingPayment ? <PickupPaymentNotice /> : null}
 
-      {existingPhotos.length > 0 ? (
-        <View style={styles.existingPhotosRow}>
-          {existingPhotos.map((url, index) => (
-            <TouchableOpacity
-              key={url}
-              activeOpacity={0.85}
-              onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
-            >
-              <Image source={{ uri: fillImageUrl(url, { width: 84, height: 84 }) }} style={styles.existingPhoto} resizeMode="cover" />
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
-      {isUploader && !pressed && !success ? (
-        <TouchableOpacity onPress={() => setEditing(true)} style={styles.editPhotosButton}>
-          <Text style={styles.editPhotosText}>Edit Photos</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      <View style={styles.buttonStage}>
-        {isReady && !success ? (
-          <>
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.pulseRing,
-                {
-                  opacity: trailOpacity,
-                  transform: [{ scale: trailScale }],
-                },
-              ]}
-            />
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.pulseRing,
-                {
-                  opacity: ringOpacity,
-                  transform: [{ scale: ringScale }],
-                },
-              ]}
-            />
-          </>
+        {success ? (
+          <Card contentStyle={styles.successCard} padding={space.xxl}>
+            <View style={styles.successIcon}>
+              <Feather name="check" size={20} color={colors.green} />
+            </View>
+            <Text style={styles.successText}>
+              {mode === 'pickup' ? 'Handoff confirmed. Enjoy the rental.' : 'Return confirmed. Rental complete.'}
+            </Text>
+          </Card>
         ) : null}
 
-        <Animated.View style={{ transform: [{ scale: bounce }] }}>
-          <TouchableOpacity
-            style={[
-              styles.circle,
-              !isReady && styles.circleLocked,
-              isReady && !success && styles.circleReady,
-              pressed && styles.circlePressed,
-              success && styles.circleSuccess,
-            ]}
-            onPress={pressZoink}
-            disabled={locked}
-            activeOpacity={0.86}
-          >
-            <ZoinkLogo size={118} style={styles.logo} />
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+        <HardShadow offset="xxl" radius={radius.heroLg}>
+          <View style={styles.handoffCard}>
+            <View style={styles.cardHeader}>
+              <LogoPill size="sm" />
+              <Badge
+                label={mode === 'pickup' ? 'Pickup' : 'Return'}
+                variant="surface"
+                size={13}
+                icon={<Feather name={mode === 'pickup' ? 'package' : 'corner-down-left'} size={12} color={colors.ink} />}
+              />
+            </View>
 
-      <Animated.Text style={[styles.status, { opacity: statusOpacity }]}>{statusText}</Animated.Text>
-    </View>
+            <View style={styles.cardBody}>
+              <View style={styles.innerRow}>
+                <Thumb
+                  size={ITEM_THUMB}
+                  source={itemImage ? { uri: fillImageUrl(itemImage, { width: ITEM_THUMB, height: ITEM_THUMB }) } : undefined}
+                  initials={categoryAbbreviation(booking.listing.category)}
+                  initialsSize={15}
+                />
+                <View style={styles.flex}>
+                  <Text style={styles.itemTitle} numberOfLines={1}>
+                    {booking.listing.title}
+                  </Text>
+                  <Text style={type.price}>
+                    {dailyPriceLabel(booking.listing.dailyPrice)} · {days} {days === 1 ? 'day' : 'days'}
+                  </Text>
+                </View>
+              </View>
+
+              {booking.depositAmount > 0 ? (
+                <View style={styles.innerRow}>
+                  <Feather name="lock" size={18} color={colors.ink} />
+                  <Text style={[styles.rowLabel, styles.flex]}>Deposit</Text>
+                  <Text style={styles.rowValue}>${booking.depositAmount.toFixed(2)} held</Text>
+                </View>
+              ) : null}
+
+              <View>
+                <View style={styles.innerRow}>
+                  <Feather name="camera" size={18} color={colors.ink} />
+                  <Text style={[styles.rowLabel, styles.flex]}>{mode === 'pickup' ? 'Pickup photos' : 'Return photos'}</Text>
+                  <View style={styles.photoStrip}>
+                    {photos.slice(0, VISIBLE_PHOTOS).map((uri, index) => (
+                      <Pressable
+                        key={uri}
+                        disabled={showPickerUI}
+                        onPress={() => nav.navigate('PhotoViewer', { photos: existingPhotos, initialIndex: index })}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel={`Photo ${index + 1}`}
+                      >
+                        <Image
+                          source={{ uri: showPickerUI ? uri : fillImageUrl(uri, { width: PHOTO_THUMB, height: PHOTO_THUMB }) }}
+                          style={styles.photoThumb}
+                        />
+                      </Pressable>
+                    ))}
+                    {photos.length > VISIBLE_PHOTOS ? <Text style={styles.moreText}>+{photos.length - VISIBLE_PHOTOS}</Text> : null}
+                    {canAddPhoto ? (
+                      <Pressable
+                        style={styles.addPhoto}
+                        onPress={onAddPhoto}
+                        hitSlop={7}
+                        accessibilityRole="button"
+                        accessibilityLabel={showPickerUI ? 'Take a photo' : 'Edit photos'}
+                      >
+                        <Feather name={showPickerUI ? 'plus' : 'edit-2'} size={16} color={colors.ink} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+                {showPickerUI && pickerUris.length < MIN_PHOTOS ? (
+                  <Text style={styles.photoError}>Add at least {MIN_PHOTOS} photos</Text>
+                ) : !showPickerUI && !isDocumented && !isUploader ? (
+                  <Text style={styles.photoHint}>Waiting for {uploaderName} to add photos</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.statusGrid}>
+                {parties.map((party) => (
+                  <View key={party.key} style={[styles.statusCell, party.tapped ? styles.statusCellTapped : null]}>
+                    <Text style={styles.statusLabel}>{party.label}</Text>
+                    {party.tapped ? (
+                      <View style={styles.statusValueRow}>
+                        <Feather name="check" size={14} color={colors.ink} />
+                        <Text style={styles.statusTapped}>Zoinked</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.statusWaiting}>{party.isViewer ? 'Tap now' : 'Waiting'}</Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+
+              {!success && (remaining != null || timedOut) ? (
+                <View style={styles.countdown}>
+                  <Feather name="clock" size={16} color={windowClosed ? colors.onInk : colors.green} />
+                  <Text style={[styles.countdownText, windowClosed ? styles.countdownClosed : null]}>
+                    {windowClosed ? 'Window closed: tap again' : `${formatRemaining(remaining ?? 0)} left to tap`}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </HardShadow>
+
+        <InkCard rotate={-1.5} style={styles.explainer}>
+          <Text style={styles.explainerText}>
+            <Text style={styles.explainerStrong}>{WINDOW_MINUTES} min</Text>
+            {' · Both of you tap Zoink It in the same window. '}
+            {explainerFor(mode, isOwner)}
+          </Text>
+        </InkCard>
+      </View>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: theme.surface,
+  content: { gap: space.screen, paddingTop: space.xs },
+  flex: { flex: 1 },
+  centered: { alignSelf: 'center' },
+  successCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+    backgroundColor: colors.lime,
+  },
+  successIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
+  },
+  successText: { ...type.label, color: colors.ink, flex: 1 },
+  handoffCard: {
+    backgroundColor: colors.surface,
+    borderWidth: border.base,
+    borderColor: colors.ink,
+    borderRadius: radius.heroLg,
     overflow: 'hidden',
   },
-  pickerContent: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 18, width: '100%' },
-  backLink: { marginBottom: 10 },
-  title: { ...theme.type.screenTitle },
-  uploadArea: {
-    minHeight: 180,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.borderThin,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.green,
+    borderBottomWidth: border.base,
+    borderBottomColor: colors.ink,
+    paddingVertical: space.xl,
+    paddingHorizontal: space.xxl,
+  },
+  cardBody: { padding: space.xl, gap: space.md },
+  innerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    borderRadius: radius.thumb,
+    backgroundColor: colors.surface,
+  },
+  itemTitle: { ...type.body, fontFamily: fonts.bold, lineHeight: 20, color: colors.ink },
+  rowLabel: { ...type.bodySm, fontFamily: fonts.bold, color: colors.ink },
+  rowValue: { ...type.bodySm, fontFamily: fonts.black, color: colors.ink },
+  photoStrip: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  photoThumb: {
+    width: PHOTO_THUMB,
+    height: PHOTO_THUMB,
+    borderRadius: space.sm,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    backgroundColor: colors.tan,
+  },
+  moreText: { ...type.labelSm, color: colors.ink },
+  addPhoto: {
+    width: 34,
+    height: 34,
+    borderRadius: space.sm,
+    borderWidth: border.thin,
     borderStyle: 'dashed',
-    borderColor: theme.hard.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: theme.surface,
-  },
-  uploadText: { color: theme.text, fontSize: 16, fontWeight: '900' },
-  uploadSubtext: { color: theme.textMuted, fontSize: 14, fontWeight: '700' },
-  thumbnailRow: { flexDirection: 'row', gap: 10 },
-  thumbnail: { width: 96, height: 96, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
-  submitButton: {
-    minHeight: 54,
-    borderRadius: theme.radius.sm,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 'auto',
-  },
-  submitButtonDisabled: { backgroundColor: theme.colors.gray200, borderColor: theme.colors.gray300 },
-  submitText: { color: theme.textOnPrimary, fontSize: 16, fontWeight: '900' },
-  existingPhotosRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  existingPhoto: { width: 84, height: 84, borderRadius: theme.radius.sm, backgroundColor: theme.surfaceSubdued },
-  editPhotosButton: { marginBottom: 24 },
-  editPhotosText: { color: theme.primaryDeep, fontSize: 14, fontWeight: '800' },
-  buttonStage: {
-    width: 270,
-    height: 270,
+    borderColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pulseRing: {
-    position: 'absolute',
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: BUTTON_SIZE / 2,
-    borderWidth: 3,
-    borderColor: theme.primary,
+  photoError: { ...type.caption, color: colors.danger, marginTop: space.xs, marginLeft: space.xs },
+  photoHint: { ...type.caption, color: colors.mutedAlt, marginTop: space.xs, marginLeft: space.xs },
+  statusGrid: { flexDirection: 'row', gap: space.md },
+  statusCell: {
+    flex: 1,
+    gap: 4,
+    padding: space.md,
+    borderWidth: border.thin,
+    borderColor: colors.ink,
+    borderRadius: radius.thumb,
+    backgroundColor: colors.surface,
   },
-  circle: {
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: BUTTON_SIZE / 2,
-    borderWidth: theme.hard.border,
-    borderColor: theme.hard.ink,
-    backgroundColor: theme.surface,
+  statusCellTapped: { backgroundColor: colors.lime },
+  statusLabel: { ...type.caption, color: colors.muted },
+  statusValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statusTapped: { ...type.label, color: colors.ink },
+  statusWaiting: { ...type.label, fontFamily: fonts.regular, color: colors.mutedAlt },
+  countdown: {
+    height: 46,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    gap: space.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.ink,
   },
-  circleLocked: {
-    backgroundColor: theme.colors.gray200,
-    borderColor: theme.colors.gray300,
-    shadowOpacity: 0,
-  },
-  circleReady: {
-    shadowColor: theme.primary,
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-  },
-  circlePressed: {
-    shadowColor: theme.primary,
-    shadowOpacity: 0.8,
-    shadowRadius: 35,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
-  },
-  circleSuccess: {
-    borderColor: theme.primaryDeep,
-    backgroundColor: theme.primarySurface,
-    shadowColor: theme.primary,
-    shadowOpacity: 0.85,
-    shadowRadius: 36,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 14,
-  },
-  logo: {
-    width: 118,
-    height: 118,
-  },
-  screenRipple: {
-    position: 'absolute',
-    width: RIPPLE_SIZE,
-    height: RIPPLE_SIZE,
-    borderRadius: RIPPLE_SIZE / 2,
-    backgroundColor: theme.primary,
-  },
-  status: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 10,
-    minHeight: 24,
-  },
+  countdownText: { ...type.label, fontFamily: fonts.black, color: colors.green },
+  countdownClosed: { color: colors.onInk },
+  explainer: { marginHorizontal: shadow.lg / 2 },
+  explainerText: { ...type.label, fontFamily: fonts.regular, lineHeight: 20, color: colors.onInkMuted },
+  explainerStrong: { fontFamily: fonts.black, color: colors.green },
+  footerStack: { gap: space.xs },
 })

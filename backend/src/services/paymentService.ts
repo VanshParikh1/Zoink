@@ -1,4 +1,9 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
+import {
+  calculateCommission as sharedCalculateCommission,
+  calculateHst as sharedCalculateHst,
+  calculateOwnerPayout as sharedCalculateOwnerPayout,
+} from '@zoink/shared'
 import { InternalServerError, ConflictError } from '../utils/errors'
 import prisma from '../utils/prisma'
 
@@ -6,14 +11,6 @@ import prisma from '../utils/prisma'
 const INSURANCE_RATE = Number(process.env.INSURANCE_RATE ?? 0.03)
 const MIN_INSURANCE_FEE = Number(process.env.MIN_INSURANCE_FEE ?? 1)
 const MAX_INSURANCE_FEE = Number(process.env.MAX_INSURANCE_FEE ?? 50)
-
-// Ontario HST. Applied to the rental price only — not the deposit (a hold,
-// not a sale) and not insurance (a separate optional product). Charged on
-// top of what the borrower pays; it is never subtracted from totalPrice
-// before commission/ownerPayout are computed, so it has no effect on the
-// owner's earnings. The platform has no per-listing jurisdiction field
-// today, so this applies to every booking (see calculateHst callers).
-const HST_RATE = 0.13
 
 type StripeClient = any
 
@@ -80,37 +77,24 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
+// Ontario HST (13%, @zoink/shared HST_RATE) on the rental price only — not the
+// deposit (a hold, not a sale) and not insurance. Charged on top of what the
+// borrower pays; never subtracted from totalPrice before commission/ownerPayout
+// are computed, so it has no effect on the owner's earnings. The platform has
+// no per-listing jurisdiction field today, so this applies to every booking.
 export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
-  return Math.round(Number(rentalTotalPrice) * HST_RATE * 100) / 100
+  return sharedCalculateHst(Number(rentalTotalPrice))
 }
 
-// Bracket is keyed on the listing's DAILY rate, not the booking's total value —
-// a long rental of a cheap item stays in the cheap-item tier, it doesn't creep
-// into a lower rate just because rentalDays pushed totalPrice up. The bracket
-// is looked up once (at booking-request time, alongside every other snapshotted
-// price field — see createBooking() in bookingService.ts) and applied to the
-// full rental total; it is never recomputed per day or re-derived later.
-const COMMISSION_TIERS: { maxDailyRate: number; rate: number }[] = [
-  { maxDailyRate: 20, rate: 0.15 },
-  { maxDailyRate: 50, rate: 0.125 },
-  { maxDailyRate: Infinity, rate: 0.1 },
-]
-
-export function getCommissionRate(dailyRate: Prisma.Decimal | number): number {
-  const rate = Number(dailyRate)
-  // Boundaries are inclusive on the lower-rate side ($20/day exactly is still
-  // the 15% tier, $50/day exactly is still the 12.5% tier) — the same
-  // convention as INSURANCE_RATE's min/max clamp above.
-  const tier = COMMISSION_TIERS.find((t) => rate <= t.maxDailyRate)
-  return tier!.rate
+// The commission (flat 15%, $2 minimum) lives in @zoink/shared (commission.ts)
+// so the app's payout preview can't drift from what's charged. These wrappers
+// take the Prisma.Decimal | number amounts callers already have.
+export function calculateCommission(totalPrice: Prisma.Decimal | number) {
+  return sharedCalculateCommission(Number(totalPrice))
 }
 
-export function calculateCommission(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
-  return Math.round(Number(totalPrice) * getCommissionRate(dailyRate) * 100) / 100
-}
-
-export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number, dailyRate: Prisma.Decimal | number) {
-  return Math.round((Number(totalPrice) - calculateCommission(totalPrice, dailyRate)) * 100) / 100
+export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
+  return sharedCalculateOwnerPayout(Number(totalPrice))
 }
 
 // Rental + insurance + HST — the deposit is authorized separately (see
@@ -173,7 +157,7 @@ export async function retrievePaymentIntent(paymentIntentId: string) {
  *  bookingService.transitionBookingStatus's CONFIRMED branch) — a payment
  *  method only becomes reusable off-session after that confirmation. */
 export async function createDepositPaymentIntent(
-  booking: Pick<Booking, 'id' | 'version' | 'depositAmount'>,
+  booking: Pick<Booking, 'id' | 'version' | 'depositAmount' | 'stripePaymentIntentId'>,
   stripeCustomerId: string,
   paymentMethodId: string
 ) {
@@ -199,7 +183,11 @@ export async function createDepositPaymentIntent(
       confirm: true,
       metadata: { bookingId: booking.id, purpose: 'deposit' },
     },
-    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.version}` }
+    // One deposit hold per rental authorization. This used to be keyed on the
+    // booking version, which webhooks bump: a confirm retried after a 409 (or
+    // a double tap racing the deposit's own amount_capturable_updated webhook)
+    // got a fresh key and put a second deposit hold on the renter's card.
+    { idempotencyKey: `deposit-payment-intent-${booking.id}-${booking.stripePaymentIntentId}` }
   )
 }
 
@@ -291,6 +279,49 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
     booking.stripePaymentIntentId,
     {},
     { idempotencyKey: `cancel-${booking.id}-${booking.version}` }
+  )
+}
+
+/** Releases a booking's deposit hold. Keyed on the deposit PaymentIntent (it
+ *  can only ever be released once), never on the booking version, so it can't
+ *  collide with the rental PaymentIntent's own cancel key. A hold that is
+ *  already released (a retry after a crash, or Stripe expiring it) counts as
+ *  released rather than failing forever. */
+export async function cancelDepositPaymentIntent(booking: { id: string; stripeDepositPaymentIntentId: string }) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { id: booking.stripeDepositPaymentIntentId, status: 'canceled' }
+  }
+
+  try {
+    return await stripe.paymentIntents.cancel(
+      booking.stripeDepositPaymentIntentId,
+      {},
+      { idempotencyKey: `cancel-deposit-${booking.id}-${booking.stripeDepositPaymentIntentId}` }
+    )
+  } catch (error) {
+    const current = await stripe.paymentIntents.retrieve(booking.stripeDepositPaymentIntentId).catch(() => null)
+    if (current?.status === 'canceled') return current
+    throw error
+  }
+}
+
+/** Captures `amountCents` of a booking's deposit hold (a dispute resolved
+ *  against the renter). A deposit PaymentIntent is captured at most once, so
+ *  the key is the PaymentIntent itself. */
+export async function captureDepositPaymentIntent(
+  booking: { id: string; stripeDepositPaymentIntentId: string },
+  amountCents: number
+) {
+  const stripe = getStripe()
+  if (!stripe) {
+    return { id: booking.stripeDepositPaymentIntentId, status: 'succeeded', amount_received: amountCents }
+  }
+
+  return stripe.paymentIntents.capture(
+    booking.stripeDepositPaymentIntentId,
+    { amount_to_capture: amountCents },
+    { idempotencyKey: `capture-deposit-${booking.id}-${booking.stripeDepositPaymentIntentId}` }
   )
 }
 

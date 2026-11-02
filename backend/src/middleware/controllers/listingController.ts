@@ -1,8 +1,9 @@
 import { Request, Response } from 'express'
 import multer from 'multer'
 import * as listingService from '../../services/listingService'
-import { uploadImage, deleteImage, extractPublicId } from '../../utils/cloudinary'
+import * as cloudinary from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
+import { isPaged, type PageParams } from '../../utils/pagination'
 
 // ── POST /listings ────────────────────────────────────────────────────────────
 
@@ -41,8 +42,19 @@ export const browseListings = asyncHandler(async (req: Request, res: Response) =
     radiusKm,
     limit,
     offset,
+    cursor,
     includeUnavailable,
   } = req.query as any
+
+  // Cursor pages for current builds (limit without offset, or a cursor);
+  // offset pages with a total for builds from before them.
+  if (cursor !== undefined || (limit !== undefined && offset === undefined)) {
+    const page = await listingService.browseListingsPage(
+      { query, category, city, minPrice, maxPrice, latitude, longitude, radiusKm, includeUnavailable, viewerId: (req as any).userId },
+      { limit, cursor }
+    )
+    return res.json(page)
+  }
 
   const result = await listingService.browseListings({
     query,
@@ -81,6 +93,8 @@ export const getListing = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMyListings = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId
+  const params = req.query as PageParams
+  if (isPaged(params)) return res.json(await listingService.listMyListingsPage(ownerId, params))
   const listings = await listingService.getMyListings(ownerId)
   return res.json(listings)
 })
@@ -124,7 +138,8 @@ export const toggleAvailability = asyncHandler(async (req: Request, res: Respons
 export const deleteListing = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId as string
   const id = req.params.id as string
-  await listingService.deleteListing(id, ownerId)
+  const photoUrls = await listingService.deleteListing(id, ownerId)
+  await cloudinary.deleteOwnImages(photoUrls)
   return res.status(204).send()
 })
 
@@ -142,7 +157,7 @@ export const uploadListingImage = asyncHandler(async (req: Request, res: Respons
   await listingService.assertCanAddListingImage(id, ownerId)
 
   // Let Cloudinary auto-generate the public_id to avoid folder permission issues
-  const url = await uploadImage(req.file.buffer, 'listings')
+  const url = await cloudinary.uploadImage(req.file.buffer, 'listings')
   const image = await listingService.addListingImage(id, ownerId, url)
   return res.status(201).json(image)
 })
@@ -155,14 +170,7 @@ export const deleteListingImage = asyncHandler(async (req: Request, res: Respons
   const imageId = req.params.imageId as string
 
   const url = await listingService.deleteListingImage(id, imageId, ownerId)
-
-  // Best-effort Cloudinary cleanup — don't fail the request if it errors
-  try {
-    const publicId = extractPublicId(url)
-    await deleteImage(publicId)
-  } catch (cloudErr) {
-    console.warn('[Cloudinary] Failed to delete image:', cloudErr)
-  }
+  await cloudinary.deleteOwnImages([url])
 
   return res.status(204).send()
 })

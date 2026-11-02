@@ -474,7 +474,7 @@ describe('invalid cancellation attempts', () => {
 
     await assert.rejects(
       () => bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CANCELLED),
-      /BOOKING_INVALID_TRANSITION/
+      /transition is not allowed/
     )
   })
 
@@ -501,7 +501,7 @@ describe('invalid cancellation attempts', () => {
 
     await assert.rejects(
       () => bookingService.transitionBookingStatus(booking.id, renter.id, BookingStatus.CANCELLED),
-      /BOOKING_INVALID_TRANSITION/
+      /transition is not allowed/
     )
   })
 

@@ -1,10 +1,11 @@
 import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
-import { BookingEventType, DepositStatus, PaymentStatus } from '@prisma/client'
+import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../../utils/prisma'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { BadRequestError, InternalServerError } from '../../utils/errors'
 import { Sentry } from '../../instrument'
+import { loggableError } from '../../utils/sentryScrub'
 
 type StripeEvent = {
   id: string
@@ -51,6 +52,28 @@ function isDepositEvent(
   return false
 }
 
+// Stripe doesn't deliver events in order, so each rental event may only move
+// paymentStatus forward from the states listed here. Before this, a late
+// amount_capturable_updated could walk a CAPTURED booking back to AUTHORIZED,
+// a late payment_failed could mark an authorized booking FAILED, and a late
+// payment_intent.succeeded after the return could reset PAYOUT_PENDING to
+// CAPTURED, which releaseDuePayouts never picks up (the owner went unpaid).
+const AUTHORIZABLE_FROM: PaymentStatus[] = [PaymentStatus.PENDING_AUTH, PaymentStatus.FAILED]
+const CAPTURABLE_FROM: PaymentStatus[] = [
+  PaymentStatus.PENDING_AUTH,
+  PaymentStatus.FAILED,
+  PaymentStatus.AUTHORIZED,
+  PaymentStatus.CAPTURE_PENDING,
+]
+const FAILABLE_FROM: PaymentStatus[] = [PaymentStatus.PENDING_AUTH]
+const CANCELABLE_FROM: PaymentStatus[] = [
+  PaymentStatus.PENDING_AUTH,
+  PaymentStatus.FAILED,
+  PaymentStatus.AUTHORIZED,
+  PaymentStatus.CAPTURE_PENDING,
+  PaymentStatus.REFUND_PENDING,
+]
+
 function constructEvent(req: Request): StripeEvent {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   const signature = req.headers['stripe-signature']
@@ -94,6 +117,9 @@ async function updateBookingFromEvent(event: StripeEvent) {
     where: { id: bookingId },
     select: {
       id: true,
+      status: true,
+      paymentStatus: true,
+      paidAt: true,
       stripePaymentIntentId: true,
       stripeDepositPaymentIntentId: true,
       depositStatus: true,
@@ -153,19 +179,32 @@ async function updateBookingFromEvent(event: StripeEvent) {
     // payment_intent.payment_failed / charge.* for the deposit have no booking
     // field to update here — the WEBHOOK_RECEIVED audit row below still records them.
   } else {
-    if (event.type === 'payment_intent.amount_capturable_updated') {
+    const current = booking.paymentStatus
+
+    if (event.type === 'payment_intent.amount_capturable_updated' && AUTHORIZABLE_FROM.includes(current)) {
       data.paymentStatus = PaymentStatus.AUTHORIZED
     }
 
     if (event.type === 'payment_intent.succeeded') {
-      data.paymentStatus = PaymentStatus.CAPTURED
-      data.paidAt = new Date()
-      data.stripeChargeId = object.latest_charge ?? null
+      if (CAPTURABLE_FROM.includes(current)) {
+        // Captured after the return already completed the booking (a delayed
+        // webhook): it's owed a payout now, exactly as if the capture had
+        // landed first and the return moved CAPTURED to PAYOUT_PENDING.
+        data.paymentStatus = booking.status === BookingStatus.COMPLETED ? PaymentStatus.PAYOUT_PENDING : PaymentStatus.CAPTURED
+      }
+      if (!booking.paidAt) {
+        data.paidAt = new Date()
+        data.stripeChargeId = object.latest_charge ?? null
+      }
     }
 
-    if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
-      data.paymentStatus = event.type === 'payment_intent.canceled' ? PaymentStatus.REFUNDED : PaymentStatus.FAILED
-      if (event.type === 'payment_intent.canceled') data.refundedAt = new Date()
+    if (event.type === 'payment_intent.payment_failed' && FAILABLE_FROM.includes(current)) {
+      data.paymentStatus = PaymentStatus.FAILED
+    }
+
+    if (event.type === 'payment_intent.canceled' && CANCELABLE_FROM.includes(current)) {
+      data.paymentStatus = PaymentStatus.REFUNDED
+      data.refundedAt = new Date()
     }
 
     if (event.type === 'charge.refunded' || event.type === 'refund.succeeded') {
@@ -280,7 +319,7 @@ export const stripeWebhook = asyncHandler(async (req: Request, res: Response) =>
     await updateBookingFromEvent(event)
     return res.json({ received: true })
   } catch (error) {
-    console.error('Stripe webhook handling failed:', error)
+    console.error('Stripe webhook handling failed:', loggableError(error))
     // errorHandler only sees the generic InternalServerError below, so capture
     // the real cause here while we still have it.
     Sentry.captureException(error, {

@@ -5,7 +5,8 @@ import { asyncHandler } from '../../utils/asyncHandler'
 export const getPendingReviews = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId as string
 
-  const reviews = await reviewService.getPendingReviews(userId)
+  const { limit } = req.query as { limit?: number }
+  const reviews = await reviewService.getPendingReviews(userId, limit)
   return res.json(reviews)
 })
 

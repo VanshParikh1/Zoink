@@ -138,7 +138,8 @@ describe('Admin and Dispute Tests', () => {
 
     assert.deepStrictEqual(events, mockEvents)
     assert.strictEqual(findManyArgs.where.bookingId, 'b-1')
-    assert.deepStrictEqual(findManyArgs.orderBy, { createdAt: 'asc' })
+    // Chronological, ties broken by id so pages never overlap.
+    assert.deepStrictEqual(findManyArgs.orderBy, [{ createdAt: 'asc' }, { id: 'asc' }])
   })
 
   test('getBookingEvents throws NotFoundError when the booking does not exist', async () => {

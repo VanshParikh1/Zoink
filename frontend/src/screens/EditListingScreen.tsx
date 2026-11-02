@@ -1,59 +1,43 @@
-import React, { useCallback, useState } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import React, { useEffect, useRef, useState } from 'react'
+import { Alert, StyleSheet, Text, View } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native'
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { LISTING_PHOTOS_MAX } from '@zoink/shared'
 import { RootStackParamList } from '../navigation'
-import {
-  getListing,
-  updateListing,
-  uploadListingImage,
-  deleteListingImage,
-} from '../services/listingsApi'
+import { getListing, updateListing, uploadListingImage, deleteListingImage } from '../services/listingsApi'
 import { Listing } from '../types'
-import ZoinkLogo from '../components/ZoinkLogo'
-import { theme } from '../theme/colors'
-import ScreenBackground from '../components/ScreenBackground'
-import DismissKeyboardView from '../components/DismissKeyboardView'
-import BackButton from '../components/BackButton'
+import { queryKeys } from '../services/queryKeys'
+import { colors } from '../theme/colors'
+import { space } from '../theme/tokens'
+import { type } from '../theme/typography'
 import { fillImageUrl } from '../utils/cloudinaryImage'
+import Screen from '../components/mockup/Screen'
+import Button from '../components/mockup/Button'
+import TextField from '../components/mockup/TextField'
+import ListingForm, { ListingFormErrors, ListingFormHeader } from '../components/mockup/ListingForm'
+import { toast } from '../services/toast'
+import { DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline, LISTING_UNAVAILABLE } from '../components/LoadStates'
+import { useSubmit } from '../hooks/useSubmit'
+import { hasErrors, validateListing } from '../utils/formValidation'
+import { useGoBack } from '../navigation/useGoBack'
 
 type Nav = NativeStackNavigationProp<RootStackParamList>
 type Route = RouteProp<RootStackParamList, 'EditListing'>
 
-const CATEGORIES = [
-  'Electronics',
-  'Tools',
-  'Sports',
-  'Outdoors',
-  'Audio/Video',
-  'Cameras',
-  'Clothing',
-  'Books',
-  'Other',
-]
+const PHOTO = 72
 
 export default function EditListingScreen() {
   const nav = useNavigation<Nav>()
+  const goBack = useGoBack()
   const route = useRoute<Route>()
   const listingId = route.params.listingId
 
-  const [listing, setListing] = useState<Listing | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+  const listingQuery = useQuery({ queryKey: queryKeys.listing(listingId), queryFn: () => getListing(listingId) })
+  const listing = listingQuery.data ?? null
+  const loading = listingQuery.isPending
   const [uploadingImg, setUploadingImg] = useState(false)
 
   const [title, setTitle] = useState('')
@@ -63,72 +47,41 @@ export default function EditListingScreen() {
   const [itemValue, setItemValue] = useState('')
   const [deposit, setDeposit] = useState('')
   const [city, setCity] = useState('')
+  const [errors, setErrors] = useState<ListingFormErrors>({})
 
-  useFocusEffect(
-    useCallback(() => {
-      async function load() {
-        setLoading(true)
+  // The form starts from the listing as loaded; later refetches (a new
+  // photo) don't overwrite what's being typed.
+  const formFilled = useRef(false)
+  useEffect(() => {
+    if (!listing || formFilled.current) return
+    formFilled.current = true
+    setTitle(listing.title)
+    setDescription(listing.description)
+    setCategory(listing.category)
+    setDailyPrice(String(Number(listing.dailyPrice)))
+    setItemValue(Number(listing.itemValue) ? String(Number(listing.itemValue)) : '')
+    setDeposit(Number(listing.depositAmount) ? String(Number(listing.depositAmount)) : '')
+    setCity(listing.city)
+  }, [listing])
 
-        try {
-          const data = await getListing(listingId)
-          setListing(data)
-          setTitle(data.title)
-          setDescription(data.description)
-          setCategory(data.category)
-          setDailyPrice(String(Number(data.dailyPrice)))
-          setItemValue(Number(data.itemValue) ? String(Number(data.itemValue)) : '')
-          setDeposit(Number(data.depositAmount) ? String(Number(data.depositAmount)) : '')
-          setCity(data.city)
-        } catch {
-          Alert.alert('Error', 'Could not load listing.')
-          nav.goBack()
-        } finally {
-          setLoading(false)
-        }
-      }
+  // Anything showing this listing (lists, its page) picks the change up.
+  function listingChanged() {
+    queryClient.invalidateQueries({ queryKey: ['listings'] })
+  }
 
-      load()
-    }, [listingId, nav])
-  )
-
-  async function handleSave() {
-    if (!title.trim() || !description.trim() || !category || !dailyPrice || !city.trim()) {
-      Alert.alert('Missing fields', 'Please fill in all required fields.')
-      return
-    }
+  // Guarded: a second tap while it saves is dropped.
+  const [handleSave, saving] = useSubmit(async () => {
+    // One message per field, under that field (utils/formValidation.ts).
+    const next = validateListing({ title, category, description, dailyPrice, deposit, itemValue, city })
+    setErrors(next)
+    if (hasErrors(next)) return
 
     const price = parseFloat(dailyPrice)
-    if (isNaN(price) || price <= 0) {
-      Alert.alert('Invalid price', 'Daily price must be a positive number.')
-      return
-    }
-
     const parsedDeposit = deposit.trim() ? parseFloat(deposit) : 0
-    if (deposit.trim() && (isNaN(parsedDeposit) || parsedDeposit < 0)) {
-      Alert.alert('Invalid deposit', 'Deposit must be zero or more.')
-      return
-    }
-
     const parsedItemValue = itemValue.trim() ? parseFloat(itemValue) : 0
-    if (itemValue.trim() && (isNaN(parsedItemValue) || parsedItemValue < 0)) {
-      Alert.alert('Invalid item value', 'Item value must be zero or more.')
-      return
-    }
-
-    if (deposit.trim() && !itemValue.trim()) {
-      Alert.alert('Missing item value', "Add the item's value so we can validate your deposit amount.")
-      return
-    }
-
-    if (deposit.trim() && itemValue.trim() && parsedDeposit > parsedItemValue) {
-      Alert.alert('Deposit too high', 'You cannot set the deposit amount greater than the item value.')
-      return
-    }
-
-    setSaving(true)
 
     try {
-      await updateListing(listingId, {
+      const updated = await updateListing(listingId, {
         title: title.trim(),
         description: description.trim(),
         category,
@@ -137,16 +90,15 @@ export default function EditListingScreen() {
         depositAmount: deposit.trim() ? parsedDeposit : 0,
         city: city.trim(),
       })
+      queryClient.setQueryData(queryKeys.listing(listingId), updated)
+      listingChanged()
 
-      Alert.alert('Saved', 'Your listing has been updated.', [
-        { text: 'OK', onPress: () => nav.navigate('ListingDetail', { listingId }) },
-      ])
+      toast.success('Listing updated.')
+      nav.navigate('ListingDetail', { listingId })
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.error ?? 'Could not save changes.')
-    } finally {
-      setSaving(false)
+      toast.failure(err, { action: "Couldn't save your changes. Please try again." })
     }
-  }
+  })
 
   async function handleAddPhoto() {
     try {
@@ -168,10 +120,10 @@ export default function EditListingScreen() {
 
       await uploadListingImage(listingId, result.assets[0].uri)
       // Re-fetch from backend so the UI shows the real persisted Cloudinary URL
-      const updated = await getListing(listingId)
-      setListing(updated)
-    } catch {
-      Alert.alert('Upload failed', 'Could not upload the photo.')
+      await queryClient.invalidateQueries({ queryKey: queryKeys.listing(listingId) })
+      listingChanged()
+    } catch (err) {
+      toast.failure(err, { action: "Couldn't upload that photo. Please try again." })
     } finally {
       setUploadingImg(false)
     }
@@ -186,230 +138,85 @@ export default function EditListingScreen() {
         onPress: async () => {
           try {
             await deleteListingImage(listingId, imageId)
-            setListing((prev) =>
+            queryClient.setQueryData<Listing>(queryKeys.listing(listingId), (prev) =>
               prev ? { ...prev, images: prev.images.filter((image) => image.id !== imageId) } : prev
             )
-          } catch {
-            Alert.alert('Error', 'Could not remove photo.')
+            listingChanged()
+          } catch (err) {
+            toast.failure(err, { action: "Couldn't remove that photo. Please try again." })
           }
         },
       },
     ])
   }
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
-    )
+  if (loading && !isWaitingOffline(listingQuery)) return <DetailLoadingScreen title="Edit listing" />
+  if (!listing) {
+    return <DetailFallbackScreen query={listingQuery} title="Edit listing" what="this listing" unavailable={LISTING_UNAVAILABLE} />
+  }
+
+  const formHasErrors = hasErrors(errors)
+  // Editing a field clears its own error; the rest wait for the next save.
+  const edit = (field: keyof ListingFormErrors, set: (v: string) => void) => (v: string) => {
+    set(v)
+    setErrors((current) => (current[field] ? { ...current, [field]: undefined } : current))
   }
 
   return (
-    <DismissKeyboardView>
-      <ScreenBackground>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <BackButton style={styles.backBtn} />
-
-        <ZoinkLogo size={40} style={styles.logo} />
-        <Text style={styles.header}>Edit Listing</Text>
-
-        <Text style={styles.label}>Photos</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
-          {listing?.images.map((img) => (
-            <View key={img.id} style={styles.photoWrapper}>
-              <Image source={{ uri: fillImageUrl(img.url, { width: 90, height: 90 }) }} style={styles.photoThumb} />
-              <TouchableOpacity style={styles.photoRemove} onPress={() => handleRemovePhoto(img.id)}>
-                <Text style={styles.photoRemoveText}>X</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-
-          <TouchableOpacity style={styles.addPhoto} onPress={handleAddPhoto} disabled={uploadingImg}>
-            {uploadingImg ? (
-              <ActivityIndicator color={theme.primary} />
-            ) : (
-              <>
-                <Text style={styles.addPhotoIcon}>+</Text>
-                <Text style={styles.addPhotoLabel}>Add</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-
-        <Text style={styles.label}>Title <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={styles.input}
-          value={title}
-          onChangeText={setTitle}
-          placeholderTextColor={theme.textDisabled}
-          maxLength={80}
-        />
-
-        <Text style={styles.label}>Description <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={[styles.input, styles.textarea]}
-          value={description}
-          onChangeText={setDescription}
-          placeholderTextColor={theme.textDisabled}
-          multiline
-          numberOfLines={4}
-          maxLength={1000}
-        />
-
-        <Text style={styles.label}>Category <Text style={styles.req}>*</Text></Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[styles.chip, category === cat && styles.chipActive]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <Text style={styles.label}>Daily Price (CAD) <Text style={styles.req}>*</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={dailyPrice}
-            onChangeText={setDailyPrice}
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
+    <Screen
+      keyboardAvoiding
+      header={<ListingFormHeader title="Edit listing" onBack={goBack} />}
+      footer={
+        <View style={styles.footer}>
+          {/* Its line is always there, so the button doesn't jump when it shows. */}
+          <Text style={styles.error} numberOfLines={1}>
+            {formHasErrors ? 'Fix the highlighted fields to save.' : ''}
+          </Text>
+          <Button label="Save changes" onPress={handleSave} loading={saving} />
         </View>
-
-        <Text style={styles.label}>Item value <Text style={styles.optional}>(optional)</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={itemValue}
-            onChangeText={setItemValue}
-            placeholder={deposit.trim() ? '0' : 'Optional'}
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        <Text style={styles.label}>Deposit <Text style={styles.optional}>(optional)</Text></Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.currency}>$</Text>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={deposit}
-            onChangeText={setDeposit}
-            placeholder="0"
-            placeholderTextColor={theme.textDisabled}
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        <Text style={styles.label}>City <Text style={styles.req}>*</Text></Text>
-        <TextInput
-          style={styles.input}
+      }
+    >
+      <ListingForm
+        photos={(listing?.images ?? []).map((image) => ({
+          key: image.id,
+          uri: fillImageUrl(image.url, { width: PHOTO, height: PHOTO }) ?? image.url,
+          onRemove: () => handleRemovePhoto(image.id),
+        }))}
+        // Edit never required a photo; the backend caps every listing at LISTING_PHOTOS_MAX.
+        photoMin={0}
+        photoMax={LISTING_PHOTOS_MAX}
+        onAddPhoto={handleAddPhoto}
+        addingPhoto={uploadingImg}
+        title={title}
+        onTitle={edit('title', setTitle)}
+        category={category}
+        onCategory={edit('category', setCategory)}
+        description={description}
+        onDescription={edit('description', setDescription)}
+        dailyPrice={dailyPrice}
+        onDailyPrice={edit('dailyPrice', setDailyPrice)}
+        deposit={deposit}
+        onDeposit={edit('deposit', setDeposit)}
+        itemValue={itemValue}
+        onItemValue={edit('itemValue', setItemValue)}
+        errors={errors}
+      >
+        <TextField
+          label="City"
+          placeholder="e.g. Toronto"
+          kind="city"
           value={city}
-          onChangeText={setCity}
-          placeholderTextColor={theme.textDisabled}
+          onChangeText={edit('city', setCity)}
           maxLength={60}
+          error={errors.city}
+          validated
         />
-
-        <TouchableOpacity
-          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving ? <ActivityIndicator color={theme.textOnPrimary} /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
-      </ScreenBackground>
-    </DismissKeyboardView>
+      </ListingForm>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.screen },
-  content: { paddingHorizontal: 24, paddingTop: theme.header.stackTop },
-  backBtn: { marginBottom: 16 },
-  logo: { marginBottom: 16 },
-  header: { ...theme.type.screenTitle, marginBottom: 24 },
-  label: { fontSize: 14, fontWeight: '800', color: theme.text, marginBottom: 6, marginTop: 18 },
-  req: { color: theme.primary },
-  optional: { color: theme.textMuted, fontWeight: '400' },
-  input: {
-    backgroundColor: theme.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    color: theme.text,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    fontSize: 15,
-    shadowColor: theme.shadow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 7,
-    elevation: 1,
-  },
-  textarea: { height: 110, textAlignVertical: 'top', paddingTop: 13 },
-  chip: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    backgroundColor: theme.surface,
-  },
-  chipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
-  chipText: { fontSize: 13, color: theme.textMuted, fontWeight: '700' },
-  chipTextActive: { color: theme.textOnPrimary },
-  priceRow: { flexDirection: 'row', alignItems: 'center' },
-  currency: { fontSize: 20, color: theme.primary, marginRight: 8, fontWeight: '900' },
-  photoScroll: { marginTop: 4 },
-  photoWrapper: { position: 'relative', marginRight: 10 },
-  photoThumb: { width: 90, height: 90, borderRadius: 12 },
-  photoRemove: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(4,15,15,0.75)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoRemoveText: { color: theme.text, fontSize: 11, fontWeight: '900' },
-  addPhoto: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: theme.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-  },
-  addPhotoIcon: { fontSize: 24, color: theme.primary },
-  addPhotoLabel: { fontSize: 11, color: theme.textMuted, marginTop: 2 },
-  saveBtn: {
-    backgroundColor: theme.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: theme.textOnPrimary, fontSize: 17, fontWeight: '900' },
+  footer: { gap: space.sm },
+  error: { ...type.caption, color: colors.danger, textAlign: 'center', minHeight: type.caption.lineHeight },
 })
-

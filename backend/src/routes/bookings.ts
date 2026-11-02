@@ -3,9 +3,9 @@ import multer from 'multer'
 import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
-import { validate } from '../middleware/validate'
-import { bookingRequestLimiter, uploadLimiter } from '../middleware/rateLimiter'
-import { CreateBookingSchema, BookingIdParamsSchema } from '../schemas/booking.schema'
+import { ignoreBodyFields, validate } from '../middleware/validate'
+import { bookingRequestLimiter, paymentLimiter, uploadLimiter } from '../middleware/rateLimiter'
+import { CreateBookingSchema, BookingIdParamsSchema, BookingListQuerySchema } from '../schemas/booking.schema'
 import {
   InitiateHandoffSchema,
   ZoinkTapSchema,
@@ -49,9 +49,11 @@ const upload = multer({
 router.use(requireAuth, requireVerified)
 
 // Booking CRUD
-router.post('/', bookingRequestLimiter, validate(CreateBookingSchema), createBooking)
-router.get('/me', getMyBookings)
-router.get('/requests', getIncomingRequests)
+// App builds from before 2026-09-07 still send insuranceOptIn; it is dropped
+// unread (no insurance product, see booking.schema.ts) instead of refused.
+router.post('/', bookingRequestLimiter, ignoreBodyFields('insuranceOptIn'), validate(CreateBookingSchema), createBooking)
+router.get('/me', validate(BookingListQuerySchema), getMyBookings)
+router.get('/requests', validate(BookingListQuerySchema), getIncomingRequests)
 
 // Handoff / Zoink It — highest risk, validated strictly
 router.post('/:id/pickup/initiate', validate(InitiateHandoffSchema), initiatePickup)
@@ -66,8 +68,8 @@ router.post('/:id/zoink-tap', validate(ZoinkTapSchema), zoinkTap)
 router.get('/:id/photos', validate(HandoffBookingIdParamsSchema), getHandoffPhotos)
 router.get('/:id', validate(BookingIdParamsSchema), getBooking)
 router.patch('/:id/accept', validate(BookingIdParamsSchema), acceptBooking)
-router.post('/:id/payment-intent', validate(BookingIdParamsSchema), createBookingPaymentIntent)
-router.patch('/:id/confirm', validate(BookingIdParamsSchema), confirmBookingPayment)
+router.post('/:id/payment-intent', paymentLimiter, validate(BookingIdParamsSchema), createBookingPaymentIntent)
+router.patch('/:id/confirm', paymentLimiter, validate(BookingIdParamsSchema), confirmBookingPayment)
 router.patch('/:id/decline', validate(BookingIdParamsSchema), declineBooking)
 router.patch('/:id/cancel', validate(BookingIdParamsSchema), cancelBooking)
 

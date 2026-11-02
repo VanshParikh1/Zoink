@@ -10,6 +10,11 @@ const MainTabContext = createContext<MainTab | null>(null)
 
 export const MainTabProvider = MainTabContext.Provider
 
+/** The tab on screen inside MainAppScreen, or null outside it. */
+export function useMainTab() {
+  return useContext(MainTabContext)
+}
+
 /**
  * True when this tab is the one on screen and the main screen is focused.
  * Outside MainAppScreen (the standalone stack routes) it's just focus.

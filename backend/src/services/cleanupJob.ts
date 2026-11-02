@@ -1,9 +1,11 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelPaymentIntent, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, toCents, transferPayout } from './paymentService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
+import { deleteUnverifiedAccounts } from './unverifiedAccounts'
 import { Sentry } from '../instrument'
+import { loggableError, loggableMessage } from '../utils/sentryScrub'
 
 // The payment jobs below walk many bookings and call Stripe for each. One
 // booking failing (a restricted connected account, a PaymentIntent Stripe
@@ -11,8 +13,8 @@ import { Sentry } from '../instrument'
 // booking after it: record it, report it, and move on. The booking is left
 // exactly as it was, so the next run retries it.
 export async function recordJobFailure(bookingId: string, action: string, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  console.error(`[${action}] booking ${bookingId} failed:`, error)
+  const message = error instanceof Error ? loggableMessage(error) : String(loggableError(error))
+  console.error(`[${action}] booking ${bookingId} failed:`, loggableError(error))
   Sentry.captureException(error, { tags: { job: action, bookingId } })
   try {
     await prisma.bookingEvent.create({
@@ -48,73 +50,87 @@ export async function cleanupStaleHandoffs() {
   return { cleared: result.count }
 }
 
+// The payment jobs call Stripe while holding the booking's row lock, so the
+// transaction needs longer than Prisma's 5-second default. If it does time
+// out after Stripe succeeded, the next run repeats the call with the same
+// idempotency key and gets the same result back.
+const STRIPE_JOB_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
 export async function releaseDuePayouts() {
   const holdHours = PAYOUT_HOLD_HOURS
   const dueBefore = new Date(Date.now() - holdHours * 60 * 60 * 1000)
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      status: BookingStatus.COMPLETED,
-      completedAt: { lte: dueBefore },
-      // payoutSentAt is the single "this booking's payout has been dealt with"
-      // marker — set both when a transfer is sent and when a fully-refunded
-      // booking is closed out with nothing to send, so neither is reprocessed.
-      payoutSentAt: null,
-      OR: [
-        // Never disputed, disputed with no money movement, or a dispute that
-        // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
-        // see disputeService/stripeWebhookController). RESOLVED_REFUND is no
-        // longer excluded: the owner's proportional remaining share is computed
-        // below from Booking.refundedAmountCents instead of being left as a
-        // manual admin action. OPEN/UNDER_REVIEW stay out (unresolved).
-        {
-          paymentStatus: PaymentStatus.PAYOUT_PENDING,
-          disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED', 'RESOLVED_REFUND'] },
-        },
-        // A dispute that refunded the renter the FULL charge leaves the booking
-        // at REFUNDED. The owner is owed nothing, but it still needs closing out
-        // (payoutSentAt) so this job stops looking at it.
-        {
-          paymentStatus: PaymentStatus.REFUNDED,
-          disputeStatus: 'RESOLVED_REFUND',
-        },
-      ],
-    },
-    select: {
-      id: true,
-      version: true,
-      ownerPayout: true,
-      totalPrice: true,
-      refundedAmountCents: true,
-      disputeStatus: true,
-      owner: { select: { stripeAccountId: true } },
-    },
-  })
+  const dueWhere = {
+    status: BookingStatus.COMPLETED,
+    completedAt: { lte: dueBefore },
+    // payoutSentAt is the single "this booking's payout has been dealt with"
+    // marker — set both when a transfer is sent and when a fully-refunded
+    // booking is closed out with nothing to send, so neither is reprocessed.
+    payoutSentAt: null,
+    OR: [
+      // Never disputed, disputed with no money movement, or a dispute that
+      // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
+      // see disputeService/stripeWebhookController). RESOLVED_REFUND is no
+      // longer excluded: the owner's proportional remaining share is computed
+      // below from Booking.refundedAmountCents instead of being left as a
+      // manual admin action. OPEN/UNDER_REVIEW stay out (unresolved).
+      {
+        paymentStatus: PaymentStatus.PAYOUT_PENDING,
+        disputeStatus: { in: ['NONE', 'RESOLVED_NO_ACTION', 'DISMISSED', 'RESOLVED_REFUND'] as DisputeStatus[] },
+      },
+      // A dispute that refunded the renter the FULL charge leaves the booking
+      // at REFUNDED. The owner is owed nothing, but it still needs closing out
+      // (payoutSentAt) so this job stops looking at it.
+      {
+        paymentStatus: PaymentStatus.REFUNDED,
+        disputeStatus: DisputeStatus.RESOLVED_REFUND,
+      },
+    ],
+  }
+
+  const bookings = await prisma.booking.findMany({ where: dueWhere, select: { id: true } })
 
   let paid = 0
   let failed = 0
-  for (const booking of bookings) {
+  for (const { id } of bookings) {
     try {
-      const totalCents = toCents(booking.totalPrice)
-      const fullOwnerPayoutCents = toCents(booking.ownerPayout)
-      const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
+      const outcome = await prisma.$transaction(async (tx) => {
+        // Re-read under the booking's row lock (the one createDispute takes)
+        // so a dispute filed at the last moment, or an overlapping run of this
+        // job, can't slip in between the eligibility check and the transfer.
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const booking = await tx.booking.findFirst({
+          where: { id, ...dueWhere },
+          select: {
+            id: true,
+            version: true,
+            ownerPayout: true,
+            totalPrice: true,
+            refundedAmountCents: true,
+            owner: { select: { stripeAccountId: true } },
+          },
+        })
+        if (!booking) return 'skipped' as const
 
-      // The owner's cut of what the renter actually kept paying, proportional to
-      // their share of the original total (so the platform eats its commission on
-      // the refunded slice too). With refundedToRenterCents === 0 — the common
-      // case — this is exactly fullOwnerPayoutCents.
-      const remainingPayoutCents =
-        totalCents > 0
-          ? Math.max(
-              0,
-              Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
-            )
-          : 0
+        const totalCents = toCents(booking.totalPrice)
+        const fullOwnerPayoutCents = toCents(booking.ownerPayout)
+        const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
 
-      // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
-      // isn't reconsidered every tick.
-      if (remainingPayoutCents <= 0) {
-        await prisma.$transaction(async (tx) => {
+        // The owner's cut of what the renter actually kept paying, proportional to
+        // their share of the original total (so the platform eats its commission on
+        // the refunded slice too). With refundedToRenterCents === 0 — the common
+        // case — this is exactly fullOwnerPayoutCents.
+        const remainingPayoutCents =
+          totalCents > 0
+            ? Math.max(
+                0,
+                Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
+              )
+            : 0
+
+        // Fully refunded (or a $0 payout): nothing to transfer. Close it out so it
+        // isn't reconsidered every tick.
+        if (remainingPayoutCents <= 0) {
           await tx.booking.update({
             where: { id: booking.id },
             data: { payoutSentAt: new Date(), version: { increment: 1 } },
@@ -126,15 +142,13 @@ export async function releaseDuePayouts() {
               metadata: { amountCents: 0, reason: 'fully_refunded', holdHours },
             },
           })
-        })
-        continue
-      }
+          return 'closed' as const
+        }
 
-      if (!booking.owner.stripeAccountId) continue
+        if (!booking.owner.stripeAccountId) return 'skipped' as const
 
-      const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
-      const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
-      await prisma.$transaction(async (tx) => {
+        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
+        const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
         await tx.booking.update({
           where: { id: booking.id },
           data: {
@@ -159,11 +173,12 @@ export async function releaseDuePayouts() {
             },
           },
         })
-      })
-      paid += 1
+        return 'paid' as const
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (outcome === 'paid') paid += 1
     } catch (error) {
       failed += 1
-      await recordJobFailure(booking.id, 'release_payout', error)
+      await recordJobFailure(id, 'release_payout', error)
     }
   }
 
@@ -203,17 +218,32 @@ export async function releaseDueDeposits() {
   let released = 0
   let failed = 0
   for (const booking of bookings) {
-    if (!booking.stripeDepositPaymentIntentId) continue
+    const depositPaymentIntentId = booking.stripeDepositPaymentIntentId
+    if (!depositPaymentIntentId) continue
 
     try {
+      const didRelease = await prisma.$transaction(async (tx) => {
+        // createDispute takes the same row lock: a dispute filed at the 24-hour
+        // mark either commits first (and this re-check skips the booking) or
+        // waits and then finds the deposit already released. Before, the job
+        // could read "no dispute", the dispute could commit, and the deposit
+        // was released anyway.
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`
+        const current = await tx.booking.findUniqueOrThrow({
+          where: { id: booking.id },
+          select: { depositStatus: true, disputeStatus: true, stripeDepositPaymentIntentId: true },
+        })
+        if (
+          current.depositStatus !== DepositStatus.AUTHORIZED ||
+          current.disputeStatus === DisputeStatus.OPEN ||
+          current.disputeStatus === DisputeStatus.UNDER_REVIEW ||
+          current.stripeDepositPaymentIntentId !== depositPaymentIntentId
+        ) {
+          return false
+        }
 
-      await cancelPaymentIntent({
-        id: booking.id,
-        version: booking.version,
-        stripePaymentIntentId: booking.stripeDepositPaymentIntentId,
-      })
+        await cancelDepositPaymentIntent({ id: booking.id, stripeDepositPaymentIntentId: depositPaymentIntentId })
 
-      await prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
           data: {
@@ -229,7 +259,9 @@ export async function releaseDueDeposits() {
             metadata: { action: 'deposit_released', holdHours },
           },
         })
-      })
+        return true
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (!didRelease) continue
 
       void notifyUser({
         userId: booking.renterId,
@@ -256,13 +288,12 @@ export async function releaseDueDeposits() {
 // what a DB sweep can safely touch:
 //   - Error/diagnostic log retention (90 days) is a Sentry project setting,
 //     not application code — set it in the Sentry dashboard.
-//   - Listing hard-deletion is immediate today (listingService.deleteListing
-//     calls prisma.listing.delete directly), which already satisfies "gone
-//     within 90 days" — trivially, since it's gone within zero. The 90-day
-//     figure in privacy.md was written assuming a soft-delete grace period
-//     that was never built; if that's ever added (e.g. to preserve evidence
-//     for a dispute filed just after a listing is pulled), it needs a
-//     deletedAt column on Listing and its own purge sweep here.
+//   - Listing deletion: a listing nobody messaged about or booked is deleted
+//     at once (listingService.deleteListing). One with history is
+//     soft-deleted (deletedAt, photos removed) and kept for its bookings and
+//     chats; nothing here purges those rows yet. A purge would have to wait
+//     until the listing's last booking and message are past their own
+//     retention periods below.
 // See legal/OPEN-ITEMS.md, section C ("Retention periods").
 
 const RETENTION_MESSAGES_MONTHS = 24
@@ -293,13 +324,32 @@ function yearsAgo(years: number): Date {
 
 /** Deletes email verification codes older than 24 hours, used or not —
  *  verifyOTP only ever reads the latest unused one, and they expire after
- *  OTP_EXPIRY_MINUTES anyway. */
+ *  OTP_EXPIRY_MINUTES anyway — and the record of which addresses were sent a
+ *  code, which only the 24-hour send cap reads. */
 export async function purgeOldVerificationTokens() {
   const before = new Date(Date.now() - RETENTION_VERIFICATION_TOKENS_HOURS * 60 * 60 * 1000)
   const result = await prisma.verificationToken.deleteMany({
     where: { createdAt: { lt: before } },
   })
-  return { deleted: result.count }
+  const sends = await prisma.verificationEmailSend.deleteMany({
+    where: { createdAt: { lt: before } },
+  })
+  return { deleted: result.count, emailSendsDeleted: sends.count }
+}
+
+// An account that hasn't verified its email within a day of signing up is
+// deleted (owner decision, 2026-10-18), freeing the address. Signing up again
+// with the same email replaces it sooner (authService.registerUser).
+const UNVERIFIED_ACCOUNT_HOURS = 24
+
+/** Deletes accounts still unverified 24 hours after sign-up, with their codes,
+ *  blocks and notifications. Never touches a verified, admin, soft-deleted or
+ *  ever-active account (see unverifiedAccounts.ts). Idempotent: a repeat run,
+ *  or two runs at once, deletes nothing more. */
+export async function purgeUnverifiedAccounts() {
+  const before = new Date(Date.now() - UNVERIFIED_ACCOUNT_HOURS * 60 * 60 * 1000)
+  const deleted = await prisma.$transaction((tx) => deleteUnverifiedAccounts(tx, { createdAt: { lt: before } }))
+  return { deleted }
 }
 
 /** Deletes messages older than the retention window. Conversations and

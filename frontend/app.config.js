@@ -17,6 +17,9 @@ module.exports = {
     orientation: "portrait",
     icon: "./assets/logo.png",
     userInterfaceStyle: "light",
+    // The root view's colour before the first screen draws: the splash's tan,
+    // so nothing flashes white between the splash and the app.
+    backgroundColor: "#F4EDE1",
     splash: {
       image: "./assets/ZoinkTransparent.png",
       resizeMode: "contain",

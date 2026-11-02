@@ -1,7 +1,7 @@
 import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ErrorEvent } from '@sentry/node'
-import { FILTERED, scrubBreadcrumb, scrubEvent } from './sentryScrub'
+import { FILTERED, loggableError, loggableMessage, redactPrismaArguments, scrubBreadcrumb, scrubEvent } from './sentryScrub'
 
 function event(overrides: Partial<ErrorEvent>): ErrorEvent {
   return { type: undefined, ...overrides } as ErrorEvent
@@ -76,5 +76,66 @@ describe('scrubBreadcrumb', () => {
     assert.equal(crumb.message, 'login [email]')
     assert.equal((crumb.data as any).password, FILTERED)
     assert.equal((crumb.data as any).url, '/auth/login')
+  })
+})
+
+// The shape of a PrismaClientValidationError's message (values made up).
+const PRISMA_VALIDATION_MESSAGE = [
+  '',
+  'Invalid `prisma.user.create()` invocation in',
+  '/app/dist/services/authService.js:120:13',
+  '',
+  '  119 const user = await prisma.user.create({',
+  '→ 120   data: {',
+  '          email: "alice@mail.utoronto.ca",',
+  '          passwordHash: "$2b$12$abcdefghijklmnopqrstuv",',
+  '          lastName: "Private",',
+  '          phone: 1',
+  '                 ~',
+  '        }',
+  '      })',
+  '',
+  'Argument `phone`: Invalid value provided. Expected String, provided Int.',
+].join('\n')
+
+describe('Prisma call arguments', () => {
+  test('are dropped from a validation error message; the call and the reason stay', () => {
+    const out = redactPrismaArguments(PRISMA_VALIDATION_MESSAGE)
+    for (const leaked of ['alice@', '$2b$12$', 'Private']) assert.ok(!out.includes(leaked), `still contains ${leaked}`)
+    assert.match(out, /Invalid `prisma\.user\.create\(\)` invocation/)
+    assert.match(out, /Argument `phone`: Invalid value provided/)
+  })
+
+  test('other messages are left alone', () => {
+    assert.equal(redactPrismaArguments('Card declined'), 'Card declined')
+  })
+
+  test('scrubEvent drops them from exception values', () => {
+    const scrubbed = scrubEvent(event({ exception: { values: [{ type: 'PrismaClientValidationError', value: PRISMA_VALIDATION_MESSAGE }] } }))
+    assert.ok(!scrubbed.exception!.values![0].value!.includes('$2b$12$'))
+  })
+})
+
+describe('loggableError and loggableMessage', () => {
+  test('return a redacted copy, keeping the name and stack frames, and leave the original alone', () => {
+    const error = new Error(PRISMA_VALIDATION_MESSAGE)
+    error.name = 'PrismaClientValidationError'
+    const logged = loggableError(error) as Error
+    assert.notEqual(logged, error)
+    assert.equal(logged.name, 'PrismaClientValidationError')
+    assert.ok(!String(logged.stack).includes('alice@') && !String(logged.stack).includes('$2b$12$'))
+    assert.match(String(logged.stack), /\n\s+at /)
+    assert.ok(error.message.includes('alice@'), 'the thrown error is not changed')
+    assert.ok(!loggableMessage(error).includes('$2b$12$'))
+  })
+
+  test('hand back the same error when there is nothing to hide', () => {
+    const error = new Error('Stripe is unavailable')
+    assert.equal(loggableError(error), error)
+    assert.equal(loggableMessage('not an error'), 'UNKNOWN_ERROR')
+  })
+
+  test('redact push tokens and emails in plain strings', () => {
+    assert.equal(loggableError('"ExponentPushToken[abc]" for bob@torontomu.ca'), '"[push-token]" for [email]')
   })
 })

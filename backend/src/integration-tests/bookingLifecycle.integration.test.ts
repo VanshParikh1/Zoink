@@ -16,7 +16,7 @@
  * as documented in the spec — we never call transition functions out of order.
  */
 
-import test, { before, beforeEach, after, describe } from 'node:test'
+import test, { before, beforeEach, after, describe, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
 import {
@@ -32,8 +32,10 @@ import {
   handoffPhotoUrl,
 } from './setup'
 import * as bookingService from '../services/bookingService'
+import * as bookingUtils from '../services/bookingUtils'
 import * as handoffService from '../services/handoffService'
 import * as conversationService from '../services/conversationService'
+import * as paymentService from '../services/paymentService'
 import { PaymentStatus, BookingStatus } from '@prisma/client'
 
 // notifyUser (services/notificationService.ts) is fire-and-forget (`void notifyUser(...)`)
@@ -61,6 +63,12 @@ before(async () => {
 
 beforeEach(async () => {
   await truncateAllTables()
+  mock.restoreAll()
+  // These flows predate the pilot deposit rules (deposit rentals of at most 3
+  // days, paid no earlier than 24 h before the start) and book deposit
+  // listings days ahead; depositRules.integration.test.ts covers the rules.
+  mock.method(bookingUtils, 'assertDepositRentalLength', () => {})
+  mock.method(bookingUtils, 'assertPaymentWindowOpen', () => {})
 
   // Each test gets fresh users and a fresh listing so there's no cross-test
   // coupling. DEV_STRIPE_ACCOUNT_ID is intentionally left blank in .env.test
@@ -74,6 +82,11 @@ beforeEach(async () => {
 })
 
 after(async () => {
+  // Fixture bookings carry made-up PaymentIntent ids (pi_mock_confirmed_...).
+  // Left in zoink_test after the run, a dev server's reconciliation cron
+  // pointed at that database asked Stripe about them every hour. after() runs
+  // even when tests fail; setup.ts also truncates at the end of every file.
+  await truncateAllTables()
   await disconnectTestPrisma()
 })
 
@@ -333,7 +346,7 @@ describe('owner accept / decline', () => {
     // DECLINED → ACCEPTED is not a valid transition
     await assert.rejects(
       () => bookingService.transitionBookingStatus(booking.id, owner.id, BookingStatus.ACCEPTED),
-      /BOOKING_INVALID_TRANSITION/
+      /transition is not allowed/
     )
   })
 })
@@ -652,7 +665,7 @@ describe('pickup handoff', () => {
     assert.equal(uploadEvents.length, 2, 'both the initial submission and the edit should be audit-logged')
   })
 
-  test('resubmitting photos after one party has already tapped does not clear that tap', async () => {
+  test('resubmitting photos after one party has already tapped does not clear that tap', async (t) => {
     const booking = await makeAcceptedBooking()
     const photos = [
       handoffPhotoUrl(booking.id, 'photo1'),
@@ -682,17 +695,24 @@ describe('pickup handoff', () => {
     )
 
     // The renter can still tap afterwards and complete the synchronized confirmation.
+    // (Placeholder PaymentIntent id, so the pickup capture is mocked.)
+    t.mock.method(paymentService, 'capturePaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded' }))
     const renterTap = await handoffService.confirmHandoff(booking.id, renter.id, 'pickup')
     assert.equal(renterTap.bothConfirmed, true, 'the pre-edit tap should still count toward synchronization')
   })
 
-  test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async () => {
+  test('both tap Zoink It within window → booking moves to ACTIVE, payment captured', async (t) => {
     const booking = await makeAcceptedBooking()
     const photos = [
       handoffPhotoUrl(booking.id, 'photo1'),
       handoffPhotoUrl(booking.id, 'photo2'),
     ]
     await handoffService.initiateHandoff(booking.id, owner.id, 'pickup', photos)
+
+    // The booking's PaymentIntent id is a placeholder, so the capture is
+    // mocked here; a failed capture blocks the pickup (pickupCapture tests)
+    // and the real-Stripe capture is covered by handoffRace.
+    const capture = t.mock.method(paymentService, 'capturePaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded' }))
 
     // Owner taps first
     const ownerTap = await handoffService.confirmHandoff(booking.id, owner.id, 'pickup')
@@ -707,12 +727,9 @@ describe('pickup handoff', () => {
     const db = getTestPrisma()
     const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(persisted.status, BookingStatus.ACTIVE)
-    // Payment should have been attempted to capture (CAPTURE_PENDING or CAPTURED or FAILED)
-    const pickupAcceptableStatuses: PaymentStatus[] = [PaymentStatus.CAPTURE_PENDING, PaymentStatus.CAPTURED, PaymentStatus.FAILED]
-    assert.ok(
-      pickupAcceptableStatuses.includes(persisted.paymentStatus),
-      `unexpected paymentStatus after pickup: ${persisted.paymentStatus}`
-    )
+    // Captured once, on the second tap; the webhook then moves it to CAPTURED.
+    assert.equal(capture.mock.callCount(), 1)
+    assert.equal(persisted.paymentStatus, PaymentStatus.CAPTURE_PENDING)
     // BookingEvents should include ZOINK_TAP events
     const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
     const tapEvents = events.filter((e: any) => e.type === 'ZOINK_TAP')
@@ -884,7 +901,7 @@ describe('full happy path via HTTP', () => {
     const res = await supertest(app)
       .post('/bookings')
       .set('Authorization', `Bearer ${renter.token}`)
-      .send({ listingId, startDate, endDate, message: 'Test booking', insuranceOptIn: false })
+      .send({ listingId, startDate, endDate, message: 'Test booking' })
 
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`)
     assert.equal(res.body.status, 'PENDING')

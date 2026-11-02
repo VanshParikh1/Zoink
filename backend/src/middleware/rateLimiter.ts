@@ -83,13 +83,19 @@ const DAY = 24 * HOUR
 // legal version), per address + signed-in user.
 export const authLimiter = buildLimiter({ windowMs: 15 * MINUTE, limit: 10 })
 
-function keyedLimiter(options: { windowMs: number; limit: number; key: (req: Request) => string }) {
+function keyedLimiter(options: {
+  windowMs: number
+  limit: number
+  key: (req: Request) => string
+  skipFailedRequests?: boolean
+}) {
   return rateLimit({
     windowMs: options.windowMs,
     limit: options.limit,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: options.key,
+    skipFailedRequests: options.skipFailedRequests ?? false,
     handler: rateLimitHandler,
   })
 }
@@ -119,6 +125,17 @@ export const registerLimiter = keyedLimiter({
   windowMs: HOUR,
   limit: 20,
   key: (req) => `register:${ipKey(req)}`,
+})
+
+// Verification emails sent per address per day, sign-ups and resends together.
+// Only requests that sent one count. Generous, because a campus network can
+// put many students behind one address; the per-email cap in authService
+// (MAX_VERIFICATION_EMAILS_PER_DAY) is the tight one.
+export const verificationEmailAddressLimiter = keyedLimiter({
+  windowMs: DAY,
+  limit: 50,
+  key: (req) => `verification-email:${ipKey(req)}`,
+  skipFailedRequests: true,
 })
 
 // Blanket default applied to everything. A signed-in user gets one budget of
@@ -171,3 +188,14 @@ export const disputeLimiter = buildUserLimiter('disputes', { windowMs: DAY, limi
 export const uploadLimiter = buildUserLimiter('uploads', { windowMs: HOUR, limit: 30 })
 // Blocking and unblocking share one budget.
 export const blockLimiter = buildUserLimiter('blocks', { windowMs: HOUR, limit: 30 })
+// Each of these calls Stripe: the Pay step's PaymentIntent and confirm, and
+// payout onboarding (a Connect account and account link). One budget, so one
+// account can't run up Stripe calls (and Stripe's rate limit for everyone).
+export const paymentLimiter = buildUserLimiter('payments', { windowMs: HOUR, limit: 30 })
+// Payout status reads the Connect account from Stripe; the Profile screen
+// loads it on every visit, hence a looser budget of its own.
+export const payoutStatusLimiter = buildUserLimiter('payout-status', { windowMs: HOUR, limit: 120 })
+// New listings show up for everyone browsing nearby.
+export const listingCreateLimiter = buildUserLimiter('listings', { windowMs: DAY, limit: 20 })
+// Opening a conversation with an owner.
+export const conversationOpenLimiter = buildUserLimiter('conversations', { windowMs: HOUR, limit: 60 })

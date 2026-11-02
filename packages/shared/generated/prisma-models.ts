@@ -102,6 +102,7 @@ export interface Listing {
   city: string;
   address: string | null;
   ownerId: string;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
   bookings?: Booking[];
@@ -285,6 +286,12 @@ export interface VerificationToken {
   failedAttempts: number;
   createdAt: string;
   user?: User;
+}
+
+export interface VerificationEmailSend {
+  id: string;
+  email: string;
+  createdAt: string;
 }
 
 export interface Dispute {

@@ -4,7 +4,8 @@ import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { uploadLimiter } from '../middleware/rateLimiter'
+import { listingCreateLimiter, uploadLimiter } from '../middleware/rateLimiter'
+import { cacheFor, revalidate } from '../middleware/cacheControl'
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -12,6 +13,7 @@ import {
   BrowseListingsQuerySchema,
   ListingIdParamsSchema,
   ListingImageParamsSchema,
+  MyListingsQuerySchema,
 } from '../schemas/listing.schema'
 import {
   browseListings,
@@ -40,12 +42,12 @@ const upload = multer({
   },
 })
 
-router.get('/me', requireAuth, requireVerified, getMyListings)
-router.get('/', requireAuth, requireVerified, validate(BrowseListingsQuerySchema), browseListings)
-router.get('/categories', requireAuth, requireVerified, getListingCategories)
-router.get('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), getListing)
+router.get('/me', requireAuth, requireVerified, validate(MyListingsQuerySchema), getMyListings)
+router.get('/', requireAuth, requireVerified, validate(BrowseListingsQuerySchema), revalidate, browseListings)
+router.get('/categories', requireAuth, requireVerified, cacheFor(300), getListingCategories)
+router.get('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), revalidate, getListing)
 
-router.post('/', requireAuth, requireVerified, validate(CreateListingSchema), createListing)
+router.post('/', requireAuth, requireVerified, listingCreateLimiter, validate(CreateListingSchema), createListing)
 router.patch('/:id', requireAuth, requireVerified, validate(UpdateListingSchema), updateListing)
 router.patch('/:id/availability', requireAuth, requireVerified, validate(ToggleAvailabilitySchema), toggleAvailability)
 router.delete('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), deleteListing)

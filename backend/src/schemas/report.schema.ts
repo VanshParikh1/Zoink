@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pageQuery } from '../utils/pagination'
 
 export const CreateReportSchema = z.object({
   body: z.object({
@@ -32,5 +33,6 @@ export const ReportIdParamsSchema = z.object({
 export const AdminListReportsQuerySchema = z.object({
   query: z.object({
     status: z.enum(['OPEN', 'REVIEWED', 'DISMISSED']).optional(),
+    ...pageQuery,
   }),
 })

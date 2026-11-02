@@ -24,6 +24,7 @@ import './instrument'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import compression from 'compression'
 import cron from 'node-cron'
 import authRouter from './routes/auth'
 import usersRouter from './routes/users'
@@ -36,6 +37,7 @@ import reportsRouter from './routes/reports'
 import adminRouter from './routes/admin'
 import { stripeWebhook } from './middleware/controllers/stripeWebhookController'
 import { requireAuth } from './middleware/requireAuth'
+import { requireVerified } from './middleware/requiredVerified'
 import { getStripeConnectStatus } from './middleware/controllers/userController'
 import {
   cleanupStaleHandoffs,
@@ -45,10 +47,11 @@ import {
   purgeOldDisputesAndReports,
   purgeOldHandoffPhotos,
   purgeOldVerificationTokens,
+  purgeUnverifiedAccounts,
 } from './services/cleanupJob'
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
-import { globalLimiter } from './middleware/rateLimiter'
+import { globalLimiter, payoutStatusLimiter } from './middleware/rateLimiter'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -63,6 +66,10 @@ app.use(helmet())
 // The API only serves the native app, which isn't subject to CORS, so no
 // browser origin is granted access (this used to answer every origin with *).
 app.use(cors({ origin: false }))
+// gzip (or brotli, if the client asks) for any response over 1 KB: list
+// pages and listing JSON shrink 70-85%. The ETag Express adds is computed on
+// the uncompressed body, so revalidation still answers 304.
+app.use(compression())
 // Stripe webhook is authenticated via signature, not by rate limit — keep it
 // exempt so a burst of legitimate webhook deliveries/retries never gets
 // dropped by the blanket limiter below.
@@ -140,7 +147,7 @@ app.get('/stripe-refresh', (_req, res) => {
   sendStripeConnectRedirectPage(res, 'Payout setup needs another try', 'Your Stripe setup link expired. Open Zoink and start payout setup again.')
 })
 
-app.get('/stripe/connect/status', requireAuth, getStripeConnectStatus)
+app.get('/stripe/connect/status', requireAuth, requireVerified, payoutStatusLimiter, getStripeConnectStatus)
 
 app.use('/auth', authRouter)
 app.use('/users', usersRouter)
@@ -161,7 +168,8 @@ if (process.env.NODE_ENV !== 'test') {
       const payouts = await releaseDuePayouts()
       const deposits = await releaseDueDeposits()
       const verificationCodes = await purgeOldVerificationTokens()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes })
+      const unverifiedAccounts = await purgeUnverifiedAccounts()
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, verificationCodes, unverifiedAccounts })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

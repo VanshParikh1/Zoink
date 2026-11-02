@@ -7,7 +7,7 @@ export const TERMS_VERSION = '1.0'
 export const TERMS_TEXT = `# Zoink — Terms of Service
 
 **Effective date:** September 8, 2026
-**Last updated:** September 8, 2026
+**Last updated:** October 30, 2026
 
 ---
 
@@ -72,7 +72,7 @@ When you list an item, you represent and warrant that:
 - renting the item does not breach any lease, warranty, licence, employer policy, or residence agreement you are bound by;
 - the item is not on the prohibited list in section 6.
 
-You set your daily price, your security deposit amount, and your stated item value. You are responsible for the tax consequences of your rental income; Zoink does not provide tax advice and does not withhold income tax on your behalf.
+You set your daily price, whether to take a security deposit and how much, and your stated item value (at most $1,000). You are responsible for the tax consequences of your rental income; Zoink does not provide tax advice and does not withhold income tax on your behalf.
 
 You may remove a listing at any time, but you must honour bookings that have already been confirmed, unless you cancel under section 9.
 
@@ -140,19 +140,13 @@ A Renter pays the rental price for the booked dates, plus **13% HST**. That is a
 
 HST is charged on the rental price only. It is not charged on the security deposit, which is a hold rather than a sale.
 
-Separately, a **security deposit** in the amount set by the Owner is authorized (held) against the Renter's payment method. A deposit hold is not a charge, but it does reduce your available credit until it is released.
+Separately, if the Owner set one, a **security deposit** in the amount set by the Owner is authorized (held) against the Renter's payment method when the Renter pays. A deposit hold is not a charge, but it does reduce your available credit until it is released. Because a card hold only lasts a limited time, a booking with a security deposit can be **at most 3 days** long, and the Renter can pay for it **no earlier than 24 hours before the rental starts**. The handoff at pickup cannot go ahead until the Renter's payment, including any deposit hold, has gone through.
 
 ### 10.3 What an Owner receives — the commission
 
-Zoink charges a commission to the Owner only. It is deducted from the Owner's payout, and it is calculated on the rental price, based on the listing's **daily rate**:
+Zoink charges a commission to the Owner only. It is deducted from the Owner's payout. The commission is **15% of the rental price (minimum $2)** per booking. If the rental price is less than $2, the commission is the full rental price.
 
-| Listing daily rate | Zoink commission |
-| --- | --- |
-| $20.00 or less per day | 15% |
-| $20.01 to $50.00 per day | 12.5% |
-| More than $50.00 per day | 10% |
-
-The applicable rate is locked in at the time the booking is requested and shown to the Owner before they accept. The Owner's net payout is displayed in the app before acceptance.
+The commission is locked in at the time the booking is requested and shown to the Owner before they accept. The Owner's net payout is displayed in the app before acceptance.
 
 Commission is charged on the rental price only. It is **never** charged on a security deposit or on damage compensation.
 
@@ -172,7 +166,7 @@ We may change the commission structure in the future. Any change applies only to
 
 ## 11. Security deposits and damage claims
 
-A security deposit is authorized at booking and can end up in one of three states:
+A security deposit is authorized when the Renter pays for the booking and can end up in one of three states:
 
 - **Held** — the authorization is in place and unresolved.
 - **Returned to the Renter** — released automatically once the rental completes and the **24-hour** hold window passes with no claim, or released because a claim was resolved in the Renter's favour.
@@ -190,7 +184,7 @@ Read this section carefully, because it is the one most likely to surprise you.
 
 **Zoink does not provide insurance, damage protection, or any guarantee of any kind.** We are not an insurer, we do not offer a protection plan, and we do not cover loss, theft, or damage.
 
-The **security deposit is the only financial protection in the system**, and only if the Owner set one. If an item is worth $2,000 and the deposit is $100, the most that can be recovered through Zoink is $100. Anything beyond that is a matter between the Owner and the Renter, and is for the courts, not for us.
+The **security deposit is the only financial protection in the system**, and only if the Owner set one. If an item is worth $1,000 and the deposit is $100, the most that can be recovered through Zoink is $100. Anything beyond that is a matter between the Owner and the Renter, and is for the courts, not for us.
 
 What this means in practice:
 

@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary'
+import { loggableError } from './sentryScrub'
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -64,4 +65,32 @@ export function extractPublicId(url: string): string {
   const withoutVersion = afterUpload.replace(/^v\d+\//, '')
   // Remove file extension
   return withoutVersion.replace(/\.[^/.]+$/, '')
+}
+
+/**
+ * The public_id of an image in this app's own Cloudinary account, or null for
+ * any other URL (seed photos, another account), so only our own uploads are
+ * ever deleted.
+ */
+export function ownPublicId(url: string): string | null {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+  if (!cloudName || !url.startsWith(`https://res.cloudinary.com/${cloudName}/image/upload/`)) return null
+  return extractPublicId(url) || null
+}
+
+/**
+ * Deletes this app's own uploads among `urls`, best effort: a failure is
+ * logged, never thrown, since the row that pointed at the image is already
+ * gone.
+ */
+export async function deleteOwnImages(urls: (string | null | undefined)[]): Promise<void> {
+  for (const url of urls) {
+    const publicId = url ? ownPublicId(url) : null
+    if (!publicId) continue
+    try {
+      await deleteImage(publicId)
+    } catch (error) {
+      console.warn('[Cloudinary] Failed to delete image:', loggableError(error))
+    }
+  }
 }

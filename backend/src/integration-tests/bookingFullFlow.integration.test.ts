@@ -35,6 +35,7 @@ import {
   handoffPhotoUrl,
 } from './setup'
 import * as bookingService from '../services/bookingService'
+import * as bookingUtils from '../services/bookingUtils'
 import * as paymentService from '../services/paymentService'
 import * as conversationService from '../services/conversationService'
 import * as disputeService from '../services/disputeService'
@@ -53,6 +54,11 @@ before(async () => {
 beforeEach(async () => {
   await truncateAllTables()
   mock.restoreAll()
+  // These flows predate the pilot deposit rules (deposit rentals of at most 3
+  // days, paid no earlier than 24 h before the start) and book deposit
+  // listings days ahead; depositRules.integration.test.ts covers the rules.
+  mock.method(bookingUtils, 'assertDepositRentalLength', () => {})
+  mock.method(bookingUtils, 'assertPaymentWindowOpen', () => {})
   owner = await createTestUser({ firstName: 'Owner' })
   // $20/day, $15 flat deposit, no insurance opt-in used in these tests — keeps
   // the price snapshot ($100 total + $15 deposit = $115 = 11500 cents for a
@@ -189,7 +195,7 @@ describe('full new booking flow, end-to-end', () => {
     assert.equal(withIntent.hstAmount, 13, '13% HST on the $100 rental snapshot, not the changed $4995 price')
     // Commission/ownerPayout are unaffected by HST — it's additive on top of
     // what the borrower pays, never subtracted from totalPrice beforehand.
-    assert.equal(withIntent.commissionAmount, 15, '15% commission (tier 1, $20/day) on $100 — unaffected by HST')
+    assert.equal(withIntent.commissionAmount, 15, 'flat 15% commission on $100 — unaffected by HST')
     assert.equal(withIntent.ownerPayout, 85, '$100 - $15 commission — unaffected by HST')
 
     if (stripeAvailable) {

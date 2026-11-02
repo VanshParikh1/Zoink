@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ReviewRole } from '@prisma/client'
+import { pageQuery } from '../utils/pagination'
 
 /**
  * Review-domain request schemas.
@@ -45,4 +46,9 @@ export const SubmitReviewSchema = z.object({
       (body) => body.reviewerRole === ReviewRole.LENDER || body.personNotes === undefined,
       { message: 'personNotes is only valid when reviewerRole is LENDER.', path: ['personNotes'] }
     ),
+})
+
+/** GET /reviews/pending: the app asks for the first one only (limit=1). */
+export const PendingReviewsQuerySchema = z.object({
+  query: z.object({ limit: pageQuery.limit }),
 })

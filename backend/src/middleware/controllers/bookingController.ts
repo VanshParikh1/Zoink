@@ -1,9 +1,9 @@
 import { Request, Response } from 'express'
-import { BookingStatus } from '@prisma/client'
 import * as bookingService from '../../services/bookingService'
 import * as handoffService from '../../services/handoffService'
 import { uploadImage } from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
+import { isPaged, type PageParams } from '../../utils/pagination'
 
 export const createBooking = asyncHandler(async (req: Request, res: Response) => {
   const renterId = (req as any).userId as string
@@ -32,19 +32,23 @@ export const getBooking = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMyBookings = asyncHandler(async (req: Request, res: Response) => {
   const renterId = (req as any).userId as string
+  const params = req.query as PageParams
 
+  if (isPaged(params)) return res.json(await bookingService.listBookingsPage('renter', renterId, params))
   const bookings = await bookingService.getMyBookings(renterId)
   return res.json(bookings)
 })
 
 export const getIncomingRequests = asyncHandler(async (req: Request, res: Response) => {
   const ownerId = (req as any).userId as string
+  const params = req.query as PageParams
 
+  if (isPaged(params)) return res.json(await bookingService.listBookingsPage('owner', ownerId, params))
   const bookings = await bookingService.getIncomingRequests(ownerId)
   return res.json(bookings)
 })
 
-async function transitionBooking(req: Request, res: Response, status: BookingStatus) {
+async function transitionBooking(req: Request, res: Response, status: bookingService.DirectBookingTransition) {
   const actorId = (req as any).userId as string
   const bookingId = req.params.id as string
 

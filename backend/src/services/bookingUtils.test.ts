@@ -1,11 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  assertDepositRentalLength,
+  assertPaymentWindowOpen,
   ensureValidBookingDates,
   getRentalDays,
   roundCurrency,
   MAX_RENTAL_DAYS,
 } from './bookingUtils'
+import { quoteRental, rentalDayCount } from '@zoink/shared'
+import { calculateCommission, calculateHst, calculateOwnerPayout } from './paymentService'
 
 test('roundCurrency rounds to cents', () => {
   assert.equal(roundCurrency(10.555), 10.56)
@@ -49,4 +53,56 @@ test('ensureValidBookingDates accepts a range of exactly MAX_RENTAL_DAYS', () =>
 
   assert.equal(getRentalDays(start, exactEnd), MAX_RENTAL_DAYS)
   assert.doesNotThrow(() => ensureValidBookingDates(start, exactEnd))
+})
+
+test('MAX_RENTAL_DAYS is 7 (contract limit)', () => {
+  assert.equal(MAX_RENTAL_DAYS, 7)
+})
+
+test('getRentalDays agrees with the app\'s calendar-day count across DST changes', () => {
+  // The request screen sends midnight UTC of each picked day; the server and
+  // the app (@zoink/shared rentalDayCount) must count the same days.
+  const ranges: [string, string][] = [
+    ['2026-03-06T00:00:00.000Z', '2026-03-10T00:00:00.000Z'], // spring forward inside
+    ['2026-10-29T00:00:00.000Z', '2026-11-04T00:00:00.000Z'], // fall back inside
+    ['2026-12-28T00:00:00.000Z', '2027-01-03T00:00:00.000Z'], // year boundary
+  ]
+  for (const [start, end] of ranges) {
+    assert.equal(getRentalDays(new Date(start), new Date(end)), rentalDayCount(start, end))
+  }
+})
+
+test('the server snapshots exactly the quote the request screen previews', () => {
+  // createBooking prices a booking with @zoink/shared quoteRental; this pins
+  // that it equals the formulas it used before (daily x days rounded to the
+  // cent, flat 15% commission with a $2 minimum, 13% HST on rent only).
+  for (const dailyPrice of [0.01, 4.99, 15, 19.99, 20, 20.01, 33.33, 50, 50.01, 999.99]) {
+    for (let days = 1; days <= MAX_RENTAL_DAYS; days += 1) {
+      const q = quoteRental(dailyPrice, days, 25)
+      const total = roundCurrency(dailyPrice * days)
+      assert.equal(q.totalPrice, total)
+      assert.equal(q.commissionAmount, calculateCommission(total))
+      assert.equal(q.ownerPayout, calculateOwnerPayout(total))
+      assert.equal(q.hstAmount, calculateHst(total))
+      assert.equal(q.depositAmount, 25)
+    }
+  }
+})
+
+test('a rental of a listing with a deposit is at most 3 days', () => {
+  assert.doesNotThrow(() => assertDepositRentalLength(50, 3))
+  assert.doesNotThrow(() => assertDepositRentalLength(0, 7), 'no deposit: the usual 7-day limit applies')
+  assert.throws(() => assertDepositRentalLength(50, 4), { statusCode: 400, message: 'Rentals with a deposit can be at most 3 days.' })
+})
+
+test('a booking with a deposit can be paid from 00:00 Toronto time the day before it starts', () => {
+  const booking = { depositAmount: '50.00', startDate: new Date('2026-11-10T00:00:00.000Z') }
+  // Opens 00:00 EST Nov 9 = 05:00 UTC.
+  assert.throws(() => assertPaymentWindowOpen(booking, Date.parse('2026-11-09T04:59:00.000Z')), (error: any) => {
+    assert.equal(error.statusCode, 409)
+    assert.match(error.message, /^You can pay from Nov 9, 12:00\sAM\.$/)
+    return true
+  })
+  assert.doesNotThrow(() => assertPaymentWindowOpen(booking, Date.parse('2026-11-09T05:00:00.000Z')))
+  assert.doesNotThrow(() => assertPaymentWindowOpen({ ...booking, depositAmount: 0 }, Date.parse('2026-10-01T00:00:00.000Z')))
 })

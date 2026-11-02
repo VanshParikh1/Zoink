@@ -107,9 +107,9 @@ describe('releaseDueDeposits', () => {
     const failing = await createCompletedBooking({ ...depositFields })
     const healthy = await createCompletedBooking({ ...depositFields, stripeDepositPaymentIntentId: `pi_dep_${Math.random().toString(36).slice(2)}` })
 
-    mock.method(paymentService, 'cancelPaymentIntent', async (ref: { id: string; stripePaymentIntentId: string | null }) => {
-      if (ref.id === failing.id) throw new Error('This PaymentIntent could not be canceled because it has a status of canceled.')
-      return { id: ref.stripePaymentIntentId, status: 'canceled' }
+    mock.method(paymentService, 'cancelDepositPaymentIntent', async (ref: { id: string; stripeDepositPaymentIntentId: string }) => {
+      if (ref.id === failing.id) throw new Error('Your card issuer is unavailable. Try again later.')
+      return { id: ref.stripeDepositPaymentIntentId, status: 'canceled' }
     })
 
     const result = await releaseDueDeposits()

@@ -2,7 +2,7 @@ import api from './api'
 import { DEMO_MODE } from '../config/demoMode'
 import { BlockedUser, MyProfile, NotificationPreferences, PublicProfile } from '../types'
 import { getImageUploadPart } from './uploadFormData'
-// Demo-mode mocks load only when the build sets EXPO_PUBLIC_DEMO_MODE to
+// Demo-mode mocks load only in a dev build that sets EXPO_PUBLIC_DEMO_MODE to
 // 'true'. That value is inlined at build time, so in every other build this
 // condition folds to false and Metro drops the require — the mock modules and
 // their data never reach the bundle. (Calls below sit behind DEMO_MODE, which
@@ -14,12 +14,12 @@ const {
   mockUpdateMyProfile,
   mockUpdateNotificationPreferences,
   mockUploadMyAvatar,
-} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockProfiles') : {}) as typeof import('./mockProfiles')
+} = (__DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockProfiles') : {}) as typeof import('./mockProfiles')
 const {
   mockBlockUser,
   mockGetMyBlocks,
   mockUnblockUser,
-} = (process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockBlocks') : {}) as typeof import('./mockBlocks')
+} = (__DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === 'true' ? require('./mockBlocks') : {}) as typeof import('./mockBlocks')
 import { markBlocked, markUnblocked } from './blockedUsers'
 
 export type UpdateMyProfilePayload = {
@@ -108,6 +108,16 @@ export async function updateMyPushToken(expoPushToken: string | null): Promise<{
   if (DEMO_MODE) return { id: 'demo-user-1', expoPushToken }
 
   const res = await api.patch('/users/me/push-token', { expoPushToken })
+  return res.data
+}
+
+// Takes this phone's token off the account, only if the account still has it.
+// `sessionToken` is for a session that has already ended (api.ts no longer
+// holds it); the server accepts a lapsed one for this call only.
+export async function releaseMyPushToken(expoPushToken: string, sessionToken?: string): Promise<{ released: boolean }> {
+  if (DEMO_MODE) return { released: true }
+
+  const res = await api.post('/users/me/push-token/release', { expoPushToken }, { sessionToken })
   return res.data
 }
 

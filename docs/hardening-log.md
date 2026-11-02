@@ -1,0 +1,929 @@
+# Hardening log
+
+Branch `quality/hardening`, cut from `design/mockup-reskin` @ `fe5cec3` on 2026-10-18. Every finding gets a severity, the fix or decision, and the commit. The summary for readers is `docs/hardening-report.md`; this file is the working record.
+
+Severity: **S1** money, data loss or a security hole reachable in normal use · **S2** wrong behaviour a user can hit · **S3** robustness, performance or polish.
+
+---
+
+## Phase 0: baseline (before any change)
+
+### Plan
+
+Measure before touching anything: bundle size and composition, dependency counts, cold start and scroll on an iOS simulator release build, per-endpoint latency, DB round trips and payload size against a seeded local database, and the test-suite counts.
+
+### Tooling added (`6cb34fe`)
+
+- `backend/src/scripts/bench/`: `seed.ts` fills a dedicated `zoink_bench` database (about 200 users, 450 listings with 3 photos each, about 1,500 bookings across every status, 90 conversations including one with 500 messages, disputes, reports, review obligations, plus one fixture row per measured write). `run.ts` sends 50 sequential requests to every route and reports p50/p95, DB round trips (every statement the `pg` driver sends, BEGIN/COMMIT included) and response size. Stripe, SES, Cloudinary and Expo push are kept off the network (`benchEnv.ts`), so write timings exclude third-party calls. `serve.ts` serves the same seeded API on :3000 for on-device runs.
+- `frontend/src/utils/perfMarks.ts`: `markStartup()` (milliseconds since the native process started, from React Native's `performance.rnStartupTiming`) and `useScrollPerfProbe()` (JS frames, dropped frames and JS FPS while a list moves). Both are silent unless the bundle was built with `EXPO_PUBLIC_PERF_LOG=1`.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `npm run typecheck:backend` | pass |
+| `npm run typecheck:frontend` | pass |
+| `npm run test:backend` | 212 tests, 211 pass, **1 flaky failure** (`rateLimiter.test.ts`, socket hang up; fixed in `fbc50ac`, see below) |
+| `backend npm run test:integration` | 292 tests, 289 pass, 3 skipped (the cancellation-fee tests, skipped on purpose), 0 fail, 535 s (real Stripe test mode) |
+| `frontend npm test` | 3 tests, 3 pass (demo-mode gate only) |
+
+### Bundle (production `expo export`, Hermes bytecode)
+
+| | iOS | Android |
+|---|---:|---:|
+| JS bundle (`.hbc`) | 4.37 MB | 4.37 MB |
+| Assets shipped with the bundle | 8.6 MB | 8.6 MB |
+| Modules | 2,216 | 2,216 |
+
+Largest packages by source size in the bundle (from the source map's `sourcesContent`, 8.4 MB of source in total):
+
+| Package | Source | Share |
+|---|---:|---:|
+| react-native | 2,255 KB | 26.8% |
+| react-native-reanimated | 783 KB | 9.3% |
+| @sentry/core | 714 KB | 8.5% |
+| @sentry/react-native | 673 KB | 8.0% |
+| app source (`frontend/src`, `App.tsx`) | 491 KB | 5.8% |
+| @stripe/stripe-react-native | 315 KB | 3.7% |
+| @sentry/conventions | 295 KB | 3.5% |
+| react-native-gesture-handler | 258 KB | 3.1% |
+| react-native-svg | 245 KB | 2.9% |
+| @react-navigation/core | 179 KB | 2.1% |
+| @sentry/browser | 168 KB | 2.0% |
+| axios | 139 KB | 1.7% |
+
+**Assets finding:** 8.4 of the 8.6 MB of assets are fonts. `App.tsx` imports from the `@expo-google-fonts/fira-sans` and `fira-mono` package roots, which reference every weight, so all 18 Fira Sans and 3 Fira Mono files ship (and download with every OTA update) although the app uses four. Fixed in Phase 4.
+
+### Dependencies
+
+| | Direct | Dev | Installed (prod tree, `npm ls --omit=dev --all`) |
+|---|---:|---:|---:|
+| frontend | 31 | 3 | 784 |
+| backend | 17 | 13 | 317 |
+
+### Backend endpoints (local, seeded `zoink_bench`, 50 sequential requests each)
+
+Every route, before any change. "DB queries" is the median number of statements per request. The main owner account carries every write fixture (about 680 bookings), which is why `GET /bookings/requests` is so large: it is the unpaginated worst case, not a typical user.
+
+| Endpoint | Kind | p50 ms | p95 ms | DB queries | Payload | OK |
+|---|---|---:|---:|---:|---:|---:|
+| `GET /health` | read | 0.3 | 0.5 | 0 | 0.0 KB | 50/50 |
+| `GET /auth/legal-version` | read | 0.2 | 0.3 | 0 | 0.0 KB | 50/50 |
+| `POST /auth/register` | write | 270.9 | 303.1 | 3 | 0.6 KB | 50/50 |
+| `POST /auth/login` | write | 71.7 | 86.3 | 1 | 0.6 KB | 50/50 |
+| `POST /auth/verify-email` | write | 3.7 | 5.1 | 7 | 0.4 KB | 50/50 |
+| `POST /auth/resend-otp` | write | 3.1 | 8.3 | 4 | 0.0 KB | 50/50 |
+| `GET /users/me` | read | 1.3 | 2.0 | 2 | 0.6 KB | 50/50 |
+| `GET /users/:id` | read | 1.9 | 3.0 | 4 | 0.2 KB | 50/50 |
+| `GET /users/me/blocks` | read | 1.0 | 1.3 | 3 | 0.1 KB | 50/50 |
+| `GET /users/me/stripe-connect/status` | read | 0.9 | 1.6 | 2 | 0.1 KB | 50/50 |
+| `GET /stripe/connect/status` | read | 1.0 | 5.9 | 2 | 0.1 KB | 50/50 |
+| `PATCH /users/me` | write | 1.9 | 4.2 | 2 | 0.2 KB | 50/50 |
+| `PATCH /users/me/notification-prefs` | write | 1.4 | 2.4 | 2 | 0.1 KB | 50/50 |
+| `PATCH /users/me/push-token` | write | 1.4 | 2.9 | 2 | 0.1 KB | 50/50 |
+| `POST /users/me/accept-terms` | write | 1.3 | 2.4 | 2 | 0.5 KB | 50/50 |
+| `POST /users/me/stripe-connect/onboard` | write | 1.0 | 1.6 | 2 | 0.0 KB | 50/50 |
+| `POST /users/:id/block` | write | 1.3 | 2.5 | 7 | 0.0 KB | 50/50 |
+| `DELETE /users/:id/block` | write | 0.6 | 0.7 | 2 | 0.0 KB | 50/50 |
+| `DELETE /users/me` | write | 1.5 | 2.6 | 6 | 0.0 KB | 50/50 |
+| `GET /listings?lat&lng` | read | 5.5 | 7.2 | 6 | 16.1 KB | 50/50 |
+| `GET /listings?q` | read | 8.7 | 10.2 | 6 | 16.1 KB | 50/50 |
+| `GET /listings?offset=40` | read | 7.4 | 9.5 | 6 | 16.1 KB | 50/50 |
+| `GET /listings/categories` | read | 2.5 | 3.2 | 2 | 0.1 KB | 50/50 |
+| `GET /listings/:id` | read | 2.0 | 2.6 | 5 | 1.1 KB | 50/50 |
+| `GET /listings/me` | read | 3.4 | 4.3 | 5 | 46.7 KB | 50/50 |
+| `POST /listings` | write | 2.2 | 3.1 | 7 | 0.6 KB | 50/50 |
+| `PATCH /listings/:id` | write | 3.1 | 5.7 | 8 | 1.0 KB | 50/50 |
+| `PATCH /listings/:id/availability` | write | 1.8 | 2.1 | 3 | 0.1 KB | 50/50 |
+| `DELETE /listings/:id` | write | 1.9 | 2.5 | 3 | 0.0 KB | 50/50 |
+| `GET /bookings/me` | read | 6.8 | 10.6 | 7 | 133.3 KB | 50/50 |
+| `GET /bookings/requests` | read | 29.2 | 53.7 | 7 | 1244.0 KB | 50/50 |
+| `GET /bookings/:id` | read | 2.2 | 3.4 | 7 | 1.9 KB | 50/50 |
+| `GET /bookings/:id/photos` | read | 2.8 | 7.8 | 7 | 0.1 KB | 50/50 |
+| `POST /bookings` | write | 6.5 | 14.8 | 20 | 2.0 KB | 50/50 |
+| `PATCH /bookings/:id/accept` | write | 5.8 | 15.6 | 23 | 1.9 KB | 50/50 |
+| `PATCH /bookings/:id/decline` | write | 2.5 | 3.7 | 19 | 1.9 KB | 50/50 |
+| `PATCH /bookings/:id/cancel` | write | 2.8 | 3.2 | 20 | 1.9 KB | 50/50 |
+| `POST /bookings/:id/payment-intent` | write | 2.4 | 3.6 | 17 | 2.0 KB | 50/50 |
+| `PATCH /bookings/:id/confirm` | write | 2.9 | 3.4 | 22 | 2.0 KB | 50/50 |
+| `POST /bookings/:id/pickup/initiate` | write | 3.2 | 8.4 | 20 | 2.2 KB | 50/50 |
+| `POST /bookings/:id/zoink-tap` | write | 2.3 | 3.5 | 17 | 2.3 KB | 50/50 |
+| `POST /bookings/:id/return/initiate` | write | 4.2 | 7.3 | 20 | 2.2 KB | 50/50 |
+| `GET /conversations/me` | read | 8.8 | 12.4 | 9 | 41.0 KB | 50/50 |
+| `GET /conversations/:id` | read | 2.9 | 3.5 | 9 | 1.4 KB | 50/50 |
+| `GET /conversations/:id/messages` | read | 3.6 | 7.0 | 4 | 38.9 KB | 50/50 |
+| `POST /conversations` | write | 5.5 | 6.7 | 14 | 1.2 KB | 50/50 |
+| `POST /conversations/:id/messages` | write | 3.6 | 6.2 | 10 | 0.4 KB | 50/50 |
+| `POST /conversations/:id/read` | write | 1.4 | 1.8 | 3 | 0.0 KB | 50/50 |
+| `GET /reviews/pending` | read | 2.2 | 2.7 | 7 | 0.8 KB | 50/50 |
+| `POST /reviews` | write | 8.9 | 14.9 | 19 | 0.6 KB | 50/50 |
+| `GET /disputes` | read | 2.0 | 2.3 | 4 | 1.1 KB | 50/50 |
+| `GET /disputes/:id` | read | 1.8 | 2.1 | 4 | 0.5 KB | 50/50 |
+| `POST /disputes` | write | 4.8 | 10.0 | 6 | 0.4 KB | 50/50 |
+| `POST /reports` | write | 1.5 | 2.4 | 3 | 0.3 KB | 50/50 |
+| `GET /admin/disputes` | read | 3.9 | 6.7 | 4 | 64.2 KB | 50/50 |
+| `GET /admin/disputes/:id` | read | 1.6 | 2.4 | 5 | 0.9 KB | 50/50 |
+| `GET /admin/bookings/:id/events` | read | 1.4 | 1.7 | 3 | 0.0 KB | 50/50 |
+| `GET /admin/reports` | read | 3.6 | 4.0 | 5 | 49.9 KB | 50/50 |
+| `PATCH /admin/disputes/:id/resolve` | write | 6.0 | 8.1 | 11 | 0.5 KB | 50/50 |
+| `PATCH /admin/reports/:id` | write | 2.3 | 2.9 | 3 | 0.4 KB | 50/50 |
+| `POST /stripe/webhook` | write | 3.6 | 4.3 | 6 | 0.0 KB | 50/50 |
+
+Reading it: every endpoint is already well under the targets (p95 < 150 ms reads, < 300 ms writes) on a local database. The two outliers are `POST /auth/register` (bcrypt cost 12, about 270 ms by design) and the unpaginated lists: `/bookings/requests` 1.2 MB, `/bookings/me` 133 KB, `/admin/disputes` 64 KB, `/listings/me` 47 KB, `/conversations/me` 41 KB, and a 500-message thread at 39 KB in one response. Booking state changes cost 17 to 23 round trips each.
+
+### Cold start (iOS simulator, Release build)
+
+iPhone 17 Pro simulator (iOS 26.5) on this Mac, `expo run:ios --configuration Release` with `EXPO_PUBLIC_PERF_LOG=1`, pointed at the bench API on localhost (Stripe mocked, real Cloudinary demo photos). Time is measured from the new process's first line in the device log to the app's `[perf] startup` line (React Native's own startup timer reported nothing in this build, so both ends come from the device log, one clock). `simctl terminate` then `simctl launch` each run, location permission pre-granted.
+
+| Path | Mark | Runs | Median | Range |
+|---|---|---:|---:|---|
+| Signed out | Login screen mounted | 7 | **1,884 ms** | 1,168–2,896 |
+| Signed in | Main app shell (tabs) mounted | 9 | **1,676 ms** | 1,094–2,059 |
+| Signed in | Home listings on screen | 9 | **2,187 ms** | 1,432–2,586 |
+
+Seen on the way: a blank white, then blank tan, screen between the native splash and the first JS screen.
+
+### List scrolling (same build, JS frames)
+
+Home shows only the first 20 listings (no pagination), so a 100+ item list isn't reachable in the shipped app. For this baseline the bench API's browse default was raised to 150 for the run only (uncommitted, reverted); the app code was unchanged. Each line is one fling sequence, measured by `useScrollPerfProbe` (frames > 1.5x a 60 Hz frame count as dropped).
+
+| List | Items | Frames | Dropped | JS FPS |
+|---|---:|---:|---:|---:|
+| Home grid | 20 | 141 | 0 | 59.4 |
+| Home grid (first pass, images loading) | 150 | 244 | 31 | 54.9 |
+| Home grid | 150 | 142 | 49 | 44.6 |
+| Home grid | 150 | 197 | 13 | 57.5 |
+| Search list | 150 | 256 | 0 | 59.9 |
+
+The grid (two large photos per row, plain `Image`, no recycling hints) drops JS frames as new rows mount; the one-column Search list with small thumbnails doesn't.
+
+### Bench seed change
+
+The seed now uses real public Cloudinary demo photos (one unique URL per listing) so on-device scrolling decodes real images.
+
+---
+
+## Phase 1: correctness and data integrity
+
+### Plan
+
+Pin every business invariant with tests (shared unit and property tests for the money math; HTTP integration tests for the state machine), then go through each concurrency path the brief names (double-tap Pay, double-tap Zoink It, accept vs. cancel, overlapping requests, webhook retries and ordering), Stripe idempotency, the payment jobs, and time handling (one shared date helper, DST tests, the rental-date display sweep). Anything that would change a business rule goes to "Needs product decision" instead of being changed.
+
+**The run stopped at the end of this phase, at the owner's request.** The owner's decisions on the open items were applied on 2026-10-18 before Phase 2 (below).
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix / decision | Commit |
+|---|---|---|---|---|---|
+| 1 | Two renters could both pay for the same dates | Two ACCEPTED requests overlap (accepting doesn't hold dates); both renters tap Pay at about the same time; both pass the overlap check before either writes | S1 | Accept and confirm take the listing's row lock and re-check overlap inside the transaction | `e18b41b` |
+| 2 | PICKUP_PENDING and RETURN_PENDING didn't hold dates | Owner starts the pickup handoff; another renter's confirm (or the owner's accept) for those dates goes through | S1 | Overlap check counts CONFIRMED, PICKUP_PENDING, ACTIVE, RETURN_PENDING | `e18b41b` |
+| 3 | Double-tapped Confirm could put two deposit holds on the card, or cancel the rent hold the booking was confirmed with | Deposit key included the booking version, which the deposit's own webhook bumps; two concurrent confirms raced on one key, Stripe rejected the second while the first was in flight, and that failure path cancelled the rent authorization | S1 | Pay and Confirm run under the booking's row lock; a repeat confirm returns the first result; deposit keyed on the rent PaymentIntent | `f50b559`, `e18b41b` |
+| 4 | Cancelling a paid booking left money held | CONFIRMED: rent released, deposit held up to ~7 days. PICKUP_PENDING: nothing released at all | S1 | Both holds released on cancel; depositStatus RELEASED | `e18b41b` |
+| 5 | A late `payment_intent.succeeded` stopped the owner's payout | Capture webhook arrives after the return completed the booking (or after PAYOUT_PENDING): status reset to CAPTURED, which `releaseDuePayouts` never selects | S1 | Rental webhooks only move forward; a capture landing after completion goes to PAYOUT_PENDING | `247e5ed` |
+| 6 | Other out-of-order webhooks moved payment status backwards | Late `amount_capturable_updated` after capture (back to AUTHORIZED); late `payment_failed` from a first declined card after a good one (AUTHORIZED to FAILED); late authorization after a release | S2 | Same forward-only rules | `247e5ed` |
+| 7 | Deposit released or owner paid while a dispute was being filed | Dispute filed in the last moments of the 24 h window while the 15-minute job runs: the job read "no dispute", the dispute committed, the job released anyway | S2 | Jobs re-check each booking under its row lock; `createDispute` takes the same lock | `1fee579` |
+| 8 | Overlapping job runs could act twice on one booking | A slow run overlapping the next tick, or two instances | S2 | Same row-lock re-check (payout `payoutSentAt`, deposit `depositStatus`) | `1fee579` |
+| 9 | Two disputes on one booking | Renter and owner (or a double tap) file at once; both pass the "no open dispute" check | S2 | `createDispute` runs in one transaction holding the booking lock | `1fee579` |
+| 10 | An ACCEPTED booking could be overwritten to DECLINED | Owner accepts two overlapping requests at once; one accept's auto-decline overwrote the other after it committed ACCEPTED (an illegal transition; the renter got "accepted" then "declined") | S2 | Auto-decline only updates rows still PENDING, under the listing lock | `e18b41b` |
+| 11 | Renter refused at confirm kept the rent hold | Dates taken by someone else between Pay and Confirm | S2 | Rent authorization released when confirm is refused for overlap | `e18b41b` |
+| 12 | Illegal transitions answered 500 | Any stale action (accept an already-cancelled request, cancel a completed one): "Something went wrong." and a Sentry crash report | S2 | `InvalidBookingTransitionError`, 409 with a readable message | `28cf272` |
+| 13 | Rental dates showed the wrong day after a handoff, "days left" was a day early every evening | startDate/endDate are overwritten with the real pickup/return time; formatting those in UTC showed the next day for evening handoffs. "Days left" counted milliseconds to midnight UTC (8 PM the evening before in Toronto). Zoink It's day count was off by one after pickup. Settings showed block/terms-acceptance instants in UTC | S2 | One shared helper (`@zoink/shared` `dates.ts`) and the sweep below | `9b30de2` |
+| 14 | Request preview could differ from the charge by a cent | The request screen computed HST with `toFixed(2)` and kept its own copies of HST_RATE and MAX_RENTAL_DAYS | S3 | `quoteRental` in `@zoink/shared`, used by both | `d40bd4c` |
+| 15 | Rate limiter unit test flaked | supertest bound a new port per request; under the parallel run one connection reset | S3 | One server per test app | `fbc50ac` |
+
+### Checked and found sound (no change)
+
+- Webhook signature verification fails closed outside tests; every event id is stored in `processed_stripe_events` in the same transaction as the booking update (redeliveries are no-ops).
+- Double-tapped Zoink It is already covered by `handoffRace` (one transition, clean 409 for the loser).
+- Every Stripe create/capture/cancel/refund/transfer call carries an idempotency key (account links excepted; they're single-use by design).
+- OTP: attempt cap, expiry, constant-time compare (Phase 2 would re-verify).
+- Money arithmetic: a property test over every daily price from $0.01 to $1,000 for 1 to 7 days (700,000 quotes) shows every line is whole cents, commission + payout = rental total, and the pickup charge = rent + HST. The float formula agrees with exact half-up rounding except on an exact half-cent tie, where it rounds down by a cent: 1,980 of the 700,000 quotes (see product decisions). The app and server now share one formula, so what's shown is what's charged.
+- Cleanup jobs: stale-handoff cleanup and the retention sweeps are single statements (atomic, safe to repeat); deposit and payout jobs are per-booking transactions with stable Stripe keys, so a restart mid-run repeats the same calls and gets the same results back.
+
+### Date sweep
+
+`@zoink/shared` `dates.ts`: calendar-date values (midnight UTC, how the app sends a rental day) are read in UTC; real instants (including a startDate/endDate after the handoff overwrote them) are shown in America/Toronto. `rentalDayKey`, `torontoDayKey`, `daysBetween`, `rentalDayCount`, `formatRentalDate`, `formatDayOf`, `formatTimeOfDay`, `formatDateTime`, `isTodayInToronto`. Tests run in six device time zones and across both 2026 DST changes.
+
+| Screen | Before | After |
+|---|---|---|
+| Request (BookingRequest) | Picked days from the device calendar, sent as midnight UTC | Unchanged (correct); price preview now `quoteRental` |
+| Checkout (Pay) | `formatLongDate` (UTC) | `formatRentalDate(…, 'long')` |
+| Rentals list (BookingHistory) and Requests | UTC formatting | `formatRentalDate` |
+| Chat pinned card | Shows listing and daily price only, no rental dates | Nothing to change |
+| Zoink It | Day count from milliseconds (off by one after pickup) | `rentalDayCount` |
+| Booking detail | `calendarDate` (UTC) for rental days, device-local for moments | `formatRentalDate` / `formatDayOf` (Toronto) |
+| Active rental | UTC dates; "days left" by milliseconds | `formatRentalDate`; calendar-day count in Toronto |
+| Review prompt | `formatLongDate` (UTC) on dates that are post-handoff instants | `formatRentalDate(…, 'long')` |
+| Settings | Block and terms-acceptance instants in UTC | `formatDayOf(…, 'long')` |
+
+Left as they were: message and inbox timestamps and admin timestamps use the device's time zone (the same as Toronto for Ontario users). Moving them is a one-line change per call site if wanted.
+
+### Needs product decision
+
+Decided by the owner on 2026-10-18; see "Product decisions applied" below. 7 and 8 are still open.
+
+1. **Commission: tiered vs flat (existing).** Code charges 15 / 12.5 / 10% by daily rate; the business plan says flat 15%. Pinned by tests as-is.
+2. **Cancellation cutoff is 7 to 8 PM the evening before, not the rental day.** `transitionBookingStatus` refuses a cancel when `now >= startDate`, and startDate is midnight UTC, which is 8 PM (EDT) or 7 PM (EST) the previous evening in Toronto. Suggested: compare against the start of the rental day in Toronto (one line, but it changes when a booking can be cancelled, which terms.md §9 governs).
+3. **Card authorization expiry vs. booking lead time.** Rent is authorized at Confirm and captured at pickup; deposit is authorized at Confirm and held until return + 24 h. Card authorizations typically lapse after about 7 days, and nothing limits how far ahead a booking can be paid. A booking paid more than about a week before pickup will likely fail to capture; a 7-day rental confirmed one day ahead holds its deposit about 9 days, so a dispute can find it expired. Options: cap the lead time, authorize closer to pickup, re-authorize the deposit at pickup, or Stripe extended authorizations.
+4. **Failed capture at pickup has no path.** The booking goes ACTIVE with paymentStatus FAILED and an ERROR event; nothing retries, notifies, or blocks the handoff. Needs a decision (retry job, block the tap until captured, admin alert).
+5. **Half-cent ties.** The float formula rounds an exact half cent down where exact half-up would round up: 1,980 of 700,000 quotes differ by 1¢ (commission or HST). Totals still add up. Switching to integer-cent half-up would change those amounts by a cent.
+6. **Unreachable transitions in the state table.** `allowedTransitions` still lists CONFIRMED→ACTIVE and ACTIVE→COMPLETED (skipping the handoff steps). No route reaches them (pinned by the state-machine tests). Suggested: remove them.
+7. **An ACCEPTED request whose dates were taken stays ACCEPTED.** After another renter confirms overlapping dates, the losing request can be paid again and will be refused again. Consider auto-declining it when the other booking confirms, like PENDING ones are on accept.
+8. **Disputes on bookings in any status.** Only COMPLETED bookings have the 24 h window check; a dispute can be filed on a PENDING, DECLINED or CANCELLED booking.
+
+### Found, not fixed (later phases)
+
+- **Expired or dead sessions leave the app "signed in" and broken** (S2; moved into Phase 2 by the owner). A stored token is decoded without checking `exp`; when the server answers 401 (token past its 30 days, account deleted), `api.ts` drops the token but AuthContext keeps the user, so every screen shows raw "No token provided." until the user logs out by hand. Reproduced on the simulator.
+- Raw server error strings reach the UI (Phase 5).
+- Login email field has autocorrect on (suggested "Toronto" for "utoronto"); a validation message pushes the form down (Phase 5 forms).
+- Blank white then tan screen between the native splash and the first JS screen (Phase 4 startup).
+- The server accepts booking requests whose start date is already past (the app prevents it); Phase 2 validation.
+- The verification email interpolates the user's first name into HTML unescaped (self-only injection; Phase 2).
+- Unpaginated lists (`/bookings/requests` 1.2 MB in the bench), Home shows only 20 listings (Phase 3/4).
+
+### Tests after Phase 1
+
+| Suite | Before | After |
+|---|---|---|
+| `@zoink/shared` (new) | none | 13 (money, contract limits, 700,000-quote property test, dates incl. DST and six device zones) |
+| backend unit | 212 (1 flaky) | 220, all pass |
+| backend integration | 292 (289 pass, 3 skipped) | **331: 328 pass, 3 skipped (the cancellation-fee tests, still skipped on purpose), 0 fail**, 641 s. New suites: `stateMachine` (18: 9 statuses x 9 actions, skipped steps, roles, the state set), `bookingConcurrency` (8, Stripe test mode), `webhookOrdering` (7), `jobRaces` (5) |
+| frontend unit | 3 | 3 |
+
+After the owner's decisions (2026-10-18): shared 16 (was 13: cancellation cutoff, Toronto midnight across DST, half-up ties), backend unit 221, backend integration **345: 340 pass, 3 skipped (cancellation fees), 2 failed**, 668 s. Both failures were `bookingLifecycle` pickup tests that used a placeholder PaymentIntent and relied on a failed capture still activating the booking, which is exactly what decision 4 forbids. They now mock the capture, and the file re-ran 43/43. New suites: `pickupCapture` (5) and `cancelCutoff` (9). Backend typecheck passes.
+
+The race tests were checked against the old code: 5 of 6 job/dispute race tests fail there. One run of the full suite hit an unrelated failure: a stray packet from the Cisco ISE posture agent on this Mac (the payload contains `ISEBlockUntrustedCerts`) landed on the test server's loopback port; the file passed on re-run.
+
+Typecheck (backend, frontend) passes. The date sweep was checked on the iOS simulator Release build: an evening pickup reads as its Toronto day in Rentals, and Active rental counts calendar days left.
+
+### Commits
+
+`d40bd4c` `8b937ca` (shared pricing and money tests), `f50b559` `28cf272` `5201cd9` `e18b41b` `247e5ed` `1fee579` `9b30de2`. Nothing pushed.
+
+### Product decisions applied (owner, 2026-10-18)
+
+| # | Decision | What changed | Commit |
+|---|---|---|---|
+| 4 | Failed capture at pickup blocks the handoff | The second Zoink It tap captures the rent under the booking's row lock before writing ACTIVE. If Stripe refuses: still PICKUP_PENDING, the tap isn't recorded, paymentStatus is left to Stripe's webhooks, both phones get a 409 ("keep the item for now and try Zoink It again"), an ERROR event (`capture_payment`, `blockedHandoff: true`) and a Sentry report. The version is bumped so the retry gets a fresh capture key (Stripe replays a failed result for a key it has seen). A capture Stripe already completed (lost response) counts as captured. `pickupCapture.integration.test.ts` (5) | `d04a9c8` |
+| 2 | Cancel cutoff is a time-zone bug | Cutoff is 00:00 America/Toronto on the rental day (`cancellationCutoff` / `startOfTorontoDay` in `@zoink/shared`). Shared tests in six device zones and both 2026 DST days; `cancelCutoff.integration.test.ts` (9, clock mocked) | `5c84ce2` |
+| 6 | Remove the unreachable skip transitions | CONFIRMED→ACTIVE and ACTIVE→COMPLETED are gone from `allowedTransitions`. `transitionBookingStatus` only takes accept, decline, confirm and cancel, so its unreachable mark-complete branch went too | `7d28f4f` |
+| 5 | Round half-up to the cent if trivial | It was: commission and HST are computed in integer cents with the rate in basis points. The 700,000-quote property test now requires exact half-up everywhere (the 1,980 ties round up). Stored amounts on existing bookings don't change | `5e3d6b7` |
+| 1 | Keep tiered commission | No change. Flat 15% with a $2 minimum is logged as a next feature (not built) | — |
+| 3 | Authorization expiry | Logged as a next feature, not built: renters pay no earlier than 1 day before pickup, and rentals with a deposit are capped at 3 days | — |
+
+Still open (no decision yet): 7 (an ACCEPTED request whose dates were taken stays ACCEPTED) and 8 (disputes on bookings in any status).
+
+### Migration check (Phase 1)
+
+Phase 1 added **no migrations**: `git diff fe5cec3..cb13720 -- backend/prisma` and `git diff main...HEAD -- backend/prisma` are both empty. Every Phase 1 fix is code: row locks (`SELECT … FOR UPDATE`), re-checks inside transactions and forward-only webhook rules. Nothing can fail to apply on existing prod data.
+
+What existing prod data can hold is rows left behind by the bugs Phase 1 fixed. These read-only queries find them (each ran clean against the local bench database; **not run against prod**). Queries 1 and 2 are also the pre-checks for any future overlap exclusion constraint or "one open dispute per booking" partial unique index.
+
+```sql
+-- 1. Overlapping date-holding bookings on one listing (findings 1, 2)
+SELECT a.id AS booking_a, b.id AS booking_b, a."listingId", a.status AS status_a, b.status AS status_b,
+       a."startDate"::date AS a_start, a."endDate"::date AS a_end, b."startDate"::date AS b_start, b."endDate"::date AS b_end
+FROM bookings a
+JOIN bookings b ON b."listingId" = a."listingId" AND a.id < b.id
+WHERE a.status IN ('CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING')
+  AND b.status IN ('CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING')
+  AND a."startDate"::date <= b."endDate"::date
+  AND b."startDate"::date <= a."endDate"::date;
+
+-- 2. More than one open dispute on a booking (finding 9)
+SELECT "bookingId", count(*) AS open_disputes
+FROM disputes
+WHERE status IN ('OPEN', 'UNDER_REVIEW')
+GROUP BY "bookingId"
+HAVING count(*) > 1;
+
+-- 3. Rentals that went ahead after a failed pickup capture (decision 4, old path)
+SELECT b.id, b.status, b."paymentStatus", b."startDate"
+FROM bookings b
+WHERE b.status IN ('ACTIVE', 'RETURN_PENDING', 'COMPLETED')
+  AND (b."paymentStatus" = 'FAILED'
+       OR EXISTS (SELECT 1 FROM booking_events e
+                  WHERE e."bookingId" = b.id AND e.type = 'ERROR' AND e.metadata->>'action' = 'capture_payment'));
+
+-- 4. Cancelled bookings still holding the renter's money (finding 4)
+SELECT id, "paymentStatus", "depositStatus", "updatedAt"
+FROM bookings
+WHERE status = 'CANCELLED'
+  AND ("paymentStatus" IN ('AUTHORIZED', 'CAPTURE_PENDING') OR "depositStatus" = 'AUTHORIZED');
+
+-- 5. Completed rentals stuck at CAPTURED, never paid out (finding 5)
+SELECT id, "completedAt", "paymentStatus"
+FROM bookings
+WHERE status = 'COMPLETED' AND "paymentStatus" = 'CAPTURED' AND "payoutSentAt" IS NULL;
+
+-- 6. Deposit released or owner paid while a dispute is open (finding 7)
+SELECT b.id, b."depositStatus", b."payoutSentAt", d.id AS dispute_id, d.status AS dispute_status, d."createdAt" AS disputed_at
+FROM bookings b
+JOIN disputes d ON d."bookingId" = b.id
+WHERE d.status IN ('OPEN', 'UNDER_REVIEW')
+  AND (b."depositStatus" = 'RELEASED' OR b."payoutSentAt" IS NOT NULL);
+```
+
+Any row from 3 to 6 is a real-money case for a person to settle in the Stripe dashboard; none of it is auto-repaired.
+
+---
+
+## Phase 2: security
+
+### Plan
+
+Started from the handoff notes (stash `stash@{0}`, popped by the owner on 2026-10-18). Order, per the owner: get the stashed work green (the stuck-session fix checked on the simulator, the authZ/IDOR matrix run), then push tokens, OTP limits, the unverified-accounts decision, then the rest of the brief's Phase 2 list (validation with unknown-field rejection, rate-limit gaps, secrets in the bundle, PII in logs and Sentry, Cloudinary ownership, npm audit without major jumps).
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix / decision | Commit |
+|---|---|---|---|---|---|
+| 1 | **Credentials in public git history** | `backend/env` (no dot) was committed in `51d53af` (2026-06-01, "Webhook config") and deleted the same day in `761918a`. It holds `DATABASE_URL`, `JWT_SECRET`, an AWS access key pair, the Cloudinary API key and secret, a Stripe test secret key and a webhook signing secret. The GitHub repository is public (unauthenticated API read answered 200), so anyone can read them. Every value differs from today's local `.env` files except `STRIPE_WEBHOOK_SECRET`, which is still the local one (compared by SHA-256, nothing printed). Production values live in Railway and weren't read | S1 | **Resolved by owner, keys rotated.** The owner confirmed on 2026-10-19 that every key in that file was rotated long ago. No code change; `.env` files and Railway untouched | — |
+| 2 | Expired or deleted sessions left the app "signed in" and broken (owner moved it into Phase 2) | A 401 dropped the stored token but AuthContext kept the user; a stored token was never checked for `exp` | S2 | Only a 401 for the token in use ends the session (not a login 401, not a late reply from before a fresh login, never a 503); AuthContext signs out to Login with one notice; an expired stored token is dropped at launch. Checked on the simulator (below) | `4faaa6e` |
+| 3 | One phone's push token could sit on two accounts | A session ends without sign-out (expiry, or sign-out couldn't reach the server); the next person to sign in on that phone gets the previous account's notifications, message previews included | S2 | Registering a token takes it off every other account in the same transaction | `ca7096d` |
+| 4 | A lapsed session kept notifying a signed-out phone | Sign-out cleared the token only if that request got through, and nothing cleared it when a session expired or was dropped at launch | S2 | `POST /users/me/push-token/release` clears the account's token only while it is still this phone's; it accepts a session token this server signed even after expiry (nothing else does). The app calls it on sign-out, on a session ended by the server, and when an expired session is dropped at launch | `ca7096d`, `8b0277e` |
+| 5 | Booking responses carried the other party's Stripe ids (found by the IDOR matrix) | The owner saw the renter's PaymentIntent, deposit PaymentIntent and charge ids; the renter saw the owner's transfer id | S3 | Per viewer: the renter gets their payment ids, the owner their transfer id. The app reads none of them | `3ba635b` |
+| 6 | No daily cap on verification codes per address (handoff b) | 5 guesses a code and a new code every 60 s: about even odds of verifying someone else's university email in two months | S2 | 10 codes per address in any 24 h, sign-ups and resends together, counted in `verification_email_sends` (so it survives a replaced sign-up and a restart) under a per-address advisory lock. Guessing is now capped at 50 a day | `1343f03` |
+| 7 | No daily cap on sends per network | One client could send codes to any number of addresses | S3 | 50 a day per network address, counting only requests that sent one (campus networks put many students behind one address) | `1343f03` |
+| 8 | Verify `code` unbounded (part of handoff g); the email said "15 minutes" whatever `OTP_EXPIRY_MINUTES` was | — | S3 | Six digits, checked before it counts as a guess; the email states the configured expiry | `1343f03` |
+| 9 | Registering someone else's university email locked them out for good (handoff c) | Unverified accounts were never cleaned up and the address stayed taken | S2 | Owner decision, applied (below) | `5cab41c` |
+| 10 | Unverified accounts could edit their profile, avatar, push token, notification settings and blocks | Only the student routes required verification | S3 | Before verification an account can only verify, read and delete itself, and release its push token. The earlier "an unverified account can still block someone harassing it" comment no longer held: nothing can reach an unverified account | `5cab41c` |
+| 11 | The verification email put `firstName` into HTML unescaped (handoff f) | Markup typed as a name rendered in the recipient's inbox | S3 | Escaped in the HTML part; the text part is unchanged | `dacedda` |
+| 12 | Unknown request fields were silently dropped | Zod's default strips unknown keys, so `role`, `ownerId`, `senderId` or a retired field went through with that part ignored | S3 | `validate()` answers 400 naming the unknown field(s), for the top level of every body and query its schema describes. App builds from before 2026-09-07 still send `insuranceOptIn` and would now get a 400 on booking requests (one old test did; fixed) | `e321b37` |
+| 13 | The API accepted limits only the app kept (handoff d, e, g) | Booking requests starting yesterday; profile phone free text of any length; unbounded sign-up password and browse `q`/`category`/`city` | S3 | Start day must be today (Toronto) or later; profile phone uses the sign-up rule and storage (readable message from the service); sign-up password ≤ 128, login ≤ 1,024 (so an older long password still signs in); `q` 100, `category` 40, `city` 60 | `2142580` |
+| 14 | Prisma validation errors put the call's arguments in logs, Sentry and booking ERROR events | A `PrismaClientValidationError` message prints the failed call with its arguments (email, password hash, name) in every `errorFormat` (checked: `minimal` too). Sentry only redacted the email | S2 | The call and the reason are kept, the arguments dropped, wherever errors are logged or stored | `b3cf28d` |
+| 15 | SES and Expo errors put emails and push tokens in the logs | SES's "identities failed the check" names the recipient; Expo's push errors quote the device token | S3 | Redacted (`@zoink/shared` `redact.ts`: emails, push tokens, JWTs, bearer tokens, stored-format phone numbers) | `b3cf28d` |
+| 16 | The app's Sentry setup had no scrubbing | Console breadcrumbs keep the logged arguments, which for a failed request is the axios error with its `Authorization` header. The SDK's default depth limit cut that off before sending, but nothing guaranteed it | S3 | Same rules as the server: console breadcrumbs keep only their message, breadcrumb data is scrubbed on a copy, events keep only the user id, `sendDefaultPii: false` | `787155a` |
+| 17 | Deleted listings' photos stayed public on Cloudinary | privacy.md §7: "When you delete a listing, it and its photos are deleted immediately." Only the rows were deleted | S2 | The files are deleted too, best effort after the rows; only this app's own uploads are ever deleted (`ownPublicId`) | `a9cc821` |
+| 18 | A deleted account's profile photo stayed public on Cloudinary | Deletion nulled `avatarUrl`; the file stayed at its URL | S3 | Deleted with the account, same way | `a9cc821` |
+| 19 | No per-user cap on routes that call Stripe or post to everyone | Only the global 1,200/15 min applied to the Pay step, confirm, payout onboarding and status (each a Stripe call), new listings and opening conversations | S3 | Stripe calls 30/hour (shared), payout status 120/hour, new listings 20/day, opening conversations 60/hour | `168eff0` |
+| 20 | `JWT_SECRET` length not checked at boot (handoff j) | A short secret can be brute-forced offline from any token | S3 | Production refuses to start under 32 characters. **Owner**: confirm the Railway value first (below) | `cff20e0` |
+| 21 | npm audit: 2 critical and 38 high advisories in production dependencies | See below | — | Non-major fixes applied | `206fbe5` |
+
+### Stashed work, checked
+
+**Stuck session (finding 2), iOS simulator.** iPhone 17 Pro (iOS 26.5), `expo run:ios --configuration Release` against the bench API (`zoink_bench`, Stripe mocked) served by a scratch wrapper that signs 120-second tokens (no app or server code change). Driven with `idb` (installed via Homebrew `facebook/fb/idb-companion` plus `fb-idb` in a scratch venv) since desktop clicks weren't reliable.
+
+| Case | Result |
+|---|---|
+| Token expires mid-use | The first poll after expiry got 401; Login with "Your session has ended. Please log in again."; no further requests |
+| Token already expired at launch | Straight to Login, no notice, no request with the dead token |
+| Account deleted (from another device) mid-use | Next poll 401; Login with the notice |
+| Account deleted, then the app launched | Two requests 401 at once; one notice; Login; quiet afterwards |
+
+**AuthZ/IDOR matrix** (`authorization.integration.test.ts`): 144 tests, all passed on the first run. Checked that it can fail: with the booking party check removed, `GET /bookings/:id` failed. It missed Stripe ids on bookings because the fixture's ids weren't in its list of secrets; with them added it failed, which is finding 5. Committed as written (`3b8d165`), then tightened with the fix.
+
+**Push tokens on the simulator** (same setup): sign-out released the token (no account held it); with the token left on `renter1`, signing in as `owner2` moved it off `renter1`; a session lapsing mid-use released it with the expired token; an expired session dropped at launch released it.
+
+### Owner decision applied: unverified accounts (2026-10-18)
+
+| Rule | What changed | Commit |
+|---|---|---|
+| An account isn't active until its OTP is verified | Before verification: verify, resend, read and delete itself, release its push token. Everything else 403 (pinned in the authZ matrix) | `5cab41c` |
+| A sign-up with the same email replaces any unverified record | Deleted and recreated with a **new id**, so a session from the earlier sign-up can never reach the account once its owner verifies (reusing the id would have been an account takeover). The per-address code cap carries over. A verified account still answers 409, and so does the loser of two sign-ups at once | `5cab41c` |
+| A cleanup job deletes unverified accounts older than 24 h, idempotently | `purgeUnverifiedAccounts`, in the 15-minute job. Each delete re-checks every condition, so a repeat run (or two at once) deletes nothing more and an account verified a moment ago is kept | `5cab41c` |
+
+Both paths only delete an account that never verified **and** has no activity at all (no listings, bookings, conversations, messages, reviews, disputes or reports), never an admin or a soft-deleted one, with its codes, blocks and notifications. Tests: `unverifiedAccounts.integration.test.ts` (12).
+
+### Checked and found sound (no change)
+
+- Role and verification come from the database on every request; HS256 pinned; webhook signature fails closed; dispute responses shaped per caller; handoff photo URLs must be the booking's own uploads; listing image uploads owner-checked before Cloudinary; `X-Real-IP` trusted only behind Railway's edge; login timing equalized; OTP attempt cap (5 per code, atomic), expiry and constant-time compare (expiry now has a test).
+- **Secrets in the bundle**: the Release `main.jsbundle` was searched for Stripe secret and restricted keys, webhook secrets, AWS keys, Sentry auth tokens, private keys, database URLs, Google and GitHub keys: none. It carries only values that are public by design: the API URL, the Stripe publishable key (`pk_test_…` in this local build), the Sentry DSN, the MapTiler key and the EAS project id. No `sentry.properties` or env file is tracked.
+- **Cloudinary ownership**: listing photo upload and delete are owner-checked, and a photo of another listing named through your own is 404. Handoff uploads check the booking's party before anything reaches Cloudinary, under a `booking_<id>_` public id. Avatars overwrite only `avatars/avatar_<own id>`. Upload parameters are built on the server, which keeps the `cloudinary` 1.x argument-injection advisory out of reach.
+- Login lockout across IPs (handoff i) stays deliberate.
+
+### Needs owner action
+
+1. ~~**Rotate everything in `51d53af:backend/env`** (finding 1).~~ **Resolved by owner, keys rotated** (confirmed 2026-10-19: every key in that file was rotated long ago).
+2. **Before deploying this branch**: confirm `JWT_SECRET` in Railway is at least 32 characters, or the new deploy refuses to start (Railway keeps the old one serving).
+3. **On the first cleanup run after deploy**, unverified accounts older than 24 h with no activity are deleted. Preview the count (read-only):
+
+```sql
+SELECT count(*) FROM users u
+WHERE u."verificationStatus" <> 'VERIFIED' AND u.role = 'USER' AND u."deletedAt" IS NULL
+  AND u."createdAt" < now() - interval '24 hours'
+  AND NOT EXISTS (SELECT 1 FROM listings l WHERE l."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b."renterId" = u.id OR b."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c."renterId" = u.id OR c."ownerId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM messages m WHERE m."senderId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r."reviewerId" = u.id OR r."revieweeId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM disputes d WHERE d."raisedByUserId" = u.id OR d."resolvedByAdminId" = u.id)
+  AND NOT EXISTS (SELECT 1 FROM reports p WHERE p."reporterId" = u.id OR p."reviewedByAdminId" = u.id);
+```
+
+The App Review account (`reviewer@zoink.app`) is seeded VERIFIED and is never touched.
+
+### Needs product decision
+
+1. **Decided 2026-10-19: soft-delete (applied above, `67a2ea7`).** **A listing that anyone has messaged about or booked can't be deleted.** `Conversation.listing` and `Booking.listing` restrict deletion, so `DELETE /listings/:id` answers 500 and the app says "Could not delete listing." (reproduced against the test database). Bookings must be kept 7 years, and privacy.md §7 promises a deleted listing and its photos are deleted immediately. Options: soft-delete (hide it, delete its photos and address, keep the row for the records), or block deletion with a readable message and offer "unlist" instead. Either way privacy.md should match.
+2. **Decided 2026-10-19: accept and ignore (applied above, `e1fef4e`).** **Strict unknown fields vs. old app builds.** Builds from before 2026-09-07 send `insuranceOptIn` on booking requests and now get 400. If any such build is still in use, the field can be accepted and ignored.
+
+### Found, not fixed (later)
+
+- Tokens can't be revoked before their 30 days (handoff h). Proposed: a `tokenVersion` column (additive, default 0), checked per request, bumped on sign-out-everywhere and role change.
+- Soft-deleted accounts are never purged; privacy.md §7 says within 30 days.
+- `cloudinary` 1.41.3 → 2.x and the Expo/React Native/Metro tooling advisories need major upgrades (below).
+- Phone numbers in free text are only redacted in the stored `+1XXXXXXXXXX` form.
+- Rate limits are in memory per instance (documented in `rateLimiter.ts`); the per-address code cap is in the database.
+
+### npm audit (production dependencies)
+
+| | Before | After |
+|---|---|---|
+| critical | 2 (`proxy-addr`, `shell-quote`) | 0 |
+| high | 38 | 27 |
+| moderate | 21 | 16 |
+
+`npm audit fix` (no `--force`), lockfile only: `axios` 1.18.1 → 1.20.0 (shipped in the app), `@react-navigation/core` 7.21.13 → 7.24.0 (drops the vulnerable `query-string`), `proxy-addr` 2.0.8, `qs` 6.16.1, `fast-uri` 3.1.8, `undici` 6.29.1, Prisma CLI 7.10.1 with `deepmerge-ts`/`mysql2`, `shell-quote`, `@xmldom/xmldom`, `brace-expansion`, `compression`, `source-map-js`, `ip-address`. What's left needs a major version: `cloudinary` 2.x (not reachable, see above), and everything in the Expo 54 / React Native 0.81 / Metro / Jest tool chain, where npm's suggested "fix" is a downgrade to Expo 44 or React Native 0.86. Those run at build time, not in the shipped app.
+
+### Owner decisions applied (2026-10-19)
+
+| # | Decision | What changed | Commit |
+|---|---|---|---|
+| 1 | Listings with messages or bookings get soft-deleted; the app shows success, not a 500 | New nullable `listings.deletedAt` (migration `20261019120000_listing_deleted_at`, additive). A listing with any conversation or booking gets `deletedAt` and `isAvailable = false`, its photo rows are deleted and the files removed from Cloudinary (own uploads only, as before). It's hidden from browse, search (also with `includeUnavailable`), categories, `GET /listings/me` and `GET /listings/:id` (404), and takes no new bookings, conversations, edits, availability changes or photos (404). Bookings and chats about it keep its title, daily price and every stored amount; their thumbnail is empty. Existing threads stay open. A listing with no history is still deleted outright. A repeat delete by the owner is a no-op 204 (a retry after a lost response). The app now shows the server's message when a delete is refused. `listingSoftDelete.integration.test.ts` (15) | `67a2ea7` |
+| 1a | (Not in the decision; chosen to avoid touching the state machine) A booking still in progress blocks the delete | PENDING, ACCEPTED, CONFIRMED, PICKUP_PENDING, ACTIVE or RETURN_PENDING: 409 "This listing has a booking that isn't finished yet. Decline or cancel it, or complete the rental, then delete the listing." Nothing changes. Auto-declining pending requests instead is a product call (below). `createBooking` takes a key-share lock on the listing and re-checks `deletedAt` inside its transaction, so a request can't land on a listing deleted at the same moment (deterministic test: the request waits for the delete's commit, then gets 404; it creates a booking without the re-check) | `67a2ea7` |
+| 2 | Accept and ignore `insuranceOptIn` on booking requests | `ignoreBodyFields('insuranceOptIn')` runs before `validate(CreateBookingSchema)` on `POST /bookings`, so older builds get 201 again. Test: the same request with `insuranceOptIn: true` produces the same amounts and `insuranceOptIn = false`, `insuranceFee = 0` in the row; any other unknown field (`insuranceFee`) is still refused. Fails without the change | `e1fef4e` |
+
+**Proposed privacy.md edit (not applied; legal docs are the owner's).** §7's row "Listings and photos — While the listing exists. When you delete a listing, it and its photos are deleted immediately." is no longer exactly true for a listing with history. Suggested wording:
+
+> | Listings and photos | While the listing exists. When you delete a listing, its photos are deleted immediately and it is removed from the app. If anyone has messaged you about it or booked it, we keep its details (title, description, price, category and pickup location) with those conversations and booking records, for as long as we keep them (see below), so both of you can still see what was arranged. A listing nobody has contacted you about is deleted entirely. |
+
+Also worth the owner's look: §7 implies a purge; nothing purges soft-deleted listing rows yet (`cleanupJob.ts` comment updated). If the street address shouldn't outlive the listing, `address` (nullable) could be cleared at soft-delete; the renter of a completed booking would then no longer see it.
+
+**Needs product decision (new):** should deleting a listing auto-decline its PENDING requests (the delete dialog already says "Any pending bookings will be affected.") instead of refusing? Today the owner declines them first; the dialog copy was left as it is.
+
+### Migration check (Phase 2)
+
+One migration: `20261018120000_verification_email_sends`, a new table and index. Additive; touches no existing row, so it can't fail on production data. The data-changing step is the cleanup job's first run (see "Needs owner action" 3).
+
+### Tests after Phase 2
+
+| Suite | After Phase 1 | After Phase 2 |
+|---|---|---|
+| `@zoink/shared` | 16 | 19 (redaction) |
+| backend unit | 221 | 232 |
+| backend integration | 345 (340 pass, 3 skipped, 2 failed then fixed) | **555: 552 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 874 s, after the dependency updates |
+| frontend unit | 3 (7 with the stash) | 10 (session token, Sentry scrubbing) |
+
+New integration suites: `authorization` (155), `pushTokens` (12), `otpSendLimits` (11), `unverifiedAccounts` (12), `cloudinaryCleanup` (7); `inputValidation` now 14, `userRateLimits` 9, `emailNormalization` 6. Typecheck (backend, frontend) passes.
+
+The first full run (before the dependency updates) had one failure: the lifecycle test still sending the retired `insuranceOptIn`, fixed in `e321b37`. Separately, `authorization` was run 38 more times; 2 runs failed one request each. The first one's output wasn't kept. The second was an `HPE_INVALID_CONSTANT` parse error whose raw reply was `{"type":"Tier1","version":"1.0"}`, not anything this API sends: another process on this Mac answered on the test server's loopback connection. The same class as Phase 1's Cisco ISE packet. An environment flake, not a product bug.
+
+**Smoke test after the dependency updates** (Release build, iOS simulator, bench API): sign in, Home with photos, a listing, Message (opens the conversation through the new cap and unknown-field check), send a message, Profile with payouts, an invalid profile phone (the app shows "Enter a valid 10-digit Canadian phone number…" and nothing is saved), sign out.
+
+### Commits
+
+`3b8d165` `3ba635b` `ca7096d` `4faaa6e` `1343f03` `5cab41c` `dacedda` `8b0277e` `e321b37` `2142580` `b3cf28d` `787155a` `a9cc821` `168eff0` `cff20e0` `206fbe5`, plus these docs. Nothing pushed.
+
+---
+
+## Phase 3: backend performance
+
+### Plan
+
+Pagination first (owner's instruction), starting with `GET /bookings/requests`, then every other list that grows; then N+1s and trimming list rows to what the screens render; compression; Cache-Control/ETag on listing reads; additive indexes. Measure with the bench against the Phase 0 baseline and a run taken just before this phase.
+
+**Compatibility rule.** Builds already on phones call these routes without paging. Pagination is opt-in: a list request with `limit` (or a `cursor`) gets `{ items, nextCursor, … }` with trimmed rows; without them the route answers exactly as before, capped at 100 rows (`LEGACY_LIST_CAP`). Browse keeps its offset pages (with `meta.total`) for old builds; current builds get keyset pages. The app moves to the paged form in Phase 4. Helpers in `backend/src/utils/pagination.ts`, DTOs (`Page`, `BookingListPage`, `ListingCardItem`, `MyListingItem`, `ConversationListPage`, `MessageListItem`) in `@zoink/shared`. Cursors are the last row's sort key, base64url JSON; a cursor the server didn't hand out is a 400.
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | Booking lists unpaginated | `/bookings/requests` sent every booking with every field (1.2 MB for the bench's busiest owner); `/bookings/me` 133 KB | S3 | Keyset pages in the order both screens already sort to (live rentals first by start, then the rest latest start first), one SQL statement per page (listing, first photo and both names joined), `total` and `pendingCount` alongside | `7ce68f2` |
+| 2 | My listings loaded the owner's whole booking list to badge rented-out items | Every visit to My listings fetched `/bookings/requests` in full | S3 | `/listings/me?limit=` pages carry `activeBookingId` (PICKUP_PENDING, ACTIVE or RETURN_PENDING), so the screen needs no booking list | `b9be8a2` |
+| 3 | Browse counted every match on every page and loaded each result's listing, owner and photos in three more queries; new listings shifted offset pages | Every Home/Search load | S3 | Keyset pages (nearest first, then newest), card fields only, one statement, no count (no screen shows it). Offset pages kept for old builds, page and count now in parallel | `4eb30c5` |
+| 4 | The inbox, polled every 15 s on every tab for the list and the unread badge, returned every conversation | Always | S3 | Paged inbox in one statement, plus `unreadCount` across all pages for the badge. Pages equal the old response field for field (tested) | `4fc703d` |
+| 5 | Chat history past the newest 100 messages couldn't be loaded | Any thread over 100 messages | S3 | `before=<oldest id>` pages back; paged rows drop the per-message sender object | `4b3e181` |
+| 6 | A message sent in the same millisecond as the open chat's newest one was never delivered to it | Two people sending at once; the poll used `createdAt > cursor` | S3 | Messages ordered by (createdAt, id) everywhere; the poll and `before` both use the pair | `4b3e181` |
+| 7 | Booking detail fetched every dispute the user ever filed to find one | Opening a disputed booking | S3 | `/disputes?bookingId=` | `83ae8a8` |
+| 8 | Admin lists (disputes 64 KB, reports 50 KB) and the booking timeline unpaginated; blocks and pending reviews unbounded | Grows with use | S3 | Keyset pages newest first (timeline oldest first) with an id tiebreak; `/reviews/pending?limit=1` (the app opens only the first); blocks capped | `83ae8a8` |
+| 9 | No response compression | Every response | S3 | `compression` middleware (dependency below): gzip/brotli over 1 KB | `7bafd86` |
+| 10 | Listing reads had an ETag but no Cache-Control | Every listing view | S3 | `private, no-cache` on browse/search and a listing's page, so an unchanged answer revalidates to a 304 with no body; categories `private, max-age=300` | `2175c48` |
+| 11 | Sequential scans on hot predicates | Push-token claim on every sign-in; payout/deposit/stale-handoff jobs every 15 min; hourly reconciliation; reputation recompute per review; dispute lookups; foreign-key checks when an account is deleted (the unverified-account purge) scan `messages` and `notifications` | S3 | Migration `20261019130000_index_hot_lookups`, eight additive btree indexes, declared in `schema.prisma` (no drift). At 100k users, 500k messages and notifications and 200k bookings (`docs/hardening/index-scale-check.sql`, rolled back): push-token claim 17.0 → 4.3 ms, payout scan 26.6 → 0.4 ms, reconciliation 16.1 → 0.1 ms, deleting one account 107.8 → 15.8 ms | `6489864` |
+| 12 | N+1 on accept: overlapping PENDING requests were declined one UPDATE at a time | Accepting a request with overlapping ones | S3 | One `UPDATE … RETURNING` (`updateManyAndReturn`); still only rows that are PENDING when the update reaches them | `eac82dc` |
+| 13 | The bench couldn't measure two writes any more | Phase 2's per-user caps (20 listings a day, 30 Stripe calls an hour) answered 429 for its single owner | — | Bench rotates owners for those, measures gzip wire size, resets its main accounts' rate budget between scenarios | `2667ee6` |
+
+### Results
+
+Bench (`backend/src/scripts/bench/run.ts`), local Postgres, 50 sequential requests per route, Stripe/SES/Cloudinary/Expo off the network. Three p95 columns: Phase 0, the run just before this phase (after Phases 1–2, `docs/hardening/bench-before-phase3.json`), and now (`bench-after-phase3.json`). "Wire" is the response body as sent with `Accept-Encoding: gzip`, which the app's HTTP stack always sends. Single-run p95s on a laptop move by a few ms between runs (several rows that Phase 3 didn't touch moved 2–8 ms either way); payload and query counts are exact.
+
+| Endpoint | Kind | p50 ms | p95 ms (P0 · pre-P3 · now) | Queries (pre-P3 → now) | JSON KB (pre-P3 → now) | Wire KB now | OK |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `GET /health` | read | 0.5 | 0.5 · 1.6 · **1.3** | 0 → 0 | 0.0 | 0.0 | 50/50 |
+| `GET /auth/legal-version` | read | 0.4 | 0.3 · 1.9 · **0.9** | 0 → 0 | 0.0 | 0.0 | 50/50 |
+| `POST /auth/register` | write | 273.5 | 303.1 · 339.7 · **349.3** | 10 → 10 | 0.6 | 0.6 | 50/50 |
+| `POST /auth/login` | write | 67.3 | 86.3 · 69.9 · **70.9** | 1 → 1 | 0.6 | 0.6 | 50/50 |
+| `POST /auth/verify-email` | write | 3.6 | 5.1 · 13.5 · **5.2** | 7 → 7 | 0.4 | 0.4 | 50/50 |
+| `POST /auth/resend-otp` | write | 4.5 | 8.3 · 7.9 · **7.2** | 8 → 8 | 0.0 | 0.0 | 50/50 |
+| `GET /users/me` | read | 1.2 | 2.0 · 4.5 · **1.8** | 2 → 2 | 0.6 | 0.6 | 50/50 |
+| `GET /users/:id` | read | 1.9 | 3.0 · 4.6 · **4.7** | 4 → 4 | 0.2 | 0.2 | 50/50 |
+| `GET /users/me/blocks` | read | 1.9 | 1.3 · 2.0 · **8.6** | 3 → 3 | 0.1 | 0.1 | 50/50 |
+| `GET /users/me/stripe-connect/status` | read | 1.0 | 1.6 · 1.6 · **1.2** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `GET /stripe/connect/status` | read | 1.0 | 5.9 · 2.4 · **1.2** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `PATCH /users/me` | write | 1.2 | 4.2 · 2.4 · **1.8** | 2 → 2 | 0.2 | 0.2 | 50/50 |
+| `PATCH /users/me/notification-prefs` | write | 1.3 | 2.4 · 2.5 · **1.6** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `PATCH /users/me/push-token` | write | 1.8 | 2.9 · 2.3 · **3.9** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `POST /users/me/accept-terms` | write | 2.0 | 2.4 · 2.2 · **3.6** | 2 → 2 | 0.5 | 0.5 | 50/50 |
+| `POST /users/me/stripe-connect/onboard` | write | 1.0 | 1.6 · 1.4 · **2.1** | 2 → 2 | 0.0 | 0.0 | 50/50 |
+| `POST /users/:id/block` | write | 2.4 | 2.5 · 5.9 · **3.1** | 7 → 7 | 0.0 | 0.0 | 50/50 |
+| `DELETE /users/:id/block` | write | 0.7 | 0.7 · 3.0 · **1.1** | 2 → 2 | 0.0 | 0.0 | 50/50 |
+| `DELETE /users/me` | write | 1.7 | 2.6 · 6.4 · **4.5** | 6 → 6 | 0.0 | 0.0 | 50/50 |
+| `GET /listings?lat&lng` | read | 3.3 | 7.2 · 9.1 · **5.0** | 6 → 6 | 16.1 | 2.8 | 50/50 |
+| `GET /listings?q` | read | 4.4 | 10.2 · 9.2 · **10.7** | 6 → 6 | 15.9 | 2.5 | 50/50 |
+| `GET /listings?offset=40` | read | 6.0 | 9.5 · 24.9 · **8.0** | 6 → 6 | 16.0 | 2.7 | 50/50 |
+| `GET /listings?lat&lng&limit=20` | read | 3.7 | – · – · **4.8** | 2 | 6.8 | 1.9 | 50/50 |
+| `GET /listings?lat&lng&limit=20&cursor` | read | 4.5 | – · – · **7.6** | 2 | 6.8 | 1.9 | 50/50 |
+| `GET /listings?q&limit=20` | read | 3.8 | – · – · **5.6** | 2 | 6.6 | 1.7 | 50/50 |
+| `GET /listings/categories` | read | 2.8 | 3.2 · 10.1 · **3.5** | 2 → 2 | 0.1 | 0.1 | 50/50 |
+| `GET /listings/:id` | read | 2.2 | 2.6 · 2.5 · **3.6** | 5 → 5 | 1.1 | 0.6 | 50/50 |
+| `GET /listings/:id If-None-Match` | read | 1.1 | – · – · **1.7** | 5 | 0.0 | 0.0 | 50/50 |
+| `GET /listings/me` | read | 6.3 | 4.3 · 7.8 · **16.5** | 5 → 5 | 46.5 | 5.0 | 50/50 |
+| `GET /listings/me?limit=20` | read | 5.4 | – · – · **7.5** | 2 | 6.7 | 1.8 | 50/50 |
+| `POST /listings` | write | 3.2 | 3.1 · 8.9 · **11.5** | 1 → 7 | 0.1 → 0.6 | 0.6 | 50/50 |
+| `PATCH /listings/:id` | write | 2.1 | 5.7 · 10.5 · **3.8** | 8 → 8 | 1.0 | 1.0 | 50/50 |
+| `PATCH /listings/:id/availability` | write | 1.3 | 2.1 · 2.6 · **2.2** | 3 → 3 | 0.1 | 0.1 | 50/50 |
+| `DELETE /listings/:id` | write | 4.3 | 2.5 · 6.9 · **6.0** | 8 → 8 | 0.0 | 0.0 | 50/50 |
+| `GET /bookings/me` | read | 8.3 | 10.6 · 12.6 · **12.7** | 7 → 7 | 133.1 | 11.7 | 50/50 |
+| `GET /bookings/requests` | read | 7.1 | 53.7 · 70.9 · **13.2** | 7 → 7 | 1226.8 → 166.7 | 8.8 | 50/50 |
+| `GET /bookings/requests?limit=20` | read | 5.0 | – · – · **8.2** | 3 | 15.4 | 2.5 | 50/50 |
+| `GET /bookings/requests?limit=20&cursor` | read | 7.1 | – · – · **23.1** | 3 | 15.4 | 2.5 | 50/50 |
+| `GET /bookings/me?limit=20` | read | 4.2 | – · – · **10.8** | 3 | 15.3 | 2.8 | 50/50 |
+| `GET /bookings/:id` | read | 2.6 | 3.4 · 2.7 · **6.6** | 7 → 7 | 1.9 | 0.9 | 50/50 |
+| `GET /bookings/:id/photos` | read | 2.8 | 7.8 · 4.5 · **6.7** | 7 → 7 | 0.1 | 0.1 | 50/50 |
+| `POST /bookings` | write | 5.4 | 14.8 · 22.7 · **20.5** | 21 → 21 | 2.0 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/accept` | write | 4.0 | 15.6 · 15.6 · **8.9** | 26 → 26 | 1.9 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/decline` | write | 2.5 | 3.7 · 4.4 · **3.4** | 19 → 19 | 1.9 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/cancel` | write | 2.9 | 3.2 · 5.2 · **4.2** | 20 → 20 | 1.9 | 0.9 | 50/50 |
+| `POST /bookings/:id/payment-intent` | write | 2.9 | 3.6 · 6.0 · **10.0** | 18 → 18 | 2.0 | 0.9 | 50/50 |
+| `PATCH /bookings/:id/confirm` | write | 3.8 | 3.4 · 7.2 · **7.2** | 24 → 24 | 2.0 | 0.9 | 50/50 |
+| `POST /bookings/:id/pickup/initiate` | write | 4.7 | 8.4 · 9.2 · **8.4** | 20 → 20 | 2.2 | 0.9 | 50/50 |
+| `POST /bookings/:id/zoink-tap` | write | 3.9 | 3.5 · 8.0 · **12.1** | 17 → 17 | 2.2 | 0.9 | 50/50 |
+| `POST /bookings/:id/return/initiate` | write | 4.9 | 7.3 · 7.9 · **8.5** | 20 → 20 | 2.2 | 0.9 | 50/50 |
+| `GET /conversations/me` | read | 8.7 | 12.4 · 14.1 · **14.3** | 9 → 9 | 40.8 | 6.0 | 50/50 |
+| `GET /conversations/me?limit=20` | read | 6.3 | – · – · **10.2** | 3 | 21.6 | 3.5 | 50/50 |
+| `GET /conversations/:id` | read | 2.4 | 3.5 · 3.0 · **7.0** | 9 → 9 | 1.3 | 0.6 | 50/50 |
+| `GET /conversations/:id/messages` | read | 3.2 | 7.0 · 13.7 · **5.6** | 4 → 4 | 38.9 | 3.3 | 50/50 |
+| `GET /conversations/:id/messages?limit=50` | read | 1.3 | – · – · **5.1** | 3 | 12.5 | 1.6 | 50/50 |
+| `POST /conversations` | write | 4.8 | 6.7 · 5.9 · **8.2** | 14 → 14 | 1.1 | 0.5 | 50/50 |
+| `POST /conversations/:id/messages` | write | 1.6 | 6.2 · 3.3 · **3.2** | 10 → 10 | 0.4 | 0.4 | 50/50 |
+| `POST /conversations/:id/read` | write | 0.9 | 1.8 · 1.0 · **1.9** | 3 → 3 | 0.0 | 0.0 | 50/50 |
+| `GET /reviews/pending` | read | 1.4 | 2.7 · 1.9 · **2.2** | 7 → 7 | 0.8 | 0.8 | 50/50 |
+| `GET /reviews/pending?limit=1` | read | 1.7 | – · – · **3.8** | 7 | 0.8 | 0.8 | 50/50 |
+| `POST /reviews` | write | 5.4 | 14.9 · 7.4 · **12.1** | 19 → 19 | 0.6 | 0.6 | 50/50 |
+| `GET /disputes` | read | 1.1 | 2.3 · 1.3 · **10.8** | 4 → 4 | 1.1 | 0.5 | 50/50 |
+| `GET /disputes/:id` | read | 1.8 | 2.1 · 1.6 · **9.5** | 4 → 4 | 0.5 | 0.5 | 50/50 |
+| `POST /disputes` | write | 2.9 | 10.0 · 6.7 · **6.3** | 9 → 9 | 0.4 | 0.4 | 50/50 |
+| `POST /reports` | write | 1.2 | 2.4 · 3.3 · **2.6** | 3 → 3 | 0.3 | 0.3 | 50/50 |
+| `GET /admin/disputes` | read | 2.4 | 6.7 · 4.7 · **4.3** | 4 → 4 | 64.2 → 63.6 | 8.3 | 50/50 |
+| `GET /admin/disputes?limit=20` | read | 1.2 | – · – · **1.6** | 4 | 12.9 | 2.2 | 50/50 |
+| `GET /admin/disputes/:id` | read | 0.7 | 2.4 · 1.7 · **1.0** | 5 → 5 | 0.9 | 0.9 | 50/50 |
+| `GET /admin/bookings/:id/events` | read | 0.8 | 1.7 · 2.2 · **1.5** | 3 → 3 | 0.0 | 0.0 | 50/50 |
+| `GET /admin/reports` | read | 2.6 | 4.0 · 8.4 · **4.0** | 5 → 5 | 49.9 | 6.4 | 50/50 |
+| `GET /admin/reports?limit=20` | read | 1.6 | – · – · **2.0** | 4 | 9.9 | 1.5 | 50/50 |
+| `PATCH /admin/disputes/:id/resolve` | write | 3.2 | 8.1 · 12.6 · **5.2** | 11 → 11 | 0.5 | 0.5 | 50/50 |
+| `PATCH /admin/reports/:id` | write | 1.1 | 2.9 · 3.3 · **1.5** | 3 → 3 | 0.4 | 0.4 | 50/50 |
+| `POST /stripe/webhook` | write | 1.8 | 4.3 · 7.5 · **5.7** | 6 → 6 | 0.0 | 0.0 | 50/50 |
+
+Reading it:
+
+- **Targets met.** Every read is under 150 ms p95 (the slowest, 23 ms, is page 2 of the owner's 680 bookings) and every write under 300 ms except `POST /auth/register` (349 ms p95): bcrypt cost 12, about 270 ms by design and already over the target in Phase 0. Not changed; lowering the cost is a security trade-off, not a performance fix.
+- **Payloads.** The busiest list, `/bookings/requests`, was 1.2 MB of JSON per load. A page is now 15 KB of JSON and 2.5 KB on the wire (the capped unpaginated answer is 167 KB, 8.8 KB gzipped). The inbox the app polls every 15 s: 41 KB → 22 KB per page, 3.5 KB on the wire. Browse/search: 16 KB → 6.8 KB per page, 2 KB on the wire. My listings: 47 KB → 6.7 KB per page. Admin lists 50–64 KB → 10–13 KB per page. Responses over 1 KB are about half the size on the wire at 1–2 KB and 80–93% smaller from 15 KB up.
+- **Round trips.** Paged lists are one statement plus the auth lookup and, where the screen shows one, a count in parallel: bookings 7 → 3, browse 6 → 2, my listings 5 → 2, inbox 9 → 3.
+- **Unchanged on purpose.** Booking state changes still cost 17–26 statements: Prisma loads the full booking with one query per relation (about 5) and a transition reads it twice. Collapsing that needs Prisma's `relationJoins`, still a preview feature; not adopted. All of them are under 30 ms p95 locally. `POST /listings` shows 1 → 7 queries only because the pre-Phase-3 run was all 429s (finding 13). `DELETE /listings/:id` is 3 → 8 statements from the Phase 2 soft-delete transaction (lock, open-booking check, history count).
+- A 304 saves the bytes, not the server's work: the server still builds the answer to compare ETags.
+
+### Checked, not changed
+
+- **Browse with a location** computes the distance to every available listing and sorts (the app sends a 5,000 km radius, so nothing is pre-filtered). About 1 ms at the bench's 450 listings and a few ms at 10k; at 100k+ it needs a spatial index (PostGIS or `earthdistance` with a KNN index). A new database extension is out of scope; logged as an idea.
+- No index for browse's no-location order (newest first): the app always sends a location (Home falls back to downtown Toronto).
+- `requireAuth` reads the user per request (role and verification live from the database, a Phase 2 security decision): one query on every authenticated route.
+- Messages purge (daily, `createdAt < 24 months ago`) has no `createdAt`-leading index; a daily scan of the busiest-insert table is cheaper than another index on every message.
+
+### Dependency added
+
+- **`compression` 1.8.2** (backend). The Express team's response-compression middleware, 21 KB unpacked, last published 2026-09; already in the lockfile through the Expo CLI, so the install added only `@types/compression` (dev). Built-in alternative: hand-writing gzip/brotli negotiation, `Vary`, thresholds and streaming on Node's `zlib` for every response path; not worth owning.
+
+### Migration check (Phase 3, and the Phase 2 decision applied in this run)
+
+- `20261019120000_listing_deleted_at`: one nullable column, `listings.deletedAt`. Additive; touches no row.
+- `20261019130000_index_hot_lookups`: eight `CREATE INDEX`. Additive; can't fail on existing data. Plain `CREATE INDEX` blocks writes to its table while it builds; at production's current size that is well under a second per index. On a much larger table, build it `CONCURRENTLY` by hand first (the migration's header says so).
+- `prisma migrate diff` against the test database after both: empty. Not applied to the dev database or production.
+
+### Tests after Phase 3
+
+| Suite | After Phase 2 | After Phase 3 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 (one expectation updated: the booking timeline's order now carries an id tiebreak) |
+| backend integration | 555 (552 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 826 s |
+| frontend unit | 10 | 10 |
+
+New integration suites: `listSoftDelete` (15, the Phase 2 decision), `listPagination` (20: every paged list walked page by page against the order its screen shows, trimmed fields, legacy shapes and caps, bad cursors, same-millisecond messages), `httpCaching` (5: gzip, Cache-Control, 304s, per-viewer ETags); `inputValidation` +1 (`insuranceOptIn`). Two existing tests changed: `conversationInbox` calls the message reader with the new `{ after }` argument, and the unit test above. Backend and frontend typecheck pass.
+
+### Commits
+
+`844d507` (S1 docs) `e1fef4e` `67a2ea7` `e7d7337` (Phase 2 decisions), then `7ce68f2` `b9be8a2` `4eb30c5` `4fc703d` `4b3e181` `83ae8a8` `7bafd86` `2175c48` `6489864` `eac82dc` `2667ee6`, plus these docs. Nothing pushed.
+
+Also seen this phase: one unit-suite run had a single failure that six reruns didn't reproduce; its output wasn't kept (every run since is logged to a file).
+
+---
+
+## Phase 4: frontend performance
+
+### Plan
+
+In the owner's order: the unused Fira weights; the Home grid's dropped frames; images (expo-image, Cloudinary sizing and format, prefetch on press); one caching layer (`@tanstack/react-query`) for every server read, with every list screen paging on scroll and pull-to-refresh, and the handoff screen polling only while focused; startup (splash until fonts and session are ready, deferred module init, lazy heavy modules); re-renders; bundle.
+
+Measured on the iPhone 17 Pro simulator (iOS 26.5), Release builds with `EXPO_PUBLIC_PERF_LOG=1`, against the seeded bench API, with the Phase 0 scripts (`coldstart.js`: terminate, relaunch, device-log timestamps; flings with `idb ui swipe`). **The Mac was under heavier background load than in Phase 0** (iCloud file-provider sync at 50%+ CPU, load average about 5), so absolute cold-start times are higher than Phase 0's; before and after are compared from runs taken back to back by reinstalling a kept copy of the "before" app. Midway, a virtual machine started using a full core as well (load average up to 33), which makes single runs swing by a second.
+
+"Before" for this phase is the app at `4bb05ba` (end of Phase 3; the frontend was unchanged since Phase 2), built and kept as an app bundle.
+
+### Findings
+
+| # | Finding | How it shows up | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | All 21 Fira files shipped for 4 used | 8.4 MB of the 8.6 MB of assets, in every install and OTA update | S3 | Import each weight from its own entry point | `d5e25fd` |
+| 2 | Home grid dropped JS frames while scrolling | FlatList defaults mount 10 cells per batch and keep 21 screens alive; with two tall photo cards per row each batch overran the frame | S3 | Batches of 4, initial 6, window 7, `removeClippedSubviews` on Android, memoized cells with stable handlers | `94b7067` |
+| 3 | Photos: no cache control, JPEG only, the hero queued behind the listing fetch | Every photo decoded through RN Image; Cloudinary served JPEG | S3 | expo-image with memory+disk cache and `recyclingKey`; explicit `f_webp` (the loaders send `Accept: image/*`, so `f_auto` would always pick JPEG); the hero URL prefetched on card press | `a6cc6a8` |
+| 4 | No caching layer; lists unpaginated in the app | Every screen refetched everything on every focus; Home showed only the first 20 listings; long lists loaded whole | S3 | `@tanstack/react-query` for every server read; every list pages on scroll with a skeleton footer and pull-to-refresh to page one; mutations update or invalidate exactly what they change; cache cleared on any session change | `6d93ff0` `0fc62a1` |
+| 5 | Zoink It polled every 3 s from mount to unmount | Kept polling behind the camera, other screens and the lock screen | S3 | `refetchInterval` only while focused; paused in the background | `bee9d43` |
+| 6 | The inbox poll re-rendered all four tabs | MainApp owns the 15 s inbox feed and rendered its tabs as fresh elements: 5 renders per poll with nothing changed | S3 | Tab elements created once; structural sharing makes an unchanged poll a no-op | `efdae0d` |
+| 7 | Startup did more than the first screen needs, with a white then tan flash | Native splash, blank root view, tan loading screen; Stripe initialized for one screen; every screen module evaluated at launch; the review check waited for fonts; Home waited for a fresh GPS fix | S3 | Splash held until the first navigator mounts, then fades; tan root background; secondary screens load on first open; StripeProvider only on Pay; review check started at session restore; last-known location; push sync after interactions | `1db569a` |
+| 8 | React Query grows the bundle 228 KB of source | Would break "no larger than baseline" | — | Offsets: Node's `assert` polyfill chain (158 KB source, used for five `assert()` calls in `@ide/backoff`) replaced by a shim; axios (67 KB of bytecode) replaced by a fetch client with the same surface; unused `expo-linear-gradient` removed; `inlineRequires` left off (+70 KB) | `1b5c3dd` `be41c3e` `e075b21` |
+| 9 | (Introduced and fixed in this phase) Sending a message from far up a long history didn't land on it | Found testing the new history paging: `maintainVisibleContentPosition` holds the reader's place, and one animated `scrollToEnd` lands on an estimate in a long virtualized list | — | Re-pin to the end on each layout after sending until the user drags | `6d93ff0` |
+
+Tooling: a render-count probe for perf builds (`dd625c3`).
+
+### Results
+
+**Bundle** (`expo export --dump-sourcemap`, production, Hermes; the same method as Phase 0):
+
+| | Before (Phase 0 / start of Phase 4) | After |
+|---|---:|---:|
+| iOS JS bundle | 4.37 MB / 4,378,588 B | **4,349,908 B** (−28.7 KB) |
+| Android JS bundle | 4.37 MB / 4,385,144 B | **4,356,504 B** (−28.6 KB) |
+| Assets | 8.6–8.7 MB, 46 files | **1.7 MB, 29 files** |
+| Modules | 2,217 | 2,186 |
+| Shipped `main.jsbundle` in the Release app (built with debug info) | 6,828,647 B | 6,796,271 B |
+
+Where the JS changed (source, iOS map): +228 KB `@tanstack/*`, +24 KB expo-image, +28 KB app source; −158 KB assert/util chain, −158 KB axios, −42 KB semver, −26 KB react-native (Stripe's provider no longer at the root).
+
+**Home grid scrolling** (150+ items, fast flings with `idb`, JS frames over 1.5x a 60 Hz frame counted as dropped):
+
+| | Flings | Dropped per fling | JS FPS |
+|---|---:|---|---|
+| Before (Phase 0 numbers: 13–49) | 24 | 5–31, median 16 | 49.8–57.5 |
+| Grid tuning only (`94b7067`) | 16 | 0–4, 13 at 0 | 58.3–59.8 |
+| + expo-image (`a6cc6a8`) | 16 | 0–4, 12 at 0 | 58.4–59.8 |
+| Final (paging as it scrolls, pages of 20 loading mid-fling) | 20 | **0–2, 16 at 0** | 59.1–59.8 |
+
+**Idle re-renders** (render probe, Home tab untouched): before, every inbox poll (about every 12.5–15 s) re-rendered MainApp and all four tabs, 15 renders in 60 s. After, 0 renders in 75 s (5 polls), after a 30 s settle; the only renders are during the first seconds of loading.
+
+**Cold start**, back to back, alternating installs of the kept "before" app and the build in question (medians; ms from process start in the device log to the mark):
+
+| Path (runs each) | Before | After, with `inlineRequires` (not committed) | Before (second session) | **After, as committed** |
+|---|---:|---:|---:|---:|
+| Signed out → Login (10) | 2,693 | 2,402 | 2,503 | **2,460** |
+| Signed in → main shell (15) | 2,657 | 2,410 | 2,435 | **2,445** |
+| Signed in → Home listings (15) | 3,110 | 2,788 | 2,930 | **2,773** |
+
+The fastest single runs were 1,281 ms to the shell and 1,692 ms to Home content (after) on this machine; Phase 0, on a quieter Mac, had a 1,676 ms median to the shell before any change. What the user sees changed more than the marks: the native splash now cross-fades straight into the main screen (frame capture: splash, then the tab bar fading in over it, then Home's skeleton cards, then photos), with no white frame and no loading screen.
+
+**Photos** (Cloudinary demo photos at the app's sizes, `Accept: image/*` as the loaders send): grid card 504 px 45.9 → 28.0 KB and 32.6 → 31.4 KB; hero 1206×1048 127.5 → 101.6 KB and 114.0 → 109.2 KB; thumb 186 px 11.5 → 8.8 KB and 6.3 → 6.0 KB. A transformation Cloudinary hasn't generated yet costs about 1 s on its first request (0.1–0.16 s after); the press-prefetch starts that wait one listing fetch earlier.
+
+**Checked on the simulator** (bench API, Release build): Home pages deep into the 400s while flinging; the inbox shows a message sent from the other side within one poll and the badge uses the server's count (37); Rentals shows the server total (80) and loads all four pages with both sections; the owner's Requests shows "160 requests waiting on you" from the server, and Accept updates the row in place without moving the list; My listings shows "Rented out" from `activeBookingId`; a 500-message chat opens on messages 450–499, scrolls back to message 0, and sending from the top lands on the new message; the review prompt opens from `?limit=1` and moves to the next owed review after submitting; with the fetch client: a wrong password shows the server's message, sign-in, lists and chat work, and a multipart photo upload reaches the server (which then fails only because the bench's Cloudinary account is fake; the app shows "Upload failed").
+
+### Targets
+
+| Target | Result |
+|---|---|
+| Cold start ≤ 2.0 s (iOS sim, Release) | **Not met on this machine** (medians 2.4–2.8 s with heavy background load; the same app's fastest runs are 1.3–1.7 s). Needs a re-measure on a quiet machine or a device. See the `inlineRequires` decision below |
+| 0 dropped frames on normal grid scrolling | 16 of 20 fast flings at 0, the rest 1–2 JS frames, with pages loading mid-scroll |
+| Bundle no larger than baseline | **Met**: −28.7 KB (iOS), −28.6 KB (Android), assets −7 MB |
+
+### Needs a decision
+
+- **`inlineRequires`**: on, cold start was about 10% faster across all three marks in the back-to-back runs (Login 2,693 → 2,402 ms, shell 2,657 → 2,410, Home 3,110 → 2,788) and the bundle is 70 KB larger (4,420 KB, 1% over baseline). Off (committed), the bundle meets the target and cold start is about where it was. One line in `metro.config.js`. Two of the brief's targets conflict here; I chose the one that was met.
+
+### Dependencies
+
+| Package | Added / removed | Size | Why |
+|---|---|---|---|
+| `@tanstack/react-query` 5.104.5 | added | 228 KB source in the bundle (offset below) | The brief names it; actively maintained (TanStack, releases weekly). Built-in alternative: a hand-rolled cache with request dedupe, stale-while-revalidate, infinite pages, focus/background handling and invalidation; not worth owning |
+| `expo-image` ~3.0.11 | added | 24–40 KB JS, native SDWebImage/Glide | The brief names it; Expo SDK first party. React Native's Image has no recycling key, no cache-policy control and no prefetch into a chosen cache |
+| `expo-splash-screen` ~31.0.13 | added | 1 KB JS | Expo SDK first party; React Native has no API to hold the native splash until the app is ready |
+| `axios` | removed | 158 KB source, 67 KB bytecode | Replaced by `src/services/http.ts` (the subset used, on fetch) |
+| `expo-linear-gradient` | removed | native module | No imports |
+
+### Checked, not changed
+
+- FlashList: not needed; the tuned FlatList reached 0–2 dropped frames, so no new list dependency.
+- Re-renders were measured with the render probe rather than the React DevTools profiler, which this headless setup can't drive. AuthContext's value was already memoized; MainTabContext carries one string.
+- Animations: no `useNativeDriver: false` anywhere; the countdowns (Zoink It, booking detail) and the polls were already focus-gated; Active rental's pulse (native driver) now stops when the screen isn't focused (`0fc62a1`).
+- `react-native-reanimated` (778 KB source) is there only for the photo viewer's pinch zoom (`react-native-zoom-toolkit`); dropping it would change that screen. Sentry's packages (about 1.9 MB of source) stay; upgrading or reconfiguring Sentry is out of scope.
+- Icons are already imported per family (`@expo/vector-icons/Feather`). Hermes is on.
+- Demo mode: unchanged gate; the page functions wrap the existing mocks.
+
+### Android pending
+
+Each on an Android release build (`npx expo run:android --variant release`, `EXPO_PUBLIC_PERF_LOG=1`, API at the bench server: `adb reverse tcp:3000 tcp:3000`), log lines via `adb logcat | grep "\[perf\]"`:
+
+1. **`removeClippedSubviews`** (Home and My listings grids): fling fast down and back up through 150+ listings; no blank cells, no missing photos, no missing "Rented out" badges after scrolling back.
+2. **Grid scroll**: 10 fast flings each way on Home; read `[perf] scroll home-grid … dropped=` lines; expect 0 most of the time, as on iOS.
+3. **Release-build cold start**: `adb shell am force-stop com.zoink.app`, then `adb shell am start -W -n com.zoink.app/.MainActivity` ten times; compare `TotalTime` with an install of the previous commit; also read `[perf] startup main-app / home-content`.
+4. **Splash**: on Android 12+ the splash should stay until the first screen and fade; no white frame (record the screen: `adb shell screenrecord`).
+5. **expo-image on Glide**: WebP photos render in grid, rows, hero, avatars; recycled grid cells never show a previous listing's photo; memory stays flat over long scrolls (Android Studio profiler).
+6. **Chat history**: open a 500-message thread, scroll up to the first message (older pages load, the list doesn't jump: `maintainVisibleContentPosition`); scroll up again and send; the list lands on the new message.
+7. **Fetch client on OkHttp**: sign in, wrong password message, listing photo upload, handoff photo upload (multipart), avatar upload; a session ended by the server (401) signs out once.
+8. **Pull-to-refresh** on every list screen (Home, Search results, My listings, Rentals, Requests, Inbox, admin lists): the spinner's colours, and it goes back to page one.
+9. **Focused polling**: on Zoink It, background the app (home button) and confirm polling stops (bench server or `adb logcat` network), and resumes on return.
+
+### Found, not fixed
+
+- `useQuery` errors on detail screens still show the server's raw message in an alert (Phase 5: user-facing messages).
+- The admin list screens show a full-screen spinner while loading (Phase 5: skeletons).
+- The paged list endpoints keep their unpaginated forms (capped at 100) for app builds released before this branch; they can be removed once those builds are retired.
+
+### Tests after Phase 4
+
+| Suite | After Phase 3 | After Phase 4 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 |
+| backend integration | 592 (589 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 801 s (backend unchanged in this phase) |
+| frontend unit | 10 | **16** (+6: the HTTP client: params, JSON and FormData bodies, axios-shaped errors, network errors and 204s, interceptor order and session tokens) |
+
+Backend and frontend typecheck pass. Every Phase 4 commit was typechecked and unit-tested on its own; the final state was checked on the simulator as listed under Results.
+
+### Commits
+
+`d5e25fd` `94b7067` `a6cc6a8` `dd625c3` `6d93ff0` `0fc62a1` `bee9d43` `efdae0d` `1db569a` `e075b21` `1b5c3dd` `be41c3e`, plus these docs. Nothing pushed.
+
+---
+
+## Owner decisions (2026-10-25, before Phase 5)
+
+| # | Open item | Decision | What changed |
+|---|---|---|---|
+| 1 | Deleting a listing with a booking still in progress (Phase 2 decision 1a): auto-decline its pending requests instead? | **Keep refusing with the readable message. Do not auto-decline.** | Nothing. The 409 "This listing has a booking that isn't finished yet…" stays, and so does the delete dialog's copy |
+| 2 | `inlineRequires` (Phase 4): about 10% faster cold start vs. 70 KB over the bundle baseline | **Stays off.** Revisit after measuring cold start on a real phone | Nothing. `metro.config.js` unchanged |
+| 3 | Proposed privacy.md §7 wording for soft-deleted listings (Phase 2) | **Approved; apply exactly as written** | `legal/privacy.md` §7 "Listings and photos" row replaced with the proposed text, word for word. `packages/shared/legal/privacy.ts` (the copy bundled into the app, generated from the markdown) regenerated with `npm run generate:legal`; no other line changed |
+| 4 | The fetch client that replaced axios (Phase 4, `be41c3e`) | **Accepted** | Nothing |
+
+Left for the owner, not changed (the decision covered the wording only):
+
+- **"Last updated" date and `CURRENT_PRIVACY_VERSION`.** privacy.md still says "Last updated: September 8, 2026", and §14 says the date is updated with any change. The privacy version is still `1.0` in both `backend/src/config/legal.ts` and `syncLegal.ts`; bumping it makes every signed-in user re-accept at next launch. Whether this edit counts as "material" (30 days' notice under §14) is a legal call.
+- **`landing/privacy.html`** (the website copy) still has the old sentence in its §7 table.
+
+---
+
+## Phase 5: reliability and UX polish
+
+### Plan
+
+In the brief's order: one place for user-facing error messages (and the raw error logged once); one toast system; offline handling (bar, queries that wait and retry, writes refused with a clear message); loading, empty and error states on every data screen; forms (field types, messages that don't move the layout, the keyboard, double submits); haptics; deep links and notification taps; navigation fallbacks and error boundaries. Then all suites, the bundle against the baseline, the Phase 4 measurements again, and every item by hand on the iOS simulator Release build against the bench server.
+
+Before starting, the owner's four decisions were recorded and the privacy wording applied (`7734851`). The owner then removed an accidental commit (`b2c88d1` "App scaling") from under it and asked for `graphify-out/`, `backend/graphify-out/`, `Claude outputs/` and `.claude/settings.local.json` to be ignored (`00b4d82`). Files are staged by explicit path only from here on.
+
+### Findings
+
+| # | Finding | How it happens in real use | Sev | Fix | Commit |
+|---|---|---|---|---|---|
+| 1 | Raw server and network text reached the screen | A refund that Stripe refused showed "Failed to refund payment via Stripe: No such payment_intent…"; a dead session "No token provided."; a bad form "Validation failed."; a proxy's HTML error "Request failed with status code 502"; no connection "Network Error"; the Pay screen showed the Payment Sheet's raw errors and, in a build without the Stripe key, a developer instruction | S3 | `utils/userMessage.ts`: server sentences written for people pass through (listed; a test holds each to the backend's wording), API wording is reworded, everything else gets a plain message for its kind (offline, unreachable, session, forbidden, gone, conflict, too large, rate-limited, invalid, server). The raw failure is logged once in `api.ts` (`[api] METHOD path → status: text`, kept in Sentry breadcrumbs under the Phase 2 scrubbing). A closed Payment Sheet says nothing; a card refusal shows Stripe's localized text | `2d3a9eb` |
+| 2 | Detail screens alerted and popped back on any failed load | A stale link or a deleted listing: "Listing not found." in an alert, then dumped back; offline, the same | S3 | Skeleton while loading; then "no longer available" with a way Home (404/403/400, so soft-deleted listings too), "You're offline" (loads by itself on reconnect), or the plain error with Try again | `f914e97` |
+| 3 | Zoink It swallowed every 409, including the refused pickup | Phase 1 decision 4: when the rent can't be captured, both phones get a 409 telling them to keep the item. The screen treated every 409 as the other phone winning the tap race and returned silently, so neither phone said why the pickup didn't happen | S2 | That 409 is recognised (its sentence is pinned by the test above) and shown as an alert; other 409s stay silent as before | `5ec1af4` |
+| 4 | Create listing dropped failed photo uploads silently | One photo failing to upload left the listing live with fewer photos and no word | S3 | Says how many didn't upload and to add them from Edit details | `5ec1af4` |
+| 5 | Settings' blocked list said "You haven't blocked anyone" when it failed to load | Any failure of `/users/me/blocks` | S3 | Skeleton, then the error with Try again | `f914e97` |
+| 6 | Inbox and Search results had no error state | A failure showed the empty state ("No messages yet", "Nothing found") | S3 | Error state with Try again | `f914e97` |
+| 7 | Admin queues replaced the whole screen with a spinner on every load | Changing a filter blanked the screen, chips included | S3 | Skeleton cards under the chips | `f914e97` |
+| 8 | Double taps could submit twice | Busy flags were React state (`if (paying) return`), which only takes effect on the next render, so two taps in one frame both ran; Message, availability and the Requests rows had no guard at all. Seen risks: two listings, two booking requests, two reports, a message sent twice | S2 | `useSubmit` (ref-based guard, `utils/submitGuard.ts`, tested) on every submit; a per-row in-flight set on Requests | `fe16c67` |
+| 9 | Validation messages moved the form | Sign-in and sign-up put one error above the fields; the listing forms grew their footer; long messages wrapped under the narrow price fields | S3 | Per-field messages in a line that's always reserved (`TextField validated`, `FieldMessage` for chips and ratings); short messages (rules in `utils/formValidation.ts`, tested) | `fe16c67` |
+| 10 | Email fields autocorrected and capitalised; no autofill hints | Phase 1: "utoronto" was corrected to "Toronto" | S3 | `TextField kind`: email, password, newPassword, givenName, familyName, phone, money, city (keyboard, autocorrect, capitalisation, textContentType, autoComplete) | `fe16c67` |
+| 11 | Cancelling a booking and declining a request took one tap | Both are irreversible | S2 | Confirmation alert in Booking detail and Requests | `1e6852b` |
+| 12 | Nothing showed the device was offline | Writes failed with whatever the error said; lists spun or showed raw errors | S3 | Offline bar, React Query's onlineManager on the device state, writes refused before sending | `8ef2139` |
+| 13 | No deep links; tapping a notification just opened the app | The scheme `zoink://` existed but nothing routed it | S3 | Listing, booking and chat links; notification taps; cold, warm and signed-out | `4610bbb` |
+| 14 | Deleting a listing pushed My listings on top of the deleted listing | `navigate('MyListings')` from a listing opened elsewhere | S3 | `popTo('MyListings')` | `75da5f0` |
+| 15 | The updated-terms screen had no way out | Mandatory, no back, no sign out | S3 | "Not now, sign out" (accepting stays required) | `75da5f0` |
+| 16 | Android haptics ignored the system setting | expo-haptics' impact/notification calls drive the Vibrator, which ignores "Touch feedback" | S3 | `utils/haptics.ts` uses `performAndroidHapticsAsync` on Android | `1b8b4c1` |
+| 17 | semver shipped in release bundles | Reanimated imports its worklets version check at the top level and calls it only under `__DEV__` | S3 | Stubbed in release builds via the Metro resolver (dev keeps the real check) | `990d396` |
+| 18 | (Introduced and fixed in this phase) Idle tabs re-rendered on every inbox poll again | Found re-measuring: the new offline states read the query's `fetchStatus`, and React Query re-renders a component for each result field it reads; `fetchStatus` flips twice per 15 s poll, so MainApp and Inbox rendered 20 times in 75 s (Phase 4: 0) | — | Read `isPaused`, which only changes offline | `1146161` |
+
+Also: a QA-only crash trigger for checking the boundaries in a Release build (`02f94e4`), and the confirmation pair for cancel/decline (`1e6852b`, finding 11).
+
+### What each item does now
+
+1. **Loading, empty, error.** Every screen that loads data shows a skeleton (no full-screen spinners left, admin lists included), an empty state that names the next step (Home: "List an item"; Search: "Clear search"; Requests: "View my listings"; admin: "Show all"), and an error with Try again. Offline with nothing cached shows "You're offline… will load when you're back online" and loads by itself on reconnect. Shared pieces: `components/LoadStates.tsx`, `components/mockup/Skeleton.tsx`.
+2. **Messages.** `utils/userMessage.ts` is the one place server and network errors become words, including the detail screens' load errors (no more alert-and-pop). The raw failure goes to the device log once (`[api] METHOD path → status: text`).
+3. **Offline.** The bar, queries that wait and resume, and writes refused before sending with "You're offline, so this wasn't sent". Nothing is queued silently; a chat draft stays in the box.
+4. **Toasts.** `services/toast.ts` + `components/ToastHost.tsx`: successes and non-blocking errors. Alerts remain only for destructive confirmations (delete listing, delete account, block, unblock, remove photo, cancel booking, decline request), action menus, permissions, and the refused-pickup message both people must act on.
+5. **Forms.** Field kinds (email, password, newPassword, givenName, familyName, phone, money, city) set keyboards, autocorrect, capitalisation and autofill. Every validation message sits in a reserved line. All form screens pin the submit button in the keyboard-avoiding footer except Profile › Edit (Save sits under the bio field in the scroll) and the admin report modal (its own keyboard-avoiding view). `useSubmit` guards every submit.
+6. **Haptics.** `utils/haptics.ts`, following the system setting on both platforms. New: request sent, accept/decline, message sent, payment confirmed, pull-to-refresh. Existing navigation ticks (tabs, cards, chips, "+") kept, routed through the helper; the tick on focusing the search field removed.
+7. **Links.** `zoink://listing|booking|chat/<id>`, plus notification taps, cold, warm and signed out (held until sign-in, verification and new terms are done). Unknown links: "Link not found". Gone or someone else's: "no longer available" / "isn't available". Soft-deleted listings answer 404, so they show "This listing is no longer available."
+8. **Fallbacks.** Back always goes somewhere (`navigation/useGoBack.ts`); error boundaries at the root, per tab and per screen; "Not now, sign out" on the updated-terms screen.
+
+### Checked on the iOS simulator
+
+iPhone 17 Pro (iOS 26.5), Release build against the bench API (`EXPO_PUBLIC_PERF_LOG=1 EXPO_PUBLIC_QA_TOOLS=1`), 2026-10-28. `idb` is no longer installed; driven with the simulator tool, `xcrun simctl openurl`, and System Events typing.
+
+| Item | What was done | Result |
+|---|---|---|
+| Sign-in validation | Sign in with both fields empty | "Enter your student email." / "Enter your password." under the fields; the Password label and the button didn't move (same position before and after) |
+| Sign-in fields | Typed "renter1@mail.utoronto.ca" | Stayed lowercase, no autocorrect; iOS offered AutoFill on the email and "Save Password?" after signing in |
+| Sign-in submit | Go on the password field | Submitted |
+| Link, warm | `zoink://listing/<live id>` from Home | Listing opened on top; Back returned to Home |
+| Link, soft-deleted | `zoink://listing/<soft-deleted id>` (one bench listing given `deletedAt`) | Skeleton, then "This listing is no longer available." with Go to Home (which works) |
+| Link, someone else's booking | `zoink://booking/<other id>` | "This booking isn't available." |
+| Link, unknown | `zoink://profile/whatever` | "Link not found" with Go to Home |
+| Link, cold | Terminated the app, then `zoink://chat/<id>` | App started on that chat; Back went to Home |
+| Link, signed out | Signed out, opened `zoink://booking/<renter1's id>` | Login screen; after signing in the booking opened by itself; Back went to Home |
+| Offline (QA switch; see note) | `zoink://qa/offline/on` in a chat, sent a message | Yellow bar under the status bar, chat header not covered; "Not sent: tap to retry / You're offline, so this wasn't sent…", text kept; log `→ not sent, offline` |
+| Back online | `zoink://qa/offline/device`, tapped retry | Bar gone, "You're back online." toast, message sent and the list landed on it |
+| Offline, uncached screen | Offline, opened Bookings | "You're offline. Your rentals will load when you're back online."; on reconnect it switched to the skeleton and loaded by itself |
+| Offline, cached screen | Offline on Home | Cached listings still shown under the bar |
+| Server unreachable | Stopped the bench API, opened Requests | "Couldn't load your requests. Couldn't reach Zoink. Check your connection and try again."; restarted the API, Try again loaded it; empty state offered "View my listings" |
+| Tab boundary | `zoink://qa/crash/tab` on Home | "This tab hit a problem." with the tab bar working; Try again restored Home |
+| Screen boundary | Opened a listing, `zoink://qa/crash/screen` | "This screen hit a problem." with Go back / Try again; Go back returned to Home |
+| Root boundary | `zoink://qa/crash/root` | "Something broke."; Try again restored the app |
+| Cancel confirmation | Cancel booking on a pending booking | "Cancel this booking? This can't be undone, and lender will be told." with Cancel booking / Keep booking; Keep booking changed nothing |
+| Skeletons | Profile tab first open, Rentals, a listing link | Skeletons, no spinners |
+
+**Not checked on the simulator, and why:**
+- **Airplane mode.** The simulator shares the Mac's network and has no airplane mode, and turning off the Mac's network is a system setting I won't change. The QA switch (`zoink://qa/offline/on|off|device`, QA builds only) forces the same offline state the device reading feeds, and makes every request fail as with no connection. The real device reading (expo-network) needs a phone: on the Android list and the iOS device list below.
+- **The keyboard over submit buttons.** This simulator session wouldn't show its on-screen keyboard (the hardware-keyboard setting). Structurally every form but two pins its button above the keyboard (above); Profile › Edit and the admin report modal need a look on a device.
+- **Notification taps.** `simctl push` delivered a chat notification, but on the loaded Mac the banner went before the tap landed. The routing is unit-tested (`navigation/deepLinks.test.ts`); the tap needs a device.
+- **Haptics** (simulators have none) and **a double tap inside one frame** (the tools send taps hundreds of ms apart). The guard is unit-tested (`utils/submitGuard.test.ts`).
+
+### Results
+
+**Tests**
+
+| Suite | After Phase 4 | After Phase 5 |
+|---|---|---|
+| `@zoink/shared` | 19 | 19 |
+| backend unit | 232 | 232 (see note) |
+| backend integration | 592 (589 pass, 3 skipped) | **592: 589 pass, 3 skipped (cancellation fees, on purpose), 0 fail**, 1,243 s (backend unchanged in this phase) |
+| frontend unit | 16 | **145**: error mapping and the backend-wording guard (87, one per listed sentence among them), toasts (4), offline state and the offline gate in the HTTP client (7), deep-link parsing, notification routing and the cold/warm/signed-out queue (12), form validation (16) and the double-submit guard (3) |
+
+Backend and frontend typecheck pass. Note: two backend unit runs each had one failure in `rateLimiter.test.ts` ("behind the edge, clients get their own budgets…"): `HPE_INVALID_CONSTANT`, the raw packet a JSON `{"Dns4":{"ProtectionState":"open"}…` that no part of this API sends. Another process on this Mac answered on the test server's loopback connection, the same environment flake as Phases 1 and 2. A clean rerun passed 232/232 (log kept this time).
+
+**Bundle** (`expo export --dump-sourcemap`, production, no QA or perf flags; the Phase 4 commit re-exported the same way gave 4,350,180 B against Phase 4's recorded 4,349,908):
+
+| | Phase 0 baseline | After Phase 4 | After Phase 5 |
+|---|---:|---:|---:|
+| iOS JS bundle | 4,378,588 B | 4,349,908 B | **4,356,268 B** (22.3 KB under baseline) |
+| Android JS bundle | 4,385,144 B | 4,356,504 B | **4,362,760 B** (22.4 KB under baseline) |
+| Assets | 8.6 MB | 1.7 MB | 1.7 MB |
+| Modules | 2,216 | 2,186 | 2,191 |
+
+Phase 5's code added about 33 KB of bytecode (all app code; `expo-network` is 5.6 KB of source). That would have put the bundle 4.7 KB over the baseline, so `990d396` keeps semver out of release builds: Reanimated imports its worklets version check at the top level but calls it only under `__DEV__`; release builds now resolve that module to a stub (−28 KB).
+
+**Idle re-renders** (render probe, Home untouched, 30 s settle then 75 s, inbox polling every 15 s): **0** (Phase 4: 0). Before `1146161`: 20.
+
+**Home grid** (fast flings with the simulator tool, one at a time, 150+ listings): 19 flings, **0–2 dropped JS frames each (12 at 0, 6 at 1, 1 at 2), JS FPS 59.0–59.9** (Phase 4: 0–2, 16 of 20 at 0, 59.1–59.8). Load average 4–8 during the run.
+
+**Cold start:** not re-measured. Phase 5 adds one network-state read at launch. The owner's decision is to measure on a real phone; until then Phase 4's numbers stand.
+
+### Dependency added
+
+- **`expo-network` ~8.0.8** (Expo SDK 54, first party; NWPathMonitor on iOS, ConnectivityManager on Android). React Native has no way to read the device's connection state; the alternative, `@react-native-community/netinfo`, is a third-party native module and larger. 11 lockfile lines, no dependencies; 5.6 KB of JS source. Needs a native build, like the Phase 4 changes already do.
+
+### Needs owner decision
+
+1. **The review prompt has no way out.** It opens at launch when a review is owed, with no Back, sign-out or "later". Offline it can't be submitted, so the app stays on it until the connection returns. Keep it strict, or add "Later" (or sign out)?
+2. **Universal links.** Only `zoink://` links work. `https://` links that open the app need a domain, an `apple-app-site-association` and `assetlinks.json` on the website, and app config. Also: the listing Share button shares text with no link. Add a link to it (which kind)?
+3. **The privacy policy's "Last updated" date, version bump and the website copy** (carried from the decisions above; unchanged).
+4. **Stripe's card-decline text on Pay.** A refused card now shows Stripe's own localized sentence ("Your card was declined.") rather than a generic one; Stripe writes it for card holders. Keep, or always use our own words?
+5. **Toasts sit at the top** and cover the screen's header for about 3 seconds (tap dismisses). Keep at the top, or move above the tab bar?
+6. **A "review received" notification opens the booking.** It could open your profile's reviews instead.
+7. **Navigation haptics** (tabs, listing cards, chips, quick actions, "+") were already there and are kept; only the search-focus tick was removed. Fewer?
+
+### Found, not fixed
+
+- Profile › Edit keeps Save in the scroll under the bio field rather than pinned. Whether the keyboard covers it couldn't be checked on this simulator (above); on the device list.
+- The paged list endpoints still keep their unpaginated forms for old app builds (Phase 4 note).
+
+### Android pending
+
+Everything Android, Phase 4's nine checks and Phase 5's, is in **`docs/android-handoff.md`** with Windows setup and exact steps: real airplane mode, links via `adb`, notification taps, haptics with Touch feedback on and off, the keyboard on every form, fields and autofill, reserved message lines, double taps, toasts over modals (no separate window on Android), error boundaries with hardware Back, the confirmations, and the updated-terms way out.
+
+**iOS device pending** (a real iPhone): airplane mode (the bar within a second or two, writes refused, recovery), a notification tap cold/background/foreground, haptics with System Haptics on and off, the keyboard on Profile › Edit and the admin report modal, and cold start (the `inlineRequires` decision).
+
+### Commits
+
+`7734851` (owner decisions), `00b4d82` (ignore rules), then `2d3a9eb` `5ec1af4` `8ef2139` `f914e97` `fe16c67` `1e6852b` `1b8b4c1` `4610bbb` `75da5f0` `990d396` `02f94e4` `1146161`, plus these docs. Nothing pushed.
+
+Also on 2026-10-25, at the owner's request: the accidental `b2c88d1` "App scaling" was removed from under the decisions commit (its files kept on disk, uncommitted) and the ignore rules added. Files are staged by explicit path only.
+
+---
+
+## Where to pick up (Phase 6 onward)
+
+Phases 0 to 5 are done; their summaries are in `hardening-report.md`. **The run stopped after Phase 5, as instructed; Phase 6 (accessibility) hasn't started.**
+
+**Android is moving to the owner's Windows machine.** `docs/android-handoff.md` has the setup (getting the branch over, the files to copy by hand, an API the emulator can reach, the release build with the QA switches) and every Android check from Phases 4 and 5 with exact steps. Phase 6's TalkBack and font-scale checks get added there when it runs.
+
+Before deploying: the owner actions in Phase 2 (`JWT_SECRET` length, the unverified-account preview), the privacy policy's date/version/website copy (decisions section above), and the Phase 5 decisions list. **Deploy the backend before any app build from Phase 4 or 5**: the app's paged lists need the Phase 3 routes. The app build needs a new native build (expo-image, expo-splash-screen, expo-network added; expo-linear-gradient removed), not an OTA update. Build store releases **without** `EXPO_PUBLIC_QA_TOOLS` (its switches and crash triggers then compile away).
+
+Next, from the brief: Phase 6, accessibility (the brief's seven items: screen reader labels and grouping, Dynamic Type, contrast from the theme tokens, 44 pt targets, focus order, reduced motion, VoiceOver through the main flows), then the `verify` script and E2E.
+
+Tooling: the bench (`backend/src/scripts/bench/run.ts`) and its server (`PORT=3000 npx ts-node src/scripts/bench/serve.ts --seed`); a Release build pointed at it (`LANG=en_US.UTF-8 EXPO_PUBLIC_API_URL=http://localhost:3000 EXPO_PUBLIC_DEMO_MODE=false EXPO_PUBLIC_PERF_LOG=1 EXPO_PUBLIC_QA_TOOLS=1 npx expo run:ios --configuration Release`; without a UTF-8 `LANG` CocoaPods fails with a Unicode normalization error); device log lines with `xcrun simctl spawn booted log stream --predicate 'eventMessage CONTAINS "[perf]" OR eventMessage CONTAINS "[api]"'`; the QA links `zoink://qa/offline/on|off|device` and `zoink://qa/crash/root|tab|screen`. `idb` is no longer installed; the simulator tool and `xcrun simctl openurl` covered this phase, and System Events keystrokes type symbols the simulator tool drops (`@`). The bench accounts: `renter1@mail.utoronto.ca` and `owner2@mail.utoronto.ca`, password in `seed.ts`. One bench listing ("Tools item 1") was soft-deleted by hand for the link check; `--seed` resets it.

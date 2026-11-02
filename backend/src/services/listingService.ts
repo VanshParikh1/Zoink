@@ -1,8 +1,11 @@
 import prisma from '../utils/prisma'
-import { Prisma } from '@prisma/client'
-import type { BrowseListingsResult, ListingResponse } from '@zoink/shared'
-import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
+import { LISTING_PHOTOS_MAX } from '@zoink/shared'
+import { BookingStatus, Prisma } from '@prisma/client'
+import type { BrowseListingsResult, ListingCardItem, ListingResponse, MyListingItem, Page } from '@zoink/shared'
+import { z } from 'zod'
+import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
+import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
 
 // ── Prohibited items (terms.md §6) ───────────────────────────────────────────
 // A blunt keyword heuristic, not a moderation system — it exists to catch the
@@ -205,7 +208,7 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
 
 export async function getListingById(id: string, viewerId?: string): Promise<ListingResponse> {
   const listing = await prisma.listing.findUnique({
-    where: { id },
+    where: { id, deletedAt: null },
     select: listingSelect,
   })
   if (!listing) throw new NotFoundError('Listing not found.')
@@ -218,10 +221,13 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
 
 // ── Get my listings ───────────────────────────────────────────────────────────
 
+// Unpaginated, for app builds from before pagination (no `limit`), capped.
 export async function getMyListings(ownerId: string): Promise<ListingResponse[]> {
   const listings = await prisma.listing.findMany({
-    where: { ownerId },
+    where: { ownerId, deletedAt: null },
     select: listingListSelect,
+    orderBy: { createdAt: 'desc' },
+    take: LEGACY_LIST_CAP,
   })
 
   if (listings.length === 0) return []
@@ -252,9 +258,90 @@ export async function getMyListings(ownerId: string): Promise<ListingResponse[]>
   return sorted.map((listing) => toListingResponse(listing, ownerId))
 }
 
+// Mid-rental: the grid shows "Rented out" and opens the rental instead.
+const RENTED_OUT_STATUSES: BookingStatus[] = [BookingStatus.PICKUP_PENDING, BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING]
+const myListingsCursor = z.tuple([z.number().int(), z.string().max(64)])
+
+type MyListingRow = {
+  id: string
+  activityMs: bigint
+  title: string
+  category: string
+  dailyPrice: Prisma.Decimal
+  depositAmount: Prisma.Decimal
+  isAvailable: boolean
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+  activeBookingId: string | null
+}
+
+/** GET /listings/me with `limit`: the same most-recent-activity order as
+ *  getMyListings, one page in one statement, each listing with its first
+ *  photo and the booking it is rented out on, if any. */
+export async function listMyListingsPage(ownerId: string, params: PageParams): Promise<Page<MyListingItem>> {
+  const size = pageSize(params)
+  const before = params.cursor ? decodeCursor(params.cursor, myListingsCursor) : null
+  const rentedOut = Prisma.join(RENTED_OUT_STATUSES.map((status) => Prisma.sql`${status}::"BookingStatus"`))
+
+  const rows = await prisma.$queryRaw<MyListingRow[]>`
+    SELECT p.id, p."activityMs", l.title, l.category, l."dailyPrice", l."depositAmount", l."isAvailable",
+           img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder",
+           rented.id AS "activeBookingId"
+    FROM (
+      SELECT id, "activityMs" FROM (
+        SELECT l.id,
+               FLOOR(EXTRACT(EPOCH FROM COALESCE(
+                 (SELECT MAX(b."updatedAt") FROM bookings b WHERE b."listingId" = l.id),
+                 l."createdAt"
+               )) * 1000)::bigint AS "activityMs"
+        FROM listings l
+        WHERE l."ownerId" = ${ownerId} AND l."deletedAt" IS NULL
+      ) keyed
+      ${before ? Prisma.sql`WHERE ("activityMs", id) < (${before[0]}::bigint, ${before[1]}::text)` : Prisma.empty}
+      ORDER BY "activityMs" DESC, id DESC
+      LIMIT ${size + 1}
+    ) p
+    JOIN listings l ON l.id = p.id
+    LEFT JOIN LATERAL (
+      SELECT i.id, i.url, i."order" FROM listing_images i
+      WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+    ) img ON true
+    LEFT JOIN LATERAL (
+      SELECT b.id FROM bookings b
+      WHERE b."listingId" = l.id AND b.status IN (${rentedOut})
+      ORDER BY b."updatedAt" DESC LIMIT 1
+    ) rented ON true
+    ORDER BY p."activityMs" DESC, p.id DESC
+  `
+
+  const page = splitPage(rows, size, (row) => [Number(row.activityMs), row.id])
+  return {
+    items: page.items.map((row) => ({
+      id: row.id,
+      title: row.title,
+      category: row.category,
+      dailyPrice: row.dailyPrice.toString(),
+      depositAmount: row.depositAmount.toString(),
+      isAvailable: row.isAvailable,
+      images: row.imageId ? [{ id: row.imageId, url: row.imageUrl!, order: row.imageOrder! }] : [],
+      activeBookingId: row.activeBookingId,
+    })),
+    nextCursor: page.nextCursor,
+  }
+}
+
 // ── Browse/search listings ────────────────────────────────────────────────────
 
-export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
+type BrowseFilters = {
+  whereSql: Prisma.Sql
+  distanceSql: Prisma.Sql
+  hasLocation: boolean
+  radiusFilterSql: Prisma.Sql
+}
+
+// The WHERE clause and distance expression every browse/search query shares.
+function browseFilters(input: BrowseListingsInput): BrowseFilters {
   const {
     query,
     category,
@@ -268,11 +355,9 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     viewerId,
   } = input
 
-  const limit = clamp(input.limit ?? 20, 1, 50)
-  const offset = Math.max(input.offset ?? 0, 0)
   const hasLocation = latitude != null && longitude != null
 
-  const whereClauses: Prisma.Sql[] = []
+  const whereClauses: Prisma.Sql[] = [Prisma.sql`l."deletedAt" IS NULL`]
 
   if (!includeUnavailable) {
     whereClauses.push(Prisma.sql`l."isAvailable" = true`)
@@ -310,19 +395,26 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     )
   }
 
-  const whereSql = whereClauses.length
-    ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`
-    : Prisma.empty
+  return {
+    whereSql: Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}`,
+    distanceSql: hasLocation
+      ? buildDistanceSql(latitude as number, longitude as number)
+      : Prisma.sql`NULL::double precision`,
+    hasLocation,
+    radiusFilterSql: hasLocation && radiusKm != null
+      ? Prisma.sql`WHERE filtered."distanceKm" <= ${radiusKm}`
+      : Prisma.empty,
+  }
+}
 
-  const distanceSql = hasLocation
-    ? buildDistanceSql(latitude as number, longitude as number)
-    : Prisma.sql`NULL::double precision`
+// Offset pages with a total, for app builds from before cursor pagination.
+export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
+  const limit = Math.floor(clamp(input.limit ?? 20, 1, 50))
+  const offset = Math.floor(Math.max(input.offset ?? 0, 0))
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const { viewerId } = input
 
-  const radiusFilterSql = hasLocation && radiusKm != null
-    ? Prisma.sql`WHERE filtered."distanceKm" <= ${radiusKm}`
-    : Prisma.empty
-
-  const listingRows = await prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
+  const [listingRows, countRows] = await Promise.all([prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
     WITH filtered AS (
       SELECT
         l."id",
@@ -339,9 +431,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
       filtered."createdAt" DESC
     LIMIT ${limit}
     OFFSET ${offset}
-  `)
-
-  const countRows = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
+  `), prisma.$queryRaw<CountRow[]>(Prisma.sql`
     WITH filtered AS (
       SELECT
         l."id",
@@ -352,7 +442,7 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
     SELECT COUNT(*) AS count
     FROM filtered
     ${radiusFilterSql}
-  `)
+  `)])
 
   const listingIds = listingRows.map((row) => row.id)
 
@@ -397,11 +487,87 @@ export async function browseListings(input: BrowseListingsInput): Promise<Browse
   }
 }
 
+// Nearest first when the caller sent a location (no public point sorts last),
+// then newest; distance is keyed at 1 mm so the cursor compares exactly.
+const browseCursor = z.tuple([z.string().regex(/^\d+(\.\d+)?$/), z.number().int(), z.string().max(64)])
+const NO_DISTANCE_KEY = '1000000000'
+
+type BrowsePageRow = {
+  id: string
+  distanceKm: number | null
+  distanceKey: string
+  createdMs: bigint
+  ownerId: string
+  title: string
+  category: string
+  dailyPrice: Prisma.Decimal
+  depositAmount: Prisma.Decimal
+  imageId: string | null
+  imageUrl: string | null
+  imageOrder: number | null
+}
+
+/** GET /listings with `limit` and no `offset`, or with a `cursor`: one page of
+ *  result cards in one statement (no total; nothing shows it). */
+export async function browseListingsPage(input: BrowseListingsInput, params: PageParams): Promise<Page<ListingCardItem>> {
+  const size = Math.floor(clamp(pageSize(params), 1, 50))
+  const after = params.cursor ? decodeCursor(params.cursor, browseCursor) : null
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const distanceKeySql = hasLocation
+    ? Prisma.sql`COALESCE(ROUND(filtered."distanceKm"::numeric, 6), ${NO_DISTANCE_KEY}::numeric)`
+    : Prisma.sql`0::numeric`
+
+  const rows = await prisma.$queryRaw<BrowsePageRow[]>`
+    SELECT p.id, p."distanceKm", p."distanceKey"::text AS "distanceKey", p."createdMs",
+           l."ownerId", l.title, l.category, l."dailyPrice", l."depositAmount",
+           img.id AS "imageId", img.url AS "imageUrl", img."order" AS "imageOrder"
+    FROM (
+      SELECT * FROM (
+        SELECT filtered.id, filtered."distanceKm", ${distanceKeySql} AS "distanceKey", filtered."createdMs"
+        FROM (
+          SELECT l.id, ${distanceSql} AS "distanceKm", FLOOR(EXTRACT(EPOCH FROM l."createdAt") * 1000)::bigint AS "createdMs"
+          FROM "listings" l
+          ${whereSql}
+        ) filtered
+        ${radiusFilterSql}
+      ) keyed
+      ${after
+        ? Prisma.sql`WHERE keyed."distanceKey" > ${after[0]}::numeric
+            OR (keyed."distanceKey" = ${after[0]}::numeric AND keyed."createdMs" < ${after[1]}::bigint)
+            OR (keyed."distanceKey" = ${after[0]}::numeric AND keyed."createdMs" = ${after[1]}::bigint AND keyed.id < ${after[2]}::text)`
+        : Prisma.empty}
+      ORDER BY keyed."distanceKey" ASC, keyed."createdMs" DESC, keyed.id DESC
+      LIMIT ${size + 1}
+    ) p
+    JOIN listings l ON l.id = p.id
+    LEFT JOIN LATERAL (
+      SELECT i.id, i.url, i."order" FROM listing_images i
+      WHERE i."listingId" = l.id ORDER BY i."order" LIMIT 1
+    ) img ON true
+    ORDER BY p."distanceKey" ASC, p."createdMs" DESC, p.id DESC
+  `
+
+  const page = splitPage(rows, size, (row) => [row.distanceKey, Number(row.createdMs), row.id])
+  return {
+    items: page.items.map((row) => ({
+      id: row.id,
+      ownerId: row.ownerId,
+      title: row.title,
+      category: row.category,
+      dailyPrice: row.dailyPrice.toString(),
+      depositAmount: row.depositAmount.toString(),
+      images: row.imageId ? [{ id: row.imageId, url: row.imageUrl!, order: row.imageOrder! }] : [],
+      distanceKm: roundToHalfKm(row.distanceKm),
+    })),
+    nextCursor: page.nextCursor,
+  }
+}
+
 // ── Distinct categories for browse filters ────────────────────────────────────
 
 export async function getListingCategories() {
   const rows = await prisma.listing.findMany({
-    where: { isAvailable: true },
+    where: { isAvailable: true, deletedAt: null },
     distinct: ['category'],
     select: { category: true },
     orderBy: { category: 'asc' },
@@ -431,7 +597,7 @@ export async function updateListing(
   data: UpdateListingInput
 ): Promise<ListingResponse> {
   // Verify ownership first
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
+  const existing = await prisma.listing.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
@@ -461,7 +627,7 @@ export async function updateListing(
 // ── Toggle availability ───────────────────────────────────────────────────────
 
 export async function setAvailability(id: string, ownerId: string, isAvailable: boolean) {
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
+  const existing = await prisma.listing.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
@@ -474,25 +640,69 @@ export async function setAvailability(id: string, ownerId: string, isAvailable: 
 
 // ── Delete listing ────────────────────────────────────────────────────────────
 
-export async function deleteListing(id: string, ownerId: string) {
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { ownerId: true } })
-  if (!existing) throw new NotFoundError('Listing not found.')
-  if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+// A booking in one of these is still owed something (an answer, the item, the
+// return), so its listing can't be deleted yet.
+const OPEN_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACCEPTED,
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+]
 
-  await prisma.listing.delete({ where: { id } })
+// A listing nobody has messaged about or booked is deleted outright. One with
+// history can't be (its bookings and conversations reference it, and bookings
+// are kept 7 years), so it is soft-deleted: hidden from browse, search and the
+// owner's list, closed to new bookings, edits and messages, its photo rows
+// gone. Bookings and chats keep its title and price. Returns the photo URLs
+// for the caller to delete from Cloudinary (privacy.md §7).
+export async function deleteListing(id: string, ownerId: string): Promise<string[]> {
+  return prisma.$transaction(async (tx) => {
+    // createBooking takes a share lock on the listing before it inserts, so a
+    // request can't land between the open-booking check and the delete.
+    const [listing] = await tx.$queryRaw<{ ownerId: string; deletedAt: Date | null }[]>`
+      SELECT "ownerId", "deletedAt" FROM listings WHERE id = ${id} FOR UPDATE
+    `
+    if (!listing || (listing.deletedAt && listing.ownerId !== ownerId)) throw new NotFoundError('Listing not found.')
+    if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
+    // Already deleted: a retry after a lost response.
+    if (listing.deletedAt) return []
+
+    const openBookings = await tx.booking.count({ where: { listingId: id, status: { in: OPEN_BOOKING_STATUSES } } })
+    if (openBookings > 0) {
+      throw new ConflictError(
+        'This listing has a booking that isn\'t finished yet. Decline or cancel it, or complete the rental, then delete the listing.'
+      )
+    }
+
+    const { images, _count } = await tx.listing.findUniqueOrThrow({
+      where: { id },
+      select: { images: { select: { url: true } }, _count: { select: { bookings: true, conversations: true } } },
+    })
+
+    if (_count.bookings === 0 && _count.conversations === 0) {
+      await tx.listing.delete({ where: { id } })
+    } else {
+      await tx.listingImage.deleteMany({ where: { listingId: id } })
+      await tx.listing.update({ where: { id }, data: { deletedAt: new Date(), isAvailable: false } })
+    }
+    return images.map((image) => image.url)
+  })
 }
 
 // ── Add image to listing ──────────────────────────────────────────────────────
 
 // Matches the create-listing screen's limit.
-export const MAX_LISTING_IMAGES = 8
+// Defined in @zoink/shared so the app's photo counter uses the same cap.
+export const MAX_LISTING_IMAGES = LISTING_PHOTOS_MAX
 
 // Runs BEFORE the file is sent to Cloudinary, so nobody can push files into
 // Zoink's Cloudinary account through a listing they don't own, and a listing
 // can't collect an unbounded number of photos.
 export async function assertCanAddListingImage(listingId: string, ownerId: string) {
   const listing = await prisma.listing.findUnique({
-    where: { id: listingId },
+    where: { id: listingId, deletedAt: null },
     select: { ownerId: true, _count: { select: { images: true } } },
   })
   if (!listing) throw new NotFoundError('Listing not found.')
@@ -508,7 +718,7 @@ export async function addListingImage(
   url: string
 ) {
   const existing = await prisma.listing.findUnique({
-    where: { id: listingId },
+    where: { id: listingId, deletedAt: null },
     select: { ownerId: true, images: { select: { order: true }, orderBy: { order: 'desc' }, take: 1 } },
   })
   if (!existing) throw new NotFoundError('Listing not found.')
@@ -530,7 +740,7 @@ export async function deleteListingImage(
   ownerId: string
 ) {
   // Verify listing ownership
-  const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { ownerId: true } })
+  const listing = await prisma.listing.findUnique({ where: { id: listingId, deletedAt: null }, select: { ownerId: true } })
   if (!listing) throw new NotFoundError('Listing not found.')
   if (listing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 

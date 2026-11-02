@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import * as userService from '../../services/userService'
 import * as paymentService from '../../services/paymentService'
 import * as blockService from '../../services/blockService'
-import { uploadImage } from '../../utils/cloudinary'
+import * as cloudinary from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
 
 // GET /users/me
@@ -66,7 +66,9 @@ export const updateNotificationPrefs = asyncHandler(async (req: Request, res: Re
 // DELETE /users/me — soft-delete + anonymize
 export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).userId
-  await userService.deleteMe(userId)
+  const { avatarUrl } = await userService.deleteMe(userId)
+  // The row now forgets the photo; the file itself is public until deleted.
+  await cloudinary.deleteOwnImages([avatarUrl])
   return res.status(204).send()
 })
 
@@ -76,7 +78,7 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
   if (!req.file) {
     return res.status(400).json({ error: 'No image file provided.' })
   }
-  const url = await uploadImage(req.file.buffer, 'avatars', `avatar_${userId}`)
+  const url = await cloudinary.uploadImage(req.file.buffer, 'avatars', `avatar_${userId}`)
   const user = await userService.updateAvatar(userId, url)
   return res.json(user)
 })
@@ -92,6 +94,14 @@ export const updatePushToken = asyncHandler(async (req: Request, res: Response) 
 
   const user = await userService.updateExpoPushToken(userId, expoPushToken ?? null)
   return res.json(user)
+})
+
+// POST /users/me/push-token/release — sign-out from this phone (also accepted
+// with a lapsed session; see requireAuthAllowingExpired).
+export const releasePushToken = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const { expoPushToken } = req.body as { expoPushToken: string }
+  return res.json(await userService.releaseExpoPushToken(userId, expoPushToken))
 })
 
 // POST /users/me/stripe-connect/onboard

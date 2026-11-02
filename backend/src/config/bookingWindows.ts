@@ -9,13 +9,15 @@
 
 // How long after a booking completes before its deposit auto-releases with
 // no dispute filed (see cleanupJob.releaseDueDeposits, disputeService's
-// DISPUTE_WINDOW_HOURS).
-export const DEPOSIT_HOLD_HOURS = 24
+// DISPUTE_WINDOW_HOURS). Defined in @zoink/shared so the app's copy quotes
+// the same number.
+export { DEPOSIT_HOLD_HOURS } from '@zoink/shared'
 
 // How long after a booking completes before the owner's payout is released
 // (see cleanupJob.releaseDuePayouts).
-export const PAYOUT_HOLD_HOURS = 24
+export { PAYOUT_HOLD_HOURS } from '@zoink/shared'
 
 // How long a one-sided handoff tap (pickup or return) is held before it's
-// cleared as stale (see cleanupJob.cleanupStaleHandoffs).
-export const ZOINK_TAP_WINDOW_MS = 5 * 60 * 1000
+// cleared as stale (see cleanupJob.cleanupStaleHandoffs). Defined in
+// @zoink/shared so the app's countdown uses the same number.
+export { ZOINK_TAP_WINDOW_MS } from '@zoink/shared'
