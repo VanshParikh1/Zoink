@@ -717,11 +717,21 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
         throw error
       }
 
-      if (booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
+      if (!booking.stripePaymentIntentId) {
         throw new ConflictError('Payment authorization is not ready yet.')
       }
 
-      if (!booking.stripePaymentIntentId) {
+      // The app confirms as soon as the payment sheet closes, often before
+      // Stripe's amount_capturable_updated webhook lands, so a rent the
+      // webhook hasn't marked yet is checked with Stripe directly. The status
+      // moves forward only from where that webhook would move it.
+      let learnedAuthorization = false
+      if (booking.paymentStatus === PaymentStatus.PENDING_AUTH || booking.paymentStatus === PaymentStatus.FAILED) {
+        const intent = await retrievePaymentIntent(booking.stripePaymentIntentId)
+        learnedAuthorization = intent?.status === 'requires_capture'
+      }
+
+      if (!learnedAuthorization && booking.paymentStatus !== PaymentStatus.AUTHORIZED && booking.paymentStatus !== PaymentStatus.CAPTURED) {
         throw new ConflictError('Payment authorization is not ready yet.')
       }
 
@@ -772,6 +782,7 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
         where: { id: booking.id },
         data: {
           status: BookingStatus.CONFIRMED,
+          ...(learnedAuthorization ? { paymentStatus: PaymentStatus.AUTHORIZED } : {}),
           stripeDepositPaymentIntentId: depositPaymentIntentId,
           depositStatus: hasDeposit ? DepositStatus.AUTHORIZED : null,
           version: { increment: 1 },

@@ -139,3 +139,38 @@ describe('POST /bookings/:id/payment-intent — retries', () => {
     assert.equal(row.refundedAt, null)
   })
 })
+
+function confirmPayment(bookingId: string) {
+  return supertest(getApp())
+    .patch(`/bookings/${bookingId}/confirm`)
+    .set('Authorization', `Bearer ${renter.token}`)
+}
+
+// No webhook reaches the test server, so every confirm here comes "before the
+// webhook", as it does in the app when Stripe's event is slow.
+describe('PATCH /bookings/:id/confirm — before the webhook', () => {
+  test('an authorized rent confirms at once, checked with Stripe', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe test API unreachable')
+    const booking = await createAcceptedBooking()
+    const intent = await pay(booking.id)
+    await confirmTestPaymentIntent(intent.body.stripePaymentIntentId)
+
+    const res = await confirmPayment(booking.id)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.status, BookingStatus.CONFIRMED)
+    assert.equal(res.body.paymentStatus, PaymentStatus.AUTHORIZED)
+  })
+
+  test('a rent Stripe has not authorized is still refused', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe test API unreachable')
+    const booking = await createAcceptedBooking()
+    await pay(booking.id)
+
+    const res = await confirmPayment(booking.id)
+    assert.equal(res.status, 409)
+    assert.match(JSON.stringify(res.body), /not ready yet/)
+    const row = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(row.status, BookingStatus.ACCEPTED)
+    assert.equal(row.paymentStatus, PaymentStatus.PENDING_AUTH)
+  })
+})
