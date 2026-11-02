@@ -414,6 +414,7 @@ ${body}
       <div class="footer-links">
         <a href="index.html">Home</a>
         <a href="${otherHref}">${otherLabel}</a>
+        <a href="support.html">Support</a>
         <a href="mailto:zoinksupport@gmail.com">zoinksupport@gmail.com</a>
       </div>
     </div>
