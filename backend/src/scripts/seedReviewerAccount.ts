@@ -1,37 +1,45 @@
 /**
  * Seeds a fixed App Store reviewer account plus enough surrounding data that
- * Home, Inbox, Bookings, Pay and Zoink It all have something to show.
+ * Home, Inbox, Bookings, Pay and Zoink It all have something to show, and a
+ * second, empty reviewer account that exists only to try Delete account (the
+ * main one is refused while an item is with someone or a dispute is open).
  *
  * Signup is locked to university domains and the OTP email may never reach a
  * reviewer, so App Review gets a pre-verified login instead. Idempotent: safe
  * to re-run any time — including after the reviewer exercises
  * Settings → Delete account, which anonymizes the row and frees the email, so
- * a re-run simply creates a fresh reviewer.
+ * a re-run simply creates a fresh reviewer. Every run puts the Pay and Zoink It
+ * bookings back to their starting state, even after they were paid or tapped:
+ * their test-mode PaymentIntents are cancelled (or refunded) and the bookings
+ * recreated. It refuses to touch Stripe with a live key.
  *
  * NEVER run automatically — it is not wired into build, start or migrate.
  *
  * Usage (local):
- *   REVIEWER_PASSWORD='<strong password>' npx ts-node src/scripts/seedReviewerAccount.ts
+ *   REVIEWER_PASSWORD='<strong password>' DELETION_REVIEWER_PASSWORD='<another>' \
+ *     npx ts-node src/scripts/seedReviewerAccount.ts
  *
  * Usage (Railway prod DB — copy DATABASE_URL from the Postgres service's
  * "Connect" tab, public network URL):
  *   DATABASE_URL='postgresql://...' REVIEWER_PASSWORD='<strong password>' \
- *     npx ts-node src/scripts/seedReviewerAccount.ts --confirm-remote
+ *     DELETION_REVIEWER_PASSWORD='<another>' npx ts-node src/scripts/seedReviewerAccount.ts --confirm-remote
  *
- * Optional: REVIEWER_EMAIL (default reviewer@zoink.app).
+ * Optional: REVIEWER_EMAIL (default reviewer@zoink.app), DELETION_REVIEWER_EMAIL
+ * (default reviewer-delete@zoink.app).
  */
 import dotenv from 'dotenv'
 dotenv.config()
 
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { BookingStatus, PaymentStatus, Prisma, VerificationStatus } from '@prisma/client'
+import { BookingStatus, DepositStatus, PaymentStatus, Prisma, VerificationStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '../config/legal'
 import { getRentalDays, roundCurrency } from '../services/bookingUtils'
 import { calculateCommission, calculateHst, calculateOwnerPayout } from '../services/paymentService'
 
 export const DEFAULT_REVIEWER_EMAIL = 'reviewer@zoink.app'
+export const DEFAULT_DELETION_REVIEWER_EMAIL = 'reviewer-delete@zoink.app'
 export const OWNER_EMAIL = 'reviewer-owner@zoink.app'
 // A second, disposable counterparty so the reviewer can demo Report / Block
 // without hiding the main owner's listings and threads.
@@ -106,6 +114,48 @@ function pricing(dailyPrice: number, depositAmount: number, startDate: Date, end
 
 type Db = typeof prisma
 
+/** The few Stripe calls a reset needs; tests pass a fake. */
+export type SeedStripe = {
+  paymentIntents: {
+    retrieve(id: string): Promise<{ status: string; amount_received: number }>
+    cancel(id: string): Promise<unknown>
+  }
+  refunds: { create(params: { payment_intent: string }): Promise<unknown> }
+}
+
+/** Stripe from STRIPE_SECRET_KEY, or null without one (local seeds have only
+ *  mock PaymentIntents). A live key is refused: a reset cancels and refunds. */
+export function seedStripeClient(key = process.env.STRIPE_SECRET_KEY): SeedStripe | null {
+  if (!key) return null
+  if (!key.startsWith('sk_test_') && !key.startsWith('rk_test_')) {
+    throw new Error('Refusing to reset reviewer bookings with a live Stripe key; the seed only runs in test mode.')
+  }
+  const Stripe = require('stripe')
+  return new Stripe(key)
+}
+
+const CANCELLABLE_INTENT = ['requires_payment_method', 'requires_confirmation', 'requires_action', 'requires_capture', 'processing']
+
+/** Cancels a held PaymentIntent, or refunds a captured one. One that Stripe
+ *  doesn't have (a local mock id) or that's already cancelled is left alone. */
+async function releaseIntent(stripe: SeedStripe, id: string) {
+  let intent
+  try {
+    intent = await stripe.paymentIntents.retrieve(id)
+  } catch (error: any) {
+    if (error?.code === 'resource_missing') return
+    throw error
+  }
+  if (CANCELLABLE_INTENT.includes(intent.status)) await stripe.paymentIntents.cancel(id)
+  else if (intent.status === 'succeeded' && intent.amount_received > 0) {
+    try {
+      await stripe.refunds.create({ payment_intent: id })
+    } catch (error: any) {
+      if (error?.code !== 'charge_already_refunded') throw error
+    }
+  }
+}
+
 async function upsertVerifiedUser(
   db: Db,
   data: { email: string; firstName: string; lastName: string; phone: string; bio: string; avatarUrl: string; passwordHash: string },
@@ -136,6 +186,7 @@ async function upsertVerifiedUser(
 
 export type SeedReviewerResult = {
   reviewer: { id: string; email: string }
+  deletionReviewer: { id: string; email: string }
   owner: { id: string; email: string }
   secondUser: { id: string; email: string }
   listingIds: string[]
@@ -143,11 +194,15 @@ export type SeedReviewerResult = {
 }
 
 export async function seedReviewerAccount(
-  opts: { reviewerEmail: string; reviewerPassword: string },
+  opts: { reviewerEmail: string; reviewerPassword: string; deletionReviewerEmail?: string; deletionReviewerPassword: string },
   db: Db = prisma,
+  stripe: SeedStripe | null = seedStripeClient(),
 ): Promise<SeedReviewerResult> {
   if (opts.reviewerPassword.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`REVIEWER_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+  }
+  if (opts.deletionReviewerPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`DELETION_REVIEWER_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters.`)
   }
 
   const reviewer = await upsertVerifiedUser(db, {
@@ -158,6 +213,18 @@ export async function seedReviewerAccount(
     bio: 'Apple App Review demo account.',
     avatarUrl: img('photo-1500648767791-00dcc994a43e'),
     passwordHash: await bcrypt.hash(opts.reviewerPassword, 10),
+  })
+
+  // For Delete account only: no listings, bookings or disputes, so nothing
+  // refuses the deletion. After a deletion, a re-run creates it afresh.
+  const deletionReviewer = await upsertVerifiedUser(db, {
+    email: opts.deletionReviewerEmail ?? DEFAULT_DELETION_REVIEWER_EMAIL,
+    firstName: 'Delete',
+    lastName: 'Tester',
+    phone: '+14165550126',
+    bio: 'Apple App Review demo account for trying Delete account.',
+    avatarUrl: img('photo-1500648767791-00dcc994a43e'),
+    passwordHash: await bcrypt.hash(opts.deletionReviewerPassword, 10),
   })
 
   // The owner never needs to log in — an unrecoverable random password.
@@ -223,9 +290,8 @@ export async function seedReviewerAccount(
   const secondListingId = await upsertListing(secondUser.id, SECOND_USER_LISTING)
 
   // ── Conversations + one booking per listing ─────────────────────────────────
-  // Each booking is keyed by (listing, renter). An existing booking is left
-  // alone unless it's the ACCEPTED one and its dates have drifted into the
-  // past, so a reviewer who already paid isn't reset by a re-run.
+  // Each booking is keyed by (listing, renter). The completed one is kept as
+  // is; the Pay and Zoink It ones are recreated on every run (fresh: true).
   async function ensureConversation(
     listingId: string,
     messages: { from: 'reviewer' | 'owner'; body: string }[],
@@ -257,21 +323,28 @@ export async function seedReviewerAccount(
     key: keyof typeof listings,
     conversationId: string,
     build: () => Omit<Prisma.BookingUncheckedCreateInput, 'listingId' | 'renterId' | 'ownerId' | 'conversationId'>,
-    refreshIfStale?: (b: { status: BookingStatus; startDate: Date }) => boolean,
+    fresh = false,
   ) {
     const listing = listings[key]
-    const existing = await db.booking.findFirst({
+    const existing = await db.booking.findMany({
       where: { listingId: listing.id, renterId: reviewer.id },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true, startDate: true },
+      select: { id: true, stripePaymentIntentId: true, stripeDepositPaymentIntentId: true },
     })
-    if (existing && !(refreshIfStale && refreshIfStale(existing))) return existing.id
+    if (existing.length > 0 && !fresh) return existing[0].id
+
+    // Release whatever the reviewer paid before deleting, so no test-mode
+    // hold outlives its booking. Events, reviews and obligations cascade.
+    for (const booking of existing) {
+      for (const intentId of [booking.stripePaymentIntentId, booking.stripeDepositPaymentIntentId]) {
+        if (intentId && stripe) await releaseIntent(stripe, intentId)
+      }
+    }
+    const ids = existing.map((b) => b.id)
+    await db.dispute.deleteMany({ where: { bookingId: { in: ids } } })
+    await db.booking.deleteMany({ where: { id: { in: ids } } })
 
     const data = { ...build(), listingId: listing.id, renterId: reviewer.id, ownerId: owner.id, conversationId }
-    if (existing) {
-      await db.booking.update({ where: { id: existing.id }, data })
-      return existing.id
-    }
     const created = await db.booking.create({ data })
     return created.id
   }
@@ -314,10 +387,9 @@ export async function seedReviewerAccount(
       startDate: acceptedStart,
       endDate: acceptedEnd,
       paymentStatus: PaymentStatus.PENDING_AUTH,
-      stripePaymentIntentId: null,
       ...pricing(listings.speaker.dailyPrice, listings.speaker.depositAmount, acceptedStart, acceptedEnd),
     }),
-    (b) => b.status === BookingStatus.ACCEPTED && b.startDate.getTime() < dayOffset(1).getTime(),
+    true,
   )
 
   // 3. Pickup documented by the owner today — Zoink It shows the owner's
@@ -335,7 +407,11 @@ export async function seedReviewerAccount(
       status: BookingStatus.PICKUP_PENDING,
       startDate: pickupStart,
       endDate: pickupEnd,
+      // Pickup needs the rent and the deposit held (isPickupPaymentReady).
+      // Nothing is captured: the owner never taps, so the reviewer's tap only
+      // records their side of the handoff.
       paymentStatus: PaymentStatus.AUTHORIZED,
+      depositStatus: DepositStatus.AUTHORIZED,
       paidAt: new Date(),
       pickupPhotos: [...PICKUP_PHOTOS],
       handoffInitiatedAt: new Date(),
@@ -343,7 +419,7 @@ export async function seedReviewerAccount(
       renterPickupTappedAt: null,
       ...pricing(listings.camera.dailyPrice, listings.camera.depositAmount, pickupStart, pickupEnd),
     }),
-    (b) => b.status === BookingStatus.PICKUP_PENDING && b.startDate.getTime() < dayOffset(-1).getTime(),
+    true,
   )
 
   // 4. A thread with the second user — the one to long-press → Report
@@ -359,6 +435,7 @@ export async function seedReviewerAccount(
 
   return {
     reviewer: { id: reviewer.id, email: reviewer.email },
+    deletionReviewer: { id: deletionReviewer.id, email: deletionReviewer.email },
     owner: { id: owner.id, email: owner.email },
     secondUser: { id: secondUser.id, email: secondUser.email },
     listingIds: [...Object.values(listings).map((l) => l.id), secondListingId],
@@ -379,11 +456,12 @@ function isLocalDatabase(url: string) {
 
 async function main() {
   const password = process.env.REVIEWER_PASSWORD ?? ''
+  const deletionPassword = process.env.DELETION_REVIEWER_PASSWORD ?? ''
   const email = process.env.REVIEWER_EMAIL?.trim() || DEFAULT_REVIEWER_EMAIL
   const dbUrl = process.env.DATABASE_URL ?? ''
 
-  if (!password) {
-    console.error('REVIEWER_PASSWORD is required (never commit it — pass it inline or via your shell).')
+  if (!password || !deletionPassword) {
+    console.error('REVIEWER_PASSWORD and DELETION_REVIEWER_PASSWORD are required (never commit them — pass them inline or via your shell).')
     process.exit(1)
   }
   if (!isLocalDatabase(dbUrl) && !process.argv.includes('--confirm-remote')) {
@@ -394,9 +472,15 @@ async function main() {
     process.exit(1)
   }
 
-  const result = await seedReviewerAccount({ reviewerEmail: email, reviewerPassword: password })
-  console.log('Reviewer account ready.')
+  const result = await seedReviewerAccount({
+    reviewerEmail: email,
+    reviewerPassword: password,
+    deletionReviewerEmail: process.env.DELETION_REVIEWER_EMAIL?.trim() || undefined,
+    deletionReviewerPassword: deletionPassword,
+  })
+  console.log('Reviewer accounts ready.')
   console.log(`  Login:          ${result.reviewer.email}  (password: the REVIEWER_PASSWORD you supplied)`)
+  console.log(`  Delete account: ${result.deletionReviewer.email}  (password: the DELETION_REVIEWER_PASSWORD you supplied)`)
   console.log(`  Owner account:  ${result.owner.email}  (not for login)`)
   console.log(`  Second user:    ${result.secondUser.email}  (not for login — use for Report/Block demo)`)
   console.log(`  Listings:       ${result.listingIds.length}`)
