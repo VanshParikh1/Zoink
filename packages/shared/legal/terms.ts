@@ -7,7 +7,7 @@ export const TERMS_VERSION = '1.0'
 export const TERMS_TEXT = `# Zoink — Terms of Service
 
 **Effective date:** September 8, 2026
-**Last updated:** October 30, 2026
+**Last updated:** November 2, 2026
 
 ---
 
@@ -215,7 +215,7 @@ You may not:
 
 ## 15. Suspension and termination
 
-You may close your account at any time in the app or by emailing zoinksupport@gmail.com. Closing your account does not cancel bookings that are already confirmed, does not release you from money you owe, and does not remove reviews you have already received.
+You may close your account at any time in the app (Profile › Settings › Delete account) or by emailing zoinksupport@gmail.com, except while an item you rented or lent is with someone (from pickup until it is returned) or while a dispute involving you is open. Finish those first. When you close your account, your bookings that haven't been picked up yet are cancelled and any payment or deposit holds on them are released. Closing your account does not release you from money you owe, and does not remove reviews you have already received.
 
 We may suspend or terminate your account, remove your listings, or refuse service, with or without notice, if we reasonably believe you have broken these Terms, that your continued use presents a risk to other users, or that we are required to by law. Where it is safe and lawful to do so, we will tell you why and give you a way to respond.
 
