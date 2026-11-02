@@ -16,6 +16,15 @@ export function assertSafeProductionConfig(env: NodeJS.ProcessEnv = process.env)
     )
   }
 
+  // Without these, paymentService fakes every Stripe call (pi_mock_/tr_mock_)
+  // and the webhook rejects every delivery: bookings would "pay" and owners be
+  // "paid out" with no money moving.
+  for (const name of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']) {
+    if (!env[name]?.trim()) {
+      throw new Error(`Refusing to start: ${name} must be set in production.`)
+    }
+  }
+
   // Every session token is an HS256 signature with this secret; a short one
   // can be brute-forced offline from any token, which forges any account.
   if ((env.JWT_SECRET ?? '').length < MIN_JWT_SECRET_LENGTH) {
