@@ -14,6 +14,7 @@ import { fonts, type } from '../theme/typography'
 import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Register'>
@@ -25,6 +26,7 @@ type Field = 'email' | 'university' | 'firstName' | 'lastName' | 'phone' | 'pass
 
 export default function RegisterScreen() {
   const navigation = useNavigation<Nav>()
+  const keyboardOpen = useKeyboardVisible()
   const route = useRoute<ScreenRoute>()
   const insets = useSafeAreaInsets()
   const pending = route.params?.pendingRegistration
@@ -74,23 +76,27 @@ export default function RegisterScreen() {
     })
   }
 
+  const footer = (
+    <View style={styles.footer}>
+      <Button label="Continue" onPress={handleRegister} />
+      <Text style={styles.switchText} onPress={() => navigation.navigate('Login')} accessibilityRole="link">
+        Already have an account? <Text style={styles.switchLink}>Sign in</Text>
+      </Text>
+      <LegalCaption
+        onTerms={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'terms' })}
+        onPrivacy={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'privacy' })}
+      />
+    </View>
+  )
+
   return (
     <>
       <Screen
         glow="topLeft"
         keyboardAvoiding
-        footer={
-          <View style={styles.footer}>
-            <Button label="Continue" onPress={handleRegister} />
-            <Text style={styles.switchText} onPress={() => navigation.navigate('Login')} accessibilityRole="link">
-              Already have an account? <Text style={styles.switchLink}>Sign in</Text>
-            </Text>
-            <LegalCaption
-              onTerms={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'terms' })}
-              onPrivacy={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'privacy' })}
-            />
-          </View>
-        }
+        // Pinned only while the keyboard is down; with it up the footer joins the scroll
+        // below the form, so it can't sit on top of the field being typed in.
+        footer={keyboardOpen ? undefined : footer}
       >
         <View style={styles.content}>
           <AuthIntro />
@@ -184,6 +190,8 @@ export default function RegisterScreen() {
               validated
             />
           </View>
+
+          {keyboardOpen ? footer : null}
 
           <UniversitiesCard />
         </View>

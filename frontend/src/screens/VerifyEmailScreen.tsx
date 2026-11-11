@@ -52,9 +52,15 @@ export default function VerifyEmailScreen() {
       footer={<Button label="Verify email" onPress={handleVerify} loading={loading} />}
     >
       <View style={styles.content}>
-        <Text style={styles.body}>
-          We sent a 6-digit code to <Text style={styles.email}>{user?.email}</Text>
-        </Text>
+        <View style={styles.intro}>
+          <Text style={styles.body}>
+            We sent a 6-digit code to <Text style={styles.email}>{user?.email}</Text>
+          </Text>
+          {/* Campus mail often files the code as spam, and students rarely look there. */}
+          <Text style={styles.body}>
+            Can't find it? <Text style={styles.email}>Check your junk or spam folder.</Text>
+          </Text>
+        </View>
 
         <View style={styles.codeBlock}>
           <OtpInput value={code} onChange={setCode} error={!!error} autoFocus />
@@ -81,6 +87,9 @@ const styles = StyleSheet.create({
   content: {
     gap: space.screen,
     paddingTop: space.sm,
+  },
+  intro: {
+    gap: space.sm,
   },
   body: {
     ...type.body,

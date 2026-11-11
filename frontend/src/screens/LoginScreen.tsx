@@ -10,6 +10,7 @@ import { fonts, type } from '../theme/typography'
 import Screen from '../components/mockup/Screen'
 import Button from '../components/mockup/Button'
 import TextField from '../components/mockup/TextField'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { AuthIntro, LegalCaption, UniversitiesCard } from '../components/mockup/AuthEntry'
 import { markStartup } from '../utils/perfMarks'
 import { toast } from '../services/toast'
@@ -23,6 +24,7 @@ export default function LoginScreen() {
     markStartup('login')
   }, [])
   const navigation = useNavigation<Nav>()
+  const keyboardOpen = useKeyboardVisible()
   const { login } = useAuth()
 
   const [email, setEmail] = useState('')
@@ -41,22 +43,26 @@ export default function LoginScreen() {
     }
   })
 
+  const footer = (
+    <View style={styles.footer}>
+      <Button label="Sign in" onPress={handleLogin} loading={loading} />
+      <Text style={styles.switchText} onPress={() => navigation.navigate('Register')} accessibilityRole="link">
+        Don't have an account? <Text style={styles.switchLink}>Sign up</Text>
+      </Text>
+      <LegalCaption
+        onTerms={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'terms' })}
+        onPrivacy={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'privacy' })}
+      />
+    </View>
+  )
+
   return (
     <Screen
       glow="topLeft"
       keyboardAvoiding
-      footer={
-        <View style={styles.footer}>
-          <Button label="Sign in" onPress={handleLogin} loading={loading} />
-          <Text style={styles.switchText} onPress={() => navigation.navigate('Register')} accessibilityRole="link">
-            Don't have an account? <Text style={styles.switchLink}>Sign up</Text>
-          </Text>
-          <LegalCaption
-            onTerms={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'terms' })}
-            onPrivacy={() => navigation.navigate('TermsAcceptance', { mode: 'view', initialTab: 'privacy' })}
-          />
-        </View>
-      }
+      // Pinned only while the keyboard is down; with it up the footer joins the scroll
+      // below the form, so it can't sit on top of the field being typed in.
+      footer={keyboardOpen ? undefined : footer}
     >
       <View style={styles.content}>
         <AuthIntro />
@@ -93,6 +99,8 @@ export default function LoginScreen() {
             onSubmitEditing={handleLogin}
           />
         </View>
+
+        {keyboardOpen ? footer : null}
 
         <UniversitiesCard />
       </View>
