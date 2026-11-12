@@ -24,6 +24,10 @@
  *   DATABASE_URL='postgresql://...' REVIEWER_PASSWORD='<strong password>' \
  *     DELETION_REVIEWER_PASSWORD='<another>' npx ts-node src/scripts/seedReviewerAccount.ts --confirm-remote
  *
+ * Screen-recording cast (recording@ / recording-delete@, own owner and listings):
+ *   RECORDING_PASSWORD='<strong>' RECORDING_DELETE_PASSWORD='<another>' \
+ *     npx ts-node src/scripts/seedReviewerAccount.ts --recording [--confirm-remote]
+ *
  * Optional: REVIEWER_EMAIL (default reviewer@zoink.app), DELETION_REVIEWER_EMAIL
  * (default reviewer-delete@zoink.app).
  */
@@ -44,6 +48,13 @@ export const OWNER_EMAIL = 'reviewer-owner@zoink.app'
 // A second, disposable counterparty so the reviewer can demo Report / Block
 // without hiding the main owner's listings and threads.
 export const SECOND_USER_EMAIL = 'reviewer-neighbour@zoink.app'
+// A separate cast for the App Review screen recording (--recording): its own
+// owner, neighbour and listings, so seeding, paying or deleting one cast never
+// touches the other's bookings, listings or chats.
+export const RECORDING_EMAIL = 'recording@zoink.app'
+export const RECORDING_DELETE_EMAIL = 'recording-delete@zoink.app'
+export const RECORDING_OWNER_EMAIL = 'recording-owner@zoink.app'
+export const RECORDING_SECOND_USER_EMAIL = 'recording-neighbour@zoink.app'
 const MIN_PASSWORD_LENGTH = 12
 
 const img = (id: string) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1200&q=80`
@@ -194,7 +205,15 @@ export type SeedReviewerResult = {
 }
 
 export async function seedReviewerAccount(
-  opts: { reviewerEmail: string; reviewerPassword: string; deletionReviewerEmail?: string; deletionReviewerPassword: string },
+  opts: {
+    reviewerEmail: string
+    reviewerPassword: string
+    deletionReviewerEmail?: string
+    deletionReviewerPassword: string
+    ownerEmail?: string
+    ownerName?: { firstName: string; lastName: string }
+    secondUserEmail?: string
+  },
   db: Db = prisma,
   stripe: SeedStripe | null = seedStripeClient(),
 ): Promise<SeedReviewerResult> {
@@ -229,9 +248,9 @@ export async function seedReviewerAccount(
 
   // The owner never needs to log in — an unrecoverable random password.
   const owner = await upsertVerifiedUser(db, {
-    email: OWNER_EMAIL,
-    firstName: 'Jordan',
-    lastName: 'Lee',
+    email: opts.ownerEmail ?? OWNER_EMAIL,
+    firstName: opts.ownerName?.firstName ?? 'Jordan',
+    lastName: opts.ownerName?.lastName ?? 'Lee',
     phone: '+14165550124',
     bio: 'Film student who rents out gear between shoots.',
     avatarUrl: img('photo-1494790108377-be9c29b29330'),
@@ -239,7 +258,7 @@ export async function seedReviewerAccount(
   })
 
   const secondUser = await upsertVerifiedUser(db, {
-    email: SECOND_USER_EMAIL,
+    email: opts.secondUserEmail ?? SECOND_USER_EMAIL,
     firstName: 'Sam',
     lastName: 'Patel',
     phone: '+14165550125',
@@ -443,6 +462,19 @@ export async function seedReviewerAccount(
   }
 }
 
+/** Options for the screen-recording cast; fixed emails, never the reviewer's. */
+export function recordingSeedOptions(password: string, deletionPassword: string) {
+  return {
+    reviewerEmail: RECORDING_EMAIL,
+    reviewerPassword: password,
+    deletionReviewerEmail: RECORDING_DELETE_EMAIL,
+    deletionReviewerPassword: deletionPassword,
+    ownerEmail: RECORDING_OWNER_EMAIL,
+    ownerName: { firstName: 'Maya', lastName: 'Singh' },
+    secondUserEmail: RECORDING_SECOND_USER_EMAIL,
+  }
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function isLocalDatabase(url: string) {
@@ -455,13 +487,16 @@ function isLocalDatabase(url: string) {
 }
 
 async function main() {
-  const password = process.env.REVIEWER_PASSWORD ?? ''
-  const deletionPassword = process.env.DELETION_REVIEWER_PASSWORD ?? ''
-  const email = process.env.REVIEWER_EMAIL?.trim() || DEFAULT_REVIEWER_EMAIL
+  const recording = process.argv.includes('--recording')
+  const [passwordVar, deletionPasswordVar] = recording
+    ? ['RECORDING_PASSWORD', 'RECORDING_DELETE_PASSWORD']
+    : ['REVIEWER_PASSWORD', 'DELETION_REVIEWER_PASSWORD']
+  const password = process.env[passwordVar] ?? ''
+  const deletionPassword = process.env[deletionPasswordVar] ?? ''
   const dbUrl = process.env.DATABASE_URL ?? ''
 
   if (!password || !deletionPassword) {
-    console.error('REVIEWER_PASSWORD and DELETION_REVIEWER_PASSWORD are required (never commit them — pass them inline or via your shell).')
+    console.error(`${passwordVar} and ${deletionPasswordVar} are required (never commit them — pass them inline or via your shell).`)
     process.exit(1)
   }
   if (!isLocalDatabase(dbUrl) && !process.argv.includes('--confirm-remote')) {
@@ -472,15 +507,19 @@ async function main() {
     process.exit(1)
   }
 
-  const result = await seedReviewerAccount({
-    reviewerEmail: email,
-    reviewerPassword: password,
-    deletionReviewerEmail: process.env.DELETION_REVIEWER_EMAIL?.trim() || undefined,
-    deletionReviewerPassword: deletionPassword,
-  })
-  console.log('Reviewer accounts ready.')
-  console.log(`  Login:          ${result.reviewer.email}  (password: the REVIEWER_PASSWORD you supplied)`)
-  console.log(`  Delete account: ${result.deletionReviewer.email}  (password: the DELETION_REVIEWER_PASSWORD you supplied)`)
+  const result = await seedReviewerAccount(
+    recording
+      ? recordingSeedOptions(password, deletionPassword)
+      : {
+          reviewerEmail: process.env.REVIEWER_EMAIL?.trim() || DEFAULT_REVIEWER_EMAIL,
+          reviewerPassword: password,
+          deletionReviewerEmail: process.env.DELETION_REVIEWER_EMAIL?.trim() || undefined,
+          deletionReviewerPassword: deletionPassword,
+        },
+  )
+  console.log(recording ? 'Recording accounts ready.' : 'Reviewer accounts ready.')
+  console.log(`  Login:          ${result.reviewer.email}  (password: the ${passwordVar} you supplied)`)
+  console.log(`  Delete account: ${result.deletionReviewer.email}  (password: the ${deletionPasswordVar} you supplied)`)
   console.log(`  Owner account:  ${result.owner.email}  (not for login)`)
   console.log(`  Second user:    ${result.secondUser.email}  (not for login — use for Report/Block demo)`)
   console.log(`  Listings:       ${result.listingIds.length}`)

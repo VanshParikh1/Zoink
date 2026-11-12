@@ -18,6 +18,9 @@ import {
   DEFAULT_REVIEWER_EMAIL,
   DEFAULT_DELETION_REVIEWER_EMAIL,
   OWNER_EMAIL,
+  RECORDING_EMAIL,
+  RECORDING_DELETE_EMAIL,
+  recordingSeedOptions,
   SeedStripe,
 } from '../scripts/seedReviewerAccount'
 import * as blockService from '../services/blockService'
@@ -258,5 +261,59 @@ describe('seedReviewerAccount', () => {
       .get('/bookings/me')
       .set('Authorization', `Bearer ${(await login()).body.token}`)
     assert.equal(bookings.body.length, 3)
+  })
+})
+
+describe('recording cast (--recording)', () => {
+  const REC_PASSWORD = 'Recording-Pass-Strong-1'
+  const REC_DELETE_PASSWORD = 'Recording-Delete-Pass-2'
+  const seedRecording = (stripe: SeedStripe | null = null) =>
+    seedReviewerAccount(recordingSeedOptions(REC_PASSWORD, REC_DELETE_PASSWORD), undefined, stripe)
+
+  test('seeds its own cast: no user, listing, booking or chat shared with the reviewer cast', async () => {
+    const reviewer = await seed()
+    const recording = await seedRecording()
+    assert.equal(recording.reviewer.email, RECORDING_EMAIL)
+    assert.equal(recording.deletionReviewer.email, RECORDING_DELETE_EMAIL)
+    const reviewerIds = [reviewer.reviewer, reviewer.deletionReviewer, reviewer.owner, reviewer.secondUser].map((u) => u.id)
+    for (const u of [recording.reviewer, recording.deletionReviewer, recording.owner, recording.secondUser]) {
+      assert.ok(!reviewerIds.includes(u.id))
+    }
+    assert.equal(recording.listingIds.filter((id) => reviewer.listingIds.includes(id)).length, 0)
+
+    const db = getTestPrisma()
+    assert.equal(await db.user.count(), 8)
+    assert.equal(await db.booking.count(), 6)
+    assert.equal(await db.conversation.count(), 8)
+
+    const res = await login(RECORDING_EMAIL, REC_PASSWORD)
+    assert.equal(res.status, 200)
+    const bookings = await supertest(getApp()).get('/bookings/me').set('Authorization', `Bearer ${res.body.token}`)
+    assert.deepEqual(bookings.body.map((b: any) => b.status).sort(), ['ACCEPTED', 'COMPLETED', 'PICKUP_PENDING'])
+  })
+
+  test('re-seeding or deleting the recording cast leaves the reviewer cast untouched', async () => {
+    const reviewer = await seed()
+    const db = getTestPrisma()
+    const snapshot = async () => ({
+      users: await db.user.findMany({ where: { id: { in: [reviewer.reviewer.id, reviewer.deletionReviewer.id] } }, orderBy: { id: 'asc' } }),
+      bookings: await db.booking.findMany({ where: { renterId: reviewer.reviewer.id }, orderBy: { id: 'asc' } }),
+      listings: await db.listing.findMany({ where: { ownerId: reviewer.owner.id }, include: { images: true }, orderBy: { id: 'asc' } }),
+      messages: await db.message.count({ where: { conversation: { renterId: reviewer.reviewer.id } } }),
+    })
+    const before = await snapshot()
+
+    const first = await seedRecording()
+    // Pay and tap on the recording side, then re-seed it with a Stripe reset.
+    await db.booking.update({ where: { id: first.bookings.accepted }, data: { status: 'CONFIRMED', stripePaymentIntentId: 'pi_rec' } })
+    const { stripe, calls } = fakeStripe({ pi_rec: 'requires_capture' })
+    await seedRecording(stripe)
+    assert.deepEqual(calls, ['cancel pi_rec'])
+
+    const token = (await login(RECORDING_DELETE_EMAIL, REC_DELETE_PASSWORD)).body.token
+    const del = await supertest(getApp()).delete('/users/me').set('Authorization', `Bearer ${token}`)
+    assert.equal(del.status, 204, JSON.stringify(del.body))
+
+    assert.deepEqual(await snapshot(), before)
   })
 })
