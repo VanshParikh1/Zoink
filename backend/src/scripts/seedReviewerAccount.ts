@@ -36,11 +36,12 @@ dotenv.config()
 
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { BookingStatus, DepositStatus, PaymentStatus, Prisma, VerificationStatus } from '@prisma/client'
+import { BookingStatus, DepositStatus, PaymentStatus, Prisma, ReviewObligationStatus, ReviewRole, VerificationStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '../config/legal'
 import { getRentalDays, roundCurrency } from '../services/bookingUtils'
 import { calculateCommission, calculateHst, calculateOwnerPayout } from '../services/paymentService'
+import { submitReview } from '../services/reviewService'
 
 export const DEFAULT_REVIEWER_EMAIL = 'reviewer@zoink.app'
 export const DEFAULT_DELETION_REVIEWER_EMAIL = 'reviewer-delete@zoink.app'
@@ -91,7 +92,71 @@ const LISTINGS = [
     depositAmount: 25,
     images: [img('photo-1572981779307-38b8cabb2407'), img('photo-1504148455328-c376907d081c')],
   },
+  // Browse fillers: no bookings, just enough variety that Home, Search and
+  // the category chips don't look empty.
+  {
+    key: 'tent',
+    title: 'Coleman 4-Person Tent',
+    description: 'Waterproof dome tent that sets up in ten minutes. Fits four sleeping bags. Footprint and stakes included.',
+    category: 'Outdoors',
+    dailyPrice: 15,
+    itemValue: 250,
+    depositAmount: 30,
+    images: [img('photo-1504280390367-361c6d9f38f4')],
+  },
+  {
+    key: 'bike',
+    title: 'Single-Speed City Bike (Medium)',
+    description: 'Light single-speed bike for getting around campus. Lock and front light included. Fits riders about 5\'6" to 6\'0".',
+    category: 'Sports',
+    dailyPrice: 14,
+    itemValue: 600,
+    depositAmount: 60,
+    images: [img('photo-1485965120184-e220f721d03e'), img('photo-1571068316344-75bc76f77890')],
+  },
+  {
+    key: 'projector',
+    title: 'Portable Movie Projector',
+    description: 'Projects up to 100" on any wall. HDMI and USB-C, built-in speaker. Great for residence movie nights.',
+    category: 'Audio/Video',
+    dailyPrice: 18,
+    itemValue: 300,
+    depositAmount: 40,
+    images: [img('photo-1478720568477-152d9b164e26')],
+  },
+  {
+    key: 'skis',
+    title: 'All-Mountain Skis + Poles (170cm)',
+    description: 'Freshly waxed skis with bindings set for boot size 26-28. Poles included. Perfect for a weekend at Blue Mountain.',
+    category: 'Sports',
+    dailyPrice: 20,
+    itemValue: 500,
+    depositAmount: 50,
+    images: [img('photo-1551698618-1dfe5d97d256')],
+  },
+  {
+    key: 'textbook',
+    title: 'Calculus Textbook (8th ed.)',
+    description: 'First-year calculus text, lightly highlighted. Rent it for the term instead of buying.',
+    category: 'Books',
+    dailyPrice: 2,
+    itemValue: 120,
+    depositAmount: 0,
+    images: [img('photo-1544716278-ca5e3f4abd8c')],
+  },
 ] as const
+
+// The reviewer's own listing, so the lender side (an incoming request to
+// Accept or Decline) has something to show.
+const REVIEWER_LISTING = {
+  title: 'Nintendo Switch + 2 Controllers',
+  description: 'Switch console with dock, two Joy-Con pairs and Mario Kart. Ideal for a games night.',
+  category: 'Electronics',
+  dailyPrice: 10,
+  itemValue: 350,
+  depositAmount: 40,
+  images: [img('photo-1578303512597-81e6cc155b3e')],
+}
 
 const SECOND_USER_LISTING = {
   title: 'Canon Speedlite Flash',
@@ -201,7 +266,7 @@ export type SeedReviewerResult = {
   owner: { id: string; email: string }
   secondUser: { id: string; email: string }
   listingIds: string[]
-  bookings: { completed: string; accepted: string; pickupPending: string }
+  bookings: { completed: string; accepted: string; pickupPending: string; incomingRequest: string }
 }
 
 export async function seedReviewerAccount(
@@ -285,6 +350,7 @@ export async function seedReviewerAccount(
       itemValue: new Prisma.Decimal(spec.itemValue),
       depositAmount: new Prisma.Decimal(spec.depositAmount),
       isAvailable: true,
+      deletedAt: null,
       latitude: 43.6629,
       longitude: -79.3957,
       city: 'Toronto',
@@ -338,22 +404,13 @@ export async function seedReviewerAccount(
     return conversation.id
   }
 
-  async function ensureBooking(
-    key: keyof typeof listings,
-    conversationId: string,
-    build: () => Omit<Prisma.BookingUncheckedCreateInput, 'listingId' | 'renterId' | 'ownerId' | 'conversationId'>,
-    fresh = false,
-  ) {
-    const listing = listings[key]
+  /** Deletes these bookings, first releasing whatever was paid on them so no
+   *  test-mode hold outlives its booking. Events, reviews and obligations cascade. */
+  async function clearBookings(where: Prisma.BookingWhereInput) {
     const existing = await db.booking.findMany({
-      where: { listingId: listing.id, renterId: reviewer.id },
-      orderBy: { createdAt: 'desc' },
+      where,
       select: { id: true, stripePaymentIntentId: true, stripeDepositPaymentIntentId: true },
     })
-    if (existing.length > 0 && !fresh) return existing[0].id
-
-    // Release whatever the reviewer paid before deleting, so no test-mode
-    // hold outlives its booking. Events, reviews and obligations cascade.
     for (const booking of existing) {
       for (const intentId of [booking.stripePaymentIntentId, booking.stripeDepositPaymentIntentId]) {
         if (intentId && stripe) await releaseIntent(stripe, intentId)
@@ -362,8 +419,30 @@ export async function seedReviewerAccount(
     const ids = existing.map((b) => b.id)
     await db.dispute.deleteMany({ where: { bookingId: { in: ids } } })
     await db.booking.deleteMany({ where: { id: { in: ids } } })
+  }
 
-    const data = { ...build(), listingId: listing.id, renterId: reviewer.id, ownerId: owner.id, conversationId }
+  async function ensureBooking(
+    key: keyof typeof listings,
+    conversationId: string,
+    build: () => Omit<Prisma.BookingUncheckedCreateInput, 'listingId' | 'renterId' | 'ownerId' | 'conversationId'>,
+    fresh = false,
+  ) {
+    const listing = listings[key]
+    const spec = build()
+    if (!fresh) {
+      // Match on status: the reviewer may have sent their own request for
+      // the same listing, which must not stand in for the seeded booking.
+      const keep = await db.booking.findFirst({
+        where: { listingId: listing.id, renterId: reviewer.id, status: spec.status },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      })
+      if (keep) return keep.id
+    } else {
+      await clearBookings({ listingId: listing.id, renterId: reviewer.id })
+    }
+
+    const data = { ...spec, listingId: listing.id, renterId: reviewer.id, ownerId: owner.id, conversationId }
     const created = await db.booking.create({ data })
     return created.id
   }
@@ -385,6 +464,25 @@ export async function seedReviewerAccount(
     paidAt: completedStart,
     ...pricing(listings.drill.dailyPrice, listings.drill.depositAmount, completedStart, completedEnd),
   }))
+  // A review each way, submitted through the real service so reputations and
+  // the listing's rating are computed as in the app. Both are submitted, so no
+  // "leave a review" prompt pops up on login.
+  await db.reviewObligation.createMany({
+    data: [
+      { bookingId: completed, userId: reviewer.id, targetUserId: owner.id, reviewerRole: ReviewRole.RENTER },
+      { bookingId: completed, userId: owner.id, targetUserId: reviewer.id, reviewerRole: ReviewRole.LENDER },
+    ],
+    skipDuplicates: true,
+  })
+  const openReviews = await db.reviewObligation.findMany({ where: { bookingId: completed, status: ReviewObligationStatus.PENDING } })
+  for (const o of openReviews) {
+    await submitReview(
+      o.userId,
+      o.reviewerRole === ReviewRole.RENTER
+        ? { obligationId: o.id, reviewerRole: o.reviewerRole, scoreA: 5, scoreB: 5, scoreC: 5, itemRating: 5, itemNotes: 'Both batteries were charged and the bit set was complete. Made my desk build easy.' }
+        : { obligationId: o.id, reviewerRole: o.reviewerRole, scoreA: 5, scoreB: 5, scoreC: 4, personNotes: 'Returned on time and in the same condition. Would lend to again.' },
+    )
+  }
 
   // 2. Accepted, awaiting payment — "Pay now" leads straight to the Pay
   //    screen, where a Stripe test card (4242 4242 4242 4242) completes it.
@@ -452,13 +550,45 @@ export async function seedReviewerAccount(
     secondUser.id,
   )
 
+  // 5. The lender side: the owner has requested the reviewer's own listing,
+  //    so Accept / Decline has something to act on. Recreated every run.
+  const ownListingId = await upsertListing(reviewer.id, REVIEWER_LISTING)
+  const requestConvo = await db.conversation.upsert({
+    where: { listingId_renterId: { listingId: ownListingId, renterId: owner.id } },
+    update: {},
+    create: { listingId: ownListingId, renterId: owner.id, ownerId: reviewer.id },
+  })
+  if ((await db.message.count({ where: { conversationId: requestConvo.id } })) === 0) {
+    await db.message.create({
+      data: { conversationId: requestConvo.id, senderId: owner.id, body: 'Hey! Could I borrow the Switch for a games night this weekend? Just sent a request.' },
+    })
+  }
+  await clearBookings({ listingId: ownListingId, renterId: owner.id })
+  const requestStart = dayOffset(4)
+  const requestEnd = dayOffset(6)
+  const incomingRequest = (
+    await db.booking.create({
+      data: {
+        status: BookingStatus.PENDING,
+        startDate: requestStart,
+        endDate: requestEnd,
+        paymentStatus: PaymentStatus.PENDING_AUTH,
+        ...pricing(REVIEWER_LISTING.dailyPrice, REVIEWER_LISTING.depositAmount, requestStart, requestEnd),
+        listingId: ownListingId,
+        renterId: owner.id,
+        ownerId: reviewer.id,
+        conversationId: requestConvo.id,
+      },
+    })
+  ).id
+
   return {
     reviewer: { id: reviewer.id, email: reviewer.email },
     deletionReviewer: { id: deletionReviewer.id, email: deletionReviewer.email },
     owner: { id: owner.id, email: owner.email },
     secondUser: { id: secondUser.id, email: secondUser.email },
-    listingIds: [...Object.values(listings).map((l) => l.id), secondListingId],
-    bookings: { completed, accepted, pickupPending },
+    listingIds: [...Object.values(listings).map((l) => l.id), secondListingId, ownListingId],
+    bookings: { completed, accepted, pickupPending, incomingRequest },
   }
 }
 
@@ -526,6 +656,7 @@ async function main() {
   console.log(`  Bookings:       completed ${result.bookings.completed}`)
   console.log(`                  accepted/awaiting payment ${result.bookings.accepted}`)
   console.log(`                  pickup pending (Zoink It) ${result.bookings.pickupPending}`)
+  console.log(`                  incoming request (Accept/Decline) ${result.bookings.incomingRequest}`)
   await (prisma as any).$disconnect?.()
 }
 

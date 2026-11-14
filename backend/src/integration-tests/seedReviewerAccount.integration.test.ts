@@ -11,7 +11,7 @@ import './setup'
 import test, { before, beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
-import { truncateAllTables, getTestPrisma, disconnectTestPrisma, getApp, checkStripeConnectivity } from './setup'
+import { truncateAllTables, getTestPrisma, disconnectTestPrisma, getApp, checkStripeConnectivity, signTestJwt } from './setup'
 import {
   seedReviewerAccount,
   seedStripeClient,
@@ -100,10 +100,11 @@ describe('seedReviewerAccount', () => {
     assert.equal(second.bookings.completed, first.bookings.completed)
     assert.deepEqual(second.listingIds, first.listingIds)
     assert.equal(await db.user.count(), 4)
-    assert.equal(await db.listing.count(), 4)
-    assert.equal(await db.booking.count(), 3)
-    assert.equal(await db.conversation.count(), 4)
-    assert.equal(await db.listingImage.count(), 7)
+    assert.equal(await db.listing.count(), 10)
+    assert.equal(await db.booking.count(), 4)
+    assert.equal(await db.conversation.count(), 5)
+    assert.equal(await db.listingImage.count(), 14)
+    assert.equal(await db.review.count(), 2)
     const messages = await db.message.count()
     await seed()
     assert.equal(await db.message.count(), messages)
@@ -141,12 +142,12 @@ describe('seedReviewerAccount', () => {
 
     const listings = await supertest(app).get('/listings').set('Authorization', `Bearer ${token}`)
     assert.equal(listings.status, 200)
-    assert.equal(listings.body.items.length, 4)
+    assert.equal(listings.body.items.length, 10)
     assert.ok(listings.body.items.every((l: any) => l.images.length > 0))
 
     const inbox = await supertest(app).get('/conversations/me').set('Authorization', `Bearer ${token}`)
     assert.equal(inbox.status, 200)
-    assert.equal(inbox.body.length, 4)
+    assert.equal(inbox.body.length, 5)
 
     const bookings = await supertest(app).get('/bookings/me').set('Authorization', `Bearer ${token}`)
     assert.equal(bookings.status, 200)
@@ -196,7 +197,7 @@ describe('seedReviewerAccount', () => {
     assert.equal(fresh.stripePaymentIntentId, null)
     assert.equal(fresh.stripeDepositPaymentIntentId, null)
     assert.equal(await db.bookingEvent.count({ where: { bookingId: second.bookings.accepted } }), 0)
-    assert.equal(await db.booking.count(), 3)
+    assert.equal(await db.booking.count(), 4)
   })
 
   test('the reviewer can tap Zoink It, and a re-run puts the pickup back untapped', async () => {
@@ -264,6 +265,60 @@ describe('seedReviewerAccount', () => {
   })
 })
 
+describe('reviews, browse variety and the lender side', () => {
+  test('the completed rental has a review each way, no review prompt is left, and a re-run adds none', async () => {
+    const result = await seed()
+    const db = getTestPrisma()
+    const reviews = await db.review.findMany({ where: { bookingId: result.bookings.completed } })
+    assert.deepEqual(reviews.map((r) => r.reviewerRole).sort(), ['LENDER', 'RENTER'])
+    assert.equal(await db.reviewObligation.count({ where: { status: 'PENDING' } }), 0)
+    assert.ok(await db.userReputation.findUnique({ where: { userId: result.owner.id } }))
+    const drill = await db.listing.findFirstOrThrow({ where: { ownerId: result.owner.id, title: 'DeWalt 20V Cordless Drill' } })
+    assert.equal(drill.reviewCount, 1)
+
+    await seed()
+    assert.equal(await db.review.count(), 2)
+  })
+
+  test("a request the reviewer sends for the drill doesn't replace the seeded completed rental", async () => {
+    const first = await seed()
+    const db = getTestPrisma()
+    const completed = await db.booking.findUniqueOrThrow({ where: { id: first.bookings.completed } })
+    await db.booking.create({
+      data: { ...completed, id: undefined, status: 'PENDING', completedAt: null, paymentStatus: 'PENDING_AUTH', createdAt: new Date() } as any,
+    })
+    const second = await seed()
+    assert.equal(second.bookings.completed, first.bookings.completed)
+  })
+
+  test('the reviewer has an incoming request to accept, and a re-run puts it back to PENDING', async () => {
+    const first = await seed()
+    const token = signTestJwt({ userId: first.reviewer.id }) // login itself is covered above; avoids its rate limiter
+    const requests = await supertest(getApp()).get('/bookings/requests').set('Authorization', `Bearer ${token}`)
+    assert.equal(requests.status, 200)
+    const items = requests.body.items ?? requests.body
+    assert.deepEqual(items.map((b: any) => [b.id, b.status]), [[first.bookings.incomingRequest, 'PENDING']])
+
+    const accept = await supertest(getApp()).patch(`/bookings/${first.bookings.incomingRequest}/accept`).set('Authorization', `Bearer ${token}`)
+    assert.equal(accept.status, 200, JSON.stringify(accept.body))
+
+    const second = await seed()
+    const fresh = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: second.bookings.incomingRequest } })
+    assert.equal(fresh.status, 'PENDING')
+    assert.equal(await getTestPrisma().booking.count({ where: { id: first.bookings.incomingRequest } }), 0)
+  })
+
+  test('a seeded listing the reviewer deleted comes back on a re-run', async () => {
+    const result = await seed()
+    const db = getTestPrisma()
+    await db.listing.update({ where: { id: result.listingIds[0] }, data: { deletedAt: new Date(), isAvailable: false } })
+    await seed()
+    const listing = await db.listing.findUniqueOrThrow({ where: { id: result.listingIds[0] } })
+    assert.equal(listing.deletedAt, null)
+    assert.equal(listing.isAvailable, true)
+  })
+})
+
 describe('recording cast (--recording)', () => {
   const REC_PASSWORD = 'Recording-Pass-Strong-1'
   const REC_DELETE_PASSWORD = 'Recording-Delete-Pass-2'
@@ -283,8 +338,8 @@ describe('recording cast (--recording)', () => {
 
     const db = getTestPrisma()
     assert.equal(await db.user.count(), 8)
-    assert.equal(await db.booking.count(), 6)
-    assert.equal(await db.conversation.count(), 8)
+    assert.equal(await db.booking.count(), 8)
+    assert.equal(await db.conversation.count(), 10)
 
     const res = await login(RECORDING_EMAIL, REC_PASSWORD)
     assert.equal(res.status, 200)
