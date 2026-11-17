@@ -137,3 +137,36 @@ describe('rental paymentStatus only moves forward', () => {
     assert.equal(after.paymentStatus, PaymentStatus.AUTHORIZED)
   })
 })
+
+describe('two events for one booking at the same moment', () => {
+  test('a capture and a late authorization racing each other leave the booking CAPTURED', async () => {
+    const { row, piId } = await booking(BookingStatus.ACTIVE, PaymentStatus.PENDING_AUTH)
+
+    // Something else (a Confirm, a pickup) holds the booking's row lock while
+    // both events arrive: succeeded first, then the older capturable update.
+    let release!: () => void
+    let locked!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const lockHeld = new Promise<void>((r) => (locked = r))
+    const holder = getTestPrisma().$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${row.id} FOR UPDATE`
+        locked()
+        await gate
+      },
+      { timeout: 20_000 }
+    )
+    await lockHeld
+
+    const succeeded = deliver('payment_intent.succeeded', piId, row.id, { latest_charge: 'ch_race' })
+    await new Promise((r) => setTimeout(r, 300))
+    const capturable = deliver('payment_intent.amount_capturable_updated', piId, row.id)
+    await new Promise((r) => setTimeout(r, 300))
+    release()
+    await holder
+    await Promise.all([succeeded, capturable])
+
+    const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: row.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.CAPTURED, 'the older event must not walk the capture back')
+  })
+})

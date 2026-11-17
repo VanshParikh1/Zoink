@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
-import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus } from '@prisma/client'
+import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../../utils/prisma'
 import { asyncHandler } from '../../utils/asyncHandler'
 import { BadRequestError, InternalServerError } from '../../utils/errors'
@@ -104,33 +104,26 @@ function constructEvent(req: Request): StripeEvent {
   return typeof raw === 'string' ? JSON.parse(raw) : raw
 }
 
-async function updateBookingFromEvent(event: StripeEvent) {
+const bookingEventSelect = {
+  id: true,
+  status: true,
+  paymentStatus: true,
+  paidAt: true,
+  stripePaymentIntentId: true,
+  stripeDepositPaymentIntentId: true,
+  depositStatus: true,
+  totalPrice: true,
+  insuranceFee: true,
+  hstAmount: true,
+  refundedAmountCents: true,
+} satisfies Prisma.BookingSelect
+
+type EventBooking = Prisma.BookingGetPayload<{ select: typeof bookingEventSelect }>
+
+/** What an event changes on the booking, worked out from the booking as it
+ *  is under the row lock. */
+function changesFor(event: StripeEvent, booking: EventBooking) {
   const object = event.data.object
-  const bookingId = getBookingId(object)
-  if (!bookingId) return
-
-  // Load the booking up front so payment_intent.* events can be routed by which
-  // PaymentIntent they actually belong to (rental vs. deposit). A missing
-  // booking is a no-op (a real Stripe event for a booking we don't have is a
-  // prod bug, but the webhook must still 200 so Stripe stops retrying).
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    select: {
-      id: true,
-      status: true,
-      paymentStatus: true,
-      paidAt: true,
-      stripePaymentIntentId: true,
-      stripeDepositPaymentIntentId: true,
-      depositStatus: true,
-      totalPrice: true,
-      insuranceFee: true,
-      hstAmount: true,
-      refundedAmountCents: true,
-    },
-  })
-  if (!booking) return
-
   // The renter's full rental charge (rental + insurance + HST), in cents — what
   // a "full" refund would total. Used to tell a partial refund from a full one.
   const fullChargeCents = Math.round(
@@ -238,7 +231,29 @@ async function updateBookingFromEvent(event: StripeEvent) {
     }
   }
 
-  const duplicate = await prisma.$transaction(async (tx) => {
+  return { data, isDeposit, isSuperseded, eventPaymentIntentId }
+}
+
+// Held for the booking's row lock: Pay, Confirm and pickup hold it across a
+// Stripe call (up to ~27 s), and their own webhooks arrive meanwhile.
+const WEBHOOK_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
+async function updateBookingFromEvent(event: StripeEvent) {
+  const bookingId = getBookingId(event.data.object)
+  if (!bookingId) return
+
+  // Everything runs under the booking's row lock, the one the other payment
+  // paths take, and the booking is read after the lock is held. Reading it
+  // first let two events at once both decide from the same stale status, and
+  // the forward-only rules below then let an older one overwrite a newer one.
+  const outcome = await prisma.$transaction(async (tx) => {
+    const [locked] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`
+    // A real Stripe event for a booking we don't have is a prod bug, but the
+    // webhook must still 200 so Stripe stops retrying.
+    if (!locked) return 'missing' as const
+    const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, select: bookingEventSelect })
+    const { data, isDeposit, isSuperseded, eventPaymentIntentId } = changesFor(event, booking)
+
     // Idempotency guard. Stripe documents that a webhook can be delivered more
     // than once (automatic retries, `stripe events resend`), and a validly-
     // signed body can be replayed by a caller. Claim event.id FIRST, in the
@@ -258,7 +273,7 @@ async function updateBookingFromEvent(event: StripeEvent) {
       // entirely. The caller still returns { received: true } / HTTP 200 so
       // Stripe stops retrying. This is independent of the state-machine
       // monotonicity guards above (e.g. depositStatus canAdvance).
-      return true
+      return 'duplicate' as const
     }
 
     if (Object.keys(data).length > 0) {
@@ -296,10 +311,10 @@ async function updateBookingFromEvent(event: StripeEvent) {
       },
     })
 
-    return false
-  })
+    return 'applied' as const
+  }, WEBHOOK_TX_OPTIONS)
 
-  if (duplicate) {
+  if (outcome === 'duplicate') {
     console.warn(
       `Stripe webhook ${event.id} (${event.type}) already processed — skipping duplicate delivery`
     )
