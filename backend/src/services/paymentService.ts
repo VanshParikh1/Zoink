@@ -375,7 +375,7 @@ export async function refundPaymentIntent(
 }
 
 export async function transferPayout(
-  booking: Pick<Booking, 'id' | 'version' | 'ownerPayout'>,
+  booking: Pick<Booking, 'id' | 'ownerPayout'>,
   stripeAccountId: string,
   amountCentsOverride?: number
 ) {
@@ -399,7 +399,11 @@ export async function transferPayout(
       destination: stripeAccountId,
       metadata: { bookingId: booking.id },
     },
-    { idempotencyKey: `payout-${booking.id}-${booking.version}` }
+    // One payout per booking, so the key is the booking alone. It used to
+    // include the version, which the deposit-release job bumps: a transfer
+    // Stripe accepted but whose DB write failed was then sent again under a
+    // new key. Stripe keeps keys for 24 h and this job retries every 15 min.
+    { idempotencyKey: `payout-${booking.id}` }
   )
 }
 

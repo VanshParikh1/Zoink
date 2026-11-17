@@ -52,8 +52,11 @@ export async function cleanupStaleHandoffs() {
 
 // The payment jobs call Stripe while holding the booking's row lock, so the
 // transaction needs longer than Prisma's 5-second default. If it does time
-// out after Stripe succeeded, the next run repeats the call with the same
-// idempotency key and gets the same result back.
+// out (or the write after Stripe fails) once Stripe has succeeded, the next
+// run repeats the call with the same idempotency key and gets the same result
+// back. That only holds because every Stripe key a job uses is fixed per
+// booking or per PaymentIntent, never the booking version, which other jobs
+// and webhooks bump in between runs.
 const STRIPE_JOB_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 
 export async function releaseDuePayouts() {
