@@ -102,6 +102,14 @@ describe('reconcileStripePayments', () => {
     assert.equal(errors.length, 1)
     assert.equal(errors[0].bookingId, erroring.id)
     assert.equal((errors[0].metadata as any)?.action, 'reconcile_payment')
+
+    // The next hourly runs find the same disagreement and the same failure:
+    // nothing new is written for either.
+    await withStripeConfigured(reconcileStripePayments)
+    await withStripeConfigured(reconcileStripePayments)
+    const later = await db.bookingEvent.findMany({ where: { bookingId: { in: [drifted.id, erroring.id] } } })
+    assert.equal(later.filter((e) => e.type === 'RECONCILIATION_MISMATCH').length, 1, 'one mismatch per state')
+    assert.equal(later.filter((e) => e.type === 'ERROR').length, 1, 'one failure per state')
   })
 })
 
@@ -146,8 +154,9 @@ describe('a PaymentIntent Stripe has never heard of (resource_missing)', () => {
     mock.method(console, 'error', () => {})
     assert.deepEqual(await withStripeConfigured(reconcileStripePayments), { checked: 1, mismatches: 0, failed: 1, missing: 0 })
     assert.deepEqual(await withStripeConfigured(reconcileStripePayments), { checked: 1, mismatches: 0, failed: 1, missing: 0 })
+    // Retried on both runs, but the same failure is on the timeline once.
     const errors = await getTestPrisma().bookingEvent.findMany({ where: { bookingId: flaky.id, type: 'ERROR' } })
-    assert.equal(errors.length, 2)
+    assert.equal(errors.length, 1)
   })
 })
 

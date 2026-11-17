@@ -7,7 +7,8 @@ import { recordJobFailure } from './cleanupJob'
 // rental PaymentIntent in Stripe. Only disagreements are written to the
 // booking's audit trail: writing a RECONCILIATION_MATCH row for every booking
 // every hour grew booking_events without bound and buried real events in the
-// admin timeline. Audit-only — it never changes booking state.
+// admin timeline. A disagreement already on record is not written again.
+// Audit-only — it never changes booking state.
 
 /** Recorded (as a RECONCILIATION_MISMATCH event) when Stripe says the
  *  booking's PaymentIntent doesn't exist in this account: a row written by a
@@ -61,6 +62,15 @@ export async function reconcileStripePayments() {
       if (expected === booking.paymentStatus) continue
 
       mismatches += 1
+      // The same disagreement found again next hour is already on record.
+      const last = await prisma.bookingEvent.findFirst({
+        where: { bookingId: booking.id, type: BookingEventType.RECONCILIATION_MISMATCH },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      })
+      const previous = last?.metadata as { stripeStatus?: unknown; dbStatus?: unknown } | null
+      if (previous?.stripeStatus === intent.status && previous?.dbStatus === booking.paymentStatus) continue
+
       await prisma.bookingEvent.create({
         data: {
           bookingId: booking.id,

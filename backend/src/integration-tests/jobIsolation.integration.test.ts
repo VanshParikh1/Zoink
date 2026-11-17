@@ -95,6 +95,11 @@ describe('releaseDuePayouts', () => {
     const errors = await errorEvents(failing.id)
     assert.equal(errors.length, 1)
     assert.equal((errors[0].metadata as any)?.action, 'release_payout')
+
+    // Failing the same way on the next runs adds nothing to the timeline.
+    await releaseDuePayouts()
+    await releaseDuePayouts()
+    assert.equal((await errorEvents(failing.id)).length, 1)
   })
 })
 

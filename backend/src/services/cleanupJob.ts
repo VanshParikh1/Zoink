@@ -13,11 +13,22 @@ import { loggableError, loggableMessage } from '../utils/sentryScrub'
 // already canceled, a network blip) must not abort the run and strand every
 // booking after it: record it, report it, and move on. The booking is left
 // exactly as it was, so the next run retries it.
+//
+// A booking that keeps failing the same way (a restricted account, every
+// 15 minutes) is recorded and reported once, not on every run: the timeline
+// and Sentry get a new entry only when the failure changes.
 export async function recordJobFailure(bookingId: string, action: string, error: unknown) {
   const message = error instanceof Error ? loggableMessage(error) : String(loggableError(error))
   console.error(`[${action}] booking ${bookingId} failed:`, loggableError(error))
-  Sentry.captureException(error, { tags: { job: action, bookingId } })
   try {
+    const last = await prisma.bookingEvent.findFirst({
+      where: { bookingId, type: BookingEventType.ERROR, metadata: { path: ['action'], equals: action } },
+      orderBy: { createdAt: 'desc' },
+      select: { metadata: true },
+    })
+    if ((last?.metadata as { message?: unknown } | null)?.message === message) return
+
+    Sentry.captureException(error, { tags: { job: action, bookingId } })
     await prisma.bookingEvent.create({
       data: { bookingId, type: BookingEventType.ERROR, metadata: { action, message } },
     })
