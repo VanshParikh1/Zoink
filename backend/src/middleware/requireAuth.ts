@@ -29,11 +29,11 @@ function authenticate(options: { allowExpired: boolean }) {
     // from the live DB row, not the 30-day token, so a revoked admin (or a
     // changed verification status) takes effect on the next request instead of
     // only when the token expires.
-    let user: { deletedAt: Date | null; role: string | null; verificationStatus: string; tokenVersion: number } | null
+    let user: { deletedAt: Date | null; role: string | null; verificationStatus: string; tokenVersion: number; suspendedAt: Date | null } | null
     try {
       user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { deletedAt: true, role: true, verificationStatus: true, tokenVersion: true },
+        select: { deletedAt: true, role: true, verificationStatus: true, tokenVersion: true, suspendedAt: true },
       })
     } catch {
       // A database problem is not a bad session: 401 makes the app delete its
@@ -55,6 +55,7 @@ function authenticate(options: { allowExpired: boolean }) {
     ;(req as any).userId = payload.userId
     ;(req as any).verificationStatus = user.verificationStatus
     ;(req as any).role = user.role || 'USER'
+    ;(req as any).suspended = Boolean(user.suspendedAt)
     next()
   }
 }

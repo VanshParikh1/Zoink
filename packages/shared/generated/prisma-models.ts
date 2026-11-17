@@ -52,6 +52,7 @@ export interface User {
   stripeAccountId: string | null;
   role: Role;
   tokenVersion: number;
+  suspendedAt: string | null;
   university: University | null;
   termsAcceptedAt: string | null;
   termsVersion: string | null;

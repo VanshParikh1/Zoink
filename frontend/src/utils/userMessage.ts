@@ -61,6 +61,7 @@ const SHOWN_AS_IS = new Set([
   'Your session has ended. Please sign in again.',
   'That code is incorrect or has expired. Request a new one.',
   'Your current password is incorrect.',
+  "Your account is suspended, so you can't start anything new. You can still finish your current rentals. Contact zoinksupport@gmail.com if you think this is a mistake.",
   'Finish your current rentals and any open disputes before deleting your account.',
   "Email addresses with a '+' can't be used to sign up. Please use your plain student email address.",
   'Enter a valid 10-digit Canadian phone number, e.g. (416) 555-0192.',

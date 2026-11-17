@@ -36,6 +36,10 @@ model User {
   // Embedded in every session JWT and checked by requireAuth: bumped on a
   // password reset or change, which ends every session signed before it.
   tokenVersion        Int                 @default(0)
+  // Set while suspended by an admin (services/suspensionService.ts): no new
+  // listings, bookings, conversations, messages, reports or disputes, and the
+  // user's listings are hidden from browse. Existing rentals can finish.
+  suspendedAt         DateTime?
   // Student-email university allowlist (see packages/shared/src/universities.ts
   // for the enum-key -> domain/label maps). Nullable because pre-existing
   // users predate this and login performs no domain check.

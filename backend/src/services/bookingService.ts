@@ -410,7 +410,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
       itemValue: true,
       depositAmount: true,
       owner: {
-        select: { id: true, stripeAccountId: true },
+        select: { id: true, stripeAccountId: true, suspendedAt: true },
       },
     },
   })
@@ -425,7 +425,9 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
 
   await assertNotBlocked(renterId, listing.ownerId)
 
-  if (!listing.isAvailable) {
+  // A suspended owner's listing is hidden from browse; it can't be booked by
+  // id either.
+  if (!listing.isAvailable || listing.owner.suspendedAt) {
     throw new BadRequestError('This listing is currently unavailable.')
   }
 

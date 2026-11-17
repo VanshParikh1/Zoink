@@ -3,6 +3,7 @@ import { asyncHandler } from '../../utils/asyncHandler'
 import * as disputeService from '../../services/disputeService'
 import * as bookingEventService from '../../services/bookingEventService'
 import * as reportService from '../../services/reportService'
+import * as suspensionService from '../../services/suspensionService'
 import prisma from '../../utils/prisma'
 import { DisputeStatus, ReportStatus } from '@prisma/client'
 import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
@@ -124,4 +125,13 @@ export const resolveReport = asyncHandler(async (req: AuthenticatedRequest, res:
 
   const report = await reportService.resolveReport(id, adminId, status, adminNotes)
   res.json(report)
+})
+
+// POST /admin/users/:id/suspend and /unsuspend (D-9)
+export const suspendUser = asyncHandler(async (req: Request, res: Response) => {
+  res.json(await suspensionService.suspendUser(req.params.id as string))
+})
+
+export const unsuspendUser = asyncHandler(async (req: Request, res: Response) => {
+  res.json(await suspensionService.unsuspendUser(req.params.id as string))
 })

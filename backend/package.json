@@ -14,7 +14,9 @@
     "test:integration": "NODE_ENV=test node --test --test-concurrency=1 --require ts-node/register src/integration-tests/*.integration.test.ts",
     "smoke:week7": "ts-node src/scripts/week7SmokeFlow.ts",
     "admin:grant": "ts-node src/scripts/manageAdminRole.ts grant",
-    "admin:revoke": "ts-node src/scripts/manageAdminRole.ts revoke"
+    "admin:revoke": "ts-node src/scripts/manageAdminRole.ts revoke",
+    "user:suspend": "ts-node src/scripts/manageSuspension.ts suspend",
+    "user:unsuspend": "ts-node src/scripts/manageSuspension.ts unsuspend"
   },
   "keywords": [],
   "author": "",

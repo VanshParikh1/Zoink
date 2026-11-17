@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate'
 import { AdminListDisputesQuerySchema, DisputeIdParamsSchema, ResolveDisputeSchema } from '../schemas/dispute.schema'
 import { AdminListReportsQuerySchema, ReportIdParamsSchema, ResolveReportSchema } from '../schemas/report.schema'
 import { BookingEventsQuerySchema } from '../schemas/booking.schema'
+import { UserIdParamsSchema } from '../schemas/user.schema'
 import * as adminController from '../middleware/controllers/adminController'
 
 const router = Router()
@@ -18,5 +19,7 @@ router.patch('/disputes/:id/resolve', validate(DisputeIdParamsSchema), validate(
 router.get('/bookings/:id/events', validate(BookingEventsQuerySchema), adminController.getBookingEvents)
 router.get('/reports', validate(AdminListReportsQuerySchema), adminController.listReports)
 router.patch('/reports/:id', validate(ReportIdParamsSchema), validate(ResolveReportSchema), adminController.resolveReport)
+router.post('/users/:id/suspend', validate(UserIdParamsSchema), adminController.suspendUser)
+router.post('/users/:id/unsuspend', validate(UserIdParamsSchema), adminController.unsuspendUser)
 
 export default router

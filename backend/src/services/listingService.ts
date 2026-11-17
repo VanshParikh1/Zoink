@@ -357,7 +357,11 @@ function browseFilters(input: BrowseListingsInput): BrowseFilters {
 
   const hasLocation = latitude != null && longitude != null
 
-  const whereClauses: Prisma.Sql[] = [Prisma.sql`l."deletedAt" IS NULL`]
+  const whereClauses: Prisma.Sql[] = [
+    Prisma.sql`l."deletedAt" IS NULL`,
+    // A suspended owner's listings are hidden from browse and search (D-9).
+    Prisma.sql`NOT EXISTS (SELECT 1 FROM "users" su WHERE su.id = l."ownerId" AND su."suspendedAt" IS NOT NULL)`,
+  ]
 
   if (!includeUnavailable) {
     whereClauses.push(Prisma.sql`l."isAvailable" = true`)
@@ -567,7 +571,7 @@ export async function browseListingsPage(input: BrowseListingsInput, params: Pag
 
 export async function getListingCategories() {
   const rows = await prisma.listing.findMany({
-    where: { isAvailable: true, deletedAt: null },
+    where: { isAvailable: true, deletedAt: null, owner: { suspendedAt: null } },
     distinct: ['category'],
     select: { category: true },
     orderBy: { category: 'asc' },

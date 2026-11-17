@@ -199,6 +199,7 @@ export async function openConversation(currentUserId: string, listingId: string)
     select: {
       id: true,
       ownerId: true,
+      owner: { select: { suspendedAt: true } },
     },
   })
 
@@ -211,6 +212,16 @@ export async function openConversation(currentUserId: string, listingId: string)
   }
 
   await assertNotBlocked(currentUserId, listing.ownerId)
+
+  // A suspended owner's listing is hidden; nobody starts a new chat about it.
+  // A conversation that already exists (an ongoing rental) still opens.
+  if (listing.owner.suspendedAt) {
+    const existing = await prisma.conversation.findUnique({
+      where: { listingId_renterId: { listingId, renterId: currentUserId } },
+      select: { id: true },
+    })
+    if (!existing) throw new BadRequestError('This listing is currently unavailable.')
+  }
 
   const conversation = await prisma.conversation.upsert({
     where: {

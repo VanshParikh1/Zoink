@@ -3,6 +3,7 @@ import multer from 'multer'
 import { BadRequestError } from '../utils/errors'
 import { requireAuth } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
+import { requireNotSuspended } from '../middleware/requireNotSuspended'
 import { validate } from '../middleware/validate'
 import { listingCreateLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import { cacheFor, revalidate } from '../middleware/cacheControl'
@@ -47,11 +48,11 @@ router.get('/', requireAuth, requireVerified, validate(BrowseListingsQuerySchema
 router.get('/categories', requireAuth, requireVerified, cacheFor(300), getListingCategories)
 router.get('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), revalidate, getListing)
 
-router.post('/', requireAuth, requireVerified, listingCreateLimiter, validate(CreateListingSchema), createListing)
+router.post('/', requireAuth, requireVerified, requireNotSuspended, listingCreateLimiter, validate(CreateListingSchema), createListing)
 router.patch('/:id', requireAuth, requireVerified, validate(UpdateListingSchema), updateListing)
 router.patch('/:id/availability', requireAuth, requireVerified, validate(ToggleAvailabilitySchema), toggleAvailability)
 router.delete('/:id', requireAuth, requireVerified, validate(ListingIdParamsSchema), deleteListing)
-router.post('/:id/images', requireAuth, requireVerified, uploadLimiter, validate(ListingIdParamsSchema), upload.single('image'), uploadListingImage)
+router.post('/:id/images', requireAuth, requireVerified, requireNotSuspended, uploadLimiter, validate(ListingIdParamsSchema), upload.single('image'), uploadListingImage)
 router.delete('/:id/images/:imageId', requireAuth, requireVerified, validate(ListingImageParamsSchema), deleteListingImage)
 
 export default router

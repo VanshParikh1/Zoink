@@ -441,6 +441,18 @@ npm run admin:revoke -- --email=someone@mail.utoronto.ca
 - `admin:revoke` → `role = USER`, but refuses if the target is the last remaining admin.
 - Prints the id, email, and role transition. Core logic is unit-tested against a mocked db (`manageAdminRole.test.ts`).
 
+### Suspending an account
+
+An admin can suspend or unsuspend from the API (`POST /admin/users/:id/suspend`, `POST /admin/users/:id/unsuspend`) or the CLI:
+
+```bash
+cd backend
+npm run user:suspend -- --email=someone@mail.utoronto.ca
+npm run user:unsuspend -- --email=someone@mail.utoronto.ca
+```
+
+A suspended account can't create listings, bookings, conversations, messages, reports or disputes, and its listings are hidden from browse and can't be booked or newly messaged about. It can still sign in, see its data and finish existing bookings (handoffs, the return, reviews). Admin accounts can't be suspended; revoke admin first.
+
 ---
 
 ## Project Structure
