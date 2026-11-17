@@ -53,6 +53,8 @@ import {
 import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 import { globalLimiter, payoutStatusLimiter } from './middleware/rateLimiter'
+import { createShutdown, InFlight } from './utils/shutdown'
+import prisma from './utils/prisma'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -162,8 +164,12 @@ app.use('/admin', adminRouter)
 
 app.use(errorHandler)
 
+// Cron ticks register here so a shutdown waits for a running job to finish.
+const inFlightJobs = new InFlight()
+const cronTasks: { stop: () => unknown }[] = []
+
 if (process.env.NODE_ENV !== 'test') {
-  cron.schedule('*/15 * * * *', async () => {
+  cronTasks.push(cron.schedule('*/15 * * * *', () => inFlightJobs.run(async () => {
     try {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
@@ -175,22 +181,22 @@ if (process.env.NODE_ENV !== 'test') {
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }
-  })
+  })))
 
-  cron.schedule('0 * * * *', async () => {
+  cronTasks.push(cron.schedule('0 * * * *', () => inFlightJobs.run(async () => {
     try {
       const result = await reconcileStripePayments()
       console.log('Reconciliation job completed:', result)
     } catch (error) {
       console.error('Reconciliation job failed:', error)
     }
-  })
+  })))
 
   // Retention sweeps (privacy.md §7) — not time-critical the way a payout or
   // deposit release is, so once a day is plenty. See cleanupJob.ts's
   // "Retention sweeps" section for what each one does and deliberately
   // doesn't do.
-  cron.schedule('0 3 * * *', async () => {
+  cronTasks.push(cron.schedule('0 3 * * *', () => inFlightJobs.run(async () => {
     try {
       const messages = await purgeOldMessages()
       const disputesAndReports = await purgeOldDisputesAndReports()
@@ -199,7 +205,7 @@ if (process.env.NODE_ENV !== 'test') {
     } catch (error) {
       console.error('Retention sweep failed:', error)
     }
-  })
+  })))
 
   console.log('Scheduled cleanup job every 15 minutes, reconciliation job every hour, and retention sweep daily at 3am.')
 }
@@ -220,6 +226,18 @@ if (process.env.NODE_ENV !== 'test') {
       console.error('Server error:', e)
     }
   })
+
+  // Stop taking connections and cron ticks, let running requests and jobs
+  // finish (up to 25 s, inside Railway's grace period), then disconnect.
+  const shutdown = createShutdown({
+    server,
+    tasks: cronTasks,
+    inFlight: inFlightJobs,
+    disconnect: () => prisma.$disconnect(),
+    exit: (code) => process.exit(code),
+  })
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
+  process.on('SIGINT', () => void shutdown('SIGINT'))
 }
 
 export default app
