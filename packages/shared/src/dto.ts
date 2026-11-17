@@ -202,8 +202,13 @@ export interface BookingResponse {
   id: string
   status: BookingStatus
   version: number
+  /** Booked first day: that calendar day at 00:00 UTC. */
   startDate: string
+  /** Booked last day (inclusive): that calendar day at 00:00 UTC. */
   endDate: string
+  /** When both parties Zoinked It at pickup / at return; null until then. */
+  pickedUpAt: string | null
+  returnedAt: string | null
   totalPrice: number
   paymentStatus: PaymentStatus
   depositAmount: number

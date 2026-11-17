@@ -1,13 +1,14 @@
 // One place for reading and showing dates. Storage is UTC; people read
 // Toronto time. Two kinds of values reach the app:
 //
-//  - Calendar dates: a rental's requested start/end day, sent by the app as
+//  - Calendar dates: a rental's booked start/end day, sent by the app as
 //    midnight UTC of that day ("2026-10-20T00:00:00.000Z"). They name a day,
 //    not a moment, so they are read in UTC: read in Toronto they would show
-//    the previous day.
-//  - Instants: everything else (messages, payments, taps), plus a rental's
-//    startDate/endDate once the handoff overwrites them with the real pickup
-//    and return times. These are shown in Toronto time.
+//    the previous day. The handoff no longer overwrites them.
+//  - Instants: everything else (messages, payments, taps, a rental's
+//    pickedUpAt/returnedAt). These are shown in Toronto time. Rows written
+//    before pickedUpAt existed may still hold an instant in startDate/endDate;
+//    rentalDayKey and formatRentalDate read those in Toronto time.
 
 export const APP_TIME_ZONE = 'America/Toronto'
 

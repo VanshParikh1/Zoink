@@ -262,7 +262,8 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
 
     if (shouldComplete) {
       data.status = BookingStatus.COMPLETED
-      data.endDate = now
+      // endDate stays the booked last day; the moment is recorded here.
+      data.returnedAt = now
       data.completedAt = now
       data.paymentStatus = booking.paymentStatus === PaymentStatus.CAPTURED ? PaymentStatus.PAYOUT_PENDING : booking.paymentStatus
     }
@@ -348,7 +349,8 @@ async function completePickup(booking: any, actorId: string, actorField: string)
         data: {
           [actorField]: now,
           status: BookingStatus.ACTIVE,
-          startDate: now,
+          // startDate stays the booked first day; the moment is recorded here.
+          pickedUpAt: now,
           paymentStatus: succeeded ? PaymentStatus.CAPTURED : PaymentStatus.CAPTURE_PENDING,
           ...(succeeded ? { paidAt: booking.paidAt ?? now, stripeChargeId: booking.stripeChargeId ?? chargeIdOf(captured) } : {}),
           version: { increment: 1 },

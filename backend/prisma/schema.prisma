@@ -165,8 +165,13 @@ model Booking {
   id                           String             @id @default(uuid())
   status                       BookingStatus      @default(PENDING)
   version                      Int                @default(0)
+  // The booked days, as requested: each a calendar day at 00:00 UTC, end
+  // inclusive (one day = start == end). Never changed by the handoff.
   startDate                    DateTime
   endDate                      DateTime
+  // When both parties Zoinked It at pickup and at return.
+  pickedUpAt                   DateTime?
+  returnedAt                   DateTime?
   totalPrice                   Decimal            @db.Decimal(10, 2)
   paymentStatus                PaymentStatus      @default(PENDING_AUTH)
   depositAmount                Decimal            @default(0) @db.Decimal(10, 2)

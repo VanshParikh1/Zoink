@@ -272,8 +272,9 @@ export default function BookingDetailScreen() {
   // ── Timeline, from status + timestamps only ─────────────────────────────
   const order = ['PENDING', 'ACCEPTED', 'CONFIRMED', 'PICKUP_PENDING', 'ACTIVE', 'RETURN_PENDING', 'COMPLETED']
   const at = (status: string) => order.indexOf(booking.status) >= order.indexOf(status)
-  const pickedUpAt = laterOf(booking.ownerPickupTappedAt, booking.renterPickupTappedAt)
-  const returnedAt = booking.completedAt ?? laterOf(booking.ownerReturnTappedAt, booking.renterReturnTappedAt)
+  // Recorded by the server at each handoff; the taps cover bookings from before that.
+  const pickedUpAt = booking.pickedUpAt ?? laterOf(booking.ownerPickupTappedAt, booking.renterPickupTappedAt)
+  const returnedAt = booking.returnedAt ?? booking.completedAt ?? laterOf(booking.ownerReturnTappedAt, booking.renterReturnTappedAt)
   const elapsedMs = completedAtMs != null ? now - completedAtMs : 0
   const holdMs = DEPOSIT_HOLD_HOURS * HOUR_MS
   const windowOver = booking.status === 'COMPLETED' && completedAtMs != null && elapsedMs >= holdMs

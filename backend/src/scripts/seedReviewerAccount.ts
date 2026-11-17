@@ -458,11 +458,18 @@ export async function seedReviewerAccount(
   ])
   const completedStart = dayOffset(-10)
   const completedEnd = dayOffset(-9)
+  // The handoffs, as moments on the booked days: around noon Toronto at
+  // pickup, 5 pm at the return.
+  const HOUR = 60 * 60 * 1000
+  const pickedUpAt = new Date(completedStart.getTime() + 17 * HOUR)
+  const returnedAt = new Date(completedEnd.getTime() + 22 * HOUR)
   const completed = await ensureBooking('drill', drillConvo, () => ({
     status: BookingStatus.COMPLETED,
     startDate: completedStart,
     endDate: completedEnd,
-    completedAt: completedEnd,
+    pickedUpAt,
+    returnedAt,
+    completedAt: returnedAt,
     paymentStatus: PaymentStatus.PAID_OUT,
     paidAt: completedStart,
     ...pricing(listings.drill.dailyPrice, listings.drill.depositAmount, completedStart, completedEnd),

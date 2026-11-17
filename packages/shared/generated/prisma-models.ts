@@ -130,6 +130,8 @@ export interface Booking {
   version: number;
   startDate: string;
   endDate: string;
+  pickedUpAt: string | null;
+  returnedAt: string | null;
   totalPrice: string;
   paymentStatus: PaymentStatus;
   depositAmount: string;
