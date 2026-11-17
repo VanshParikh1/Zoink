@@ -545,10 +545,10 @@ Keep real secrets out of git — `.gitignore` covers `backend/.env`, `backend/.e
 
 | Variable | Used In | Purpose |
 |---|---|---|
+| `NODE_ENV` | `config/productionGuards.ts` | **Required:** `development`, `test` or `production`. The API checks every variable below at boot for its `NODE_ENV` and refuses to start if one is missing or malformed. |
 | `DATABASE_URL` | `prisma.config.ts`, `utils/prisma.ts` | Postgres connection string. |
 | `JWT_SECRET` | `requireAuth.ts`, `authService.ts`, `rateLimiter.ts` | Signs/verifies auth JWTs. |
 | `PORT` | `index.ts` | Listen port. |
-| `ALLOWED_EMAIL_DOMAINS` | `authService.ts` | Comma-separated student email allowlist. |
 | `OTP_EXPIRY_MINUTES` | `authService.ts` | OTP lifetime. |
 | `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `SES_FROM_EMAIL` | `authService.ts` | SES for OTP email. |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | `utils/cloudinary.ts` | Image storage. |
