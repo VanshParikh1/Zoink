@@ -286,11 +286,19 @@ export async function cancelPaymentIntent(booking: Pick<Booking, 'id' | 'version
     }
   }
 
-  return stripe.paymentIntents.cancel(
-    booking.stripePaymentIntentId,
-    {},
-    { idempotencyKey: `cancel-${booking.id}-${booking.version}` }
-  )
+  // An authorization that is already released (Stripe expired it, or an
+  // earlier attempt went through) counts as released.
+  try {
+    return await stripe.paymentIntents.cancel(
+      booking.stripePaymentIntentId,
+      {},
+      { idempotencyKey: `cancel-${booking.id}-${booking.version}` }
+    )
+  } catch (error) {
+    const current = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId).catch(() => null)
+    if (current?.status === 'canceled') return current
+    throw error
+  }
 }
 
 /** Releases a booking's deposit hold. Keyed on the deposit PaymentIntent (it

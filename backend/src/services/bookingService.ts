@@ -1265,12 +1265,14 @@ async function releaseRentalAuthorization(booking: any, actorId: string) {
 
 async function handleCancellationPayment(booking: any, actorId: string) {
   try {
-    if (booking.status === 'PENDING' || booking.status === 'ACCEPTED') {
-      // Payment now only happens at the ACCEPTED -> CONFIRMED step, so a
-      // booking cancelled at PENDING or ACCEPTED has never had a PaymentIntent
-      // authorized — there's nothing for Stripe to release or capture. Skip
-      // the API call entirely rather than calling cancelPaymentIntent() with
-      // a stripePaymentIntentId that doesn't exist.
+    if (booking.status === 'PENDING') return
+
+    // The renter authorizes the rent in the payment sheet before Confirm
+    // moves the booking to CONFIRMED, so an ACCEPTED booking can already hold
+    // a rent authorization (cancelled between the two, or the app closed
+    // after the sheet). Release it rather than leave it on the card for days.
+    if (booking.status === 'ACCEPTED') {
+      if (booking.stripePaymentIntentId) await cancelPaymentIntent(booking)
       return
     }
 

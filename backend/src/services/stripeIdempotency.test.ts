@@ -130,6 +130,11 @@ describe('deposit holds are keyed on the rental authorization, not the booking v
     assert.equal(keys[3], 'capture-deposit-booking-1-pi_dep_1')
   })
 
+  test('a rent authorization Stripe already released is treated as released', async () => {
+    const result = await cancelPaymentIntent({ id: 'booking-1', version: 2, stripePaymentIntentId: 'pi_already_canceled' })
+    assert.equal(result.status, 'canceled')
+  })
+
   test('a deposit Stripe already released is treated as released', async () => {
     const result = await cancelDepositPaymentIntent({ id: 'booking-1', stripeDepositPaymentIntentId: 'pi_already_canceled' })
     assert.equal(result.status, 'canceled')

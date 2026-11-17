@@ -36,7 +36,7 @@
  * both the mock (Stripe absent) and live Stripe paths.
  */
 
-import test, { before, beforeEach, after, describe } from 'node:test'
+import test, { before, beforeEach, after, afterEach, describe, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import supertest from 'supertest'
 import {
@@ -50,6 +50,7 @@ import {
   getApp,
 } from './setup'
 import * as bookingService from '../services/bookingService'
+import * as paymentService from '../services/paymentService'
 import { PaymentStatus, BookingStatus, Prisma } from '@prisma/client'
 
 // ── Module-level state ────────────────────────────────────────────────────────
@@ -589,5 +590,46 @@ describe('cancellation via HTTP', () => {
       .set('Authorization', `Bearer ${renter.token}`)
 
     assert.equal(res.status, 404)
+  })
+})
+
+describe('cancelling an ACCEPTED booking releases a rent authorization it already holds', () => {
+  afterEach(() => mock.restoreAll())
+
+  async function acceptedBooking(stripePaymentIntentId: string | null) {
+    const { startDate, endDate } = futureDates(5, 2)
+    return getTestPrisma().booking.create({
+      data: {
+        listingId,
+        renterId: renter.id,
+        ownerId: owner.id,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        totalPrice: new Prisma.Decimal(40),
+        hstAmount: new Prisma.Decimal(5.2),
+        status: BookingStatus.ACCEPTED,
+        paymentStatus: stripePaymentIntentId ? PaymentStatus.AUTHORIZED : PaymentStatus.PENDING_AUTH,
+        stripePaymentIntentId,
+      },
+    })
+  }
+
+  test('the renter paid in the sheet but never confirmed: the hold is cancelled', async () => {
+    const cancel = mock.method(paymentService, 'cancelPaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'canceled' }))
+    const booking = await acceptedBooking('pi_accepted_held')
+
+    const res = await supertest(getApp()).patch(`/bookings/${booking.id}/cancel`).set('Authorization', `Bearer ${owner.token}`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(cancel.mock.callCount(), 1)
+    assert.equal((cancel.mock.calls[0].arguments[0] as any).stripePaymentIntentId, 'pi_accepted_held')
+  })
+
+  test('no PaymentIntent yet: nothing is sent to Stripe', async () => {
+    const cancel = mock.method(paymentService, 'cancelPaymentIntent', async () => ({ status: 'canceled' }))
+    const booking = await acceptedBooking(null)
+
+    const res = await supertest(getApp()).patch(`/bookings/${booking.id}/cancel`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(cancel.mock.callCount(), 0)
   })
 })
