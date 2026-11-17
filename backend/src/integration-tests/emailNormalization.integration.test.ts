@@ -126,3 +126,28 @@ describe("'+' addresses", () => {
     assert.equal((await getTestPrisma().user.findUniqueOrThrow({ where: { id: user.id } })).verificationStatus, VerificationStatus.VERIFIED)
   })
 })
+
+describe('retired sign-up domains (D-8)', () => {
+  test('a new sign-up on @utoronto.ca is refused, naming the student address', async () => {
+    const res = await register('newcomer@utoronto.ca')
+    assert.equal(res.status, 400)
+    assert.equal(res.body.issues?.[0]?.message, 'Please use your University of Toronto student email (@mail.utoronto.ca).')
+  })
+
+  test('an existing account on @utoronto.ca still signs in', async () => {
+    await getTestPrisma().user.create({
+      data: {
+        email: 'existing@utoronto.ca',
+        passwordHash: await bcrypt.hash(PASSWORD, 10),
+        firstName: 'Existing',
+        lastName: 'Staff',
+        phone: '+14165550192',
+        university: 'UOFT',
+        verificationStatus: VerificationStatus.VERIFIED,
+      },
+    })
+    const res = await login('existing@utoronto.ca')
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.ok(res.body.token)
+  })
+})

@@ -5,16 +5,26 @@ import type { University } from '../generated/prisma-models'
 // stay in sync with the `University` enum in backend/prisma/schema.prisma —
 // see the comment above that enum. The first domain of each school is its
 // student address, shown in hints; the rest are also accepted. A domain only
-// matches exactly (`@utoronto.ca` does not admit `@x.utoronto.ca`).
+// matches exactly (`@mail.utoronto.ca` does not admit `@x.mail.utoronto.ca`).
+// Student addresses only (owner decision D-8, 2026-11-17).
 export const UNIVERSITY_EMAIL_DOMAINS: Record<University, readonly string[]> = {
-  UOFT: ['mail.utoronto.ca', 'utoronto.ca'],
+  UOFT: ['mail.utoronto.ca'],
   // ryerson.ca: TMU's pre-2022 address, still in use by some students.
   TMU: ['torontomu.ca', 'ryerson.ca'],
   LAURIER: ['mylaurier.ca'],
-  YORK: ['my.yorku.ca', 'yorku.ca'],
-  ONTARIO_TECH: ['ontariotechu.net', 'ontariotechu.ca'],
+  YORK: ['my.yorku.ca'],
+  ONTARIO_TECH: ['ontariotechu.net'],
   MCMASTER: ['mcmaster.ca'],
   WATERLOO: ['uwaterloo.ca'],
+}
+
+// Domains sign-up no longer accepts (staff and faculty addresses, D-8).
+// Accounts already on them keep working (login has no domain check); these
+// only keep their school label (universityForEmail).
+const RETIRED_UNIVERSITY_DOMAINS: Partial<Record<University, readonly string[]>> = {
+  UOFT: ['utoronto.ca'],
+  YORK: ['yorku.ca'],
+  ONTARIO_TECH: ['ontariotechu.ca'],
 }
 
 /** Each school's student email domain, for placeholders and hints. */
@@ -28,15 +38,18 @@ export function isUniversityEmail(university: University, email: string) {
   return Boolean(domain) && UNIVERSITY_EMAIL_DOMAINS[university].includes(domain)
 }
 
-/** The school whose domain `email` is at, or null. */
+/** The school whose domain `email` is at, or null. Knows the retired
+ *  domains too, so an existing account on one keeps its school. */
 export function universityForEmail(email: string | null | undefined): University | null {
   const domain = email?.trim().toLowerCase().split('@')[1]
   if (!domain) return null
   const keys = Object.keys(UNIVERSITY_EMAIL_DOMAINS) as University[]
-  return keys.find((key) => UNIVERSITY_EMAIL_DOMAINS[key].includes(domain)) ?? null
+  return (
+    keys.find((key) => UNIVERSITY_EMAIL_DOMAINS[key].includes(domain) || RETIRED_UNIVERSITY_DOMAINS[key]?.includes(domain)) ?? null
+  )
 }
 
-/** "@mail.utoronto.ca or @utoronto.ca", for error messages. */
+/** "@torontomu.ca or @ryerson.ca", for error messages. */
 export function universityDomainsText(university: University) {
   const domains = UNIVERSITY_EMAIL_DOMAINS[university].map((domain) => `@${domain}`)
   return domains.length > 1 ? `${domains.slice(0, -1).join(', ')} or ${domains[domains.length - 1]}` : domains[0]
