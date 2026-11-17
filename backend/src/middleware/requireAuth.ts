@@ -11,31 +11,29 @@ function authenticate(options: { allowExpired: boolean }) {
 
     const token = authHeader.split(' ')[1]
 
-    let payload: { userId: string; verificationStatus: string; role: string }
+    let payload: { userId: string; verificationStatus: string; role: string; tokenVersion?: number }
     try {
       payload = jwt.verify(token, process.env.JWT_SECRET!, {
         algorithms: ['HS256'],
         ignoreExpiration: options.allowExpired,
-      }) as { userId: string; verificationStatus: string; role: string }
+      }) as { userId: string; verificationStatus: string; role: string; tokenVersion?: number }
     } catch {
       return res.status(401).json({ error: 'Invalid or expired token.' })
     }
 
-    // TODO(auth): tokens can't be revoked before their 30-day expiry (logout,
-    // password change, compromise). Token versioning — a users.tokenVersion
-    // claim checked here and bumped on those events — was deferred; see the
-    // perf/security audit.
-    //
-    // Stateless JWTs can't be revoked, so this one narrow lookup per authed
-    // request is also where role and verificationStatus are resolved: they come
+    // Stateless JWTs can't be revoked on their own, so this one narrow lookup
+    // per authed request checks the token's tokenVersion against the user's
+    // (bumped on a password reset or change; tokens from before versioning
+    // carry none and count as 0). It is also where
+    // role and verificationStatus are resolved: they come
     // from the live DB row, not the 30-day token, so a revoked admin (or a
     // changed verification status) takes effect on the next request instead of
     // only when the token expires.
-    let user: { deletedAt: Date | null; role: string | null; verificationStatus: string } | null
+    let user: { deletedAt: Date | null; role: string | null; verificationStatus: string; tokenVersion: number } | null
     try {
       user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { deletedAt: true, role: true, verificationStatus: true },
+        select: { deletedAt: true, role: true, verificationStatus: true, tokenVersion: true },
       })
     } catch {
       // A database problem is not a bad session: 401 makes the app delete its
@@ -45,6 +43,13 @@ function authenticate(options: { allowExpired: boolean }) {
 
     if (!user || user.deletedAt) {
       return res.status(401).json({ error: 'This account is no longer active.' })
+    }
+
+    // Releasing a phone's push token on sign-out is allowed with an older
+    // session too: that phone is exactly the one that should stop getting
+    // this account's notifications.
+    if (!options.allowExpired && (payload.tokenVersion ?? 0) !== user.tokenVersion) {
+      return res.status(401).json({ error: 'Your session has ended. Please sign in again.' })
     }
 
     ;(req as any).userId = payload.userId

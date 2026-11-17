@@ -28,7 +28,7 @@ const me = (token: string) => supertest(getApp()).get('/users/me').set('Authoriz
 
 describe('JWT algorithm pinning', () => {
   test('tokens issued by the app are HS256 and accepted', async () => {
-    const token = signJWT(user.id, 'VERIFIED', user.email, 'Jwt', 'USER', null, null)
+    const token = signJWT(user.id, 'VERIFIED', user.email, 'Jwt', 'USER', null, null, 0)
     assert.equal(jwt.decode(token, { complete: true })?.header.alg, 'HS256')
     assert.equal((await me(token)).status, 200)
   })

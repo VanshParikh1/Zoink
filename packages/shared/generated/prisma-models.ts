@@ -49,6 +49,7 @@ export interface User {
   stripeCustomerId: string | null;
   stripeAccountId: string | null;
   role: Role;
+  tokenVersion: number;
   university: University | null;
   termsAcceptedAt: string | null;
   termsVersion: string | null;

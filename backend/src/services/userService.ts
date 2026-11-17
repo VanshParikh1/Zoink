@@ -84,10 +84,10 @@ export async function acceptTerms(userId: string) {
       privacyAcceptedAt: acceptedAt,
       privacyVersion: CURRENT_PRIVACY_VERSION,
     },
-    select: { id: true, email: true, firstName: true, role: true, verificationStatus: true, termsVersion: true, privacyVersion: true },
+    select: { id: true, email: true, firstName: true, role: true, verificationStatus: true, termsVersion: true, privacyVersion: true, tokenVersion: true },
   })
 
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion, user.tokenVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 

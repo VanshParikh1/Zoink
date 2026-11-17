@@ -80,10 +80,11 @@ export function signJWT(
   firstName: string,
   role: string,
   termsVersion: string | null,
-  privacyVersion: string | null
+  privacyVersion: string | null,
+  tokenVersion: number
 ): string {
   return jwt.sign(
-    { userId, verificationStatus, email, firstName, role, termsVersion, privacyVersion },
+    { userId, verificationStatus, email, firstName, role, termsVersion, privacyVersion, tokenVersion },
     process.env.JWT_SECRET!,
     // Verification (requireAuth, rateLimiter) accepts HS256 only.
     { algorithm: 'HS256', expiresIn: '30d' }
@@ -182,7 +183,7 @@ export async function registerUser(
   void sendVerificationEmail(user.email, user.firstName, code)
 
   // 8. Return JWT so the user is logged in immediately after registering
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion, user.tokenVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
@@ -205,7 +206,7 @@ export async function loginUser(email: string, password: string) {
   }
 
   // 3. Return JWT
-  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion)
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion, user.tokenVersion)
   return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
 }
 
@@ -264,9 +265,9 @@ export async function verifyOTP(userId: string, code: string) {
   // Re-fetch user to get email + firstName + role for the new token
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, firstName: true, role: true, termsVersion: true, privacyVersion: true },
+    select: { email: true, firstName: true, role: true, termsVersion: true, privacyVersion: true, tokenVersion: true },
   })
-  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role, user!.termsVersion, user!.privacyVersion)
+  const token2 = signJWT(userId, 'VERIFIED', user!.email, user!.firstName, user!.role, user!.termsVersion, user!.privacyVersion, user!.tokenVersion)
   return { token: token2 }
 }
 
