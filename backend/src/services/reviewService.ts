@@ -325,6 +325,15 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
   const reviewFields = resolveReviewFields(obligation.reviewerRole, input)
 
   const result = await prisma.$transaction(async (tx) => {
+    // Claimed first: of two submissions at once (a double tap), only one finds
+    // the obligation still PENDING; the other gets a 409 instead of a 500 from
+    // the reviews unique index.
+    const claimed = await tx.reviewObligation.updateMany({
+      where: { id: obligation.id, status: ReviewObligationStatus.PENDING, submittedReviewId: null },
+      data: { status: ReviewObligationStatus.SUBMITTED },
+    })
+    if (claimed.count !== 1) throw new ConflictError('This review has already been submitted.')
+
     const review = await tx.review.create({
       data: {
         bookingId: obligation.bookingId,
@@ -354,10 +363,7 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
 
     await tx.reviewObligation.update({
       where: { id: obligation.id },
-      data: {
-        status: ReviewObligationStatus.SUBMITTED,
-        submittedReviewId: review.id,
-      },
+      data: { submittedReviewId: review.id },
     })
 
     await recomputeUserReputation(tx, obligation.targetUserId)
@@ -376,6 +382,13 @@ export async function submitReview(userId: string, input: SubmitReviewInput): Pr
     })
 
     return { review, pendingRemaining }
+  }).catch((error) => {
+    // The (bookingId, reviewerId) unique index: a review for this booking
+    // already exists by another route.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ConflictError('This review has already been submitted.')
+    }
+    throw error
   })
 
   const reviewee = obligation.targetUserId === obligation.booking.owner.id ? obligation.booking.owner : obligation.booking.renter
