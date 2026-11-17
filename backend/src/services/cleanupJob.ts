@@ -1,6 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelDepositPaymentIntent, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, getPaymentIntentChargeId, toCents, transferPayout } from './paymentService'
+import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { deleteUnverifiedAccounts } from './unverifiedAccounts'
@@ -110,6 +111,8 @@ export async function releaseDuePayouts() {
             ownerPayout: true,
             totalPrice: true,
             refundedAmountCents: true,
+            stripeChargeId: true,
+            stripePaymentIntentId: true,
             owner: { select: { stripeAccountId: true } },
           },
         })
@@ -150,7 +153,16 @@ export async function releaseDuePayouts() {
 
         if (!booking.owner.stripeAccountId) return 'skipped' as const
 
-        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents)
+        // The rent's charge, so the transfer doesn't depend on the platform's
+        // available balance. Normally recorded at pickup; read back from the
+        // PaymentIntent for a booking that predates that. If even that fails,
+        // the transfer goes out from the available balance, as it used to.
+        const sourceChargeId =
+          booking.stripeChargeId ??
+          (booking.stripePaymentIntentId
+            ? await getPaymentIntentChargeId(booking.stripePaymentIntentId).catch(() => null)
+            : null)
+        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents, sourceChargeId)
         const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
         await tx.booking.update({
           where: { id: booking.id },
@@ -281,6 +293,61 @@ export async function releaseDueDeposits() {
   }
 
   return { checked: bookings.length, released, failed }
+}
+
+/** Retries the owner's deposit compensation where the transfer made when the
+ *  dispute was resolved didn't go through (Stripe refused it, or the owner had
+ *  no connected account yet). Only bookings whose deposit capture recorded its
+ *  charge (stripeDepositChargeId) are considered, so a compensation paid
+ *  before that column existed is never sent again. The idempotency key is the
+ *  dispute's, the same one the first attempt used. */
+export async function retryDepositCompensations() {
+  const due = await prisma.booking.findMany({
+    where: {
+      depositStatus: DepositStatus.CAPTURED,
+      stripeDepositChargeId: { not: null },
+      stripeDepositTransferId: null,
+      owner: { stripeAccountId: { not: null } },
+    },
+    select: { id: true },
+  })
+
+  let paid = 0
+  let failed = 0
+  for (const { id } of due) {
+    try {
+      const sent = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const booking = await tx.booking.findUniqueOrThrow({
+          where: { id },
+          select: { ownerId: true, stripeDepositChargeId: true, stripeDepositTransferId: true },
+        })
+        if (booking.stripeDepositTransferId) return false
+        // The one dispute that captured this deposit (a deposit is captured once).
+        const dispute = await tx.dispute.findFirst({
+          where: { bookingId: id, status: DisputeStatus.RESOLVED_REFUND, refundAmountCents: { gt: 0 } },
+          orderBy: { resolvedAt: 'desc' },
+          select: { id: true, refundAmountCents: true },
+        })
+        if (!dispute?.refundAmountCents) return false
+        return payDepositCompensation(tx, {
+          bookingId: id,
+          ownerId: booking.ownerId,
+          disputeId: dispute.id,
+          amountCents: dispute.refundAmountCents,
+          depositChargeId: booking.stripeDepositChargeId,
+          actorId: null,
+        })
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (sent) paid += 1
+      else failed += 1
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(id, 'retry_deposit_compensation', error)
+    }
+  }
+
+  return { checked: due.length, paid, failed }
 }
 
 // ── Retention sweeps (privacy.md §7) ─────────────────────────────────────────

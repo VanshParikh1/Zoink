@@ -318,14 +318,20 @@ export async function cancelDepositPaymentIntent(booking: { id: string; stripeDe
 
 /** Captures `amountCents` of a booking's deposit hold (a dispute resolved
  *  against the renter). A deposit PaymentIntent is captured at most once, so
- *  the key is the PaymentIntent itself. */
+ *  the key is the PaymentIntent itself. The result's latest_charge is the
+ *  charge the owner's compensation transfer is drawn from. */
 export async function captureDepositPaymentIntent(
   booking: { id: string; stripeDepositPaymentIntentId: string },
   amountCents: number
 ) {
   const stripe = getStripe()
   if (!stripe) {
-    return { id: booking.stripeDepositPaymentIntentId, status: 'succeeded', amount_received: amountCents }
+    return {
+      id: booking.stripeDepositPaymentIntentId,
+      status: 'succeeded',
+      amount_received: amountCents,
+      latest_charge: `ch_mock_${booking.stripeDepositPaymentIntentId}`,
+    }
   }
 
   return stripe.paymentIntents.capture(
@@ -374,10 +380,31 @@ export async function refundPaymentIntent(
   )
 }
 
+/** The charge a PaymentIntent created (its latest_charge), or null if it has
+ *  none yet. In mock mode, a stand-in id. */
+export async function getPaymentIntentChargeId(paymentIntentId: string): Promise<string | null> {
+  const stripe = getStripe()
+  if (!stripe) return `ch_mock_${paymentIntentId}`
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  return chargeIdOf(intent)
+}
+
+/** latest_charge as an id, whether Stripe returned it expanded or not. */
+export function chargeIdOf(intent: { latest_charge?: string | { id: string } | null } | null | undefined): string | null {
+  const charge = intent?.latest_charge
+  if (!charge) return null
+  return typeof charge === 'string' ? charge : charge.id
+}
+
+// Transfers name the renter's charge as source_transaction, so they succeed
+// while that charge's funds are still pending (they land in the owner's
+// balance when the charge settles) instead of failing on the platform's
+// available balance.
 export async function transferPayout(
   booking: Pick<Booking, 'id' | 'ownerPayout'>,
   stripeAccountId: string,
-  amountCentsOverride?: number
+  amountCentsOverride?: number,
+  sourceChargeId?: string | null
 ) {
   const stripe = getStripe()
   // releaseDuePayouts() passes an explicit amount when a partial dispute refund
@@ -397,6 +424,7 @@ export async function transferPayout(
       amount,
       currency: process.env.STRIPE_CURRENCY ?? 'cad',
       destination: stripeAccountId,
+      ...(sourceChargeId ? { source_transaction: sourceChargeId } : {}),
       metadata: { bookingId: booking.id },
     },
     // One payout per booking, so the key is the booking alone. It used to
@@ -420,7 +448,8 @@ export async function transferDepositCompensation(
   booking: Pick<Booking, 'id'>,
   stripeAccountId: string,
   amountCents: number,
-  disputeId: string
+  disputeId: string,
+  sourceChargeId: string | null
 ) {
   const stripe = getStripe()
 
@@ -437,6 +466,7 @@ export async function transferDepositCompensation(
       amount: amountCents,
       currency: process.env.STRIPE_CURRENCY ?? 'cad',
       destination: stripeAccountId,
+      ...(sourceChargeId ? { source_transaction: sourceChargeId } : {}),
       metadata: { bookingId: booking.id, disputeId, purpose: 'deposit_compensation' },
     },
     { idempotencyKey: `deposit-payout-${booking.id}-${disputeId}` }

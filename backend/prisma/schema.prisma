@@ -173,6 +173,10 @@ model Booking {
   depositStatus                DepositStatus?
   stripeChargeId               String?
   stripeTransferId             String?
+  // A captured deposit's charge, and the transfer that paid it to the owner
+  // (disputeService.resolveDispute; retried by cleanupJob.retryDepositCompensations).
+  stripeDepositChargeId        String?
+  stripeDepositTransferId      String?
   paidAt                       DateTime?
   refundedAt                   DateTime?
   // Cumulative cents refunded to the renter from the RENTAL payment (never the

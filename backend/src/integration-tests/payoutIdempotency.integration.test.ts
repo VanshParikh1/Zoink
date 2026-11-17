@@ -19,16 +19,16 @@ import test, { beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
 
-type Transfer = { id: string; amount: number; destination: string }
+type Transfer = { id: string; amount: number; destination: string; source_transaction?: string }
 const transfersByKey = new Map<string, Transfer>()
 let loseNextResponse = false
 
 class IdempotentStripe {
   transfers = {
-    create: async (params: { amount: number; destination: string }, options: { idempotencyKey: string }) => {
+    create: async (params: { amount: number; destination: string; source_transaction?: string }, options: { idempotencyKey: string }) => {
       let transfer = transfersByKey.get(options.idempotencyKey)
       if (!transfer) {
-        transfer = { id: `tr_fake_${transfersByKey.size + 1}`, amount: params.amount, destination: params.destination }
+        transfer = { id: `tr_fake_${transfersByKey.size + 1}`, ...params }
         transfersByKey.set(options.idempotencyKey, transfer)
       }
       if (loseNextResponse) {
@@ -37,6 +37,9 @@ class IdempotentStripe {
       }
       return transfer
     },
+  }
+  paymentIntents = {
+    retrieve: async (id: string) => ({ id, latest_charge: `ch_of_${id}` }),
   }
 }
 
@@ -61,6 +64,45 @@ beforeEach(async () => {
 
 after(async () => {
   await disconnectTestPrisma()
+})
+
+async function payableBooking(overrides: Partial<Prisma.BookingUncheckedCreateInput> = {}) {
+  const { startDate, endDate } = futureDates(3, 2)
+  return getTestPrisma().booking.create({
+    data: {
+      listingId,
+      renterId: renter.id,
+      ownerId: owner.id,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      totalPrice: new Prisma.Decimal(50),
+      depositAmount: new Prisma.Decimal(0),
+      commissionAmount: new Prisma.Decimal(7.5),
+      ownerPayout: new Prisma.Decimal(42.5),
+      status: BookingStatus.COMPLETED,
+      paymentStatus: PaymentStatus.PAYOUT_PENDING,
+      completedAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      stripePaymentIntentId: 'pi_payout_source',
+      version: 1,
+      ...overrides,
+    },
+  })
+}
+
+describe('owner payouts are drawn from the renter\'s charge', () => {
+  test('the transfer names the rent charge as its source_transaction', async () => {
+    await payableBooking({ stripeChargeId: 'ch_rent_1' })
+    assert.equal((await releaseDuePayouts()).paid, 1)
+    const [transfer] = [...transfersByKey.values()]
+    assert.equal(transfer.source_transaction, 'ch_rent_1')
+  })
+
+  test('a booking with no recorded charge reads it back from the PaymentIntent', async () => {
+    await payableBooking({ stripeChargeId: null })
+    assert.equal((await releaseDuePayouts()).paid, 1)
+    const [transfer] = [...transfersByKey.values()]
+    assert.equal(transfer.source_transaction, 'ch_of_pi_payout_source')
+  })
 })
 
 describe('releaseDuePayouts', () => {
