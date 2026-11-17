@@ -40,6 +40,7 @@ import { BookingStatus, DepositStatus, PaymentStatus, Prisma, ReviewObligationSt
 import prisma from '../utils/prisma'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '../config/legal'
 import { getRentalDays, roundCurrency } from '../services/bookingUtils'
+import { torontoDayKey } from '@zoink/shared'
 import { calculateCommission, calculateHst, calculateOwnerPayout } from '../services/paymentService'
 import { submitReview } from '../services/reviewService'
 
@@ -170,9 +171,11 @@ const SECOND_USER_LISTING = {
 
 const PICKUP_PHOTOS = [img('photo-1607083206869-4c7672e72a8a'), img('photo-1495707902641-75cac588d2e9')]
 
-function dayOffset(days: number) {
-  const d = new Date()
-  d.setUTCHours(12, 0, 0, 0)
+// A rental day `days` from today, as the app sends one: that calendar day at
+// midnight UTC. "Today" is Toronto's, not UTC's: after 7-8 pm Toronto the UTC
+// day is already tomorrow, which made the Pay booking unpayable until midnight.
+export function dayOffset(days: number) {
+  const d = new Date(`${torontoDayKey()}T00:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return d
 }
