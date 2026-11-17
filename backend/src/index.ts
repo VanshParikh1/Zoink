@@ -54,7 +54,7 @@ import { reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 import { globalLimiter, payoutStatusLimiter } from './middleware/rateLimiter'
 import { createShutdown, InFlight } from './utils/shutdown'
-import prisma from './utils/prisma'
+import prisma, { pingDatabase } from './utils/prisma'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -84,8 +84,24 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Zoink API' })
 })
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Zoink API is running' })
+// Answers 503 when the database doesn't respond within 3 s, so a deploy whose
+// health check fails never takes traffic and uptime monitors see an outage.
+const HEALTH_DB_TIMEOUT_MS = 3_000
+app.get('/health', async (_req, res) => {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      pingDatabase(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('database ping timed out')), HEALTH_DB_TIMEOUT_MS)
+      }),
+    ])
+    res.json({ status: 'ok', message: 'Zoink API is running', database: 'ok' })
+  } catch {
+    res.status(503).json({ status: 'error', message: 'Database unavailable', database: 'unavailable' })
+  } finally {
+    clearTimeout(timer)
+  }
 })
 
 function sendStripeConnectRedirectPage(res: express.Response, title: string, message: string) {

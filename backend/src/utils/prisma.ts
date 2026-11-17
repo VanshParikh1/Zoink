@@ -18,3 +18,8 @@ const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter } as any)
 
 export default prisma
+
+/** One round trip to the database (GET /health). */
+export function pingDatabase() {
+  return prisma.$queryRaw`SELECT 1`
+}
