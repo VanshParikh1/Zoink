@@ -729,9 +729,10 @@ describe('pickup handoff', () => {
     const db = getTestPrisma()
     const persisted = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(persisted.status, BookingStatus.ACTIVE)
-    // Captured once, on the second tap; the webhook then moves it to CAPTURED.
+    // Captured once, on the second tap, and recorded as CAPTURED from the
+    // capture response.
     assert.equal(capture.mock.callCount(), 1)
-    assert.equal(persisted.paymentStatus, PaymentStatus.CAPTURE_PENDING)
+    assert.equal(persisted.paymentStatus, PaymentStatus.CAPTURED)
     // BookingEvents should include ZOINK_TAP events
     const events = await db.bookingEvent.findMany({ where: { bookingId: booking.id } })
     const tapEvents = events.filter((e: any) => e.type === 'ZOINK_TAP')

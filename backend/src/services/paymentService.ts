@@ -261,6 +261,7 @@ export async function capturePaymentIntent(
       id: booking.stripePaymentIntentId,
       status: 'succeeded',
       amount_received: amount,
+      latest_charge: `ch_mock_${booking.stripePaymentIntentId}`,
     }
   }
 

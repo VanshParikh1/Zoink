@@ -3,7 +3,7 @@ import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { bookingSelect, createBookingEvent, createReviewObligationsForCompletedBooking, toBookingResponse, withBookingLock } from './bookingService'
 import { notifyUser } from './notificationService'
-import { capturePaymentIntent, retrievePaymentIntent } from './paymentService'
+import { capturePaymentIntent, chargeIdOf, retrievePaymentIntent } from './paymentService'
 import { isPickupPaymentReady } from '@zoink/shared'
 import { ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
 import { Sentry } from '../instrument'
@@ -299,13 +299,13 @@ export async function confirmHandoff(bookingId: string, actorId: string, phase: 
 }
 
 /** Captures the rent, treating "Stripe already captured it" (a retry after a
- *  lost response) as success. */
-async function captureRent(booking: any) {
+ *  lost response) as success. Returns the PaymentIntent as Stripe reports it. */
+async function captureRent(booking: any): Promise<{ status?: string; latest_charge?: string | { id: string } | null }> {
   try {
-    await capturePaymentIntent(booking)
+    return await capturePaymentIntent(booking)
   } catch (error) {
     const intent = await retrievePaymentIntent(booking.stripePaymentIntentId).catch(() => null)
-    if (intent?.status === 'succeeded') return
+    if (intent?.status === 'succeeded') return intent
     throw error
   }
 }
@@ -329,21 +329,28 @@ async function completePickup(booking: any, actorId: string, actorField: string)
         throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
       }
 
+      let captured: Awaited<ReturnType<typeof captureRent>>
       try {
-        await captureRent(booking)
+        captured = await captureRent(booking)
       } catch (error) {
         captureError = error
         throw error
       }
 
+      // The capture response is authoritative: a succeeded capture is
+      // CAPTURED now, instead of waiting on payment_intent.succeeded (which
+      // stays a forward-only backstop and no-ops once this is set). Without
+      // it the booking completed but was never payable.
       const now = new Date()
+      const succeeded = captured.status === 'succeeded'
       await tx.booking.update({
         where: { id: booking.id },
         data: {
           [actorField]: now,
           status: BookingStatus.ACTIVE,
           startDate: now,
-          paymentStatus: PaymentStatus.CAPTURE_PENDING,
+          paymentStatus: succeeded ? PaymentStatus.CAPTURED : PaymentStatus.CAPTURE_PENDING,
+          ...(succeeded ? { paidAt: booking.paidAt ?? now, stripeChargeId: booking.stripeChargeId ?? chargeIdOf(captured) } : {}),
           version: { increment: 1 },
         },
       })

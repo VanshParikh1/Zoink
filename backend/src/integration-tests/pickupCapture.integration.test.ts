@@ -23,6 +23,7 @@ import {
   getApp,
   getTestPrisma,
   truncateAllTables,
+  buildSignedWebhookPayload,
 } from './setup'
 import * as paymentService from '../services/paymentService'
 
@@ -126,7 +127,7 @@ describe('a failed capture at pickup blocks the handoff', () => {
 
     assert.equal((await ownerTaps(booking.id)).status, 409)
 
-    capture.mock.mockImplementation(async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded' }))
+    capture.mock.mockImplementation(async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded', latest_charge: 'ch_pickup_retry' }))
     const retry = await ownerTaps(booking.id)
     assert.equal(retry.status, 200, JSON.stringify(retry.body))
 
@@ -135,8 +136,34 @@ describe('a failed capture at pickup blocks the handoff', () => {
 
     const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(after.status, BookingStatus.ACTIVE)
-    assert.equal(after.paymentStatus, PaymentStatus.CAPTURE_PENDING)
+    assert.equal(after.paymentStatus, PaymentStatus.CAPTURED, 'the capture response says it succeeded')
+    assert.ok(after.paidAt)
+    assert.equal(after.stripeChargeId, 'ch_pickup_retry')
     assert.ok(after.ownerPickupTappedAt)
+  })
+
+  test('the rent is CAPTURED from the capture response, and the late succeeded webhook changes nothing', async () => {
+    const booking = await bookingAwaitingOwnerTap()
+    mock.method(paymentService, 'capturePaymentIntent', async (b: any) => ({ id: b.stripePaymentIntentId, status: 'succeeded', latest_charge: 'ch_pickup_1' }))
+
+    assert.equal((await ownerTaps(booking.id)).status, 200)
+    const captured = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(captured.paymentStatus, PaymentStatus.CAPTURED)
+    assert.equal(captured.stripeChargeId, 'ch_pickup_1')
+
+    const { body, signature } = buildSignedWebhookPayload(
+      'payment_intent.succeeded',
+      { id: captured.stripePaymentIntentId, object: 'payment_intent', latest_charge: 'ch_other' },
+      booking.id
+    )
+    const req = supertest(getApp()).post('/stripe/webhook').set('Content-Type', 'application/json')
+    if (signature) req.set('stripe-signature', signature)
+    assert.equal((await req.send(body.toString('utf8'))).status, 200)
+
+    const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.CAPTURED)
+    assert.equal(after.stripeChargeId, 'ch_pickup_1', 'the webhook does not overwrite the recorded charge')
+    assert.equal(after.paidAt?.toISOString(), captured.paidAt?.toISOString())
   })
 
   test('a capture Stripe already completed (lost response) counts as captured', async () => {
