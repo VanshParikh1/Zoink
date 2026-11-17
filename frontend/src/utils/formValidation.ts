@@ -31,6 +31,37 @@ export function validateSignIn(form: { email: string; password: string }): Field
   return errors
 }
 
+function passwordProblem(password: string, empty: string): string | undefined {
+  if (!password) return empty
+  if (password.length < PASSWORD_MIN) return `Use at least ${PASSWORD_MIN} characters.`
+  if (password.length > PASSWORD_MAX) return `Use ${PASSWORD_MAX} characters or fewer.`
+  return undefined
+}
+
+/** Forgot password, step 1 (backend POST /auth/password-reset/request). */
+export function validateResetRequest(form: { email: string }): FieldErrors<'email'> {
+  return blank(form.email) ? { email: 'Enter your student email.' } : {}
+}
+
+/** Forgot password, step 2 (backend POST /auth/password-reset/confirm). */
+export function validateResetConfirm(form: { code: string; password: string }): FieldErrors<'code' | 'password'> {
+  const errors: FieldErrors<'code' | 'password'> = {}
+  if (!/^\d{6}$/.test(form.code)) errors.code = 'Enter all 6 digits of the code.'
+  const password = passwordProblem(form.password, 'Choose a new password.')
+  if (password) errors.password = password
+  return errors
+}
+
+/** Settings › Change password (backend PATCH /users/me/password). */
+export function validatePasswordChange(form: { current: string; next: string }): FieldErrors<'current' | 'next'> {
+  const errors: FieldErrors<'current' | 'next'> = {}
+  if (!form.current) errors.current = 'Enter your current password.'
+  const next = passwordProblem(form.next, 'Choose a new password.')
+  if (next) errors.next = next
+  else if (form.current && form.next === form.current) errors.next = 'Choose a password different from your current one.'
+  return errors
+}
+
 type RegistrationField = 'email' | 'university' | 'firstName' | 'lastName' | 'phone' | 'password'
 
 export function validateRegistration(form: {

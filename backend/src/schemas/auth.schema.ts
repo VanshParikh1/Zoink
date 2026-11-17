@@ -71,6 +71,32 @@ export const LoginSchema = z.object({
   }),
 })
 
+// ── Password reset and change ─────────────────────────────────────────────────
+
+const newPassword = z.string().min(8, 'Password must be at least 8 characters.').max(128, 'Password cannot exceed 128 characters.')
+
+export const PasswordResetRequestSchema = z.object({
+  body: z.object({
+    email: z.string().trim().toLowerCase().email('A valid email address is required.'),
+  }),
+})
+
+export const PasswordResetConfirmSchema = z.object({
+  body: z.object({
+    email: z.string().trim().toLowerCase().email('A valid email address is required.'),
+    code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+    newPassword,
+  }),
+})
+
+export const ChangePasswordSchema = z.object({
+  body: z.object({
+    // Looser than a new one, like login: a password set before the 128 limit still works.
+    currentPassword: z.string().min(1, 'Enter your current password.').max(1024, 'Password is too long.'),
+    newPassword,
+  }),
+})
+
 // ── POST /auth/verify-email ───────────────────────────────────────────────────
 
 export const VerifyEmailSchema = z.object({

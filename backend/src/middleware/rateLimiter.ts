@@ -127,6 +127,27 @@ export const registerLimiter = keyedLimiter({
   key: (req) => `register:${ipKey(req)}`,
 })
 
+// Password reset: asking for a code per address + typed email, and guessing a
+// code per address + typed email (5 guesses per code also cap it), with a
+// looser cap per address across emails.
+export const passwordResetRequestLimiter = keyedLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 5,
+  key: (req) => `reset-request:${ipKey(req)}:${submittedEmail(req)}`,
+})
+export const passwordResetConfirmLimiter = keyedLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 10,
+  key: (req) => `reset-confirm:${ipKey(req)}:${submittedEmail(req)}`,
+})
+export const passwordResetAddressLimiter = keyedLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 50,
+  key: (req) => `reset-ip:${ipKey(req)}`,
+})
+// Settings › Change password, per signed-in user.
+export const passwordChangeLimiter = buildUserLimiter('password-change', { windowMs: 15 * MINUTE, limit: 10 })
+
 // Verification emails sent per address per day, sign-ups and resends together.
 // Only requests that sent one count. Generous, because a campus network can
 // put many students behind one address; the per-email cap in authService

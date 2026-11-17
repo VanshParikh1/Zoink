@@ -1,15 +1,18 @@
 import { Router } from 'express'
-import { register, login, verifyEmail, resendOTP, getLegalVersion } from '../middleware/controllers/authController'
+import { register, login, verifyEmail, resendOTP, getLegalVersion, requestPasswordReset, confirmPasswordReset } from '../middleware/controllers/authController'
 import { requireAuth } from '../middleware/requireAuth'
 import { validate } from '../middleware/validate'
 import {
   authLimiter,
   loginAccountLimiter,
   loginAddressLimiter,
+  passwordResetAddressLimiter,
+  passwordResetConfirmLimiter,
+  passwordResetRequestLimiter,
   registerLimiter,
   verificationEmailAddressLimiter,
 } from '../middleware/rateLimiter'
-import { RegisterSchema, LoginSchema, VerifyEmailSchema } from '../schemas/auth.schema'
+import { RegisterSchema, LoginSchema, VerifyEmailSchema, PasswordResetRequestSchema, PasswordResetConfirmSchema } from '../schemas/auth.schema'
 
 const router = Router()
 
@@ -20,5 +23,14 @@ router.post('/register', registerLimiter, verificationEmailAddressLimiter, valid
 router.post('/login', loginAddressLimiter, loginAccountLimiter, validate(LoginSchema), login)
 router.post('/verify-email', authLimiter, requireAuth, validate(VerifyEmailSchema), verifyEmail)
 router.post('/resend-otp', authLimiter, verificationEmailAddressLimiter, requireAuth, resendOTP)
+router.post(
+  '/password-reset/request',
+  passwordResetAddressLimiter,
+  passwordResetRequestLimiter,
+  verificationEmailAddressLimiter,
+  validate(PasswordResetRequestSchema),
+  requestPasswordReset
+)
+router.post('/password-reset/confirm', passwordResetAddressLimiter, passwordResetConfirmLimiter, validate(PasswordResetConfirmSchema), confirmPasswordReset)
 
 export default router

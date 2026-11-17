@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
-import { Prisma, VerificationStatus } from '@prisma/client'
+import { Prisma, VerificationPurpose, VerificationStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import {
   BadRequestError,
@@ -215,7 +215,7 @@ export async function loginUser(email: string, password: string) {
 export async function verifyOTP(userId: string, code: string) {
   // Find the most recent unused token for this user
   const token = await prisma.verificationToken.findFirst({
-    where: { userId, usedAt: null },
+    where: { userId, usedAt: null, purpose: VerificationPurpose.VERIFY_EMAIL },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -298,6 +298,121 @@ export async function resendOTP(userId: string) {
   return { message: 'OTP sent' }
 }
 
+// ── Password reset and change ────────────────────────────────────────────────
+
+// The same answer whether or not the address has an account, and whatever
+// happens behind it (daily cap reached, cooldown), so the endpoint can't be
+// used to find out who is registered.
+export const PASSWORD_RESET_REQUESTED = 'If that email has a Zoink account, we sent it a 6-digit code.'
+const PASSWORD_RESET_CODE_REFUSED = 'That code is incorrect or has expired. Request a new one.'
+
+export async function requestPasswordReset(rawEmail: string) {
+  const email = normalizeEmail(rawEmail)
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, firstName: true, deletedAt: true } })
+  if (!user || user.deletedAt) return { message: PASSWORD_RESET_REQUESTED }
+
+  try {
+    // Shares the address's daily cap and one-minute cooldown with
+    // verification emails.
+    await reserveVerificationEmail(email, { cooldown: true })
+  } catch (error) {
+    if (error instanceof TooManyRequestsError) return { message: PASSWORD_RESET_REQUESTED }
+    throw error
+  }
+
+  const code = generateOTP()
+  await prisma.verificationToken.create({
+    data: {
+      userId: user.id,
+      code,
+      purpose: VerificationPurpose.PASSWORD_RESET,
+      expiresAt: new Date(Date.now() + otpExpiryMinutes() * 60 * 1000),
+    },
+  })
+  // In the background, like sign-up: the response doesn't wait on SES.
+  void sendVerificationEmail(email, user.firstName, code, VerificationPurpose.PASSWORD_RESET)
+  return { message: PASSWORD_RESET_REQUESTED }
+}
+
+/** Sets a new password from an emailed reset code and ends every other
+ *  session (tokenVersion). Every failure, including an unknown address, gets
+ *  the same message. Returns a session for this device. */
+export async function confirmPasswordReset(rawEmail: string, code: string, newPassword: string) {
+  const email = normalizeEmail(rawEmail)
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, deletedAt: true } })
+  if (!user || user.deletedAt) throw new BadRequestError(PASSWORD_RESET_CODE_REFUSED)
+
+  const token = await prisma.verificationToken.findFirst({
+    where: { userId: user.id, usedAt: null, purpose: VerificationPurpose.PASSWORD_RESET },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!token) throw new BadRequestError(PASSWORD_RESET_CODE_REFUSED)
+
+  if (!codesMatch(token.code, code)) {
+    // Counted atomically; the 5th wrong guess spends the code.
+    const { failedAttempts } = await prisma.verificationToken.update({
+      where: { id: token.id },
+      data: { failedAttempts: { increment: 1 } },
+      select: { failedAttempts: true },
+    })
+    if (failedAttempts >= MAX_OTP_ATTEMPTS) {
+      await prisma.verificationToken.updateMany({ where: { id: token.id, usedAt: null }, data: { usedAt: new Date() } })
+    }
+    throw new BadRequestError(PASSWORD_RESET_CODE_REFUSED)
+  }
+  if (token.expiresAt < new Date()) throw new BadRequestError(PASSWORD_RESET_CODE_REFUSED)
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  const updated = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.verificationToken.updateMany({
+      where: { id: token.id, usedAt: null, failedAttempts: { lt: MAX_OTP_ATTEMPTS } },
+      data: { usedAt: new Date() },
+    })
+    if (claimed.count !== 1) throw new BadRequestError(PASSWORD_RESET_CODE_REFUSED)
+    // Any other reset code still out there is spent with it.
+    await tx.verificationToken.updateMany({
+      where: { userId: user.id, usedAt: null, purpose: VerificationPurpose.PASSWORD_RESET },
+      data: { usedAt: new Date() },
+    })
+    return tx.user.update({
+      where: { id: user.id },
+      data: { passwordHash, tokenVersion: { increment: 1 } },
+    })
+  })
+
+  return sessionFor(updated)
+}
+
+/** Settings › Change password. Needs the current password; ends every other
+ *  session and returns a new one for this device. */
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) throw new NotFoundError('User not found.')
+  // 400, not 401: the app signs out on a 401.
+  if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+    throw new BadRequestError('Your current password is incorrect.')
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: await bcrypt.hash(newPassword, 12), tokenVersion: { increment: 1 } },
+  })
+  return sessionFor(updated)
+}
+
+function sessionFor(user: {
+  id: string
+  email: string
+  firstName: string
+  role: string
+  verificationStatus: string
+  termsVersion: string | null
+  privacyVersion: string | null
+  tokenVersion: number
+}) {
+  const token = signJWT(user.id, user.verificationStatus, user.email, user.firstName, user.role, user.termsVersion, user.privacyVersion, user.tokenVersion)
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName, verificationStatus: user.verificationStatus, role: user.role } }
+}
+
 // ── Email ────────────────────────────────────────────────────────────────────
 
 import { SendEmailCommand } from '@aws-sdk/client-ses'
@@ -314,7 +429,26 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;')
 }
 
-async function sendVerificationEmail(email: string, firstName: string, code: string) {
+const EMAIL_COPY = {
+  [VerificationPurpose.VERIFY_EMAIL]: {
+    subject: 'Your Zoink verification code',
+    text: 'Your Zoink verification code is',
+    lead: 'Enter this code in the app to verify your student email:',
+  },
+  [VerificationPurpose.PASSWORD_RESET]: {
+    subject: 'Your Zoink password reset code',
+    text: 'Your Zoink password reset code is',
+    lead: 'Enter this code in the app to choose a new password:',
+  },
+}
+
+async function sendVerificationEmail(
+  email: string,
+  firstName: string,
+  code: string,
+  purpose: VerificationPurpose = VerificationPurpose.VERIFY_EMAIL
+) {
+  const copy = EMAIL_COPY[purpose]
   const command = new SendEmailCommand({
     Source: process.env.SES_FROM_EMAIL!,
     Destination: {
@@ -322,18 +456,18 @@ async function sendVerificationEmail(email: string, firstName: string, code: str
     },
     Message: {
       Subject: {
-        Data: 'Your Zoink verification code',
+        Data: copy.subject,
       },
       Body: {
         Text: {
-          Data: `Hi ${firstName},\n\nYour Zoink verification code is: ${code}\n\nIt expires in ${otpExpiryMinutes()} minutes.\n\nIf you didn't request this, ignore this email.`,
+          Data: `Hi ${firstName},\n\n${copy.text}: ${code}\n\nIt expires in ${otpExpiryMinutes()} minutes.\n\nIf you didn't request this, ignore this email.`,
         },
         Html: {
           Data: `
             <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-              <h2 style="color: #1a1a1a;">Your Zoink verification code</h2>
+              <h2 style="color: #1a1a1a;">${copy.subject}</h2>
               <p>Hi ${escapeHtml(firstName)},</p>
-              <p>Enter this code in the app to verify your student email:</p>
+              <p>${copy.lead}</p>
               <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #4F46E5; margin: 24px 0;">
                 ${code}
               </div>

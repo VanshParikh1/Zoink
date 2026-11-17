@@ -407,6 +407,9 @@ model VerificationToken {
   // (sets usedAt) once this reaches the cap, so a 6-digit code can't be
   // brute-forced; the user requests a new one.
   failedAttempts Int     @default(0)
+  // What the code is for; verifyOTP and the password reset each only read
+  // their own kind.
+  purpose   VerificationPurpose @default(VERIFY_EMAIL)
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -516,6 +519,11 @@ enum University {
   ONTARIO_TECH
   MCMASTER
   WATERLOO
+}
+
+enum VerificationPurpose {
+  VERIFY_EMAIL
+  PASSWORD_RESET
 }
 
 enum VerificationStatus {

@@ -4,6 +4,8 @@ export type Role = "USER" | "ADMIN";
 
 export type University = "UOFT" | "TMU" | "LAURIER" | "YORK" | "ONTARIO_TECH" | "MCMASTER" | "WATERLOO";
 
+export type VerificationPurpose = "VERIFY_EMAIL" | "PASSWORD_RESET";
+
 export type VerificationStatus = "PENDING" | "SUBMITTED" | "VERIFIED" | "FAILED";
 
 export type BookingStatus = "PENDING" | "ACCEPTED" | "CONFIRMED" | "PICKUP_PENDING" | "DECLINED" | "ACTIVE" | "RETURN_PENDING" | "COMPLETED" | "CANCELLED";
@@ -287,6 +289,7 @@ export interface VerificationToken {
   expiresAt: string;
   usedAt: string | null;
   failedAttempts: number;
+  purpose: VerificationPurpose;
   createdAt: string;
   user?: User;
 }

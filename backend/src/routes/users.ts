@@ -4,7 +4,7 @@ import { BadRequestError } from '../utils/errors'
 import { requireAuth, requireAuthAllowingExpired } from '../middleware/requireAuth'
 import { requireVerified } from '../middleware/requiredVerified'
 import { validate } from '../middleware/validate'
-import { blockLimiter, paymentLimiter, payoutStatusLimiter, uploadLimiter } from '../middleware/rateLimiter'
+import { blockLimiter, passwordChangeLimiter, paymentLimiter, payoutStatusLimiter, uploadLimiter } from '../middleware/rateLimiter'
 import { ReleasePushTokenSchema, UpdateMeSchema, UpdateNotificationPrefsSchema, UpdatePushTokenSchema, UserIdParamsSchema } from '../schemas/user.schema'
 import {
   getMe,
@@ -21,7 +21,9 @@ import {
   blockUser,
   unblockUser,
   getMyBlocks,
+  changePassword,
 } from '../middleware/controllers/userController'
+import { ChangePasswordSchema } from '../schemas/auth.schema'
 
 const router = Router()
 
@@ -44,6 +46,7 @@ const upload = multer({
 router.get('/me', requireAuth, getMe)
 router.patch('/me', requireAuth, requireVerified, validate(UpdateMeSchema), updateMe)
 router.delete('/me', requireAuth, deleteMe)
+router.patch('/me/password', requireAuth, passwordChangeLimiter, validate(ChangePasswordSchema), changePassword)
 router.patch('/me/notification-prefs', requireAuth, requireVerified, validate(UpdateNotificationPrefsSchema), updateNotificationPrefs)
 router.post('/me/accept-terms', requireAuth, requireVerified, acceptTerms)
 router.patch('/me/push-token', requireAuth, requireVerified, validate(UpdatePushTokenSchema), updatePushToken)

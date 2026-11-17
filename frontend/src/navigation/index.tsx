@@ -39,6 +39,9 @@ export type PendingRegistration = {
 
 export type RootStackParamList = {
   Login: undefined
+  ForgotPassword: { email?: string } | undefined
+  ResetPassword: { email: string }
+  ChangePassword: undefined
   Register: { pendingRegistration?: PendingRegistration; errorMessage?: string } | undefined
   TermsAcceptance: { mode: 'register' | 'update' | 'view'; pendingRegistration?: PendingRegistration; initialTab?: 'terms' | 'privacy' }
   VerifyEmail: undefined
@@ -166,6 +169,7 @@ function VerifiedAppStack() {
       <Stack.Screen name="Inbox" getComponent={() => require('../screens/InboxScreen').default} />
       <Stack.Screen name="MyProfile" getComponent={() => require('../screens/MyProfileScreen').default} />
       <Stack.Screen name="Settings" getComponent={() => require('../screens/SettingsScreen').default} />
+      <Stack.Screen name="ChangePassword" getComponent={() => require('../screens/ChangePasswordScreen').default} />
       <Stack.Screen 
         name="PublicProfile" 
         getComponent={() => require('../screens/PublicProfileScreen').default} 
@@ -221,6 +225,8 @@ export default function Navigation({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Navigator screenOptions={stackOptions} screenLayout={screenLayout}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="ForgotPassword" getComponent={() => require('../screens/ForgotPasswordScreen').default} />
+          <Stack.Screen name="ResetPassword" getComponent={() => require('../screens/ResetPasswordScreen').default} />
           <Stack.Screen name="TermsAcceptance" component={TermsAcceptanceScreen} />
         </Stack.Navigator>
       ) : user.verificationStatus !== 'VERIFIED' ? (

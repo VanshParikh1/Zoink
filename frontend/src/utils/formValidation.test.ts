@@ -13,6 +13,9 @@ import {
   validateResolution,
   validateReview,
   validateSignIn,
+  validateResetRequest,
+  validateResetConfirm,
+  validatePasswordChange,
 } from './formValidation'
 
 const goodRegistration = {
@@ -145,5 +148,31 @@ describe('profile, reports, reviews, admin', () => {
     assert.equal(validateResolution({ resolution: 'RESOLVED_REFUND', notes: 'Damaged', minNotes: 5, amount: { input: '0', capDollars: 50 } }).amount, 'Enter an amount over $0.')
     assert.equal(validateResolution({ resolution: 'RESOLVED_REFUND', notes: 'Damaged', minNotes: 5, amount: { input: '50.01', capDollars: 50 } }).amount, "Can't be more than $50.00.")
     assert.deepEqual(validateResolution({ resolution: 'RESOLVED_REFUND', notes: 'Damaged', minNotes: 5, amount: { input: '50', capDollars: 50 } }), {})
+  })
+})
+
+describe('password reset and change', () => {
+  test('reset: an email is needed to ask for a code', () => {
+    assert.deepEqual(validateResetRequest({ email: ' ' }), { email: 'Enter your student email.' })
+    assert.deepEqual(validateResetRequest({ email: 'a@mail.utoronto.ca' }), {})
+  })
+
+  test('reset: a 6-digit code and a password of sign-up length', () => {
+    assert.deepEqual(validateResetConfirm({ code: '12345', password: 'short' }), {
+      code: 'Enter all 6 digits of the code.',
+      password: 'Use at least 8 characters.',
+    })
+    assert.deepEqual(validateResetConfirm({ code: '123456', password: 'long enough' }), {})
+  })
+
+  test('change: needs the current password and a different new one', () => {
+    assert.deepEqual(validatePasswordChange({ current: '', next: '' }), {
+      current: 'Enter your current password.',
+      next: 'Choose a new password.',
+    })
+    assert.deepEqual(validatePasswordChange({ current: 'same-password', next: 'same-password' }), {
+      next: 'Choose a password different from your current one.',
+    })
+    assert.deepEqual(validatePasswordChange({ current: 'old-password', next: 'new-password' }), {})
   })
 })

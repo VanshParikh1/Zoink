@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import * as userService from '../../services/userService'
 import * as paymentService from '../../services/paymentService'
 import * as blockService from '../../services/blockService'
+import * as authService from '../../services/authService'
 import * as cloudinary from '../../utils/cloudinary'
 import { asyncHandler } from '../../utils/asyncHandler'
 
@@ -127,4 +128,11 @@ export const getStripeConnectStatus = asyncHandler(async (req: Request, res: Res
 
   const status = await paymentService.getConnectAccountStatus(accountId)
   return res.json(status)
+})
+
+// PATCH /users/me/password
+export const changePassword = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).userId
+  const { currentPassword, newPassword } = req.body
+  return res.json(await authService.changePassword(userId, currentPassword, newPassword))
 })

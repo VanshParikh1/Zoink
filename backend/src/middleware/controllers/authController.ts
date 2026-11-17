@@ -45,3 +45,13 @@ export const resendOTP = asyncHandler(async (req: Request, res: Response) => {
   const result = await authService.resendOTP(userId)
   return res.status(200).json(result)
 })
+
+export const requestPasswordReset = asyncHandler(async (req: Request, res: Response) => {
+  return res.status(200).json(await authService.requestPasswordReset(req.body.email))
+})
+
+
+export const confirmPasswordReset = asyncHandler(async (req: Request, res: Response) => {
+  const { email, code, newPassword } = req.body
+  return res.status(200).json(await authService.confirmPasswordReset(email, code, newPassword))
+})

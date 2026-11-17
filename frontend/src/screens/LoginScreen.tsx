@@ -98,6 +98,13 @@ export default function LoginScreen() {
             returnKeyType="go"
             onSubmitEditing={handleLogin}
           />
+          <Text
+            style={styles.forgot}
+            onPress={() => navigation.navigate('ForgotPassword', { email: email.trim() || undefined })}
+            accessibilityRole="link"
+          >
+            Forgot password?
+          </Text>
         </View>
 
         {keyboardOpen ? footer : null}
@@ -123,6 +130,14 @@ const styles = StyleSheet.create({
     ...type.bodySm,
     color: colors.mutedAlt,
     textAlign: 'center',
+  },
+  forgot: {
+    ...type.bodySm,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    textDecorationLine: 'underline',
+    alignSelf: 'flex-end',
+    marginTop: -space.sm,
   },
   switchLink: {
     fontFamily: fonts.bold,

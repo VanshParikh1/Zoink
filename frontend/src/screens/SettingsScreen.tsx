@@ -163,6 +163,7 @@ export default function SettingsScreen() {
           <GroupLabel>Account</GroupLabel>
           <RowGroup>
             <ListRow icon="mail" label="Email" value={email ?? '—'} />
+            <ListRow icon="lock" label="Change password" onPress={() => nav.navigate('ChangePassword')} />
           </RowGroup>
 
           <GroupLabel>Notifications</GroupLabel>
