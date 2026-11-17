@@ -1,6 +1,15 @@
 {
-  "watch": ["src"],
+  "watch": [
+    "src"
+  ],
   "ext": "ts,json",
-  "ignore": ["dist", "node_modules", "*.test.ts"],
-  "exec": "ts-node --transpile-only src/index.ts"
+  "ignore": [
+    "dist",
+    "node_modules",
+    "*.test.ts"
+  ],
+  "exec": "ts-node --transpile-only src/index.ts",
+  "env": {
+    "NODE_ENV": "development"
+  }
 }
