@@ -23,7 +23,7 @@ after(async () => {
 
 function daysFromNow(days: number) {
   const d = new Date()
-  d.setUTCHours(12, 0, 0, 0)
+  d.setUTCHours(0, 0, 0, 0) // a calendar day, as the app sends it
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString()
 }

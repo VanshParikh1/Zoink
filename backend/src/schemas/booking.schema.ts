@@ -22,21 +22,33 @@ import { pageQuery } from '../utils/pagination'
 
 /**
  * POST /bookings
- * Requires listingId + ISO-8601 date strings; endDate must be after startDate.
+ * Dates are calendar days, the way the app sends them (BookingRequestScreen):
+ * that day at exactly 00:00 UTC ("2026-10-20T00:00:00.000Z"). endDate is the
+ * last day, inclusive, so a one-day rental has endDate === startDate; the
+ * service bills inclusive days (bookingUtils.getRentalDays). Any other time
+ * of day is refused: it was priced by its UTC day but checked against
+ * "today" and the cancel cutoff by its Toronto day.
  * `message`, if present, is not stored on Booking (it has no message column) —
  * bookingService.createBooking posts it as the first Message in the
  * request's Conversation instead.
  */
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/
+const calendarDay = (field: string) =>
+  z
+    .string()
+    .datetime({ message: `${field} must be a valid ISO-8601 datetime string.` })
+    .regex(CALENDAR_DAY, `${field} must be a calendar day at 00:00 UTC, e.g. 2026-10-20T00:00:00.000Z.`)
+
 export const CreateBookingSchema = z.object({
   body: z
     .object({
       listingId: z.string().min(1, 'listingId is required.'),
-      startDate: z.string().datetime({ message: 'startDate must be a valid ISO-8601 datetime string.' }),
-      endDate: z.string().datetime({ message: 'endDate must be a valid ISO-8601 datetime string.' }),
+      startDate: calendarDay('startDate'),
+      endDate: calendarDay('endDate'),
       message: z.string().max(500, 'message cannot exceed 500 characters.').optional(),
     })
-    .refine((data) => new Date(data.endDate) > new Date(data.startDate), {
-      message: 'endDate must be after startDate.',
+    .refine((data) => new Date(data.endDate) >= new Date(data.startDate), {
+      message: 'endDate cannot be before startDate.',
       path: ['endDate'],
     }),
 })

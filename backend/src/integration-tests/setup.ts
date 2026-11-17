@@ -263,10 +263,11 @@ export async function createTestListing(ownerId: string, overrides: {
   return { id: listing.id }
 }
 
+// Calendar days as the app sends them: that day at 00:00 UTC, end inclusive.
 export function futureDates(startOffsetDays = 1, durationDays = 2) {
   const start = new Date()
   start.setUTCDate(start.getUTCDate() + startOffsetDays)
-  start.setUTCHours(12, 0, 0, 0)
+  start.setUTCHours(0, 0, 0, 0)
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + durationDays - 1)
   return {
