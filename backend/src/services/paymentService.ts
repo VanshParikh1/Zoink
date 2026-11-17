@@ -50,10 +50,20 @@ function getStripe(): StripeClient | null {
   }
 
   const Stripe = require('stripe')
-  stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: '2025-04-30.basil',
-  })
+  stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, STRIPE_CLIENT_OPTIONS)
   return stripeClient
+}
+
+// Stripe calls run inside DB transactions capped at 30 s (bookingService
+// STRIPE_TX_OPTIONS, cleanupJob STRIPE_JOB_TX_OPTIONS). The SDK's default 80 s
+// timeout let a call succeed after its transaction had already given up. The
+// per-attempt timeout is sized so all three attempts plus the SDK's backoff
+// (0.5-2 s between tries) stay under 30 s: 3 x 8 s + ~3 s. A retry re-sends
+// the same headers, so it reuses the idempotency key we pass.
+export const STRIPE_CLIENT_OPTIONS = {
+  apiVersion: '2025-04-30.basil',
+  timeout: 8_000,
+  maxNetworkRetries: 2,
 }
 
 export function isStripeConfigured() {

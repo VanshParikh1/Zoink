@@ -12,8 +12,12 @@ process.env.STRIPE_CONNECT_REFRESH_URL = 'https://api.example.test/stripe-refres
 
 type Call = { method: string; params: any; options: any }
 const calls: Call[] = []
+let clientOptions: any
 
 class RecordingStripe {
+  constructor(_key: string, options: any) {
+    clientOptions = options
+  }
   accounts = {
     create: async (params: any, options: any) => {
       calls.push({ method: 'accounts.create', params, options })
@@ -136,5 +140,14 @@ describe('deposit holds are keyed on the rental authorization, not the booking v
       cancelDepositPaymentIntent({ id: 'booking-1', stripeDepositPaymentIntentId: 'pi_cancel_fails' }),
       /timed out/
     )
+  })
+})
+
+describe('Stripe client settings', () => {
+  test('every attempt and its retries fit inside the 30 s transaction that holds them', async () => {
+    await cancelDepositPaymentIntent({ id: 'booking-1', stripeDepositPaymentIntentId: 'pi_dep_settings' })
+    assert.equal(clientOptions.maxNetworkRetries, 2)
+    // 3 attempts plus up to ~3 s of SDK backoff must stay under 30 s.
+    assert.ok(clientOptions.timeout * 3 + 3_000 < 30_000, `timeout ${clientOptions.timeout} ms is too long`)
   })
 })
