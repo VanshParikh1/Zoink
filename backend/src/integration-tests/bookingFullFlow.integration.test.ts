@@ -690,10 +690,14 @@ describe('separate deposit PaymentIntent — pickup capture excludes it', () => 
       (err: any) => {
         assert.equal(err.statusCode, 409, `Expected 409, got ${err.statusCode}: ${err.message}`)
         assert.match(err.message, /could not authorize the deposit/i)
+        assert.doesNotMatch(err.message, /forced for test/, "Stripe's own text stays out of the client message")
         return true
       }
     )
     assert.equal(depositSpy.mock.callCount(), 1)
+    const recorded = await getTestPrisma().bookingEvent.findFirst({ where: { bookingId: withIntent.id, type: 'ERROR' } })
+    assert.equal((recorded?.metadata as any)?.action, 'authorize_deposit')
+    assert.match((recorded?.metadata as any)?.message, /forced for test/, 'the real reason is recorded on the booking')
 
     // The booking must NOT end up CONFIRMED with only the rental portion
     // secured and no deposit hold in place — it stays exactly where it was.

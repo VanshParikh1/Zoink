@@ -25,9 +25,13 @@ export function errorHandler(
   if (err instanceof AppError) {
     // Only 500-level AppErrors (e.g. InternalServerError) are bugs worth
     // paging on — 4xx AppErrors are expected validation/business-rule
-    // outcomes and would just drown out real signal in Sentry.
+    // outcomes and would just drown out real signal in Sentry. Their message
+    // often carries Stripe's error text or a config name, so it is logged and
+    // reported here and the client gets a fixed sentence.
     if (err.statusCode >= 500) {
+      console.error(`${req.method} ${req.path} failed:`, loggableError(err))
       Sentry.captureException(err)
+      return res.status(err.statusCode).json({ error: 'Something went wrong.' })
     }
     // A machine-readable code where the error class has one (e.g.
     // PICKUP_PAYMENT_REQUIRED), next to the sentence for people.

@@ -680,6 +680,7 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
   let rentalToRelease: any = null
   let depositPaymentIntentId: string | null = null
   let alreadyConfirmed = false
+  let depositAuthorizationError: unknown
 
   try {
     const confirmed: any = await withBookingLock(bookingId, async (tx) => {
@@ -772,9 +773,11 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
           }
         } catch (error) {
           rentalToRelease = booking
-          throw new ConflictError(
-            `Could not authorize the deposit — payment was not completed: ${error instanceof Error ? error.message : 'UNKNOWN_ERROR'}. Please try again.`
-          )
+          // Stripe's reason (a decline code, a needed 3-D Secure step) is
+          // recorded after the rollback; the renter gets a fixed sentence the
+          // app recognises.
+          depositAuthorizationError = error
+          throw new ConflictError('Could not authorize the deposit — payment was not completed: please try again.')
         }
       }
 
@@ -812,6 +815,9 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
 
     return toBookingResponse(confirmed, actorId)
   } catch (error) {
+    if (depositAuthorizationError !== undefined) {
+      await recordPaymentError(bookingId, actorId, 'authorize_deposit', depositAuthorizationError)
+    }
     // Nothing committed: release whatever this attempt left authorized. The
     // deposit is only released if the booking doesn't hold it (a commit that
     // reported failure after landing would still hold it).
