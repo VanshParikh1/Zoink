@@ -597,11 +597,22 @@ export async function updateListing(
   data: UpdateListingInput
 ): Promise<ListingResponse> {
   // Verify ownership first
-  const existing = await prisma.listing.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } })
+  const existing = await prisma.listing.findUnique({
+    where: { id, deletedAt: null },
+    select: { ownerId: true, itemValue: true, depositAmount: true },
+  })
   if (!existing) throw new NotFoundError('Listing not found.')
   if (existing.ownerId !== ownerId) throw new ForbiddenError('You do not own this listing.')
 
   assertNoProhibitedContent(data)
+
+  // Checked against what the listing will hold after this edit, not just the
+  // fields sent: lowering only itemValue used to leave a larger deposit.
+  const nextItemValue = data.itemValue ?? Number(existing.itemValue)
+  const nextDeposit = data.depositAmount ?? Number(existing.depositAmount)
+  if (nextDeposit > nextItemValue) {
+    throw new BadRequestError('depositAmount cannot exceed itemValue.')
+  }
 
   const cleaned: Record<string, unknown> = Object.fromEntries(
     Object.entries(data).filter(([, v]) => v !== undefined)

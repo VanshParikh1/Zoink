@@ -34,8 +34,8 @@ export const RegisterSchema = z.object({
       // this way (see utils/email.ts).
       email: z.string().trim().toLowerCase().email('A valid email address is required.'),
       password: z.string().min(8, 'Password must be at least 8 characters.').max(128, 'Password cannot exceed 128 characters.'),
-      firstName: z.string().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.'),
-      lastName: z.string().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.'),
+      firstName: z.string().trim().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.'),
+      lastName: z.string().trim().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.'),
       phone: z
         .string()
         .trim()

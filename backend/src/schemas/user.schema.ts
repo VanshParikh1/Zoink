@@ -11,8 +11,8 @@ import { z } from 'zod'
 
 export const UpdateMeSchema = z.object({
   body: z.object({
-    firstName: z.string().min(1).max(50, 'firstName cannot exceed 50 characters.').optional(),
-    lastName: z.string().min(1).max(50, 'lastName cannot exceed 50 characters.').optional(),
+    firstName: z.string().trim().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.').optional(),
+    lastName: z.string().trim().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.').optional(),
     phone: z.string().max(30, 'phone cannot exceed 30 characters.').optional(),
     bio: z.string().max(300, 'bio cannot exceed 300 characters.').optional(),
   }),

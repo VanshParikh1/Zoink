@@ -111,10 +111,8 @@ export const UpdateListingSchema = z.object({
       (data) => data.depositAmount === undefined || data.itemValue === undefined || data.depositAmount <= data.itemValue,
       depositNotOverItemValue
     )
-    .refine(
-      (data) => data.depositAmount === undefined || data.itemValue !== undefined,
-      itemValueRequiredForDeposit
-    )
+    // Deposit vs. the stored itemValue (when only one of them is sent) is
+    // checked in listingService.updateListing, which has the listing.
     .refine(depositIsNoneOrAtLeastMinimum, depositAtLeastMinimum),
 })
 
