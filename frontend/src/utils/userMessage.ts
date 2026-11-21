@@ -165,7 +165,7 @@ const REWORDED_PATTERNS: { source: string; pattern: RegExp; say: (match: RegExpM
     say: (m) => `The amount can't be more than the deposit (${m[1]}).`,
   },
   {
-    source: 'refundAmountCents cannot exceed the remaining refundable balance of $${formatCents(remainingRefundableCents)} (booking total minus prior refunds).',
+    source: 'refundAmountCents cannot exceed the remaining refundable balance of $${formatCents(remainingRefundableCents)} (amount charged minus prior refunds).',
     pattern: /^refundAmountCents cannot exceed the remaining refundable balance of (\$[\d.,]+) /,
     say: (m) => `The refund can't be more than what's left to refund (${m[1]}).`,
   },

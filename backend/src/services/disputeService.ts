@@ -1,7 +1,7 @@
 import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { cancelDepositPaymentIntent, cancelPaymentIntent, captureDepositPaymentIntent, chargeIdOf, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
+import { cancelDepositPaymentIntent, cancelPaymentIntent, captureDepositPaymentIntent, chargeIdOf, getRentalAuthorizationAmount, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
 import { notifyUser } from './notificationService'
 import { loggableMessage } from '../utils/sentryScrub'
 
@@ -222,7 +222,9 @@ export async function resolveDispute(
         }
       }
     } else if (status === 'RESOLVED_REFUND') {
-      const fullAmountCents = toCents(dispute.booking.totalPrice)
+      // What the rent PaymentIntent actually charged: rent + insurance + any
+      // HST (F-03). Old bookings carry HST, new ones (D-2) don't.
+      const fullAmountCents = getRentalAuthorizationAmount(dispute.booking)
 
       // Prior disputes on this SAME booking that already issued a refund reduce what's
       // left to give back. A null refundAmountCents on an old row predates this field
@@ -242,7 +244,7 @@ export async function resolveDispute(
 
       if (refundAmountCents !== undefined && refundAmountCents > remainingRefundableCents) {
         throw new BadRequestError(
-          `refundAmountCents cannot exceed the remaining refundable balance of $${formatCents(remainingRefundableCents)} (booking total minus prior refunds).`
+          `refundAmountCents cannot exceed the remaining refundable balance of $${formatCents(remainingRefundableCents)} (amount charged minus prior refunds).`
         )
       }
 

@@ -1,6 +1,6 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelDepositPaymentIntent, getPaymentIntentChargeId, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
@@ -121,6 +121,8 @@ export async function releaseDuePayouts() {
             version: true,
             ownerPayout: true,
             totalPrice: true,
+            insuranceFee: true,
+            hstAmount: true,
             refundedAmountCents: true,
             stripeChargeId: true,
             stripePaymentIntentId: true,
@@ -129,19 +131,21 @@ export async function releaseDuePayouts() {
         })
         if (!booking) return 'skipped' as const
 
-        const totalCents = toCents(booking.totalPrice)
+        // Same base as the refund ceiling (F-14): what the rent PaymentIntent
+        // charged, incl. any HST, since refundedAmountCents is measured against it.
+        const chargedCents = getRentalAuthorizationAmount(booking)
         const fullOwnerPayoutCents = toCents(booking.ownerPayout)
-        const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), totalCents)
+        const refundedToRenterCents = Math.min(Math.max(booking.refundedAmountCents, 0), chargedCents)
 
         // The owner's cut of what the renter actually kept paying, proportional to
-        // their share of the original total (so the platform eats its commission on
-        // the refunded slice too). With refundedToRenterCents === 0 — the common
+        // their share of the original charge (so the platform eats its commission on
+        // the refunded slice too, D-5). With refundedToRenterCents === 0 — the common
         // case — this is exactly fullOwnerPayoutCents.
         const remainingPayoutCents =
-          totalCents > 0
+          chargedCents > 0
             ? Math.max(
                 0,
-                Math.round(((totalCents - refundedToRenterCents) * fullOwnerPayoutCents) / totalCents),
+                Math.round(((chargedCents - refundedToRenterCents) * fullOwnerPayoutCents) / chargedCents),
               )
             : 0
 
