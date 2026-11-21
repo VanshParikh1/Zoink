@@ -24,6 +24,7 @@ import {
   confirmTestPaymentIntent,
 } from './setup'
 import { BookingStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { capturePaymentIntent } from '../services/paymentService'
 
 let stripeAvailable = false
 let owner: { id: string; email: string; token: string }
@@ -113,7 +114,8 @@ describe('POST /bookings/:id/payment-intent — retries', () => {
     const old = await stripeClient().paymentIntents.retrieve(oldPiId)
     assert.equal(old.status, 'canceled')
     const fresh = await stripeClient().paymentIntents.retrieve(second.body.stripePaymentIntentId)
-    assert.equal(fresh.amount, Math.round((60 + 0 + 5.2) * 100))
+    // The fixture's $5.20 HST predates D-2 and is dropped at Pay.
+    assert.equal(fresh.amount, 6000)
   })
 
   test('an already-authorized PaymentIntent is released (not left held) when the renter pays again', async (t) => {
@@ -172,5 +174,57 @@ describe('PATCH /bookings/:id/confirm — before the webhook', () => {
     const row = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(row.status, BookingStatus.ACCEPTED)
     assert.equal(row.paymentStatus, PaymentStatus.PENDING_AUTH)
+  })
+})
+
+// D-2: a booking requested before HST was dropped, but not yet paid, isn't charged it.
+describe('older unpaid bookings carrying HST', () => {
+  test('Pay charges the rent only and zeroes the snapshot', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe test API unreachable')
+    const booking = await createAcceptedBooking() // hstAmount 5.20
+    const res = await pay(booking.id)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.hstAmount, 0)
+    assert.equal((await stripeClient().paymentIntents.retrieve(res.body.stripePaymentIntentId)).amount, 4000)
+    assert.equal(Number((await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })).hstAmount), 0)
+  })
+
+  test('a hold already authorized with HST: Confirm zeroes it and pickup captures the rent only', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe test API unreachable')
+    const booking = await createAcceptedBooking()
+    const intent = await stripeClient().paymentIntents.create({
+      amount: 4520,
+      currency: process.env.STRIPE_CURRENCY ?? 'cad',
+      payment_method_types: ['card'],
+      capture_method: 'manual',
+      metadata: { bookingId: booking.id },
+    })
+    await confirmTestPaymentIntent(intent.id)
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { stripePaymentIntentId: intent.id, paymentStatus: PaymentStatus.AUTHORIZED } })
+
+    const res = await supertest(getApp()).patch(`/bookings/${booking.id}/confirm`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.status, BookingStatus.CONFIRMED)
+    assert.equal(res.body.hstAmount, 0)
+    const row = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(Number(row.hstAmount), 0)
+
+    const captured = await capturePaymentIntent(row)
+    assert.equal(captured.amount_received, 4000, 'the $5.20 is released, not captured')
+  })
+
+  test('a PENDING booking shows no HST', async () => {
+    const booking = await createAcceptedBooking()
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { status: BookingStatus.PENDING } })
+    const res = await supertest(getApp()).get(`/bookings/${booking.id}`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.hstAmount, 0)
+  })
+
+  test('a booking already confirmed with HST keeps it', async () => {
+    const booking = await createAcceptedBooking()
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { status: BookingStatus.CONFIRMED } })
+    const res = await supertest(getApp()).get(`/bookings/${booking.id}`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(res.body.hstAmount, 5.2)
   })
 })

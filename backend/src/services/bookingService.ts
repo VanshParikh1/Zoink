@@ -217,6 +217,17 @@ function listingForViewer(booking: any, userId?: string) {
   return canSeeAddress ? booking.listing : { ...booking.listing, address: null }
 }
 
+const UNCHARGED_STATUSES: string[] = [BookingStatus.PENDING, BookingStatus.ACCEPTED]
+
+/** D-2 also covers bookings requested before it but not yet paid: drop their
+ *  snapshotted HST before the rent is authorized (Pay) or locked in (Confirm).
+ *  A hold already authorized with HST is captured at the lower amount at pickup. */
+async function dropUnchargedHst(tx: Prisma.TransactionClient, booking: any) {
+  if (Number(booking.hstAmount ?? 0) === 0) return
+  await tx.booking.update({ where: { id: booking.id }, data: { hstAmount: new Prisma.Decimal(0) } })
+  booking.hstAmount = new Prisma.Decimal(0)
+}
+
 function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
   const booking = { ...rawBooking, listing: listingForViewer(rawBooking, userId) }
   const isRenter = userId !== undefined && userId === booking.renterId
@@ -239,7 +250,8 @@ function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
-    hstAmount: Number(booking.hstAmount ?? 0),
+    // Not yet paid for: no HST will be charged (D-2), whatever was snapshotted.
+    hstAmount: UNCHARGED_STATUSES.includes(booking.status) ? 0 : Number(booking.hstAmount ?? 0),
     // Each party sees only their own Stripe ids: the renter's payment, the
     // owner's payout transfer.
     stripePaymentIntentId: isRenter ? booking.stripePaymentIntentId : null,
@@ -580,6 +592,9 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
     }
 
     assertPaymentWindowOpen(booking)
+    // Before the reuse check, so an old PaymentIntent that includes HST no longer
+    // matches and is retired.
+    await dropUnchargedHst(tx, booking)
 
     // Every Pay tap used to mint a fresh PaymentIntent, leaving the previous
     // attempt's authorization (if the renter got that far) held on their card
@@ -707,6 +722,7 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
 
       assertBookingTransition(booking.status, BookingStatus.CONFIRMED)
       assertPaymentWindowOpen(booking)
+      await dropUnchargedHst(tx, booking)
 
       // This is the new payment checkpoint — dates only truly lock once payment
       // is authorized, which is why the overlap check runs here: two different
