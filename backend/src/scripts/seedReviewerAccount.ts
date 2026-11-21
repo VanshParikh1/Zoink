@@ -499,12 +499,12 @@ export async function seedReviewerAccount(
     { from: 'reviewer', body: 'Is the speaker free tomorrow for a club event?' },
     { from: 'owner', body: 'It is! I accepted your request — go ahead and pay whenever you are ready.' },
   ])
-  // Starts tomorrow: the speaker has a deposit, and a booking with a deposit
-  // can only be paid from 00:00 Toronto time the day before it starts
-  // (@zoink/shared deposits.ts). Re-run the seed shortly before submitting
-  // for review (in Toronto daytime) so the reviewer can pay straight away.
-  const acceptedStart = dayOffset(1)
-  const acceptedEnd = dayOffset(2)
+  // Starts today: the speaker has a deposit, and a booking with a deposit
+  // can only be paid from 00:00 Toronto time on its start day (@zoink/shared
+  // deposits.ts). Re-seed on the Toronto day of review, as the pickup demo
+  // below already requires.
+  const acceptedStart = dayOffset(0)
+  const acceptedEnd = dayOffset(1)
   const accepted = await ensureBooking(
     'speaker',
     speakerConvo,

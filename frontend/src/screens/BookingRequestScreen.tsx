@@ -10,7 +10,7 @@ import { userMessage } from '../utils/userMessage'
 import { createBooking } from '../services/bookingsApi'
 import { queryClient } from '../services/queryClient'
 import { queryKeys } from '../services/queryKeys'
-import { DEPOSIT_HOLD_HOURS, DEPOSIT_MAX_RENTAL_DAYS, DEPOSIT_PAY_WINDOW_HOURS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, DEPOSIT_MAX_RENTAL_DAYS, MAX_RENTAL_DAYS, quoteRental } from '@zoink/shared'
 import { Listing } from '../types'
 import { colors } from '../theme/colors'
 import { border, radius, space } from '../theme/tokens'
@@ -398,7 +398,7 @@ export default function BookingRequestScreen() {
             <View style={styles.depositText}>
               <Text style={styles.depositLabel}>Deposit hold</Text>
               <Text style={styles.depositNote}>
-                You pay up to {DEPOSIT_PAY_WINDOW_HOURS}h before pickup. Released {DEPOSIT_HOLD_HOURS}h after return
+                You pay on the day of pickup. Released {DEPOSIT_HOLD_HOURS}h after return
               </Text>
             </View>
             <Text style={styles.depositValue}>${depositAmount.toFixed(2)}</Text>

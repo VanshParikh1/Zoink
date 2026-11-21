@@ -12,7 +12,7 @@ import { useRefreshOnFocus } from '../hooks/usePagedList'
 import { userMessage } from '../utils/userMessage'
 import { BOOKING_UNAVAILABLE, DetailFallbackScreen, DetailLoadingScreen, isWaitingOffline } from '../components/LoadStates'
 import { useQuery } from '@tanstack/react-query'
-import { DEPOSIT_HOLD_HOURS, DEPOSIT_PAY_WINDOW_HOURS, formatDateTime, formatRentalDate, paymentOpensAt } from '@zoink/shared'
+import { DEPOSIT_HOLD_HOURS, formatDateTime, formatRentalDate, paymentOpensAt } from '@zoink/shared'
 import { Booking, BookingStatus } from '../types'
 import { isStripePublishableKeyConfigured, STRIPE_PUBLISHABLE_KEY } from '../config/stripe'
 import { colors } from '../theme/colors'
@@ -163,7 +163,7 @@ function PayContent() {
   ]
   const banner = bannerFor(booking.status)
   const dateRange = `${formatRentalDate(booking.startDate, 'long')} – ${formatRentalDate(booking.endDate, 'long')}`
-  // A booking with a deposit can only be paid from 24 h before it starts (the
+  // A booking with a deposit can only be paid from 00:00 on its start day (the
   // server refuses earlier), so the deposit hold lasts until the return.
   const opensAt = booking.status === 'ACCEPTED' ? paymentOpensAt(booking) : null
   const payLabel = opensAt
@@ -233,7 +233,7 @@ function PayContent() {
             <Text style={styles.depositTitle}>The deposit is held, not charged.</Text>
             <Text style={styles.depositBody}>
               It's released {DEPOSIT_HOLD_HOURS} hours after you return the item, unless a dispute is open then. You can
-              pay from {DEPOSIT_PAY_WINDOW_HOURS} hours before the rental starts.
+              pay from the start of the first rental day.
             </Text>
           </InkCard>
         ) : null}

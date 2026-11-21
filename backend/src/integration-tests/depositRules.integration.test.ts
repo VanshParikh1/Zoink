@@ -3,8 +3,7 @@
  * =======================================
  * Item value at most $1,000; a deposit is none or at least $1, never above the
  * item value; deposit rentals are at most 3 days; and a booking with a deposit
- * can only be paid from 24 hours before it starts (00:00 Toronto time the day
- * before). Runs with Stripe mocked (no STRIPE_SECRET_KEY).
+ * can only be paid from 00:00 Toronto time on its start day. Runs with Stripe mocked (no STRIPE_SECRET_KEY).
  */
 
 import test, { beforeEach, after, describe } from 'node:test'
@@ -104,8 +103,8 @@ describe('deposit rentals', () => {
     })
   }
 
-  test('a deposit booking can not be paid until 24 hours before it starts', async () => {
-    const early = await acceptedBooking(3, 60)
+  test('a deposit booking can not be paid before its start day, not even the day before', async () => {
+    const early = await acceptedBooking(1, 60)
     const res = await supertest(getApp()).post(`/bookings/${early.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
     assert.equal(res.status, 409)
     assert.match(res.body.error, /^You can pay from \w{3} \d{1,2}, 12:00\sAM\.$/)
@@ -113,9 +112,9 @@ describe('deposit rentals', () => {
     assert.equal(row.stripePaymentIntentId, null, 'no PaymentIntent was created')
   })
 
-  test('it can be paid from the day before it starts, and a booking without a deposit any time', async () => {
-    const tomorrow = await acceptedBooking(1, 60)
-    const paid = await supertest(getApp()).post(`/bookings/${tomorrow.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
+  test('it can be paid on its start day, and a booking without a deposit any time', async () => {
+    const today = await acceptedBooking(0, 60)
+    const paid = await supertest(getApp()).post(`/bookings/${today.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
     assert.equal(paid.status, 200, JSON.stringify(paid.body))
     assert.ok(paid.body.stripePaymentIntentId)
 

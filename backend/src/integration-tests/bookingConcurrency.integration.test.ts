@@ -46,7 +46,7 @@ beforeEach(async () => {
   await truncateAllTables()
   mock.restoreAll()
   // These flows predate the pilot deposit rules (deposit rentals of at most 3
-  // days, paid no earlier than 24 h before the start) and book deposit
+  // days, paid no earlier than the start day) and book deposit
   // listings days ahead; depositRules.integration.test.ts covers the rules.
   mock.method(bookingUtils, 'assertDepositRentalLength', () => {})
   mock.method(bookingUtils, 'assertPaymentWindowOpen', () => {})

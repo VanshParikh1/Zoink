@@ -5,9 +5,10 @@
 // capture PaymentIntent) created when the renter pays, and it has to stay
 // valid until the return plus the 24-hour dispute window. Card networks only
 // honour an uncaptured authorization for about 7 days (about 5 for some Visa
-// transactions). Paying no earlier than 1 day before the start, renting for at
-// most 3 days and resolving within DEPOSIT_HOLD_HOURS after the return keeps
-// the whole hold inside about 5 days.
+// transactions). Paying no earlier than 00:00 Toronto on the start day, renting
+// for at most 3 days, and the overdue deadline at the end of the day after the
+// last rental day (D-1) keeps the hold at most 4 days old at that deadline,
+// leaving the admin about 2 days to close out or resolve a dispute.
 import { cancellationCutoff, type DateInput } from './dates'
 
 /** Highest item value a listing can declare, in dollars. */
@@ -23,8 +24,9 @@ export const DEPOSIT_MIN = 1
 /** Longest rental, in calendar days, for a listing with a deposit. */
 export const DEPOSIT_MAX_RENTAL_DAYS = 3
 
-/** How long before the rental starts a booking with a deposit can be paid. */
-export const DEPOSIT_PAY_WINDOW_HOURS = 24
+/** How long before the rental starts a booking with a deposit can be paid:
+ *  0, i.e. from 00:00 Toronto on the start day (was 24; see the note above). */
+export const DEPOSIT_PAY_WINDOW_HOURS = 0
 
 /** The suggested deposit for an item value: 30%, in whole dollars. */
 export function suggestedDeposit(itemValue: number): number {
@@ -32,8 +34,8 @@ export function suggestedDeposit(itemValue: number): number {
   return Math.round(itemValue * DEPOSIT_SUGGESTED_RATE)
 }
 
-/** When a booking with a deposit can first be paid: 24 hours before the
- *  rental starts (00:00 Toronto time on its first day). */
+/** When a booking with a deposit can first be paid: DEPOSIT_PAY_WINDOW_HOURS
+ *  before the rental starts (00:00 Toronto time on its first day). */
 export function depositPayableFrom(startDate: DateInput): Date | null {
   const start = cancellationCutoff(startDate)
   return start ? new Date(start.getTime() - DEPOSIT_PAY_WINDOW_HOURS * 60 * 60 * 1000) : null

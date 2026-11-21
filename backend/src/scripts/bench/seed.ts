@@ -317,7 +317,7 @@ export async function seed(): Promise<BenchFixtures> {
   const decline = fixture(BookingStatus.PENDING)
   const cancel = fixture(BookingStatus.PENDING)
   // No deposit on the pay fixtures: they sit weeks ahead, and a booking with a
-  // deposit can only be paid from the day before it starts.
+  // deposit can only be paid on the day it starts.
   const paymentIntent = fixture(BookingStatus.ACCEPTED, () => ({ depositAmount: new Prisma.Decimal(0) }))
   const confirm = fixture(BookingStatus.ACCEPTED, (id) => ({
     depositAmount: new Prisma.Decimal(0),

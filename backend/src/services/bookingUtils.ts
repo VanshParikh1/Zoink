@@ -44,7 +44,7 @@ export function assertDepositRentalLength(depositAmount: number, rentalDays: num
   }
 }
 
-/** A booking with a deposit can only be paid from 24 hours before it starts. */
+/** A booking with a deposit can only be paid from 00:00 Toronto on its start day. */
 export function assertPaymentWindowOpen(booking: { depositAmount: unknown; startDate: Date }, now: number = Date.now()) {
   const opensAt = paymentOpensAt({ depositAmount: Number(booking.depositAmount), startDate: booking.startDate }, now)
   if (opensAt) {
