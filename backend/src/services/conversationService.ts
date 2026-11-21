@@ -5,6 +5,7 @@ import prisma from '../utils/prisma'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 import { assertNotBlocked, getBlockedUserIds } from './blockService'
+import { SUSPENDED_MESSAGE } from '../middleware/requireNotSuspended'
 import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
 
 const conversationSelect = {
@@ -552,8 +553,23 @@ export async function markConversationRead(currentUserId: string, conversationId
   })
 }
 
-export async function sendMessage(currentUserId: string, conversationId: string, body: string): Promise<MessageResponse> {
+// D-9 amendment: a suspended user may still message about a rental in progress.
+const SUSPENDED_MESSAGING_STATUSES: BookingStatus[] = [
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+]
+
+export async function sendMessage(currentUserId: string, conversationId: string, body: string, senderSuspended = false): Promise<MessageResponse> {
   const conversation = await getConversationForParticipant(conversationId, currentUserId)
+  if (senderSuspended) {
+    const activeBooking = await prisma.booking.findFirst({
+      where: { conversationId: conversation.id, status: { in: SUSPENDED_MESSAGING_STATUSES } },
+      select: { id: true },
+    })
+    if (!activeBooking) throw new ForbiddenError(SUSPENDED_MESSAGE)
+  }
   const trimmedBody = body.trim()
 
   if (!trimmedBody) {

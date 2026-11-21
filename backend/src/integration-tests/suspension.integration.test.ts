@@ -139,4 +139,47 @@ describe('a suspended user', () => {
     const tap = await as(owner.token).post(`/bookings/${booking.id}/return/confirm`)
     assert.equal(tap.status, 200, JSON.stringify(tap.body))
   })
+
+  describe('messaging (D-9 amendment)', () => {
+    const msg = () => as(owner.token).post(`/conversations/${conversationId}/messages`, { body: 'On my way' })
+    const bookingIn = (status: BookingStatus) => {
+      const { startDate, endDate } = futureDates(1, 2)
+      return getTestPrisma().booking.create({
+        data: { listingId, renterId: renter.id, ownerId: owner.id, conversationId, startDate: new Date(startDate), endDate: new Date(endDate), totalPrice: new Prisma.Decimal(20), status },
+      })
+    }
+
+    for (const status of [BookingStatus.CONFIRMED, BookingStatus.PICKUP_PENDING, BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING]) {
+      test(`can message in a chat with a ${status} booking`, async () => {
+        await bookingIn(status)
+        const res = await msg()
+        assert.equal(res.status, 201, JSON.stringify(res.body))
+      })
+    }
+
+    test('is refused in a chat with no booking', async () => {
+      const res = await msg()
+      assert.equal(res.status, 403)
+      assert.match(res.body.error, SUSPENDED)
+    })
+
+    for (const status of [BookingStatus.COMPLETED, BookingStatus.CANCELLED, BookingStatus.DECLINED, BookingStatus.PENDING, BookingStatus.ACCEPTED]) {
+      test(`is refused in a chat whose only booking is ${status}`, async () => {
+        await bookingIn(status)
+        const res = await msg()
+        assert.equal(res.status, 403)
+        assert.match(res.body.error, SUSPENDED)
+      })
+    }
+
+    test("an active booking in another chat doesn't count", async () => {
+      const other = await createTestListing(owner.id, { title: 'Other tent' })
+      const otherConversation = await getTestPrisma().conversation.create({ data: { listingId: other.id, renterId: renter.id, ownerId: owner.id } })
+      const { startDate, endDate } = futureDates(1, 2)
+      await getTestPrisma().booking.create({
+        data: { listingId: other.id, renterId: renter.id, ownerId: owner.id, conversationId: otherConversation.id, startDate: new Date(startDate), endDate: new Date(endDate), totalPrice: new Prisma.Decimal(20), status: BookingStatus.ACTIVE },
+      })
+      assert.equal((await msg()).status, 403)
+    })
+  })
 })

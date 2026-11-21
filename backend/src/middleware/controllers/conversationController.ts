@@ -58,6 +58,6 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'body is required.' })
   }
 
-  const message = await conversationService.sendMessage(userId, conversationId, body)
+  const message = await conversationService.sendMessage(userId, conversationId, body, Boolean((req as any).suspended))
   return res.status(201).json(message)
 })

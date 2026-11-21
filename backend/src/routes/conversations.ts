@@ -22,7 +22,8 @@ router.post('/', requireNotSuspended, conversationOpenLimiter, validate(OpenConv
 router.get('/me', validate(InboxQuerySchema), getMyConversations)
 router.get('/:id', validate(ConversationIdParamsSchema), getConversationById)
 router.get('/:id/messages', validate(GetMessagesSchema), getConversationMessages)
-router.post('/:id/messages', requireNotSuspended, messageLimiter, validate(SendMessageSchema), sendMessage)
+// Suspension is checked in sendMessage: allowed while the chat has an active rental (D-9 amendment).
+router.post('/:id/messages', messageLimiter, validate(SendMessageSchema), sendMessage)
 router.post('/:id/read', validate(ConversationIdParamsSchema), markConversationRead)
 
 export default router

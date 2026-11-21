@@ -3,7 +3,8 @@ import prisma from '../utils/prisma'
 import { BadRequestError, NotFoundError } from '../utils/errors'
 
 // D-9: a suspended user can't create listings, bookings, conversations,
-// messages, reports or disputes (middleware/requireNotSuspended.ts), and their
+// reports or disputes (middleware/requireNotSuspended.ts), or send messages
+// except in a chat with a CONFIRMED..RETURN_PENDING booking (sendMessage), and their
 // listings are hidden from browse (listingService). They can still sign in,
 // read their data and finish existing bookings: handoffs, the return, reviews.
 
