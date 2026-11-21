@@ -19,10 +19,14 @@ export const ResolveDisputeSchema = z.object({
       .string()
       .min(1, 'Resolution notes are required.')
       .max(1000, 'Resolution notes cannot exceed 1000 characters.'),
-    // Structural check only (positive integer cents). Omitted = full booking.totalPrice.
-    // The upper bound (<= booking.totalPrice in cents) depends on the specific booking
-    // and is enforced in disputeService.resolveDispute, which has the booking loaded.
+    // Structural check only (positive integer cents). Omitted = the full remaining
+    // amount. The upper bound (rent charged minus prior refunds, or the deposit)
+    // depends on the booking and is enforced in disputeService.resolveDispute.
     refundAmountCents: z.number().int().positive().optional(),
+    // RESOLVED_REFUND on a COMPLETED booking: RENT refunds the renter's rent (D-4),
+    // DEPOSIT (the default) charges the held deposit to the owner. Before
+    // completion only RENT applies.
+    refundTarget: z.enum(['RENT', 'DEPOSIT']).optional(),
   }),
 })
 

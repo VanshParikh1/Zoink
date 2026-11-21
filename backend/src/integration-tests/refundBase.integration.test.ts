@@ -4,11 +4,13 @@
  * The rent PaymentIntent charges rent + insurance + HST (getRentalAuthorizationAmount).
  * A full refund returns all of it, a partial refund is capped by it, and the owner's
  * remaining payout is their proportional share of what the renter kept paying (D-5).
- * Bookings made before D-2 carry HST; new ones don't.
+ * Bookings made before D-2 carry HST; new ones don't. D-4: after completion an admin
+ * can refund rent through a dispute, with the same cap.
  */
 import test, { before, beforeEach, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { truncateAllTables, createTestUser, createTestListing, futureDates, getTestPrisma, disconnectTestPrisma, checkStripeConnectivity } from './setup'
+import { truncateAllTables, createTestUser, createTestListing, futureDates, getTestPrisma, disconnectTestPrisma, checkStripeConnectivity, getApp } from './setup'
+import supertest from 'supertest'
 import * as disputeService from '../services/disputeService'
 import { releaseDuePayouts } from '../services/cleanupJob'
 import { BookingStatus, DisputeStatus, PaymentStatus, Prisma, Role } from '@prisma/client'
@@ -16,7 +18,7 @@ import { BookingStatus, DisputeStatus, PaymentStatus, Prisma, Role } from '@pris
 let stripeAvailable = false
 let owner: { id: string }
 let renter: { id: string }
-let admin: { id: string }
+let admin: { id: string; token: string }
 let listingId: string
 
 const stripe = () => {
@@ -155,5 +157,102 @@ describe('refund base = amount charged', () => {
     await refund(booking.id, 5000)
     assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 5000)
     assert.equal(await completeAndPayOut(booking.id), 4250)
+  })
+})
+
+/** A booking returned `hoursAgo` hours ago with a dispute filed while the window was open. */
+async function completedBookingWithDispute(hst: number, hoursAgo = 2) {
+  const picked = await pickedUpBooking(hst)
+  const db = getTestPrisma()
+  await db.booking.update({
+    where: { id: picked.booking.id },
+    data: { status: BookingStatus.COMPLETED, completedAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000), paymentStatus: PaymentStatus.PAYOUT_PENDING },
+  })
+  const dispute = await disputeService.createDispute(picked.booking.id, renter.id, 'ITEM_NOT_AS_DESCRIBED', 'It did not work when I got home with it.')
+  return { ...picked, dispute }
+}
+
+async function payoutAmount(bookingId: string) {
+  await releaseDuePayouts()
+  const evt = await getTestPrisma().bookingEvent.findFirst({ where: { bookingId, type: 'PAYOUT_TRIGGERED' }, orderBy: { createdAt: 'desc' } })
+  return evt ? ((evt.metadata as any).amountCents as number) : null
+}
+
+describe('D-4: rent refund after completion', () => {
+  test('full refund of an old HST booking: renter gets rent + HST, owner gets nothing', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking, dispute } = await completedBookingWithDispute(13)
+    const resolved = await disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Refund it all.', undefined, 'RENT')
+    assert.equal(resolved.refundAmountCents, 11300)
+    assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 11300)
+    const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.REFUNDED)
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { completedAt: new Date(Date.now() - 48 * 3600_000) } })
+    assert.equal(await payoutAmount(booking.id), 0)
+  })
+
+  test('the open dispute holds the payout past 24 h; a partial refund then pays the owner their share', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking, dispute } = await completedBookingWithDispute(0)
+    // 48 h later the dispute is still open: no payout.
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { completedAt: new Date(Date.now() - 48 * 3600_000) } })
+    assert.equal(await payoutAmount(booking.id), null, 'held while the dispute is open')
+    await disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Half back.', 5000, 'RENT')
+    assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 5000)
+    const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.paymentStatus, PaymentStatus.PAYOUT_PENDING, 'partial: not marked REFUNDED')
+    assert.equal(await payoutAmount(booking.id), 4250)
+  })
+
+  test('cap is the amount charged minus earlier refunds', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking, dispute } = await pickedUpBooking(13).then(async (picked) => {
+      await refund(picked.booking.id, 3000) // during the rental
+      const db = getTestPrisma()
+      await db.booking.update({ where: { id: picked.booking.id }, data: { status: BookingStatus.COMPLETED, completedAt: new Date(Date.now() - 3600_000), paymentStatus: PaymentStatus.PAYOUT_PENDING } })
+      const d = await disputeService.createDispute(picked.booking.id, renter.id, 'OTHER', 'Something else came up after the return.')
+      return { ...picked, dispute: d }
+    })
+    await assert.rejects(
+      () => disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Too much.', 8301, 'RENT'),
+      (err: any) => err.statusCode === 400 && /\$83\.00/.test(err.message),
+    )
+    const resolved = await disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'The rest.', undefined, 'RENT')
+    assert.equal(resolved.refundAmountCents, 8300)
+    assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 11300)
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { completedAt: new Date(Date.now() - 48 * 3600_000) } })
+    assert.equal(await payoutAmount(booking.id), 0)
+  })
+
+  test('refused if the owner was somehow already paid', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking, dispute } = await completedBookingWithDispute(0)
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { payoutSentAt: new Date(), paymentStatus: PaymentStatus.PAID_OUT } })
+    await assert.rejects(
+      () => disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Refund.', undefined, 'RENT'),
+      (err: any) => err.statusCode === 400 && /already been paid/.test(err.message),
+    )
+    assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 0)
+  })
+
+  test('DEPOSIT before completion is refused', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking } = await pickedUpBooking(0)
+    const dispute = await disputeService.createDispute(booking.id, renter.id, 'OTHER', 'Something is wrong with this.')
+    await assert.rejects(
+      () => disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Charge.', undefined, 'DEPOSIT'),
+      (err: any) => err.statusCode === 400 && /only be charged once the booking is completed/.test(err.message),
+    )
+  })
+
+  test('HTTP: admin resolves with refundTarget RENT; a bad target is a 400', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const { booking, dispute } = await completedBookingWithDispute(0)
+    const call = (body: object) =>
+      supertest(getApp()).patch(`/admin/disputes/${dispute.id}/resolve`).set('Authorization', `Bearer ${admin.token}`).send(body)
+    assert.equal((await call({ status: 'RESOLVED_REFUND', resolutionNotes: 'x', refundTarget: 'OWNER' })).status, 400)
+    const res = await call({ status: 'RESOLVED_REFUND', resolutionNotes: 'Refunding $20 of the rent.', refundAmountCents: 2000, refundTarget: 'RENT' })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(await stripeRefundedCents(booking.stripePaymentIntentId!), 2000)
   })
 })

@@ -49,6 +49,9 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
           status: true,
           paymentStatus: true,
           totalPrice: true,
+          insuranceFee: true,
+          hstAmount: true,
+          refundedAmountCents: true,
           depositAmount: true,
           pickupPhotos: true,
           returnPhotos: true,
@@ -70,7 +73,7 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
 
 export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const id = req.params.id as string
-  const { status, resolutionNotes, refundAmountCents } = req.body
+  const { status, resolutionNotes, refundAmountCents, refundTarget } = req.body
   const adminId = req.userId
 
   if (!adminId) {
@@ -81,7 +84,7 @@ export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res
     return res.status(400).json({ error: 'Invalid or missing dispute status' })
   }
 
-  const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes, refundAmountCents)
+  const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes, refundAmountCents, refundTarget)
   res.json(dispute)
 })
 

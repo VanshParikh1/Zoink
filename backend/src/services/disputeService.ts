@@ -100,6 +100,7 @@ export async function resolveDispute(
   status: DisputeStatus,
   resolutionNotes: string,
   refundAmountCents?: number,
+  refundTarget?: 'RENT' | 'DEPOSIT',
   db: typeof prisma = prisma
 ) {
   // Just to resolve the bookingId to lock on below — re-read for real inside the
@@ -144,7 +145,18 @@ export async function resolveDispute(
     // remaining share instead of skipping the booking.
     let rentalRefundCumulativeCents: number | undefined
     let rentalRefundIsFull = false
-    if (status === 'RESOLVED_REFUND' && dispute.booking.status === 'COMPLETED') {
+    const isCompleted = dispute.booking.status === 'COMPLETED'
+    if (status === 'RESOLVED_REFUND' && refundTarget === 'DEPOSIT' && !isCompleted) {
+      throw new BadRequestError('The deposit can only be charged once the booking is completed.')
+    }
+    // D-4: after completion an admin may refund rent instead of charging the
+    // deposit. The payout can't have gone out yet: an OPEN dispute holds it
+    // (cleanupJob.releaseDuePayouts) and disputes close at the same 24 h mark
+    // the hold ends. Refused anyway if it somehow did, rather than paying twice.
+    if (status === 'RESOLVED_REFUND' && isCompleted && refundTarget === 'RENT' && dispute.booking.payoutSentAt) {
+      throw new BadRequestError("The owner has already been paid for this booking, so the rent can't be refunded here.")
+    }
+    if (status === 'RESOLVED_REFUND' && isCompleted && refundTarget !== 'RENT') {
       // Once a booking is COMPLETED, the rental payment has already been fully
       // captured and settled at pickup (see handoffService.confirmHandoff) —
       // the only thing a post-completion dispute can still act on is the

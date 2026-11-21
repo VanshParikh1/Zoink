@@ -6,7 +6,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
-import { getBookingEvents, getDisputeDetail, resolveDispute, ResolveDisputePayload } from '../services/adminApi'
+import { getBookingEvents, getDisputeDetail, resolveDispute } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus, usePagedList } from '../hooks/usePagedList'
@@ -43,20 +43,24 @@ const REASON_LABELS: Record<string, string> = {
   OTHER: 'Other',
 }
 
-// On a COMPLETED booking, RESOLVED_REFUND charges the still-held deposit
-// (a Stripe capture) rather than refunding the rental payment, which
-// already settled at pickup — see disputeService.resolveDispute's
-// COMPLETED branch. The label needs to say which one is actually happening.
-// Only used for a dispute that is STILL BEING resolved (isActive) — at that
-// point booking.status reliably predicts which path resolving now would
-// take. For an already-resolved dispute, see the note by OUTCOME_LABELS below.
-function getResolutionOptions(isDepositCapture: boolean): { value: ResolveDisputePayload['status']; label: string }[] {
+// Both money outcomes are RESOLVED_REFUND on the server; refundTarget says
+// which. Charging the deposit (a Stripe capture, paid to the owner) only
+// exists once the booking is COMPLETED and it has a deposit; refunding the
+// rent works before and after completion (D-4). Only used for a dispute that
+// is STILL BEING resolved (isActive). For an already-resolved dispute, see
+// the note by OUTCOME_LABELS below.
+type Resolution = 'REFUND_RENT' | 'CHARGE_DEPOSIT' | 'RESOLVED_NO_ACTION' | 'DISMISSED'
+
+function getResolutionOptions(canChargeDeposit: boolean): { value: Resolution; label: string }[] {
   return [
-    { value: 'RESOLVED_REFUND', label: isDepositCapture ? 'Charge the deposit' : 'Refund the renter' },
+    ...(canChargeDeposit ? [{ value: 'CHARGE_DEPOSIT' as const, label: 'Charge the deposit' }] : []),
+    { value: 'REFUND_RENT', label: 'Refund the renter' },
     { value: 'RESOLVED_NO_ACTION', label: 'No action needed' },
     { value: 'DISMISSED', label: 'Dismiss dispute' },
   ]
 }
+
+const isMoneyResolution = (r: Resolution | null): r is 'REFUND_RENT' | 'CHARGE_DEPOSIT' => r === 'REFUND_RENT' || r === 'CHARGE_DEPOSIT'
 
 // Generic wording for an ALREADY-RESOLVED dispute — booking.status by then
 // reflects the booking's CURRENT status, which can have moved on since the
@@ -72,13 +76,16 @@ const OUTCOME_LABELS: Record<string, string> = {
 
 const ACTIVE_STATUSES = ['OPEN', 'UNDER_REVIEW']
 
-// On a COMPLETED booking, resolving RESOLVED_REFUND charges the still-held
-// deposit (a Stripe capture, see disputeService.resolveDispute's COMPLETED
-// branch) — the cap there is depositAmount, not totalPrice. Every other
-// status still takes the pre-completion refund path, capped at totalPrice
-// (the rental payment), same as before.
-function getRefundCapAmount(booking: Pick<AdminDisputeDetail['booking'], 'status' | 'totalPrice' | 'depositAmount'>): string {
-  return booking.status === 'COMPLETED' ? booking.depositAmount : booking.totalPrice
+// Same caps the server enforces (disputeService.resolveDispute): the deposit
+// for a charge; for a rent refund, what the rent payment charged (rent +
+// insurance + any HST) minus what's already been refunded.
+function getRefundCapAmount(
+  booking: Pick<AdminDisputeDetail['booking'], 'totalPrice' | 'insuranceFee' | 'hstAmount' | 'refundedAmountCents' | 'depositAmount'>,
+  resolution: 'REFUND_RENT' | 'CHARGE_DEPOSIT',
+): string {
+  if (resolution === 'CHARGE_DEPOSIT') return booking.depositAmount
+  const chargedCents = Math.round((Number(booking.totalPrice) + Number(booking.insuranceFee) + Number(booking.hstAmount)) * 100)
+  return (Math.max(0, chargedCents - booking.refundedAmountCents) / 100).toFixed(2)
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -145,7 +152,7 @@ export default function AdminDisputeDetailScreen() {
   useRefreshOnFocus(queryKeys.adminDispute(disputeId))
   const dispute = disputeQuery.data ?? null
   const loading = disputeQuery.isPending
-  const [resolution, setResolution] = useState<ResolveDisputePayload['status'] | null>(null)
+  const [resolution, setResolution] = useState<Resolution | null>(null)
   const [notes, setNotes] = useState('')
   const [refundAmountInput, setRefundAmountInput] = useState('')
   const [errors, setErrors] = useState<FieldErrors<'resolution' | 'notes' | 'amount'>>({})
@@ -164,17 +171,18 @@ export default function AdminDisputeDetailScreen() {
     setAuditExpanded((expanded) => !expanded)
   }
 
-  function handleSelectResolution(value: ResolveDisputePayload['status']) {
+  function handleSelectResolution(value: Resolution) {
     setResolution(value)
-    if (value === 'RESOLVED_REFUND' && !refundAmountInput && dispute) {
-      setRefundAmountInput(Number(getRefundCapAmount(dispute.booking)).toFixed(2))
+    // The two money outcomes have different caps, so the default follows the choice.
+    if (isMoneyResolution(value) && dispute) {
+      setRefundAmountInput(Number(getRefundCapAmount(dispute.booking, value)).toFixed(2))
     }
   }
 
   // Guarded: a second tap while it sends is dropped (it moves money).
   const [handleResolve, busy] = useSubmit(async () => {
-    const isRefund = resolution === 'RESOLVED_REFUND'
-    const capDollars = dispute ? Number(getRefundCapAmount(dispute.booking)) : 0
+    const isRefund = isMoneyResolution(resolution)
+    const capDollars = dispute && isRefund ? Number(getRefundCapAmount(dispute.booking, resolution)) : 0
     const nextErrors = validateResolution({
       resolution,
       notes,
@@ -189,7 +197,8 @@ export default function AdminDisputeDetailScreen() {
       // The resolve endpoint returns the bare dispute row (no booking/user relations),
       // unlike getDisputeDetail — refetch so booking/photos stay populated afterward.
       await resolveDispute(disputeId, {
-        status: resolution,
+        status: isRefund ? 'RESOLVED_REFUND' : resolution,
+        ...(isRefund ? { refundTarget: resolution === 'CHARGE_DEPOSIT' ? 'DEPOSIT' : 'RENT' } : {}),
         resolutionNotes: notes.trim(),
         ...(refundAmountCents !== undefined ? { refundAmountCents } : {}),
       })
@@ -221,13 +230,14 @@ export default function AdminDisputeDetailScreen() {
   const isActive = ACTIVE_STATUSES.includes(dispute.status)
   const hasPickupPhotos = dispute.booking.pickupPhotos.length > 0
   const hasReturnPhotos = dispute.booking.returnPhotos.length > 0
-  const refundCapAmount = getRefundCapAmount(dispute.booking)
+  const refundCapAmount = isMoneyResolution(resolution) ? getRefundCapAmount(dispute.booking, resolution) : '0'
   const refundExceedsTotal =
-    resolution === 'RESOLVED_REFUND' &&
+    isMoneyResolution(resolution) &&
     refundAmountInput.trim() !== '' &&
     Number.isFinite(Number(refundAmountInput)) &&
     Math.round(Number(refundAmountInput) * 100) > Math.round(Number(refundCapAmount) * 100)
-  const isDepositCapture = dispute.booking.status === 'COMPLETED'
+  const isDepositCapture = resolution === 'CHARGE_DEPOSIT'
+  const canChargeDeposit = dispute.booking.status === 'COMPLETED' && Number(dispute.booking.depositAmount) > 0
   const badge = disputeStatusBadge(dispute.status)
   // Status banner: surface while open, lime once resolved, tan when dismissed.
   const bannerStyle = isActive ? null : dispute.status === 'DISMISSED' ? styles.bannerTan : styles.bannerLime
@@ -312,7 +322,7 @@ export default function AdminDisputeDetailScreen() {
         <>
           <GroupLabel>Resolve this dispute</GroupLabel>
           <View style={styles.chips}>
-            {getResolutionOptions(isDepositCapture).map((option) => (
+            {getResolutionOptions(canChargeDeposit).map((option) => (
               <Chip
                 key={option.value}
                 label={option.label}
@@ -330,7 +340,7 @@ export default function AdminDisputeDetailScreen() {
           </View>
           <FieldMessage message={errors.resolution} />
 
-          {resolution === 'RESOLVED_REFUND' ? (
+          {isMoneyResolution(resolution) ? (
             <View style={styles.stack}>
               <TextField
                 label={isDepositCapture ? 'Deposit charge amount' : 'Refund amount'}
@@ -347,7 +357,7 @@ export default function AdminDisputeDetailScreen() {
                 validated
               />
               <Text style={styles.caption}>
-                Up to the {isDepositCapture ? 'deposit' : 'booking total'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {isDepositCapture ? 'charge' : 'refund'}.
+                Up to {isDepositCapture ? 'the deposit' : 'what is left of the rent payment'} of ${Number(refundCapAmount).toFixed(2)}. Defaults to the full amount — edit to issue a partial {isDepositCapture ? 'charge' : 'refund'}.
               </Text>
             </View>
           ) : null}

@@ -99,6 +99,9 @@ export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'
     status: BookingStatus
     paymentStatus: PaymentStatus
     totalPrice: string
+    insuranceFee: string
+    hstAmount: string
+    refundedAmountCents: number
     depositAmount: string
     pickupPhotos: string[]
     returnPhotos: string[]

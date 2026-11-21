@@ -17,8 +17,10 @@ export async function getDisputeDetail(id: string): Promise<AdminDisputeDetail> 
 export type ResolveDisputePayload = {
   status: 'RESOLVED_REFUND' | 'RESOLVED_NO_ACTION' | 'DISMISSED'
   resolutionNotes: string
-  // Only meaningful when status is RESOLVED_REFUND. Omitted = full booking.totalPrice.
+  // Only meaningful when status is RESOLVED_REFUND. Omitted = the full remaining amount.
   refundAmountCents?: number
+  // RESOLVED_REFUND on a COMPLETED booking: refund the rent, or charge the deposit (default).
+  refundTarget?: 'RENT' | 'DEPOSIT'
 }
 
 export async function resolveDispute(id: string, data: ResolveDisputePayload): Promise<AdminDisputeDetail> {

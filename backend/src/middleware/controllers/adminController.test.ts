@@ -74,7 +74,7 @@ describe('Admin and Dispute Tests', () => {
     })
 
     try {
-      await disputeService.resolveDispute('d-1', 'admin-1', 'RESOLVED_REFUND', 'Refunded', undefined, mockDb)
+      await disputeService.resolveDispute('d-1', 'admin-1', 'RESOLVED_REFUND', 'Refunded', undefined, undefined, mockDb)
       assert.fail('Expected error to be thrown')
     } catch (err: any) {
       assert.strictEqual(err.statusCode, 500)
