@@ -8,7 +8,7 @@ import {
   calculateOwnerPayout,
   commissionIsMinimum,
 } from '../src/commission'
-import { HST_RATE, calculateHst, quoteRental, roundCurrency } from '../src/pricing'
+import { quoteRental, roundCurrency } from '../src/pricing'
 import {
   DEPOSIT_HOLD_HOURS,
   HANDOFF_PHOTOS_MAX,
@@ -74,13 +74,11 @@ test('large subtotals: plain 15%, in whole cents', () => {
   assert.equal(calculateOwnerPayout(999.99), 849.99)
 })
 
-test('HST is 13% of the rental price only', () => {
-  assert.equal(HST_RATE, 0.13)
-  assert.equal(calculateHst(100), 13)
+test('no HST: the renter is charged the rent only (D-2)', () => {
   const quote = quoteRental(20, 5, 150)
   assert.equal(quote.totalPrice, 100)
-  assert.equal(quote.hstAmount, 13, 'the deposit is not taxed')
-  assert.equal(quote.chargedAtPickup, 113, 'the deposit is not part of what is captured at pickup')
+  assert.equal(quote.hstAmount, 0)
+  assert.equal(quote.chargedAtPickup, 100, 'the deposit is not part of what is captured at pickup')
   assert.equal(quote.depositAmount, 150)
 })
 
@@ -117,22 +115,18 @@ test('property: every quote is whole cents and its lines add up exactly', () => 
       assert.equal(cents(q.commissionAmount) + cents(q.ownerPayout), totalCents)
       assert.ok(q.commissionAmount >= 0 && q.ownerPayout <= q.totalPrice)
 
-      // What the renter is charged at pickup is rent + HST, to the cent.
-      assert.equal(cents(q.chargedAtPickup), totalCents + cents(q.hstAmount))
+      // What the renter is charged at pickup is the rent, to the cent; no HST.
+      assert.equal(cents(q.chargedAtPickup), totalCents)
+      assert.equal(q.hstAmount, 0)
 
-      // Rounding: commission and HST are exact half-up to the cent, including
-      // on an exact half cent (the float formula used to round some down).
+      // Rounding: commission is exact half-up to the cent, including on an
+      // exact half cent (the float formula used to round some down).
       assert.equal(cents(q.commissionAmount), Math.min(totalCents, Math.max(200, halfUp(totalCents * 15, 100))))
-      assert.equal(cents(q.hstAmount), halfUp(totalCents * 13, 100))
     }
   }
 })
 
 test('an exact half cent rounds up', () => {
-  // $0.50 of rent at 13% HST is 6.5 cents, a product the float formula could
-  // round either way.
-  const q = quoteRental(0.5, 1)
-  assert.equal(q.hstAmount, 0.07)
   // $20.50 x 1 day at 15%: 307.5 cents -> $3.08, payout $17.42.
   assert.equal(calculateCommission(20.5), 3.08)
   assert.equal(calculateOwnerPayout(20.5), 17.42)

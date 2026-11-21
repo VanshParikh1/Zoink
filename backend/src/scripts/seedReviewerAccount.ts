@@ -41,7 +41,7 @@ import prisma from '../utils/prisma'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '../config/legal'
 import { getRentalDays, roundCurrency } from '../services/bookingUtils'
 import { torontoDayKey } from '@zoink/shared'
-import { calculateCommission, calculateHst, calculateOwnerPayout } from '../services/paymentService'
+import { calculateCommission, calculateOwnerPayout } from '../services/paymentService'
 import { submitReview } from '../services/reviewService'
 
 export const DEFAULT_REVIEWER_EMAIL = 'reviewer@zoink.app'
@@ -187,7 +187,6 @@ function pricing(dailyPrice: number, depositAmount: number, startDate: Date, end
     depositAmount: new Prisma.Decimal(depositAmount),
     commissionAmount: new Prisma.Decimal(calculateCommission(totalPrice)),
     ownerPayout: new Prisma.Decimal(calculateOwnerPayout(totalPrice)),
-    hstAmount: new Prisma.Decimal(calculateHst(totalPrice)),
   }
 }
 

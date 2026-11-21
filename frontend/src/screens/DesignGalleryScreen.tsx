@@ -247,9 +247,8 @@ export default function DesignGalleryScreen() {
             rows={[
               { label: '$24 x 3 days', value: '$72.00' },
               { label: 'Deposit hold', value: '$150.00' },
-              { label: 'HST (13%)', value: '$9.36' },
             ]}
-            total={{ label: 'Total', value: '$231.36' }}
+            total={{ label: 'Total', value: '$222.00' }}
             highlight="lime"
           />
         </Card>

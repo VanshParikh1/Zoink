@@ -192,21 +192,19 @@ describe('full new booking flow, end-to-end', () => {
     // The booking response itself still reflects the original snapshot —
     // recomputing from the (now $999/day) listing would give totalPrice 4995.
     assert.equal(withIntent.totalPrice, 100, 'totalPrice must stay the original snapshot, not recompute from the changed listing price')
-    assert.equal(withIntent.hstAmount, 13, '13% HST on the $100 rental snapshot, not the changed $4995 price')
-    // Commission/ownerPayout are unaffected by HST — it's additive on top of
-    // what the borrower pays, never subtracted from totalPrice beforehand.
-    assert.equal(withIntent.commissionAmount, 15, 'flat 15% commission on $100 — unaffected by HST')
-    assert.equal(withIntent.ownerPayout, 85, '$100 - $15 commission — unaffected by HST')
+    assert.equal(withIntent.hstAmount, 0, 'no HST on new bookings (D-2)')
+    assert.equal(withIntent.commissionAmount, 15, 'flat 15% commission on $100')
+    assert.equal(withIntent.ownerPayout, 85, '$100 - $15 commission')
 
     if (stripeAvailable) {
       const Stripe = require('stripe')
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
       const paymentIntent = await stripe.paymentIntents.retrieve(withIntent.stripePaymentIntentId!)
-      // toCents(100 totalPrice + 0 insuranceFee + 13 hstAmount) = 11300 — the
-      // deposit is no longer part of this PaymentIntent's authorized amount.
+      // toCents(100 totalPrice + 0 insuranceFee + 0 hstAmount) = 10000 — the
+      // deposit is not part of this PaymentIntent's authorized amount.
       // If this were wrongly recomputed from the changed $999/day listing, it
-      // would be toCents(4995 + HST on that) instead — nowhere close.
-      assert.equal(paymentIntent.amount, 11300, 'Stripe should have been charged the ORIGINAL snapshotted rental amount plus HST, not a recomputed one')
+      // would be 499500 instead — nowhere close.
+      assert.equal(paymentIntent.amount, 10000, 'Stripe should have been charged the ORIGINAL snapshotted rental amount, not a recomputed one')
     }
 
     // ── Step 5: Confirm payment — CONFIRMED, dates NOW lock, deposit authorized ──
@@ -652,8 +650,8 @@ describe('separate deposit PaymentIntent — pickup capture excludes it', () => 
 
       const rentalIntent = await stripe.paymentIntents.retrieve(confirmed.stripePaymentIntentId!)
       assert.equal(rentalIntent.status, 'succeeded')
-      // $40 rental + $5.20 HST (13%) = $45.20 = 4520 cents — no deposit, no insurance.
-      assert.equal(rentalIntent.amount_received, 4520, 'pickup should capture only the $40 rental total plus HST — no deposit, no insurance')
+      // $40 rental = 4000 cents — no HST (D-2), no deposit, no insurance.
+      assert.equal(rentalIntent.amount_received, 4000, 'pickup should capture only the $40 rental total — no HST, deposit or insurance')
 
       const depositIntent = await stripe.paymentIntents.retrieve(confirmed.stripeDepositPaymentIntentId!)
       assert.equal(depositIntent.status, 'requires_capture', 'the deposit must remain an untouched authorization at pickup, held through the full rental')

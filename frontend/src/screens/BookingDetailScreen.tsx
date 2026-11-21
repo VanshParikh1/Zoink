@@ -463,7 +463,8 @@ export default function BookingDetailScreen() {
   const priceRows: PriceRow[] = [
     { label: 'Rental total', value: money(booking.totalPrice) },
     ...(booking.insuranceOptIn ? [{ label: 'Insurance', value: money(booking.insuranceFee) }] : []),
-    { label: 'HST (13%)', value: money(booking.hstAmount) },
+    // No HST since D-2; only bookings made before then carry it.
+    ...(booking.hstAmount > 0 ? [{ label: 'HST (13%)', value: money(booking.hstAmount) }] : []),
   ]
 
   return (

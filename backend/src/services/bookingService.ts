@@ -10,7 +10,6 @@ import { notifyUser } from './notificationService'
 import { assertNotBlocked } from './blockService'
 import {
   calculateCommission,
-  calculateHst,
   calculateInsuranceFee,
   calculateOwnerPayout,
   cancelDepositPaymentIntent,
@@ -240,7 +239,7 @@ function toBookingResponse(rawBooking: any, userId?: string): BookingResponse {
     ownerPayout: Number(booking.ownerPayout ?? calculateOwnerPayout(totalPrice)),
     insuranceOptIn: booking.insuranceOptIn,
     insuranceFee: Number(booking.insuranceFee ?? 0),
-    hstAmount: Number(booking.hstAmount ?? calculateHst(totalPrice)),
+    hstAmount: Number(booking.hstAmount ?? 0),
     // Each party sees only their own Stripe ids: the renter's payment, the
     // owner's payout transfer.
     stripePaymentIntentId: isRenter ? booking.stripePaymentIntentId : null,

@@ -150,7 +150,7 @@ function PayContent() {
     return <DetailFallbackScreen query={bookingQuery} title="Pay for this rental" what="this booking" unavailable={BOOKING_UNAVAILABLE} />
   }
 
-  // Rent + insurance + HST is what the PaymentIntent authorizes now and
+  // Rent + insurance (+ HST on bookings made before D-2) is what the PaymentIntent authorizes now and
   // captures at pickup (paymentService.getRentalAuthorizationAmount). The
   // deposit is a separate hold, shown in its own card.
   const rentDue = booking.totalPrice + booking.insuranceFee + booking.hstAmount
@@ -158,7 +158,8 @@ function PayContent() {
   const rows: PriceRow[] = [
     { label: 'Rental total', value: money(booking.totalPrice) },
     ...(booking.insuranceOptIn ? [{ label: 'Insurance', value: money(booking.insuranceFee) }] : []),
-    { label: 'HST (13%)', value: money(booking.hstAmount) },
+    // No HST since D-2; only bookings made before then carry it.
+    ...(booking.hstAmount > 0 ? [{ label: 'HST (13%)', value: money(booking.hstAmount) }] : []),
   ]
   const banner = bannerFor(booking.status)
   const dateRange = `${formatRentalDate(booking.startDate, 'long')} – ${formatRentalDate(booking.endDate, 'long')}`

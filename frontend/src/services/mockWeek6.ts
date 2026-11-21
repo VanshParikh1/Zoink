@@ -263,7 +263,7 @@ function toBooking(seed: BookingSeed): Booking {
   const days = rentalDays(seed.startDate, seed.endDate)
   const totalPrice = Number((Number(listing.dailyPrice) * days).toFixed(2))
   const commissionAmount = calculateCommission(totalPrice)
-  const hstAmount = Number((totalPrice * 0.13).toFixed(2))
+  const hstAmount = 0 // no HST (D-2)
   const depositAmount = Number(listing.depositAmount ?? 0)
   const renter = userOf(seed.renterId)
   const owner = userOf(listing.ownerId)
@@ -522,7 +522,7 @@ export async function mockCreateBooking(data: CreateBookingPayload) {
   // books with no insurance.
   const insuranceFee = 0
   const commissionAmount = calculateCommission(totalPrice)
-  const hstAmount = Number((totalPrice * 0.13).toFixed(2))
+  const hstAmount = 0 // no HST (D-2)
 
   const booking: Booking = {
     id: `demo-booking-${Date.now()}`,

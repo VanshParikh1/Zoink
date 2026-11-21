@@ -145,7 +145,7 @@ export default function BookingRequestScreen() {
     () => quoteRental(listing && rentalDays > 0 ? Number(listing.dailyPrice) : 0, Math.max(rentalDays, 0), Number(listing?.depositAmount ?? 0)),
     [listing, rentalDays]
   )
-  const { totalPrice, hstAmount, depositAmount } = quote
+  const { totalPrice, depositAmount } = quote
 
   function handleDayPress(day: Date) {
     if (isBeforeDay(day, today)) return
@@ -384,9 +384,8 @@ export default function BookingRequestScreen() {
               { label: 'Daily rate', value: `$${Number(listing.dailyPrice).toFixed(2)}` },
               { label: 'Rental days', value: rentalDays > 0 ? `${rentalDays}` : '—' },
               { label: 'Rental total', value: `$${totalPrice.toFixed(2)}` },
-              { label: 'HST (13%)', value: `$${hstAmount.toFixed(2)}` },
             ]}
-            // Same split as Checkout: rent + HST is what's captured at pickup;
+            // Same split as Checkout: the rent is what's captured at pickup;
             // the deposit is a separate hold, never part of this total.
             total={{ label: 'Charged at pickup', value: `$${quote.chargedAtPickup.toFixed(2)}` }}
             highlight="lime"

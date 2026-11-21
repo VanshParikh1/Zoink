@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import {
   calculateCommission,
   calculateOwnerPayout,
-  calculateHst,
 } from './paymentService'
 
 test('calculateCommission is a flat 15% of the rental subtotal', () => {
@@ -27,27 +26,3 @@ test('calculateOwnerPayout is totalPrice minus the commission', () => {
   assert.equal(calculateOwnerPayout(7000), 5950)
 })
 
-test('calculateHst is 13% of the rental price', () => {
-  assert.equal(calculateHst(100), 13)
-  assert.equal(calculateHst(0), 0)
-  assert.equal(calculateHst(150), 19.5)
-})
-
-test('calculateHst does not affect commission or ownerPayout math', () => {
-  // HST is purely additive on top of what the borrower pays — it must never
-  // be subtracted from totalPrice before commission/ownerPayout are derived,
-  // and calculateCommission/calculateOwnerPayout take no hst-related input
-  // at all, so this mostly documents the invariant: computing HST alongside
-  // commission for the same totalPrice/dailyRate must not change either.
-  const totalPrice = 200
-  const commissionBefore = calculateCommission(totalPrice)
-  const payoutBefore = calculateOwnerPayout(totalPrice)
-
-  const hst = calculateHst(totalPrice)
-  assert.equal(hst, 26)
-
-  assert.equal(calculateCommission(totalPrice), commissionBefore)
-  assert.equal(calculateOwnerPayout(totalPrice), payoutBefore)
-  assert.equal(commissionBefore, 30, '15% of $200 = $30, unaffected by HST')
-  assert.equal(payoutBefore, 170, '$200 - $30 commission = $170, unaffected by HST')
-})

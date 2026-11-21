@@ -3,7 +3,7 @@
 // wraps these for Prisma.Decimal inputs).
 
 // Pilot model: a flat 15% of the rental subtotal (daily price x days, before
-// HST), with a $2.00 minimum per rental. It is taken from the owner's payout;
+// any legacy HST), with a $2.00 minimum per rental. It is taken from the owner's payout;
 // the renter pays no fee on top, and deposits are never commissioned. The
 // commission is computed once, at booking-request time, alongside every other
 // snapshotted price field (see createBooking() in bookingService.ts); it is

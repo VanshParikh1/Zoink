@@ -1,7 +1,6 @@
 import { Booking, PaymentStatus, Prisma } from '@prisma/client'
 import {
   calculateCommission as sharedCalculateCommission,
-  calculateHst as sharedCalculateHst,
   calculateOwnerPayout as sharedCalculateOwnerPayout,
 } from '@zoink/shared'
 import { InternalServerError, ConflictError } from '../utils/errors'
@@ -87,15 +86,6 @@ export function calculateInsuranceFee(itemValue: Prisma.Decimal | number, insura
   return Math.min(MAX_INSURANCE_FEE, Math.max(MIN_INSURANCE_FEE, Math.round(value * INSURANCE_RATE * 100) / 100))
 }
 
-// Ontario HST (13%, @zoink/shared HST_RATE) on the rental price only — not the
-// deposit (a hold, not a sale) and not insurance. Charged on top of what the
-// borrower pays; never subtracted from totalPrice before commission/ownerPayout
-// are computed, so it has no effect on the owner's earnings. The platform has
-// no per-listing jurisdiction field today, so this applies to every booking.
-export function calculateHst(rentalTotalPrice: Prisma.Decimal | number) {
-  return sharedCalculateHst(Number(rentalTotalPrice))
-}
-
 // The commission (flat 15%, $2 minimum) lives in @zoink/shared (commission.ts)
 // so the app's payout preview can't drift from what's charged. These wrappers
 // take the Prisma.Decimal | number amounts callers already have.
@@ -107,7 +97,7 @@ export function calculateOwnerPayout(totalPrice: Prisma.Decimal | number) {
   return sharedCalculateOwnerPayout(Number(totalPrice))
 }
 
-// Rental + insurance + HST — the deposit is authorized separately (see
+// Rental + insurance + HST (0 since D-2; older bookings may hold HST) — the deposit is authorized separately (see
 // createDepositPaymentIntent) so it can stay held through the full rental
 // and be resolved at return handoff instead of being released at pickup
 // as a side effect of this PaymentIntent's partial capture. HST is folded

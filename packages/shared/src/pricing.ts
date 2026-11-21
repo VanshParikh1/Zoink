@@ -1,12 +1,7 @@
 // What a rental costs, shared so the request screen's preview is computed with
 // exactly the formulas the backend snapshots onto the booking
 // (bookingService.createBooking) and charges (paymentService).
-import { applyRateHalfUp, calculateCommission, calculateOwnerPayout, dollarsToCents } from './commission'
-
-// Ontario HST, on the rental price only: not on the deposit (a hold, not a
-// sale) and not on insurance. Charged on top of what the renter pays; never
-// taken out of the owner's payout.
-export const HST_RATE = 0.13
+import { calculateCommission, calculateOwnerPayout } from './commission'
 
 /** Lowest daily price a listing can have, in dollars. A product floor that
  *  also keeps every rental well above Stripe's $0.50 minimum charge. */
@@ -17,18 +12,16 @@ export function roundCurrency(value: number) {
   return Math.round(value * 100) / 100
 }
 
-export function calculateHst(rentalTotalPrice: number) {
-  return applyRateHalfUp(dollarsToCents(rentalTotalPrice), HST_RATE) / 100
-}
-
 export type RentalQuote = {
   rentalDays: number
   totalPrice: number
+  /** Always 0: no HST is charged (D-2). Kept because bookings.hstAmount is
+   *  snapshotted from it; older bookings may hold a non-zero amount. */
   hstAmount: number
   commissionAmount: number
   ownerPayout: number
   depositAmount: number
-  /** Rent + HST: authorized when the renter pays, captured at pickup. */
+  /** The rent: authorized when the renter pays, captured at pickup. */
   chargedAtPickup: number
 }
 
@@ -36,14 +29,13 @@ export type RentalQuote = {
  *  offered (terms.md §12), so it never appears here. */
 export function quoteRental(dailyPrice: number, rentalDays: number, depositAmount = 0): RentalQuote {
   const totalPrice = roundCurrency(dailyPrice * rentalDays)
-  const hstAmount = calculateHst(totalPrice)
   return {
     rentalDays,
     totalPrice,
-    hstAmount,
+    hstAmount: 0,
     commissionAmount: calculateCommission(totalPrice),
     ownerPayout: calculateOwnerPayout(totalPrice),
     depositAmount,
-    chargedAtPickup: roundCurrency(totalPrice + hstAmount),
+    chargedAtPickup: totalPrice,
   }
 }
