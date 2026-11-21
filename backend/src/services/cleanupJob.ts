@@ -1,6 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelDepositPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
+import { noShowDeadline } from '@zoink/shared'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
@@ -308,6 +309,104 @@ export async function releaseDueDeposits() {
   }
 
   return { checked: bookings.length, released, failed }
+}
+
+const NO_SHOW_STATUSES: BookingStatus[] = [BookingStatus.CONFIRMED, BookingStatus.PICKUP_PENDING]
+
+/** D-3: a paid booking not picked up by noShowDeadline (end of the start day,
+ *  Toronto, + 12 h) is cancelled, both holds are released and no one is
+ *  charged. Each booking is re-checked under its row lock, the one pickup
+ *  (handoffService) and the other jobs take, so an overlapping run or a pickup
+ *  completing at the same moment can't both act. Stripe keys come from the
+ *  locked row (rent: the booking version read here; deposit: its PI), so a run
+ *  whose commit is lost repeats the same calls. */
+export async function cancelNoShows(now: Date = new Date()) {
+  // The deadline is always at least 40 h after startDate (midnight UTC of the
+  // start day); 36 h keeps the prefilter safe. The exact check is below.
+  const candidates = await prisma.booking.findMany({
+    where: { status: { in: NO_SHOW_STATUSES }, startDate: { lte: new Date(now.getTime() - 36 * 60 * 60 * 1000) } },
+    select: { id: true },
+  })
+
+  let cancelled = 0
+  let failed = 0
+  for (const { id } of candidates) {
+    try {
+      const booking = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const b = await tx.booking.findUniqueOrThrow({
+          where: { id },
+          select: {
+            id: true,
+            version: true,
+            status: true,
+            startDate: true,
+            paidAt: true,
+            renterId: true,
+            ownerId: true,
+            stripePaymentIntentId: true,
+            stripeDepositPaymentIntentId: true,
+            depositStatus: true,
+            listing: { select: { title: true } },
+          },
+        })
+        const deadline = noShowDeadline(b.startDate)
+        if (!NO_SHOW_STATUSES.includes(b.status) || !deadline || now < deadline) return null
+        // Rent is captured only at pickup, which moves the booking to ACTIVE.
+        // A captured rent here is a bug: leave it for a person, don't release.
+        if (b.paidAt) throw new Error('No-show booking has a captured rent payment; not cancelled.')
+
+        if (b.stripePaymentIntentId) await cancelPaymentIntent(b)
+        const releaseDeposit = Boolean(b.stripeDepositPaymentIntentId) && b.depositStatus === DepositStatus.AUTHORIZED
+        if (releaseDeposit) {
+          await cancelDepositPaymentIntent({ id: b.id, stripeDepositPaymentIntentId: b.stripeDepositPaymentIntentId! })
+        }
+
+        await tx.booking.update({
+          where: { id: b.id },
+          data: {
+            status: BookingStatus.CANCELLED,
+            // Same as a cancellation by either party (bookingService): the
+            // payment_intent.canceled webhook finishes the move.
+            ...(b.stripePaymentIntentId ? { paymentStatus: PaymentStatus.REFUND_PENDING } : {}),
+            ...(releaseDeposit ? { depositStatus: DepositStatus.RELEASED } : {}),
+            version: { increment: 1 },
+          },
+        })
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: b.id,
+            type: BookingEventType.STATUS_CHANGE,
+            metadata: { from: b.status, to: BookingStatus.CANCELLED, reason: 'no_show', deadline: deadline.toISOString(), depositReleased: releaseDeposit },
+          },
+        })
+        return b
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (!booking) continue
+
+      cancelled += 1
+      const title = booking.listing.title
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking cancelled',
+        body: `Your rental of ${title} was cancelled because the pickup didn't happen. You weren't charged, and any holds on your card were released.`,
+        data: { bookingId: booking.id },
+      })
+      void notifyUser({
+        userId: booking.ownerId,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking cancelled',
+        body: `The rental of ${title} was cancelled because the pickup didn't happen by noon the day after it started.`,
+        data: { bookingId: booking.id },
+      })
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(id, 'cancel_no_show', error)
+    }
+  }
+
+  return { checked: candidates.length, cancelled, failed }
 }
 
 /** Retries the owner's deposit compensation where the transfer made when the

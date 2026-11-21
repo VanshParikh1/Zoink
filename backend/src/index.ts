@@ -43,6 +43,7 @@ import {
   cleanupStaleHandoffs,
   releaseDuePayouts,
   releaseDueDeposits,
+  cancelNoShows,
   retryDepositCompensations,
   purgeOldMessages,
   purgeOldDisputesAndReports,
@@ -190,10 +191,11 @@ if (process.env.NODE_ENV !== 'test') {
       const handoffs = await cleanupStaleHandoffs()
       const payouts = await releaseDuePayouts()
       const deposits = await releaseDueDeposits()
+      const noShows = await cancelNoShows()
       const depositCompensations = await retryDepositCompensations()
       const verificationCodes = await purgeOldVerificationTokens()
       const unverifiedAccounts = await purgeUnverifiedAccounts()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits, depositCompensations, verificationCodes, unverifiedAccounts })
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, noShows, depositCompensations, verificationCodes, unverifiedAccounts })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

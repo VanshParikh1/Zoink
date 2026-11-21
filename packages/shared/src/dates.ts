@@ -192,3 +192,24 @@ export function cancellationCutoff(startDate: DateInput): Date | null {
   const key = rentalDayKey(startDate)
   return key ? startOfTorontoDay(key) : null
 }
+
+/** 00:00 Toronto time `days` calendar days after a rental day. */
+function startOfTorontoDayAfter(value: DateInput, days: number): Date | null {
+  const key = rentalDayKey(value)
+  if (!key) return null
+  const [y, m, d] = key.split('-').map(Number)
+  return startOfTorontoDay(new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10))
+}
+
+/** D-3: a booking not picked up by the end of its start day (Toronto) plus
+ *  12 hours is a no-show and is cancelled. */
+export function noShowDeadline(startDate: DateInput): Date | null {
+  const endOfStartDay = startOfTorontoDayAfter(startDate, 1)
+  return endOfStartDay ? new Date(endOfStartDay.getTime() + 12 * 60 * 60 * 1000) : null
+}
+
+/** D-1: a rental whose return isn't completed by the end of the day after its
+ *  last day (Toronto) is overdue: 00:00 Toronto two days after endDate. */
+export function overdueDeadline(endDate: DateInput): Date | null {
+  return startOfTorontoDayAfter(endDate, 2)
+}

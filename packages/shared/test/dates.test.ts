@@ -9,6 +9,8 @@ import {
   formatTimeOfDay,
   isCalendarDateValue,
   isTodayInToronto,
+  noShowDeadline,
+  overdueDeadline,
   rentalDayCount,
   rentalDayKey,
   startOfTorontoDay,
@@ -125,4 +127,20 @@ test('cancellation closes at 00:00 Toronto on the rental day, not 7-8 PM the eve
     assert.equal(cancellationCutoff('2026-11-01T00:00:00.000Z')?.toISOString(), '2026-11-01T04:00:00.000Z')
     assert.equal(cancellationCutoff('not a date'), null)
   })
+})
+
+test('noShowDeadline: 12 hours after the end of the start day, Toronto time (D-3)', () => {
+  // Starts Nov 10: the day ends 00:00 EST Nov 11 (05:00 UTC), +12 h = 17:00 UTC.
+  assert.equal(noShowDeadline('2026-11-10T00:00:00.000Z')!.toISOString(), '2026-11-11T17:00:00.000Z')
+  // Summer time: 00:00 EDT is 04:00 UTC.
+  assert.equal(noShowDeadline('2026-07-10T00:00:00.000Z')!.toISOString(), '2026-07-11T16:00:00.000Z')
+  assert.equal(noShowDeadline('not a date'), null)
+})
+
+test('overdueDeadline: end of the day after the last rental day, Toronto time (D-1)', () => {
+  // Ends Nov 12: overdue from 00:00 EST Nov 14.
+  assert.equal(overdueDeadline('2026-11-12T00:00:00.000Z')!.toISOString(), '2026-11-14T05:00:00.000Z')
+  // Across a month end.
+  assert.equal(overdueDeadline('2026-11-30T00:00:00.000Z')!.toISOString(), '2026-12-02T05:00:00.000Z')
+  assert.equal(overdueDeadline('2026-07-10T00:00:00.000Z')!.toISOString(), '2026-07-12T04:00:00.000Z')
 })
