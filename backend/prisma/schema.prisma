@@ -641,6 +641,7 @@ enum NotificationType {
   MESSAGE_RECEIVED
   DEPOSIT_RELEASED
   RENTAL_OVERDUE
+  BOOKING_CLOSED_OUT
 }
 
 enum ReviewRole {

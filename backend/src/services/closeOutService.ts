@@ -4,6 +4,8 @@ import { BadRequestError, InternalServerError, NotFoundError } from '../utils/er
 import { captureDepositPaymentIntent, chargeIdOf, toCents } from './paymentService'
 import { payDepositCompensation } from './disputeService'
 import { createReviewObligationsForCompletedBooking } from './bookingService'
+import { notifyUser } from './notificationService'
+import { formatDateTime, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 
 // D-1: an admin can close out a rental that was never returned (or whose
 // return was started but never confirmed by both taps).
@@ -43,10 +45,10 @@ export function listOverdueBookings() {
  * released by the deposit job after the window, as on any completion.
  */
 export async function closeOutBooking(bookingId: string, adminId: string, notes: string, depositCaptureCents?: number) {
-  return prisma.$transaction(
+  const { updated, booking, title } = await prisma.$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`
-      const booking = await tx.booking.findUnique({ where: { id: bookingId } })
+      const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { listing: { select: { title: true } } } })
       if (!booking) throw new NotFoundError('Booking not found.')
       if (!CLOSE_OUT_STATUSES.includes(booking.status)) {
         throw new BadRequestError('Only a rental that is out, or waiting on its return, can be closed out.')
@@ -133,8 +135,33 @@ export async function closeOutBooking(bookingId: string, adminId: string, notes:
           },
         },
       })
-      return updated
+      return { updated, booking, title: booking.listing.title }
     },
     { timeout: 30_000, maxWait: 10_000 },
   )
+
+  const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
+  const depositCents = toCents(booking.depositAmount)
+  const depositHeld = booking.depositStatus === DepositStatus.AUTHORIZED
+  const depositLine = depositCaptureCents
+    ? ` ${money(depositCaptureCents)} of your ${money(depositCents)} deposit was charged${depositCaptureCents < depositCents ? ' and the rest of the hold was released' : ''}.`
+    : depositHeld
+      ? ` Your ${money(depositCents)} deposit hold will be released in 24 hours unless a dispute is opened.`
+      : ''
+  void notifyUser({
+    userId: booking.renterId,
+    type: 'BOOKING_CLOSED_OUT',
+    title: 'Rental closed out',
+    body: `The Zoink team closed out your rental of ${title}.${depositLine}`,
+    data: { bookingId },
+  })
+  const payoutDue = new Date(updated.completedAt!.getTime() + PAYOUT_HOLD_HOURS * 60 * 60 * 1000)
+  void notifyUser({
+    userId: booking.ownerId,
+    type: 'BOOKING_CLOSED_OUT',
+    title: 'Rental completed',
+    body: `The Zoink team marked the rental of ${title} as completed. Your payout is due ${formatDateTime(payoutDue)}, unless a dispute is opened before then.${depositCaptureCents ? ` ${money(depositCaptureCents)} from the deposit is being sent to you.` : ''}`,
+    data: { bookingId },
+  })
+  return updated
 }

@@ -141,6 +141,12 @@ describe('admin close-out', () => {
     assert.equal(await getTestPrisma().reviewObligation.count({ where: { bookingId: booking.id } }), 2)
     const after = await supertest(getApp()).get('/admin/bookings/overdue').set('Authorization', `Bearer ${admin.token}`)
     assert.deepEqual(after.body, [])
+    await settle()
+    const closed = await getTestPrisma().notification.findMany({ where: { type: 'BOOKING_CLOSED_OUT' } })
+    const toRenter = closed.find((n) => n.userId === renter.id)
+    const toOwner = closed.find((n) => n.userId === owner.id)
+    assert.match(toRenter!.body, /closed out your rental of Projector\. Your \$40\.00 deposit hold will be released in 24 hours/)
+    assert.match(toOwner!.body, /marked the rental of Projector as completed\. Your payout is due \w{3} \d{1,2}, /)
 
     // Not paid before the hold; paid in full after it.
     const transfer = mock.method(paymentService, 'transferPayout', async () => ({ id: 'tr_closeout' }))
@@ -173,6 +179,20 @@ describe('admin close-out', () => {
     assert.equal(dispute.reason, 'ITEM_NOT_RETURNED')
     assert.equal(dispute.refundAmountCents, 4000)
     assert.equal(dispute.resolvedByAdminId, admin.id)
+    await settle()
+    const closed = await getTestPrisma().notification.findMany({ where: { type: 'BOOKING_CLOSED_OUT' } })
+    assert.match(closed.find((n) => n.userId === renter.id)!.body, /\$40\.00 of your \$40\.00 deposit was charged\.$/)
+    assert.match(closed.find((n) => n.userId === owner.id)!.body, /\$40\.00 from the deposit is being sent to you\.$/)
+  })
+
+  test('a partial deposit charge tells the renter the rest was released', async () => {
+    const booking = await rental()
+    mock.method(paymentService, 'captureDepositPaymentIntent', async () => ({ status: 'succeeded', latest_charge: 'ch_dep_2' }))
+    mock.method(paymentService, 'transferDepositCompensation', async () => ({ id: 'tr_dep_2' }))
+    assert.equal((await closeOut(booking.id, { notes: 'Missing the remote.', depositCaptureCents: 1500 })).status, 200)
+    await settle()
+    const toRenter = await getTestPrisma().notification.findFirstOrThrow({ where: { type: 'BOOKING_CLOSED_OUT', userId: renter.id } })
+    assert.match(toRenter.body, /\$15\.00 of your \$40\.00 deposit was charged and the rest of the hold was released\.$/)
   })
 
   test('refuses: over the deposit, no deposit hold, wrong status, open dispute with a charge, non-admin', async () => {
