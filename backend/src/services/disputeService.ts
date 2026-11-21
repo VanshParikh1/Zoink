@@ -1,4 +1,4 @@
-import { BookingEventType, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { BookingEventType, BookingStatus, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
 import { cancelDepositPaymentIntent, cancelPaymentIntent, captureDepositPaymentIntent, chargeIdOf, getRentalAuthorizationAmount, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
@@ -145,6 +145,8 @@ export async function resolveDispute(
     // remaining share instead of skipping the booking.
     let rentalRefundCumulativeCents: number | undefined
     let rentalRefundIsFull = false
+    // F-18: a rent refund before pickup ends the booking.
+    let cancelsBooking = false
     const isCompleted = dispute.booking.status === 'COMPLETED'
     if (status === 'RESOLVED_REFUND' && refundTarget === 'DEPOSIT' && !isCompleted) {
       throw new BadRequestError('The deposit can only be charged once the booking is completed.')
@@ -303,6 +305,22 @@ export async function resolveDispute(
         } catch (err: any) {
           throw new InternalServerError(`Failed to cancel payment authorization via Stripe: ${err.message}`)
         }
+
+        // F-18: before pickup the renter is getting all of the rent back, so
+        // the rental isn't going ahead: cancel the booking and release the
+        // deposit hold in the same resolution instead of leaving both alive.
+        if (dispute.booking.status === 'CONFIRMED' || dispute.booking.status === 'PICKUP_PENDING') {
+          cancelsBooking = true
+          if (dispute.booking.stripeDepositPaymentIntentId && dispute.booking.depositStatus === 'AUTHORIZED') {
+            try {
+              await cancelDepositPaymentIntent({ id: dispute.booking.id, stripeDepositPaymentIntentId: dispute.booking.stripeDepositPaymentIntentId })
+            } catch (err: any) {
+              throw new InternalServerError(`Failed to release the deposit via Stripe: ${err.message}`)
+            }
+            nextDepositStatus = 'RELEASED'
+            releasedDepositNotice = { renterId: dispute.booking.renterId, listingTitle: dispute.booking.listing.title }
+          }
+        }
       }
     }
 
@@ -325,6 +343,7 @@ export async function resolveDispute(
         // moves — paymentStatus describes the rental payment's lifecycle, which was
         // already settled at pickup and is untouched by this resolution.
         ...(nextDepositStatus ? { depositStatus: nextDepositStatus } : {}),
+        ...(cancelsBooking ? { status: BookingStatus.CANCELLED, version: { increment: 1 } } : {}),
         // Pre-completion rental refund only (a COMPLETED booking's rental payment
         // already settled at pickup and is untouched here — that path moves
         // depositStatus above instead). The Stripe refund/cancel already ran
@@ -346,6 +365,17 @@ export async function resolveDispute(
           : {}),
       }
     })
+
+    if (cancelsBooking) {
+      await tx.bookingEvent.create({
+        data: {
+          bookingId: dispute.bookingId,
+          actorId: adminId,
+          type: BookingEventType.STATUS_CHANGE,
+          metadata: { from: dispute.booking.status, to: BookingStatus.CANCELLED, reason: 'dispute_refund', disputeId },
+        },
+      })
+    }
 
     await tx.bookingEvent.create({
       data: {

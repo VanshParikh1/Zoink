@@ -466,6 +466,32 @@ describe('resolveDispute — RESOLVED_REFUND', () => {
     assert.equal(refunds.data.length, 0, 'no refund should have been created for an uncaptured PaymentIntent')
   })
 
+  // F-18: before pickup a rent refund ends the rental.
+  test('a pre-pickup rent refund cancels the booking and releases the deposit hold too', async () => {
+    const db = getTestPrisma()
+    const rentPi = await createAuthorizedStripePaymentIntent(9000)
+    const depositPi = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.CONFIRMED, PaymentStatus.AUTHORIZED, 90)
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { stripePaymentIntentId: rentPi, stripeDepositPaymentIntentId: depositPi, depositStatus: 'AUTHORIZED' },
+    })
+    const dispute = await disputeService.createDispute(booking.id, renter.id, 'ITEM_NOT_AS_DESCRIBED', 'The photos do not match what the owner described.')
+
+    await disputeService.resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Refunding before pickup.')
+
+    const after = await db.booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(after.status, BookingStatus.CANCELLED)
+    assert.equal(after.depositStatus, 'RELEASED')
+    assert.equal(after.paymentStatus, PaymentStatus.REFUNDED)
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    assert.equal((await stripe.paymentIntents.retrieve(rentPi)).status, 'canceled')
+    assert.equal((await stripe.paymentIntents.retrieve(depositPi)).status, 'canceled', 'the deposit hold is released, not left on the card')
+    const change = await db.bookingEvent.findFirstOrThrow({ where: { bookingId: booking.id, type: 'STATUS_CHANGE' } })
+    assert.equal((change.metadata as any).reason, 'dispute_refund')
+  })
+
   test('RESOLVED_REFUND with a partial refundAmountCents on an uncaptured booking is rejected with a clear error, not a raw Stripe 500', async () => {
     const totalPrice = 90
     const stripePaymentIntentId = await createAuthorizedStripePaymentIntent(9000)
