@@ -8,6 +8,7 @@ import prisma from '../../utils/prisma'
 import { DisputeStatus, ReportStatus } from '@prisma/client'
 import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
 import * as closeOutService from '../../services/closeOutService'
+import { getAuthorizationExpiry } from '../../services/paymentService'
 
 interface AuthenticatedRequest extends Request {
   userId?: string
@@ -54,6 +55,8 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
           hstAmount: true,
           refundedAmountCents: true,
           depositAmount: true,
+          depositStatus: true,
+          stripeDepositPaymentIntentId: true,
           pickupPhotos: true,
           returnPhotos: true,
           handoffInitiatedAt: true,
@@ -69,7 +72,13 @@ export const getDisputeDetail = asyncHandler(async (req: Request, res: Response)
     return res.status(404).json({ error: 'Dispute not found' })
   }
 
-  res.json(dispute)
+  // F-13: show the admin when the deposit hold stops being chargeable.
+  const { stripeDepositPaymentIntentId, ...booking } = dispute.booking
+  const depositHoldExpiresAt =
+    booking.depositStatus === 'AUTHORIZED' && stripeDepositPaymentIntentId
+      ? await getAuthorizationExpiry(stripeDepositPaymentIntentId).catch(() => null)
+      : null
+  res.json({ ...dispute, booking: { ...booking, depositHoldExpiresAt } })
 })
 
 export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {

@@ -8,6 +8,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { RootStackParamList } from '../navigation'
 import { getBookingEvents, getDisputeDetail, resolveDispute } from '../services/adminApi'
 import { AdminDisputeDetail, BookingEvent } from '../types'
+import { formatDateTime } from '@zoink/shared'
 import { queryKeys } from '../services/queryKeys'
 import { useRefreshOnFocus, usePagedList } from '../hooks/usePagedList'
 import { colors } from '../theme/colors'
@@ -75,6 +76,9 @@ const OUTCOME_LABELS: Record<string, string> = {
 }
 
 const ACTIVE_STATUSES = ['OPEN', 'UNDER_REVIEW']
+
+// Under a day left to charge the deposit before the card network drops the hold.
+const holdSoon = (expiresAt: string) => new Date(expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000
 
 // Same caps the server enforces (disputeService.resolveDispute): the deposit
 // for a charge; for a rent refund, what the rent payment charged (rent +
@@ -302,6 +306,13 @@ export default function AdminDisputeDetailScreen() {
         <ListRow icon="activity" label="Status" right={<Text style={styles.value}>{dispute.booking.status}</Text>} />
         <ListRow icon="credit-card" label="Payment status" right={<Text style={styles.value}>{dispute.booking.paymentStatus}</Text>} />
         <ListRow icon="dollar-sign" label="Total" right={<Text style={styles.value}>${Number(dispute.booking.totalPrice).toFixed(2)}</Text>} />
+        {dispute.booking.depositHoldExpiresAt ? (
+          <ListRow
+            icon="clock"
+            label="Deposit hold expires"
+            right={<Text style={holdSoon(dispute.booking.depositHoldExpiresAt) ? styles.valueUrgent : styles.value}>{formatDateTime(dispute.booking.depositHoldExpiresAt)}</Text>}
+          />
+        ) : null}
         {dispute.booking.status === 'ACTIVE' || dispute.booking.status === 'RETURN_PENDING' ? (
           <ListRow
             icon="check-square"
@@ -475,6 +486,7 @@ const styles = StyleSheet.create({
   caption: { ...type.caption, color: colors.mutedAlt },
   eyebrow: { ...type.eyebrow, color: colors.mutedAlt },
   value: { ...type.label, color: colors.ink },
+  valueUrgent: { ...type.label, color: colors.danger },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   photoRow: { gap: space.md },
   photoThumb: {

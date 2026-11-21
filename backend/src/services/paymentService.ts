@@ -150,6 +150,18 @@ export async function retrievePaymentIntent(paymentIntentId: string) {
   return stripe.paymentIntents.retrieve(paymentIntentId)
 }
 
+/** When an uncaptured hold stops being capturable: Stripe's capture_before on
+ *  its charge, or 7 days after the hold was created if Stripe doesn't say.
+ *  Null without Stripe (mock mode). */
+export async function getAuthorizationExpiry(paymentIntentId: string): Promise<Date | null> {
+  const stripe = getStripe()
+  if (!stripe) return null
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const captureBefore = intent?.latest_charge?.payment_method_details?.card?.capture_before
+  if (captureBefore) return new Date(captureBefore * 1000)
+  return intent?.created ? new Date((intent.created + 7 * 24 * 60 * 60) * 1000) : null
+}
+
 /** Creates and immediately confirms a manual-capture PaymentIntent for the
  *  deposit, off-session, against the payment method the borrower already
  *  attached while confirming the rental PaymentIntent. Called once the

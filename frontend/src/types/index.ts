@@ -119,6 +119,9 @@ export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'
     hstAmount: string
     refundedAmountCents: number
     depositAmount: string
+    // Absent from older backends.
+    depositStatus?: string | null
+    depositHoldExpiresAt?: string | null
     pickupPhotos: string[]
     returnPhotos: string[]
     handoffInitiatedAt: string | null

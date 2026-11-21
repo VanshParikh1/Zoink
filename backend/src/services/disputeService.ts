@@ -12,6 +12,16 @@ import { loggableMessage } from '../utils/sentryScrub'
 // measure from and keeps the existing no-deadline behavior.
 export const DISPUTE_WINDOW_HOURS = 24
 
+// F-13: a dispute needs a paid booking. Before CONFIRMED there's no money to
+// act on, and resolving one with a refund used to fail as a 500.
+const DISPUTABLE_STATUSES: BookingStatus[] = [
+  BookingStatus.CONFIRMED,
+  BookingStatus.PICKUP_PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.RETURN_PENDING,
+  BookingStatus.COMPLETED,
+]
+
 export async function createDispute(
   bookingId: string,
   requesterId: string,
@@ -32,6 +42,10 @@ export async function createDispute(
 
     if (booking.renterId !== requesterId && booking.ownerId !== requesterId) {
       throw new ForbiddenError('Only the renter or owner can open a dispute for this booking.')
+    }
+
+    if (!DISPUTABLE_STATUSES.includes(booking.status)) {
+      throw new BadRequestError('A dispute can only be opened on a booking that has been paid for.')
     }
 
     if (booking.status === 'COMPLETED' && booking.completedAt) {

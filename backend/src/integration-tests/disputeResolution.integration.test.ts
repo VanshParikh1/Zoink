@@ -1165,3 +1165,71 @@ describe('createDispute — dispute window on a COMPLETED booking', () => {
     assert.equal(dispute.status, 'OPEN')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F-13: which bookings can be disputed, the hold expiry, no-deposit completions
+// ─────────────────────────────────────────────────────────────────────────────
+describe('F-13 remainder', () => {
+  const file = (bookingId: string) =>
+    supertest(getApp()).post('/disputes').set('Authorization', `Bearer ${renter.token}`)
+      .send({ bookingId, reason: 'OTHER', description: 'Something went wrong with this booking.' })
+
+  test('a dispute needs a paid booking: PENDING, ACCEPTED, DECLINED and CANCELLED are refused with 400', async () => {
+    for (const status of [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DECLINED, BookingStatus.CANCELLED]) {
+      const booking = await createBookingInStatus(status, PaymentStatus.PENDING_AUTH)
+      const res = await file(booking.id)
+      assert.equal(res.status, 400, `${status}: ${JSON.stringify(res.body)}`)
+      assert.match(res.body.error, /paid for/)
+    }
+    assert.equal(await getTestPrisma().dispute.count(), 0)
+    const confirmed = await createBookingInStatus(BookingStatus.CONFIRMED)
+    assert.equal((await file(confirmed.id)).status, 201)
+  })
+
+  test('the admin detail shows when the deposit hold expires, and not the Stripe id', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const depositPi = await createAuthorizedStripePaymentIntent(2700)
+    const booking = await createBookingInStatus(BookingStatus.ACTIVE, PaymentStatus.CAPTURED)
+    await getTestPrisma().booking.update({ where: { id: booking.id }, data: { stripeDepositPaymentIntentId: depositPi, depositStatus: 'AUTHORIZED' } })
+    const dispute = await disputeService.createDispute(booking.id, renter.id, 'ITEM_DAMAGED', 'It came back with a cracked lens.')
+    const res = await supertest(getApp()).get(`/admin/disputes/${dispute.id}`).set('Authorization', `Bearer ${admin.token}`)
+    assert.equal(res.status, 200)
+    const expires = new Date(res.body.booking.depositHoldExpiresAt).getTime()
+    const days = (expires - Date.now()) / 86_400_000
+    assert.ok(days > 4 && days <= 7.01, `expires in ${days} days`)
+    assert.equal(res.body.booking.stripeDepositPaymentIntentId, undefined)
+
+    const noDeposit = await createBookingInStatus(BookingStatus.ACTIVE, PaymentStatus.CAPTURED)
+    const d2 = await disputeService.createDispute(noDeposit.id, renter.id, 'OTHER', 'No deposit on this one at all.')
+    const res2 = await supertest(getApp()).get(`/admin/disputes/${d2.id}`).set('Authorization', `Bearer ${admin.token}`)
+    assert.equal(res2.body.booking.depositHoldExpiresAt, null)
+  })
+
+  test('a no-deposit COMPLETED booking can be resolved with a rent refund or with no money; the old default is unchanged', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unavailable')
+    const Stripe = require('stripe')
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' })
+    const completed = async () => {
+      const pi = await createAuthorizedStripePaymentIntent(9000)
+      await stripe.paymentIntents.capture(pi)
+      const b = await createBookingInStatus(BookingStatus.COMPLETED, PaymentStatus.CAPTURED)
+      await getTestPrisma().booking.update({
+        where: { id: b.id },
+        data: { stripePaymentIntentId: pi, depositAmount: new Prisma.Decimal(0), completedAt: new Date(), paymentStatus: PaymentStatus.PAYOUT_PENDING },
+      })
+      return { b, pi, dispute: await disputeService.createDispute(b.id, renter.id, 'OTHER', 'Not what was described at all.') }
+    }
+
+    const a = await completed()
+    // The store app sends no refundTarget: still the deposit path, still a 409 here.
+    await assert.rejects(() => disputeService.resolveDispute(a.dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'x'), (e: any) => e.statusCode === 409)
+    await disputeService.resolveDispute(a.dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Refund half.', 4500, 'RENT')
+    const refunds = await stripe.refunds.list({ payment_intent: a.pi })
+    assert.equal(refunds.data[0].amount, 4500)
+
+    const b = await completed()
+    const resolved = await disputeService.resolveDispute(b.dispute.id, admin.id, DisputeStatus.RESOLVED_NO_ACTION, 'Nothing to do.')
+    assert.equal(resolved.status, DisputeStatus.RESOLVED_NO_ACTION)
+    assert.equal((await stripe.refunds.list({ payment_intent: b.pi })).data.length, 0)
+  })
+})
