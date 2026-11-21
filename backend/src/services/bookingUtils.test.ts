@@ -107,4 +107,9 @@ test('a booking with a deposit can be paid from 00:00 Toronto time on the day it
   }
   assert.doesNotThrow(() => assertPaymentWindowOpen(booking, Date.parse('2026-11-10T05:00:00.000Z')))
   assert.doesNotThrow(() => assertPaymentWindowOpen({ ...booking, depositAmount: 0 }, Date.parse('2026-10-01T00:00:00.000Z')))
+  // Once the start day has ended (00:00 EST Nov 11) nothing can be paid, deposit or not.
+  for (const depositAmount of ['50.00', 0]) {
+    assert.doesNotThrow(() => assertPaymentWindowOpen({ ...booking, depositAmount }, Date.parse('2026-11-11T04:59:59.000Z')))
+    assert.throws(() => assertPaymentWindowOpen({ ...booking, depositAmount }, Date.parse('2026-11-11T05:00:00.000Z')), { statusCode: 400 })
+  }
 })

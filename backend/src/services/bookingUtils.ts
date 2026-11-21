@@ -1,4 +1,4 @@
-import { DEPOSIT_MAX_RENTAL_DAYS, formatDateTime, paymentOpensAt, roundCurrency } from '@zoink/shared'
+import { DEPOSIT_MAX_RENTAL_DAYS, endOfRentalDay, formatDateTime, paymentOpensAt, roundCurrency } from '@zoink/shared'
 import { BadRequestError, ConflictError } from '../utils/errors'
 
 // Card-network authorization holds on the Stripe PaymentIntent are only
@@ -44,8 +44,15 @@ export function assertDepositRentalLength(depositAmount: number, rentalDays: num
   }
 }
 
-/** A booking with a deposit can only be paid from 00:00 Toronto on its start day. */
+/** A booking with a deposit can only be paid from 00:00 Toronto on its start
+ *  day, and no booking once that day has ended (it expires then; see
+ *  cleanupJob.expireUnconfirmedBookings). Pay and Confirm call this under the
+ *  booking lock the expiry job also takes. */
 export function assertPaymentWindowOpen(booking: { depositAmount: unknown; startDate: Date }, now: number = Date.now()) {
+  const closesAt = endOfRentalDay(booking.startDate)
+  if (closesAt && now >= closesAt.getTime()) {
+    throw new BadRequestError('This booking expired at the end of its start day, so it can no longer be paid.')
+  }
   const opensAt = paymentOpensAt({ depositAmount: Number(booking.depositAmount), startDate: booking.startDate }, now)
   if (opensAt) {
     throw new ConflictError(`You can pay from ${formatDateTime(opensAt)}.`)

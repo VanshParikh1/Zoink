@@ -201,10 +201,16 @@ function startOfTorontoDayAfter(value: DateInput, days: number): Date | null {
   return startOfTorontoDay(new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10))
 }
 
+/** The end of a rental day: 00:00 Toronto time the next day. An unpaid
+ *  ACCEPTED booking expires then and can no longer be paid. */
+export function endOfRentalDay(day: DateInput): Date | null {
+  return startOfTorontoDayAfter(day, 1)
+}
+
 /** D-3: a booking not picked up by the end of its start day (Toronto) plus
  *  12 hours is a no-show and is cancelled. */
 export function noShowDeadline(startDate: DateInput): Date | null {
-  const endOfStartDay = startOfTorontoDayAfter(startDate, 1)
+  const endOfStartDay = endOfRentalDay(startDate)
   return endOfStartDay ? new Date(endOfStartDay.getTime() + 12 * 60 * 60 * 1000) : null
 }
 

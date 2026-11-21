@@ -1,7 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
-import { noShowDeadline, overdueDeadline } from '@zoink/shared'
+import { cancellationCutoff, endOfRentalDay, noShowDeadline, overdueDeadline } from '@zoink/shared'
 import { excludingReviewerDemoBookings } from '../config/reviewerAccounts'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
@@ -412,6 +412,89 @@ export async function cancelNoShows(now: Date = new Date()) {
   }
 
   return { checked: candidates.length, cancelled, failed }
+}
+
+const EXPIRABLE_STATUSES: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.ACCEPTED]
+
+/** Requests that ran out of time: PENDING not answered by 00:00 Toronto on the
+ *  start day, ACCEPTED not paid by the end of the start day. They become
+ *  CANCELLED (reason "expired"), any rent PaymentIntent is cancelled, and both
+ *  parties are told it expired. Written directly, not through
+ *  transitionBookingStatus, so it counts toward nobody's cancellationCount.
+ *  Re-checked under the booking lock Pay and Confirm take, so a Confirm at the
+ *  same moment either lands first (and this skips it) or finds it cancelled. */
+export async function expireUnconfirmedBookings(now: Date = new Date()) {
+  // Both deadlines fall after startDate (midnight UTC); the exact one is checked below.
+  const candidates = await prisma.booking.findMany({
+    where: { status: { in: EXPIRABLE_STATUSES }, startDate: { lte: now }, ...excludingReviewerDemoBookings() },
+    select: { id: true },
+  })
+
+  let expired = 0
+  let failed = 0
+  for (const { id } of candidates) {
+    try {
+      const booking = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const b = await tx.booking.findUniqueOrThrow({
+          where: { id },
+          select: {
+            id: true,
+            version: true,
+            status: true,
+            startDate: true,
+            renterId: true,
+            ownerId: true,
+            stripePaymentIntentId: true,
+            listing: { select: { title: true } },
+          },
+        })
+        if (!EXPIRABLE_STATUSES.includes(b.status)) return null
+        const deadline = b.status === BookingStatus.PENDING ? cancellationCutoff(b.startDate) : endOfRentalDay(b.startDate)
+        if (!deadline || now < deadline) return null
+
+        // Already-cancelled counts as released (paymentService.cancelPaymentIntent).
+        if (b.stripePaymentIntentId) await cancelPaymentIntent(b)
+        await tx.booking.update({ where: { id }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } })
+        await tx.bookingEvent.create({
+          data: {
+            bookingId: id,
+            type: BookingEventType.STATUS_CHANGE,
+            metadata: { from: b.status, to: BookingStatus.CANCELLED, reason: 'expired', deadline: deadline.toISOString() },
+          },
+        })
+        return b
+      }, STRIPE_JOB_TX_OPTIONS)
+      if (!booking) continue
+
+      expired += 1
+      const title = booking.listing.title
+      const unanswered = booking.status === BookingStatus.PENDING
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'BOOKING_CANCELLED',
+        title: 'Request expired',
+        body: unanswered
+          ? `Your request for ${title} expired because the owner didn't answer it before the rental day began.`
+          : `Your booking of ${title} expired because it wasn't paid by the end of its start day. You weren't charged.`,
+        data: { bookingId: booking.id },
+      })
+      void notifyUser({
+        userId: booking.ownerId,
+        type: 'BOOKING_CANCELLED',
+        title: 'Request expired',
+        body: unanswered
+          ? `The request for ${title} expired because it wasn't answered before the rental day began.`
+          : `The booking of ${title} expired because the renter didn't pay by the end of its start day.`,
+        data: { bookingId: booking.id },
+      })
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(id, 'expire_booking', error)
+    }
+  }
+
+  return { checked: candidates.length, expired, failed }
 }
 
 const OVERDUE_STATUSES: BookingStatus[] = [BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING]
