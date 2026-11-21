@@ -180,6 +180,25 @@ describe('cancelNoShows', () => {
     assert.equal((await cancelNoShows(DEADLINE)).cancelled, 1)
   })
 
+  test('App Review demo bookings are left alone; a normal booking beside them is still cancelled', async () => {
+    const stripe = mockStripe()
+    const reviewer = await createTestUser({ email: 'reviewer@zoink.app', firstName: 'App' })
+    const reviewerOwner = await createTestUser({ email: 'reviewer-owner@zoink.app', firstName: 'Owner' })
+    const demoListing = (await createTestListing(reviewerOwner.id, { title: 'Demo camera' })).id
+    const asRenter = await paidBooking({ renterId: reviewer.id })
+    const asOwner = await paidBooking({ listingId: demoListing, ownerId: reviewerOwner.id })
+    const normal = await paidBooking()
+
+    // A week past the deadline: still not cancelled.
+    const result = await cancelNoShows(new Date(DEADLINE.getTime() + 7 * 86_400_000))
+    assert.equal(result.cancelled, 1)
+    const status = async (id: string) => (await getTestPrisma().booking.findUniqueOrThrow({ where: { id } })).status
+    assert.equal(await status(asRenter.id), BookingStatus.CONFIRMED)
+    assert.equal(await status(asOwner.id), BookingStatus.CONFIRMED)
+    assert.equal(await status(normal.id), BookingStatus.CANCELLED)
+    assert.equal(stripe.rent.mock.callCount(), 1)
+  })
+
   test('a booking whose rent was somehow captured is not cancelled', async () => {
     const booking = await paidBooking({ paidAt: new Date(), paymentStatus: PaymentStatus.CAPTURED })
     const stripe = mockStripe()

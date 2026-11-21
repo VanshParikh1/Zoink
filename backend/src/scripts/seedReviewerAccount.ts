@@ -44,19 +44,28 @@ import { torontoDayKey } from '@zoink/shared'
 import { calculateCommission, calculateOwnerPayout } from '../services/paymentService'
 import { submitReview } from '../services/reviewService'
 
-export const DEFAULT_REVIEWER_EMAIL = 'reviewer@zoink.app'
-export const DEFAULT_DELETION_REVIEWER_EMAIL = 'reviewer-delete@zoink.app'
-export const OWNER_EMAIL = 'reviewer-owner@zoink.app'
-// A second, disposable counterparty so the reviewer can demo Report / Block
-// without hiding the main owner's listings and threads.
-export const SECOND_USER_EMAIL = 'reviewer-neighbour@zoink.app'
-// A separate cast for the App Review screen recording (--recording): its own
-// owner, neighbour and listings, so seeding, paying or deleting one cast never
-// touches the other's bookings, listings or chats.
-export const RECORDING_EMAIL = 'recording@zoink.app'
-export const RECORDING_DELETE_EMAIL = 'recording-delete@zoink.app'
-export const RECORDING_OWNER_EMAIL = 'recording-owner@zoink.app'
-export const RECORDING_SECOND_USER_EMAIL = 'recording-neighbour@zoink.app'
+// The account emails live in config/reviewerAccounts.ts so the booking jobs
+// can leave these demo bookings alone (no-show cancel, expiry).
+import {
+  DEFAULT_REVIEWER_EMAIL,
+  DEFAULT_DELETION_REVIEWER_EMAIL,
+  OWNER_EMAIL,
+  SECOND_USER_EMAIL,
+  RECORDING_EMAIL,
+  RECORDING_DELETE_EMAIL,
+  RECORDING_OWNER_EMAIL,
+  RECORDING_SECOND_USER_EMAIL,
+} from '../config/reviewerAccounts'
+export {
+  DEFAULT_REVIEWER_EMAIL,
+  DEFAULT_DELETION_REVIEWER_EMAIL,
+  OWNER_EMAIL,
+  SECOND_USER_EMAIL,
+  RECORDING_EMAIL,
+  RECORDING_DELETE_EMAIL,
+  RECORDING_OWNER_EMAIL,
+  RECORDING_SECOND_USER_EMAIL,
+}
 const MIN_PASSWORD_LENGTH = 12
 
 const img = (id: string) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1200&q=80`

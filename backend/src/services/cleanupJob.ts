@@ -2,6 +2,7 @@ import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentS
 import prisma from '../utils/prisma'
 import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
 import { noShowDeadline, overdueDeadline } from '@zoink/shared'
+import { excludingReviewerDemoBookings } from '../config/reviewerAccounts'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
@@ -324,7 +325,11 @@ export async function cancelNoShows(now: Date = new Date()) {
   // The deadline is always at least 40 h after startDate (midnight UTC of the
   // start day); 36 h keeps the prefilter safe. The exact check is below.
   const candidates = await prisma.booking.findMany({
-    where: { status: { in: NO_SHOW_STATUSES }, startDate: { lte: new Date(now.getTime() - 36 * 60 * 60 * 1000) } },
+    where: {
+      status: { in: NO_SHOW_STATUSES },
+      startDate: { lte: new Date(now.getTime() - 36 * 60 * 60 * 1000) },
+      ...excludingReviewerDemoBookings(),
+    },
     select: { id: true },
   })
 
