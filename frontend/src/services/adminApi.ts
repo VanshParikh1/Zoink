@@ -1,5 +1,5 @@
 import api from './api'
-import { AdminDisputeDetail, AdminDisputeListItem, AdminReportListItem, BookingEvent, DisputeStatus, ReportStatus } from '../types'
+import { AdminDisputeDetail, AdminDisputeListItem, AdminOverdueBooking, AdminReportListItem, BookingEvent, DisputeStatus, ReportStatus } from '../types'
 import type { Page } from '@zoink/shared'
 
 const PAGE_SIZE = 20
@@ -25,6 +25,18 @@ export type ResolveDisputePayload = {
 
 export async function resolveDispute(id: string, data: ResolveDisputePayload): Promise<AdminDisputeDetail> {
   const res = await api.patch(`/admin/disputes/${id}/resolve`, data)
+  return res.data
+}
+
+/** D-1: rentals flagged overdue that are still out, oldest first. */
+export async function listOverdueBookings(): Promise<AdminOverdueBooking[]> {
+  const res = await api.get('/admin/bookings/overdue')
+  return res.data
+}
+
+/** D-1: completes an overdue / stuck rental, optionally charging the deposit. */
+export async function closeOutBooking(id: string, data: { notes: string; depositCaptureCents?: number }): Promise<{ id: string; status: string }> {
+  const res = await api.post(`/admin/bookings/${id}/close-out`, data)
   return res.data
 }
 

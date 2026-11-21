@@ -93,6 +93,22 @@ export interface AdminDisputeListItem {
   }
 }
 
+/** GET /admin/bookings/overdue (D-1). */
+export interface AdminOverdueBooking {
+  id: string
+  status: BookingStatus
+  startDate: string
+  endDate: string
+  pickedUpAt: string | null
+  overdueAt: string
+  depositAmount: string
+  depositStatus: string | null
+  disputeStatus: string
+  listing: { id: string; title: string }
+  renter: { id: string; firstName: string; email: string }
+  owner: { id: string; firstName: string; email: string }
+}
+
 export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'> {
   booking: {
     id: string

@@ -302,6 +302,13 @@ export default function AdminDisputeDetailScreen() {
         <ListRow icon="activity" label="Status" right={<Text style={styles.value}>{dispute.booking.status}</Text>} />
         <ListRow icon="credit-card" label="Payment status" right={<Text style={styles.value}>{dispute.booking.paymentStatus}</Text>} />
         <ListRow icon="dollar-sign" label="Total" right={<Text style={styles.value}>${Number(dispute.booking.totalPrice).toFixed(2)}</Text>} />
+        {dispute.booking.status === 'ACTIVE' || dispute.booking.status === 'RETURN_PENDING' ? (
+          <ListRow
+            icon="check-square"
+            label="Close out this rental"
+            onPress={() => nav.navigate('AdminCloseOut', { bookingId: dispute.bookingId, depositAmount: dispute.booking.depositAmount })}
+          />
+        ) : null}
       </RowGroup>
 
       <GroupLabel>Photos</GroupLabel>

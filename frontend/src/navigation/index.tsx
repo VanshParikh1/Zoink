@@ -59,6 +59,8 @@ export type RootStackParamList = {
   FileDispute: { bookingId: string; listingTitle?: string }
   AdminDisputes: undefined
   AdminDisputeDetail: { disputeId: string }
+  AdminOverdue: undefined
+  AdminCloseOut: { bookingId: string; listingTitle?: string; depositAmount: string }
   FileReport: { targetType: import('../types').ReportTargetType; targetId: string; targetLabel?: string }
   AdminReports: undefined
   ActiveRental: { bookingId: string }
@@ -151,6 +153,8 @@ function VerifiedAppStack() {
       <Stack.Screen name="FileDispute" getComponent={() => require('../screens/FileDisputeScreen').default} />
       <Stack.Screen name="AdminDisputes" getComponent={() => require('../screens/AdminDisputesScreen').default} />
       <Stack.Screen name="AdminDisputeDetail" getComponent={() => require('../screens/AdminDisputeDetailScreen').default} />
+      <Stack.Screen name="AdminOverdue" getComponent={() => require('../screens/AdminOverdueScreen').default} />
+      <Stack.Screen name="AdminCloseOut" getComponent={() => require('../screens/AdminCloseOutScreen').default} />
       <Stack.Screen name="FileReport" getComponent={() => require('../screens/FileReportScreen').default} />
       <Stack.Screen name="AdminReports" getComponent={() => require('../screens/AdminReportsScreen').default} />
       <Stack.Screen name="ActiveRental" getComponent={() => require('../screens/ActiveRentalScreen').default} />

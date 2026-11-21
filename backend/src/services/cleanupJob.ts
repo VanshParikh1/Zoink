@@ -1,7 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
-import { noShowDeadline } from '@zoink/shared'
+import { noShowDeadline, overdueDeadline } from '@zoink/shared'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
 import { DEPOSIT_HOLD_HOURS, PAYOUT_HOLD_HOURS, ZOINK_TAP_WINDOW_MS } from '../config/bookingWindows'
@@ -407,6 +407,65 @@ export async function cancelNoShows(now: Date = new Date()) {
   }
 
   return { checked: candidates.length, cancelled, failed }
+}
+
+const OVERDUE_STATUSES: BookingStatus[] = [BookingStatus.ACTIVE, BookingStatus.RETURN_PENDING]
+
+/** D-1: flags rentals whose return isn't completed by overdueDeadline (end of
+ *  the day after endDate, Toronto), once each: sets overdueAt (the admin
+ *  overdue list), records a RENTAL_OVERDUE event and notifies both parties.
+ *  The admin then closes it out (closeOutService). The version isn't bumped,
+ *  so a return tap racing this isn't refused. */
+export async function flagOverdueRentals(now: Date = new Date()) {
+  // The deadline is always more than 48 h after endDate (midnight UTC).
+  const candidates = await prisma.booking.findMany({
+    where: { status: { in: OVERDUE_STATUSES }, overdueAt: null, endDate: { lte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
+    select: { id: true },
+  })
+
+  let flagged = 0
+  let failed = 0
+  for (const { id } of candidates) {
+    try {
+      const booking = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
+        const b = await tx.booking.findUniqueOrThrow({
+          where: { id },
+          select: { id: true, status: true, endDate: true, overdueAt: true, renterId: true, ownerId: true, listing: { select: { title: true } } },
+        })
+        const deadline = overdueDeadline(b.endDate)
+        if (!OVERDUE_STATUSES.includes(b.status) || b.overdueAt || !deadline || now < deadline) return null
+        await tx.booking.update({ where: { id }, data: { overdueAt: now } })
+        await tx.bookingEvent.create({
+          data: { bookingId: id, type: BookingEventType.RENTAL_OVERDUE, metadata: { status: b.status, deadline: deadline.toISOString() } },
+        })
+        return b
+      })
+      if (!booking) continue
+
+      flagged += 1
+      const title = booking.listing.title
+      void notifyUser({
+        userId: booking.renterId,
+        type: 'RENTAL_OVERDUE',
+        title: 'Your rental is overdue',
+        body: `${title} was due back by the end of the day after your rental ended. Please return it and start the return in the app.`,
+        data: { bookingId: booking.id },
+      })
+      void notifyUser({
+        userId: booking.ownerId,
+        type: 'RENTAL_OVERDUE',
+        title: 'Rental overdue',
+        body: `The return of ${title} hasn't been completed. The Zoink team has been alerted and will follow up.`,
+        data: { bookingId: booking.id },
+      })
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(id, 'flag_overdue', error)
+    }
+  }
+
+  return { checked: candidates.length, flagged, failed }
 }
 
 /** Retries the owner's deposit compensation where the transfer made when the

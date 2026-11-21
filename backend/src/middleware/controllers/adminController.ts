@@ -7,6 +7,7 @@ import * as suspensionService from '../../services/suspensionService'
 import prisma from '../../utils/prisma'
 import { DisputeStatus, ReportStatus } from '@prisma/client'
 import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
+import * as closeOutService from '../../services/closeOutService'
 
 interface AuthenticatedRequest extends Request {
   userId?: string
@@ -86,6 +87,16 @@ export const resolveDispute = asyncHandler(async (req: AuthenticatedRequest, res
 
   const dispute = await disputeService.resolveDispute(id, adminId, status, resolutionNotes, refundAmountCents, refundTarget)
   res.json(dispute)
+})
+
+export const listOverdueBookings = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await closeOutService.listOverdueBookings())
+})
+
+export const closeOutBooking = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { notes, depositCaptureCents } = req.body
+  const booking = await closeOutService.closeOutBooking(req.params.id as string, req.userId!, notes, depositCaptureCents)
+  res.json({ id: booking.id, status: booking.status, completedAt: booking.completedAt })
 })
 
 export const getBookingEvents = asyncHandler(async (req: Request, res: Response) => {

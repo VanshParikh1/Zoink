@@ -394,6 +394,7 @@ export default function MyProfileScreen() {
           <GroupLabel>Admin</GroupLabel>
           <RowGroup>
             <ListRow icon="shield" label="Review disputes" onPress={() => go(() => nav.navigate('AdminDisputes'))} />
+            <ListRow icon="clock" label="Overdue rentals" onPress={() => go(() => nav.navigate('AdminOverdue'))} />
             <ListRow icon="flag" label="Review reports" onPress={() => go(() => nav.navigate('AdminReports'))} />
           </RowGroup>
         </>

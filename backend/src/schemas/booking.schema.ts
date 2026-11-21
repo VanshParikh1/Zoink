@@ -71,6 +71,18 @@ export const BookingListQuerySchema = z.object({
 })
 
 /** GET /admin/bookings/:id/events: the timeline, oldest first; `limit` pages it. */
+/** POST /admin/bookings/:id/close-out (D-1). */
+export const CloseOutBookingSchema = z.object({
+  params: z.object({ id: z.string().min(1, 'Booking ID is required.') }),
+  body: z
+    .object({
+      notes: z.string().trim().min(1, 'Say why this rental is being closed out.').max(1000, 'Notes cannot exceed 1000 characters.'),
+      // Optional: charge this much of the deposit hold (cents, at most the deposit).
+      depositCaptureCents: z.number().int().positive().optional(),
+    })
+    .strict(),
+})
+
 export const BookingEventsQuerySchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Booking ID is required.'),
