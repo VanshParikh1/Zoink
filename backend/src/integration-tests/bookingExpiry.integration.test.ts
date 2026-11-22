@@ -1,8 +1,8 @@
 /**
  * Integration Tests — expiry of unanswered / unpaid bookings
  * ==========================================================
- * PENDING expires at 00:00 Toronto on the start day, ACCEPTED at the end of
- * it (00:00 Toronto the next day). Both become CANCELLED with reason
+ * PENDING and ACCEPTED both expire at the end of the start day (00:00
+ * Toronto the next day), so a same-day request isn't cancelled at once. Both become CANCELLED with reason
  * "expired", any rent PaymentIntent is cancelled, both parties are told it
  * expired, and nobody's cancellationCount moves. Pay and Confirm refuse an
  * ACCEPTED booking once its start day has ended.
@@ -21,8 +21,8 @@ let owner: { id: string; token: string }
 let renter: { id: string; token: string }
 let listingId: string
 
-// Start day Nov 10 2026: PENDING expires 00:00 EST Nov 10 (05:00 UTC),
-// ACCEPTED at 00:00 EST Nov 11.
+// Start day Nov 10 2026: it begins 00:00 EST Nov 10 (05:00 UTC); PENDING and
+// ACCEPTED expire at 00:00 EST Nov 11.
 const START = new Date('2026-11-10T00:00:00.000Z')
 const PENDING_DEADLINE = new Date('2026-11-10T05:00:00.000Z')
 const ACCEPTED_DEADLINE = new Date('2026-11-11T05:00:00.000Z')
@@ -65,10 +65,11 @@ const statusOf = async (id: string) => (await getTestPrisma().booking.findUnique
 const settle = () => new Promise((r) => setTimeout(r, 200))
 
 describe('expireUnconfirmedBookings', () => {
-  test('PENDING expires at 00:00 Toronto on the start day; both are told it expired; no cancellation counted', async () => {
+  test('PENDING expires at the end of the start day, not its start; both are told it expired; no cancellation counted', async () => {
     const b = await booking(BookingStatus.PENDING)
-    assert.equal((await expireUnconfirmedBookings(new Date(PENDING_DEADLINE.getTime() - 1000))).expired, 0)
-    assert.equal((await expireUnconfirmedBookings(PENDING_DEADLINE)).expired, 1)
+    assert.equal((await expireUnconfirmedBookings(PENDING_DEADLINE)).expired, 0, 'still answerable on its start day')
+    assert.equal((await expireUnconfirmedBookings(new Date(ACCEPTED_DEADLINE.getTime() - 1000))).expired, 0)
+    assert.equal((await expireUnconfirmedBookings(ACCEPTED_DEADLINE)).expired, 1)
     assert.equal(await statusOf(b.id), BookingStatus.CANCELLED)
     const event = await getTestPrisma().bookingEvent.findFirstOrThrow({ where: { bookingId: b.id, type: 'STATUS_CHANGE' } })
     assert.equal((event.metadata as any).reason, 'expired')
@@ -79,7 +80,7 @@ describe('expireUnconfirmedBookings', () => {
     assert.equal(notes.length, 2)
     for (const n of notes) {
       assert.equal(n.title, 'Request expired')
-      assert.match(n.body, /expired because .*(answer|answered) .*before the rental day began/)
+      assert.match(n.body, /expired because .*(answer it|answered) by the end of its start day/)
       assert.doesNotMatch(n.body, /cancel/i)
     }
     const users = await getTestPrisma().user.findMany({ where: { id: { in: [owner.id, renter.id] } }, select: { cancellationCount: true } })
@@ -169,15 +170,37 @@ describe('expireUnconfirmedBookings', () => {
   })
 })
 
+describe('same-day requests', () => {
+  test('a request made today, after 00:00, survives the job and can still be answered today', async () => {
+    const today = dayOffset(0).toISOString()
+    const created = await supertest(getApp()).post('/bookings').set('Authorization', `Bearer ${renter.token}`).send({ listingId, startDate: today, endDate: today })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    assert.equal((await expireUnconfirmedBookings(new Date())).expired, 0)
+    assert.equal(await statusOf(created.body.id), BookingStatus.PENDING)
+  })
+})
+
 describe('Pay / Confirm after the start day', () => {
   test('an ACCEPTED booking whose start day has ended cannot be paid or confirmed', async () => {
     const b = await booking(BookingStatus.ACCEPTED, { startDate: dayOffset(-1), endDate: dayOffset(-1) })
     const pay = await supertest(getApp()).post(`/bookings/${b.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
     assert.equal(pay.status, 400, JSON.stringify(pay.body))
-    assert.match(pay.body.error, /expired at the end of its start day/)
+    assert.equal(pay.body.error, 'This booking expired at the end of its start day.')
     const confirm = await supertest(getApp()).patch(`/bookings/${b.id}/confirm`).set('Authorization', `Bearer ${renter.token}`)
     assert.equal(confirm.status, 400, JSON.stringify(confirm.body))
     assert.equal((await getTestPrisma().booking.findUniqueOrThrow({ where: { id: b.id } })).stripePaymentIntentId, null)
+  })
+
+  test('a PENDING request whose start day has ended cannot be accepted; one starting today can', async () => {
+    const expired = await booking(BookingStatus.PENDING, { startDate: dayOffset(-1), endDate: dayOffset(-1) })
+    const res = await supertest(getApp()).patch(`/bookings/${expired.id}/accept`).set('Authorization', `Bearer ${owner.token}`)
+    assert.equal(res.status, 400, JSON.stringify(res.body))
+    assert.equal(res.body.error, 'This booking expired at the end of its start day.')
+    assert.equal(await statusOf(expired.id), BookingStatus.PENDING)
+
+    const today = await booking(BookingStatus.PENDING, { startDate: dayOffset(0), endDate: dayOffset(0) })
+    const ok = await supertest(getApp()).patch(`/bookings/${today.id}/accept`).set('Authorization', `Bearer ${owner.token}`)
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
   })
 
   test('a Confirm after the job expired the booking is refused', async () => {

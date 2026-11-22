@@ -1,7 +1,7 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
-import { cancellationCutoff, endOfRentalDay, noShowDeadline, overdueDeadline } from '@zoink/shared'
+import { endOfRentalDay, noShowDeadline, overdueDeadline } from '@zoink/shared'
 import { excludingReviewerDemoBookings } from '../config/reviewerAccounts'
 import { payDepositCompensation } from './disputeService'
 import { notifyUser } from './notificationService'
@@ -416,8 +416,9 @@ export async function cancelNoShows(now: Date = new Date()) {
 
 const EXPIRABLE_STATUSES: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.ACCEPTED]
 
-/** Requests that ran out of time: PENDING not answered by 00:00 Toronto on the
- *  start day, ACCEPTED not paid by the end of the start day. They become
+/** Requests that ran out of time: PENDING not answered, or ACCEPTED not paid,
+ *  by the end of the start day (00:00 Toronto the next day; a same-day request
+ *  gets the rest of the day). They become
  *  CANCELLED (reason "expired"), any rent PaymentIntent is cancelled, and both
  *  parties are told it expired. Written directly, not through
  *  transitionBookingStatus, so it counts toward nobody's cancellationCount.
@@ -450,7 +451,7 @@ export async function expireUnconfirmedBookings(now: Date = new Date()) {
           },
         })
         if (!EXPIRABLE_STATUSES.includes(b.status)) return null
-        const deadline = b.status === BookingStatus.PENDING ? cancellationCutoff(b.startDate) : endOfRentalDay(b.startDate)
+        const deadline = endOfRentalDay(b.startDate)
         if (!deadline || now < deadline) return null
 
         // Already-cancelled counts as released (paymentService.cancelPaymentIntent).
@@ -475,7 +476,7 @@ export async function expireUnconfirmedBookings(now: Date = new Date()) {
         type: 'BOOKING_CANCELLED',
         title: 'Request expired',
         body: unanswered
-          ? `Your request for ${title} expired because the owner didn't answer it before the rental day began.`
+          ? `Your request for ${title} expired because the owner didn't answer it by the end of its start day.`
           : `Your booking of ${title} expired because it wasn't paid by the end of its start day. You weren't charged.`,
         data: { bookingId: booking.id },
       })
@@ -484,7 +485,7 @@ export async function expireUnconfirmedBookings(now: Date = new Date()) {
         type: 'BOOKING_CANCELLED',
         title: 'Request expired',
         body: unanswered
-          ? `The request for ${title} expired because it wasn't answered before the rental day began.`
+          ? `The request for ${title} expired because it wasn't answered by the end of its start day.`
           : `The booking of ${title} expired because the renter didn't pay by the end of its start day.`,
         data: { bookingId: booking.id },
       })

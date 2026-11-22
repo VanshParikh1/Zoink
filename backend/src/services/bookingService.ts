@@ -4,7 +4,7 @@ import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
-import { assertDepositRentalLength, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays } from './bookingUtils'
+import { assertDepositRentalLength, assertNotExpired, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays } from './bookingUtils'
 import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
 import { assertNotBlocked } from './blockService'
@@ -1079,6 +1079,9 @@ export async function transitionBookingStatus(
 
   const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
     if (nextStatus === 'ACCEPTED') {
+      // The expiry job's lock, taken before the listing's (Confirm's order).
+      await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`
+      assertNotExpired(booking)
       await lockListing(tx, booking.listingId)
       await ensureNoOverlap(booking.listingId, booking.id, tx)
     }
