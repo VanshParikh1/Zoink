@@ -20,7 +20,8 @@ We follow Canada's **Personal Information Protection and Electronic Documents Ac
 
 | What | Examples | Why we need it |
 | --- | --- | --- |
-| Account details | First and last name, student email address, phone number, password (stored only as a salted hash) | To create and secure your account, and to let the other party to a rental know who they are dealing with |
+| Account details | First and last name, student email address, password (stored only as a salted hash) | To create and secure your account, and to let the other party to a rental know who they are dealing with |
+| Phone number (optional) | A phone number, only if you choose to add one at sign-up or later in your profile. You can change or remove it at any time | Only to contact you about a problem with a rental or a dispute. It is never shown to other users |
 | Profile | Profile photo, short bio | So other users can recognise you |
 | Student verification | Your post-secondary student email address, and the one-time code we send to it | To confirm you are a real student at an Ontario institution before you can list or book |
 | Listings | Item title, description, category, photos, daily price, item value, deposit amount, pickup city and address | To publish your listing and let Renters find it |

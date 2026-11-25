@@ -4,7 +4,7 @@ This document explains the current Zoink repository so a new developer can under
 
 ## 1. Project Overview
 
-Zoink is a student-focused peer-to-peer rental marketplace. Verified university students list items and rent from each other. The app covers university-email + phone registration with OTP verification, listing creation (images, item value, owner-configured security deposit, real GPS location), browse/search, booking requests, renter/owner messaging with real per-participant read tracking, a Stripe-based booking → pay → handoff → payout lifecycle with a separately-held security deposit, 13% Ontario HST and a flat 15% (minimum $2) platform commission, photo-verified synchronized pickup/return ("Zoink It"), reviews (including an item review), push notifications, a role-based dispute-filing and admin-resolution flow, abuse reporting for listings and users, rate limiting, error tracking, and a static marketing/waitlist landing page.
+Zoink is a student-focused peer-to-peer rental marketplace. Verified university students list items and rent from each other. The app covers university-email registration (phone optional) with OTP verification, listing creation (images, item value, owner-configured security deposit, real GPS location), browse/search, booking requests, renter/owner messaging with real per-participant read tracking, a Stripe-based booking → pay → handoff → payout lifecycle with a separately-held security deposit, 13% Ontario HST and a flat 15% (minimum $2) platform commission, photo-verified synchronized pickup/return ("Zoink It"), reviews (including an item review), push notifications, a role-based dispute-filing and admin-resolution flow, abuse reporting for listings and users, rate limiting, error tracking, and a static marketing/waitlist landing page.
 
 The repository has four areas:
 
@@ -173,7 +173,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 
 | File | Routes | Notes |
 |---|---|---|
-| `routes/auth.ts` | `POST /auth/register`, `/login`, `/verify-email`, `/resend-otp` | `authLimiter` on the whole router. `RegisterSchema` (Canadian/NANP phone, normalized), `LoginSchema`, `VerifyEmailSchema`. `verify-email` / `resend-otp` require auth, not verified. |
+| `routes/auth.ts` | `POST /auth/register`, `/login`, `/verify-email`, `/resend-otp` | `authLimiter` on the whole router. `RegisterSchema` (optional Canadian/NANP phone via `optionalPhoneSchema`, normalized; blank → null), `LoginSchema`, `VerifyEmailSchema`. `verify-email` / `resend-otp` require auth, not verified. |
 | `routes/users.ts` | `GET/PATCH /users/me`, `PATCH /users/me/push-token`, `POST /users/me/avatar`, `POST /users/me/stripe-connect/onboard`, `GET /users/me/stripe-connect/status`, `GET /users/:id` | `/me/*` need auth only; `GET /users/:id` needs verified. `UpdateMeSchema`. Avatar via Multer (5 MB). |
 | `routes/listings.ts` | browse, categories, get, `me`, create, update, availability, delete, image upload/delete | All require auth + verified. Schemas: `BrowseListingsQuerySchema` (coerced, superRefine on lat/lng/radius/price pairs), `CreateListingSchema` / `UpdateListingSchema` (deposit ≤ itemValue, itemValue required when deposit set), `ToggleAvailabilitySchema`, `ListingIdParamsSchema`, `ListingImageParamsSchema`. Image upload via Multer (10 MB). |
 | `routes/bookings.ts` | create, `me`, `requests`, `:id`, `:id/accept`, `:id/payment-intent`, `:id/confirm`, `:id/decline`, `:id/cancel`, pickup/return `initiate`/`confirm`, `:id/photos`, `:id/photos/upload`, `:id/zoink-tap` | Router-level auth + verified. `CreateBookingSchema`, `BookingIdParamsSchema`, and the handoff schemas. Photo upload via Multer (10 MB). |
@@ -307,7 +307,7 @@ Generated/dependency folders (`node_modules`, `dist`, `.expo`, `packages/shared/
 | File | What It Does |
 |---|---|
 | `LoginScreen.tsx` | Login form → `useAuth().login`. |
-| `RegisterScreen.tsx` | Registration form incl. a required **phone** field → `useAuth().register`. |
+| `RegisterScreen.tsx` | Registration form incl. an optional **phone** field → `useAuth().register`. |
 | `VerificationGateScreen.tsx` | Explains verification, links to OTP, supports logout. |
 | `VerifyEmailScreen.tsx` | 6-digit OTP entry, verify/resend, `setVerified` with the returned token. |
 | `MainAppScreen.tsx` | Verified app shell — custom bottom tabs **Home / Search / Inbox / MyProfile** with a center create-listing action and a sliding highlight + haptics. |
@@ -406,7 +406,7 @@ Responses are plain JSON. `AppError` → `{ "error": "…" }`. `ZodError` → `{
 
 | Model | Purpose | Key Relationships |
 |---|---|---|
-| `User` | Account, profile, verification, `role`, push token, Stripe customer/account ids. `phone` is `NOT NULL`. `deletedAt` (nullable) — soft-delete/anonymize; a set value invalidates the account (`requireAuth` + `loginUser` reject it). Per-category notification toggles `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (default `true`; verification notices ignore them). ID fields (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`) exist but have no submission flow. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; `raisedDisputes` / `resolvedDisputes`; `filedReports` / `reviewedReports`. |
+| `User` | Account, profile, verification, `role`, push token, Stripe customer/account ids. `phone` is nullable (optional since `20261125130000_user_phone_optional`). `deletedAt` (nullable) — soft-delete/anonymize; a set value invalidates the account (`requireAuth` + `loginUser` reject it). Per-category notification toggles `notifyMessages` / `notifyBookingActivity` / `notifyPaymentsPayouts` / `notifyDepositUpdates` / `notifyReviews` (default `true`; verification notices ignore them). ID fields (`idPhotoUrl`, `selfieUrl`, `idSubmittedAt`, `verificationId`) exist but have no submission flow. | Owns listings; renter/owner bookings; renter/owner conversations; messages; reviews; reputation; notifications; verification tokens; `raisedDisputes` / `resolvedDisputes`; `filedReports` / `reviewedReports`. |
 | `Listing` | Rentable item: title, description, category, `dailyPrice`, `itemValue`, owner-configured `depositAmount`, availability, `latitude`/`longitude`/`city`, optional `address`. | Belongs to owner `User`; has images, bookings, conversations. |
 | `ListingImage` | URL + display order. | Belongs to `Listing` (cascade). |
 | `Booking` | Rental request + lifecycle. Money fields (`totalPrice`, `depositAmount`, `commissionAmount`, `ownerPayout`, `insuranceFee`, `hstAmount`) snapshotted at creation. Rental PI (`stripePaymentIntentId`) + separate deposit PI (`stripeDepositPaymentIntentId`, `depositStatus`). `paidAt`/`refundedAt`/`payoutSentAt`/`completedAt`. Handoff photo arrays + per-party tap timestamps. `disputeStatus`/`disputedAt`/`disputeReason`. `conversationId` (FK, `SET NULL`). No `message` column. | Belongs to renter, owner, listing, optional conversation; has events, reviews, obligations, `Dispute` records. |
@@ -651,7 +651,7 @@ No lint/format scripts are configured.
 - **Messaging unread state** — real per-participant `renterLastReadAt`/`ownerLastReadAt` + `POST /conversations/:id/read`.
 - **Location permission** — `expo-location` config plugin added; GPS + `LocationMapPreview`/`LocationMapModal` replace the removed `DraggableLocationMap` and the old hardcoded Toronto submit.
 - **Owner-configured deposits** — `Listing.depositAmount`; `bookingService.createBooking` reads it directly.
-- **Phone at registration** — required, Canadian/NANP, normalized; `User.phone` `NOT NULL`.
+- **Phone at registration** — optional (App Review 5.1.1(v)), Canadian/NANP when given, normalized; blank → `null`. `User.phone` nullable; clearable from the profile.
 - **Dispute payout block** — `releaseDuePayouts` accepts `RESOLVED_NO_ACTION`/`DISMISSED`; `RESOLVED_REFUND` sets `paymentStatus = REFUNDED`.
 - **Partial-refund owner payout** — `releaseDuePayouts` now includes `RESOLVED_REFUND` and pays the owner's proportional remaining share from `Booking.refundedAmountCents` (0 for the common case ⇒ full payout), or nothing (with `payoutSentAt` stamped) when fully refunded.
 - **Webhook partial-refund handling** — `stripeWebhookController.ts` compares `amount_refunded` to the full charge; a partial refund records `Booking.refundedAmountCents` + `refundedAt` without stamping `REFUNDED`; deposit-PI events are routed to `depositStatus` and never the rental fields.
