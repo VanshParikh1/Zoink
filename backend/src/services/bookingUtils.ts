@@ -57,9 +57,15 @@ export function assertNotExpired(booking: { startDate: Date }, now: number = Dat
 /** A booking with a deposit can only be paid from 00:00 Toronto on its start
  *  day, and no booking once that day has ended (it expires then; see
  *  cleanupJob.expireUnconfirmedBookings). Pay and Confirm call this under the
- *  booking lock the expiry job also takes. */
-export function assertPaymentWindowOpen(booking: { depositAmount: unknown; startDate: Date }, now: number = Date.now()) {
-  assertNotExpired(booking, now)
+ *  booking lock the expiry job also takes. `reviewerDemo` (a seeded App Review
+ *  account is the renter or owner; the expiry job skips those bookings too)
+ *  skips the start-day expiry, so the demo booking stays payable. */
+export function assertPaymentWindowOpen(
+  booking: { depositAmount: unknown; startDate: Date },
+  now: number = Date.now(),
+  opts: { reviewerDemo?: boolean } = {}
+) {
+  if (!opts.reviewerDemo) assertNotExpired(booking, now)
   const opensAt = paymentOpensAt({ depositAmount: Number(booking.depositAmount), startDate: booking.startDate }, now)
   if (opensAt) {
     throw new ConflictError(`You can pay from ${formatDateTime(opensAt)}.`)

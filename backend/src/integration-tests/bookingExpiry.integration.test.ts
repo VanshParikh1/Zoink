@@ -191,6 +191,28 @@ describe('Pay / Confirm after the start day', () => {
     assert.equal((await getTestPrisma().booking.findUniqueOrThrow({ where: { id: b.id } })).stripePaymentIntentId, null)
   })
 
+  test('App Review demo bookings past their start day can still be paid and confirmed; a normal one cannot', async () => {
+    const expiry = 'This booking expired at the end of its start day.'
+    const reviewer = await createTestUser({ email: 'reviewer@zoink.app', firstName: 'App' })
+    const asRenter = await booking(BookingStatus.ACCEPTED, { renterId: reviewer.id, startDate: dayOffset(-1), endDate: dayOffset(-1) })
+    const pay = await supertest(getApp()).post(`/bookings/${asRenter.id}/payment-intent`).set('Authorization', `Bearer ${reviewer.token}`)
+    assert.notEqual(pay.body.error, expiry, JSON.stringify(pay.body))
+    const confirm = await supertest(getApp()).patch(`/bookings/${asRenter.id}/confirm`).set('Authorization', `Bearer ${reviewer.token}`)
+    assert.notEqual(confirm.body.error, expiry, JSON.stringify(confirm.body))
+
+    // The reviewer as the owner (the recording cast's renter is a normal account here).
+    const reviewerOwner = await createTestUser({ email: 'reviewer-owner@zoink.app', firstName: 'Owner', stripeAccountId: process.env.DEV_STRIPE_ACCOUNT_ID ?? null })
+    const demoListing = (await createTestListing(reviewerOwner.id, { title: 'Demo tent' })).id
+    const asOwner = await booking(BookingStatus.ACCEPTED, { listingId: demoListing, ownerId: reviewerOwner.id, startDate: dayOffset(-1), endDate: dayOffset(-1) })
+    const ownerPay = await supertest(getApp()).post(`/bookings/${asOwner.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
+    assert.notEqual(ownerPay.body.error, expiry, JSON.stringify(ownerPay.body))
+
+    const normal = await booking(BookingStatus.ACCEPTED, { startDate: dayOffset(-1), endDate: dayOffset(-1) })
+    const refused = await supertest(getApp()).post(`/bookings/${normal.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(refused.status, 400)
+    assert.equal(refused.body.error, expiry)
+  })
+
   test('a PENDING request whose start day has ended cannot be accepted; one starting today can', async () => {
     const expired = await booking(BookingStatus.PENDING, { startDate: dayOffset(-1), endDate: dayOffset(-1) })
     const res = await supertest(getApp()).patch(`/bookings/${expired.id}/accept`).set('Authorization', `Bearer ${owner.token}`)

@@ -2,6 +2,7 @@ import { BookingEventType, BookingStatus, DepositStatus, PaymentStatus, Prisma, 
 import { cancellationCutoff, quoteRental, rentalDayKey, torontoDayKey, type BookingListItem, type BookingListPage, type BookingResponse, type PendingReviewResponse, type UserSummary } from '@zoink/shared'
 import { z } from 'zod'
 import prisma from '../utils/prisma'
+import { reviewerDemoEmails } from '../config/reviewerAccounts'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import { assertDepositRentalLength, assertNotExpired, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays } from './bookingUtils'
@@ -562,6 +563,12 @@ async function withBookingLock<T>(bookingId: string, work: (tx: Prisma.Transacti
   }, STRIPE_TX_OPTIONS)
 }
 
+/** The renter or owner is one of the seeded App Review demo accounts. */
+async function involvesReviewerDemoAccount(db: Db, booking: { renterId: string; ownerId: string }) {
+  const n = await db.user.count({ where: { id: { in: [booking.renterId, booking.ownerId] }, email: { in: reviewerDemoEmails() } } })
+  return n > 0
+}
+
 async function readBookingForParticipant(db: Db, bookingId: string, userId: string) {
   const booking: any = await db.booking.findUnique({
     where: { id: bookingId },
@@ -591,7 +598,7 @@ export async function createPaymentIntentForBooking(bookingId: string, renterId:
       throw new ConflictError('This booking is not ready for payment.')
     }
 
-    assertPaymentWindowOpen(booking)
+    assertPaymentWindowOpen(booking, Date.now(), { reviewerDemo: await involvesReviewerDemoAccount(tx, booking) })
     // Before the reuse check, so an old PaymentIntent that includes HST no longer
     // matches and is retired.
     await dropUnchargedHst(tx, booking)
@@ -721,7 +728,7 @@ async function confirmBookingPayment(bookingId: string, actorId: string): Promis
       }
 
       assertBookingTransition(booking.status, BookingStatus.CONFIRMED)
-      assertPaymentWindowOpen(booking)
+      assertPaymentWindowOpen(booking, Date.now(), { reviewerDemo: await involvesReviewerDemoAccount(tx, booking) })
       await dropUnchargedHst(tx, booking)
 
       // This is the new payment checkpoint — dates only truly lock once payment
