@@ -76,8 +76,8 @@ export const browseListings = asyncHandler(async (req: Request, res: Response) =
 
 // ── GET /listings/categories ──────────────────────────────────────────────────
 
-export const getListingCategories = asyncHandler(async (_req: Request, res: Response) => {
-  const categories = await listingService.getListingCategories()
+export const getListingCategories = asyncHandler(async (req: Request, res: Response) => {
+  const categories = await listingService.getListingCategories((req as any).userId)
   return res.json({ categories })
 })
 

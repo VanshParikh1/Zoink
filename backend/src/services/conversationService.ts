@@ -2,6 +2,7 @@ import { Prisma, BookingStatus } from '@prisma/client'
 import type { ConversationDetailResponse, ConversationListPage, ConversationResponse, MessageListItem, MessageResponse, VerificationStatus } from '@zoink/shared'
 import { z } from 'zod'
 import prisma from '../utils/prisma'
+import { isHiddenReviewerListing } from './listingService'
 import { notifyUser } from './notificationService'
 import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors'
 import { assertNotBlocked, getBlockedUserIds } from './blockService'
@@ -215,8 +216,9 @@ export async function openConversation(currentUserId: string, listingId: string)
   await assertNotBlocked(currentUserId, listing.ownerId)
 
   // A suspended owner's listing is hidden; nobody starts a new chat about it.
-  // A conversation that already exists (an ongoing rental) still opens.
-  if (listing.owner.suspendedAt) {
+  // A conversation that already exists (an ongoing rental) still opens. Same
+  // for an App Review demo listing seen by a non-demo account (P3-7).
+  if (listing.owner.suspendedAt || (await isHiddenReviewerListing(listing.ownerId, currentUserId))) {
     const existing = await prisma.conversation.findUnique({
       where: { listingId_renterId: { listingId, renterId: currentUserId } },
       select: { id: true },

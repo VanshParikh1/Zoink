@@ -3,6 +3,7 @@ import { cancellationCutoff, quoteRental, rentalDayKey, torontoDayKey, type Book
 import { z } from 'zod'
 import prisma from '../utils/prisma'
 import { reviewerDemoEmails } from '../config/reviewerAccounts'
+import { isHiddenReviewerListing } from './listingService'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
 import { assertDepositRentalLength, assertNotExpired, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays, retryOnceOnLockConflict } from './bookingUtils'
@@ -443,7 +444,7 @@ export async function createBooking(renterId: string, input: CreateBookingInput)
 
   // A suspended owner's listing is hidden from browse; it can't be booked by
   // id either.
-  if (!listing.isAvailable || listing.owner.suspendedAt) {
+  if (!listing.isAvailable || listing.owner.suspendedAt || (await isHiddenReviewerListing(listing.ownerId, renterId))) {
     throw new BadRequestError('This listing is currently unavailable.')
   }
 

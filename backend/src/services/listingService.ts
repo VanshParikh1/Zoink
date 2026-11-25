@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { isBlockedBetween, listingOwnerNotBlockedSql } from './blockService'
 import { decodeCursor, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../utils/pagination'
+import { reviewerDemoEmails } from '../config/reviewerAccounts'
 
 // ── Prohibited items (terms.md §6) ───────────────────────────────────────────
 // A blunt keyword heuristic, not a moderation system — it exists to catch the
@@ -162,6 +163,8 @@ export type BrowseListingsInput = {
   // When set, listings owned by anyone on the other side of a block with
   // this user are excluded (search, browse and the home feed all go here).
   viewerId?: string
+  // Set by browseListings/browseListingsPage, never by the caller (P3-7).
+  showReviewerListings?: boolean
 }
 
 type BrowseListingRow = {
@@ -204,6 +207,21 @@ export async function createListing(ownerId: string, data: CreateListingInput): 
   return toListingResponse(listing, ownerId)
 }
 
+// ── App Review demo listings (P3-7) ───────────────────────────────────────────
+// The seeded reviewer accounts' listings are seen, and can be booked or asked
+// about, only by those accounts, so real users never find the demo items.
+
+/** The user is one of the seeded App Review demo accounts. */
+export async function isReviewerDemoUser(userId?: string | null) {
+  if (!userId) return false
+  return (await prisma.user.count({ where: { id: userId, email: { in: reviewerDemoEmails() } } })) > 0
+}
+
+/** The listing's owner is a demo account and the viewer isn't one. */
+export async function isHiddenReviewerListing(ownerId: string, viewerId?: string | null) {
+  return (await isReviewerDemoUser(ownerId)) && !(await isReviewerDemoUser(viewerId))
+}
+
 // ── Get single listing ────────────────────────────────────────────────────────
 
 export async function getListingById(id: string, viewerId?: string): Promise<ListingResponse> {
@@ -216,6 +234,7 @@ export async function getListingById(id: string, viewerId?: string): Promise<Lis
   if (viewerId && (await isBlockedBetween(viewerId, listing.ownerId))) {
     throw new NotFoundError('Listing not found.')
   }
+  if (await isHiddenReviewerListing(listing.ownerId, viewerId)) throw new NotFoundError('Listing not found.')
   return toListingResponse(listing, viewerId)
 }
 
@@ -353,6 +372,7 @@ function browseFilters(input: BrowseListingsInput): BrowseFilters {
     city,
     includeUnavailable = false,
     viewerId,
+    showReviewerListings = false,
   } = input
 
   const hasLocation = latitude != null && longitude != null
@@ -365,6 +385,12 @@ function browseFilters(input: BrowseListingsInput): BrowseFilters {
 
   if (!includeUnavailable) {
     whereClauses.push(Prisma.sql`l."isAvailable" = true`)
+  }
+
+  if (!showReviewerListings) {
+    whereClauses.push(
+      Prisma.sql`NOT EXISTS (SELECT 1 FROM "users" ru WHERE ru.id = l."ownerId" AND ru.email IN (${Prisma.join(reviewerDemoEmails())}))`
+    )
   }
 
   if (viewerId) {
@@ -415,7 +441,7 @@ function browseFilters(input: BrowseListingsInput): BrowseFilters {
 export async function browseListings(input: BrowseListingsInput): Promise<BrowseListingsResult> {
   const limit = Math.floor(clamp(input.limit ?? 20, 1, 50))
   const offset = Math.floor(Math.max(input.offset ?? 0, 0))
-  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters({ ...input, showReviewerListings: await isReviewerDemoUser(input.viewerId) })
   const { viewerId } = input
 
   const [listingRows, countRows] = await Promise.all([prisma.$queryRaw<BrowseListingRow[]>(Prisma.sql`
@@ -516,7 +542,7 @@ type BrowsePageRow = {
 export async function browseListingsPage(input: BrowseListingsInput, params: PageParams): Promise<Page<ListingCardItem>> {
   const size = Math.floor(clamp(pageSize(params), 1, 50))
   const after = params.cursor ? decodeCursor(params.cursor, browseCursor) : null
-  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters(input)
+  const { whereSql, distanceSql, hasLocation, radiusFilterSql } = browseFilters({ ...input, showReviewerListings: await isReviewerDemoUser(input.viewerId) })
   const distanceKeySql = hasLocation
     ? Prisma.sql`COALESCE(ROUND(filtered."distanceKm"::numeric, 6), ${NO_DISTANCE_KEY}::numeric)`
     : Prisma.sql`0::numeric`
@@ -569,9 +595,14 @@ export async function browseListingsPage(input: BrowseListingsInput, params: Pag
 
 // ── Distinct categories for browse filters ────────────────────────────────────
 
-export async function getListingCategories() {
+export async function getListingCategories(viewerId?: string) {
+  const hideDemo = !(await isReviewerDemoUser(viewerId))
   const rows = await prisma.listing.findMany({
-    where: { isAvailable: true, deletedAt: null, owner: { suspendedAt: null } },
+    where: {
+      isAvailable: true,
+      deletedAt: null,
+      owner: { suspendedAt: null, ...(hideDemo ? { email: { notIn: reviewerDemoEmails() } } : {}) },
+    },
     distinct: ['category'],
     select: { category: true },
     orderBy: { category: 'asc' },
