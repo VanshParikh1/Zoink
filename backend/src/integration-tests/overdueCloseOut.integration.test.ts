@@ -215,6 +215,16 @@ describe('admin close-out', () => {
     assert.equal((await closeOut(disputed.id, { notes: 'Closing; deposit decided in the dispute.' })).status, 200)
   })
 
+  test('before the overdue deadline: close-out without a charge works, with a charge is refused (P3-10)', async () => {
+    const capture = mock.method(paymentService, 'captureDepositPaymentIntent', async () => ({ status: 'succeeded', latest_charge: 'ch_early' }))
+    const lateNotOverdue = await rental({ endDate: new Date(Date.UTC(2099, 0, 1)) })
+    const res = await closeOut(lateNotOverdue.id, { notes: 'Too early to charge.', depositCaptureCents: 1000 })
+    assert.equal(res.status, 400)
+    assert.match(res.body.error, /only be charged once the rental is overdue/)
+    assert.equal(capture.mock.callCount(), 0)
+    assert.equal((await closeOut(lateNotOverdue.id, { notes: 'Returned in person, confirmed by phone.' })).status, 200)
+  })
+
   test('a failed deposit capture leaves the rental open', async () => {
     const booking = await rental()
     mock.method(paymentService, 'captureDepositPaymentIntent', async () => {

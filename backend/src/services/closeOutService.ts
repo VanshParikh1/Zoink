@@ -5,7 +5,7 @@ import { toCents } from './paymentService'
 import { captureDeposit, BOOKING_LOCK_TX_OPTIONS, depositChargeInProgress, payDepositCompensation, recordDepositCaptureIntent } from './disputeService'
 import { createReviewObligationsForCompletedBooking } from './bookingService'
 import { notifyUser } from './notificationService'
-import { formatDateTime, PAYOUT_HOLD_HOURS } from '@zoink/shared'
+import { formatDateTime, overdueDeadline, PAYOUT_HOLD_HOURS } from '@zoink/shared'
 
 // D-1: an admin can close out a rental that was never returned (or whose
 // return was started but never confirmed by both taps).
@@ -107,6 +107,12 @@ export async function closeOutBooking(bookingId: string, adminId: string, notes:
       const retrying = booking.depositCaptureCents !== null
       if (!booking.stripeDepositPaymentIntentId || (!retrying && booking.depositStatus !== DepositStatus.AUTHORIZED)) {
         throw new BadRequestError('This booking has no deposit hold to charge.')
+      }
+      // P3-10: before the D-1 overdue deadline the rental may simply be late;
+      // closing it out is allowed, charging the deposit isn't.
+      const chargeFrom = overdueDeadline(booking.endDate)
+      if (!retrying && chargeFrom && Date.now() < chargeFrom.getTime()) {
+        throw new BadRequestError(`The deposit can only be charged once the rental is overdue, from ${formatDateTime(chargeFrom)}. Close it out without a charge, or wait.`)
       }
       const capCents = toCents(booking.depositAmount)
       if (cents > capCents) {

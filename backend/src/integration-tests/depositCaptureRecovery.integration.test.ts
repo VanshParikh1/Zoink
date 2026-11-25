@@ -151,7 +151,8 @@ describe('P1-1 deposit charge recovery', () => {
   })
 
   test('close-out: retried after a lost capture, it completes once and pays once', async () => {
-    const b = await booking({ status: BookingStatus.ACTIVE, paymentStatus: PaymentStatus.CAPTURED, completedAt: null })
+    // Past its overdue deadline, so a close-out may charge the deposit (P3-10).
+    const b = await booking({ status: BookingStatus.ACTIVE, paymentStatus: PaymentStatus.CAPTURED, completedAt: null, startDate: new Date('2026-11-10T00:00:00.000Z'), endDate: new Date('2026-11-12T00:00:00.000Z') })
     const stripe = captureLandsButResponseLost('ch_close_1')
     const transfer = mock.method(paymentService, 'transferDepositCompensation', async () => ({ id: 'tr_close' }))
 

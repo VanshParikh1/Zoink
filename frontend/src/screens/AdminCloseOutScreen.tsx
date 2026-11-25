@@ -93,7 +93,10 @@ export default function AdminCloseOutScreen() {
                   error={errors.amount}
                   validated
                 />
-                <Text style={styles.caption}>Up to the deposit of ${depositDollars.toFixed(2)}. It goes to the owner in full.</Text>
+                <Text style={styles.caption}>
+                  Up to the deposit of ${depositDollars.toFixed(2)}. It goes to the owner in full. A charge is only allowed once the
+                  rental is overdue (from the end of the day after its last day); before then, close it out without one.
+                </Text>
               </View>
             ) : (
               <Text style={styles.caption}>The hold is released 24 hours after the close-out, unless a dispute is opened.</Text>
