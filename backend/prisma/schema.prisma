@@ -191,6 +191,10 @@ model Booking {
   // (disputeService.resolveDispute; retried by cleanupJob.retryDepositCompensations).
   stripeDepositChargeId        String?
   stripeDepositTransferId      String?
+  // P1-1: cents of the deposit an admin decided to charge, committed before the
+  // Stripe capture. Set with no charge id = capture decided, not yet confirmed;
+  // with a charge id = the amount captured and owed to the owner.
+  depositCaptureCents          Int?
   paidAt                       DateTime?
   refundedAt                   DateTime?
   // Cumulative cents refunded to the renter from the RENTAL payment (never the
@@ -626,6 +630,7 @@ enum BookingEventType {
   RECONCILIATION_MISMATCH
   ERROR
   RENTAL_OVERDUE
+  DEPOSIT_CAPTURE_REQUESTED
 }
 
 enum NotificationType {

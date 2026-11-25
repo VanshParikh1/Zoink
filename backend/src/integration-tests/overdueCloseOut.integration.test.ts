@@ -228,19 +228,27 @@ describe('admin close-out', () => {
     assert.equal(await getTestPrisma().dispute.count({ where: { bookingId: booking.id } }), 0)
   })
 
-  test('two close-outs at once: one wins, the other is refused, the deposit is captured once', async () => {
+  test('two close-outs at once: one completes it, the deposit is charged and paid once', async () => {
     const booking = await rental()
+    // Both may reach Stripe; they send the same capture (one key per deposit PI),
+    // which Stripe answers with one capture.
     const capture = mock.method(paymentService, 'captureDepositPaymentIntent', async () => {
       await new Promise((r) => setTimeout(r, 100))
       return { status: 'succeeded', latest_charge: 'ch_dep_race' }
     })
-    mock.method(paymentService, 'transferDepositCompensation', async () => ({ id: 'tr_dep_race' }))
+    const comp = mock.method(paymentService, 'transferDepositCompensation', async () => ({ id: 'tr_dep_race' }))
     const results = await Promise.all([
       closeOut(booking.id, { notes: 'first', depositCaptureCents: 2000 }),
       closeOut(booking.id, { notes: 'second', depositCaptureCents: 2000 }),
     ])
-    assert.deepEqual(results.map((r) => r.status).sort(), [200, 400])
-    assert.equal(capture.mock.callCount(), 1)
+    const statuses = results.map((r) => r.status).sort()
+    assert.ok(statuses[0] === 200 && [200, 400].includes(statuses[1]), JSON.stringify(statuses))
+    assert.ok(capture.mock.calls.every((c) => c.arguments[1] === 2000))
+    assert.equal(comp.mock.callCount(), 1)
     assert.equal(await getTestPrisma().dispute.count({ where: { bookingId: booking.id } }), 1)
+    const row = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
+    assert.equal(row.status, BookingStatus.COMPLETED)
+    assert.equal(row.stripeDepositTransferId, 'tr_dep_race')
   })
+
 })

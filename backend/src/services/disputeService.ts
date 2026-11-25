@@ -1,7 +1,8 @@
 import { BookingEventType, BookingStatus, DisputeReason, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
 import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, NotFoundError } from '../utils/errors'
-import { cancelDepositPaymentIntent, cancelPaymentIntent, captureDepositPaymentIntent, chargeIdOf, getRentalAuthorizationAmount, refundPaymentIntent, toCents, transferDepositCompensation } from './paymentService'
+import { cancelDepositPaymentIntent, cancelPaymentIntent, chargeIdOf, getRentalAuthorizationAmount, refundPaymentIntent, toCents } from './paymentService'
+import * as paymentService from './paymentService'
 import { notifyUser } from './notificationService'
 import { loggableMessage } from '../utils/sentryScrub'
 
@@ -123,11 +124,36 @@ export async function resolveDispute(
   const initialDispute = await db.dispute.findUnique({ where: { id: disputeId } })
   if (!initialDispute) throw new NotFoundError('Dispute not found')
 
+  // P1-1: a deposit charge commits its intent and captures before the main
+  // transaction, so a rollback there can't forget a capture Stripe made. Cases
+  // this pre-step skips (wrong status, over the cap, already resolved) are
+  // refused by the main transaction's checks below.
+  let capturedDepositChargeId: string | null | undefined
+  if (status === 'RESOLVED_REFUND' && refundTarget !== 'RENT') {
+    const toCapture = await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${initialDispute.bookingId} FOR UPDATE`
+      const d = await tx.dispute.findUnique({ where: { id: disputeId }, include: { booking: true } })
+      if (!d || d.status === 'RESOLVED_REFUND' || d.status === 'RESOLVED_NO_ACTION' || d.status === 'DISMISSED') return null
+      const b = d.booking
+      if (b.status !== 'COMPLETED' || !b.stripeDepositPaymentIntentId) return null
+      const capCents = toCents(b.depositAmount)
+      const cents = refundAmountCents ?? capCents
+      if (cents <= 0 || cents > capCents) return null
+      if (b.depositStatus !== 'AUTHORIZED' && b.depositCaptureCents === null) return null
+      await recordDepositCaptureIntent(tx, b, cents, adminId, { disputeId })
+      return { id: b.id, stripeDepositPaymentIntentId: b.stripeDepositPaymentIntentId, cents }
+    }, DEPOSIT_TX_OPTIONS)
+    if (toCapture) capturedDepositChargeId = await captureDeposit(toCapture, toCapture.cents, db)
+  }
+  let payOwner = false
+
   // The whole read-validate-refund-write sequence runs inside one transaction, holding
   // a row lock on the booking for its duration. This is what makes the over-refund check
   // below race-safe: without it, two admins resolving two different (sequential) disputes
   // on the same booking could both read the same "amount already refunded so far" and both
   // pass validation, together refunding more than totalPrice — the exact bug this fix closes.
+  // A deposit charge's capture and transfer run outside it (above and after it);
+  // a rent refund or cancel still runs inside, keyed per dispute.
   // The Stripe network call happens inside this transaction too (not ideal to hold a
   // Postgres row lock across a network round-trip, but this is a low-frequency admin action
   // where correctness matters more than lock hold time, and splitting the lock from the
@@ -162,6 +188,11 @@ export async function resolveDispute(
     // F-18: a rent refund before pickup ends the booking.
     let cancelsBooking = false
     const isCompleted = dispute.booking.status === 'COMPLETED'
+    // P1-1: a deposit charge started for this dispute (and maybe captured on
+    // Stripe) can only be finished, not replaced by another outcome.
+    if (isCompleted && capturedDepositChargeId === undefined && dispute.booking.depositCaptureCents !== null && dispute.booking.depositStatus !== 'RELEASED') {
+      throw depositChargeInProgress(dispute.booking.depositCaptureCents)
+    }
     if (status === 'RESOLVED_REFUND' && refundTarget === 'DEPOSIT' && !isCompleted) {
       throw new BadRequestError('The deposit can only be charged once the booking is completed.')
     }
@@ -192,7 +223,7 @@ export async function resolveDispute(
       // dispute to reach this branch; a second dispute on the same booking
       // must be rejected outright rather than trying to divide up a pool that
       // no longer exists as an open authorization.
-      if (dispute.booking.depositStatus !== 'AUTHORIZED') {
+      if (dispute.booking.depositStatus !== 'AUTHORIZED' && capturedDepositChargeId === undefined) {
         throw new BadRequestError("This booking's deposit has already been resolved by a previous dispute.")
       }
 
@@ -214,29 +245,20 @@ export async function resolveDispute(
       }
 
       if (refundedCents > 0) {
-        let depositChargeId: string | null
-        try {
-          depositChargeId = chargeIdOf(await captureDepositPaymentIntent(depositIntentRef, refundedCents))
-        } catch (err: any) {
-          throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
+        // Captured before this transaction (P1-1). Missing only if the booking
+        // changed between the two steps (e.g. it completed in between).
+        if (capturedDepositChargeId === undefined) {
+          throw new ConflictError('The booking changed while this was being resolved. Try again.')
         }
         nextDepositStatus = 'CAPTURED'
-        await tx.booking.update({ where: { id: dispute.bookingId }, data: { stripeDepositChargeId: depositChargeId } })
-
-        // The captured amount compensates the owner for the damage found —
-        // none of it is platform revenue, so it's transferred in full, no
-        // commission cut, right here rather than deferred: the admin's
-        // decision is already final at this point (unlike the rental payout,
-        // which waits out a hold window for possible disputes). A transfer
-        // that fails is retried by cleanupJob.retryDepositCompensations.
-        await payDepositCompensation(tx, {
-          bookingId: dispute.bookingId,
-          ownerId: dispute.booking.ownerId,
-          disputeId,
-          amountCents: refundedCents,
-          depositChargeId,
-          actorId: adminId,
+        await tx.booking.update({
+          where: { id: dispute.bookingId },
+          data: { stripeDepositChargeId: dispute.booking.stripeDepositChargeId ?? capturedDepositChargeId },
         })
+        // The captured amount compensates the owner in full, no commission,
+        // after this commits (payDepositCompensation); a failed transfer is
+        // retried by cleanupJob.retryDepositCompensations.
+        payOwner = true
       } else {
         try {
           await cancelDepositPaymentIntent(depositIntentRef)
@@ -408,6 +430,8 @@ export async function resolveDispute(
     return { dispute: res, releasedDepositNotice }
   })
 
+  if (payOwner) await payDepositCompensation(initialDispute.bookingId, adminId, {}, db)
+
   if (releasedDepositNotice) {
     void notifyUser({
       userId: releasedDepositNotice.renterId,
@@ -420,21 +444,116 @@ export async function resolveDispute(
 
   return result
 }
-/** Transfers a captured deposit to the owner and records it on the booking
- *  (stripeDepositTransferId), or records why it couldn't. Never throws: the
- *  deposit is already captured from the renter by the time this runs, so a
- *  failure is left for cleanupJob.retryDepositCompensations, which calls this
- *  again with the same dispute (and so the same idempotency key). Returns
- *  whether the transfer went through. */
-export async function payDepositCompensation(
-  tx: Prisma.TransactionClient,
-  input: { bookingId: string; ownerId: string; disputeId: string; amountCents: number; depositChargeId: string | null; actorId: string | null }
-): Promise<boolean> {
-  const { bookingId, ownerId, disputeId, amountCents, depositChargeId, actorId } = input
-  const owner = await tx.user.findUnique({ where: { id: ownerId }, select: { stripeAccountId: true } })
 
-  if (!owner?.stripeAccountId) {
-    await tx.bookingEvent.create({
+// ── P1-1: charging a deposit ────────────────────────────────────────────────
+// The decision to charge (who, how much, why) is committed first
+// (recordDepositCaptureIntent), then Stripe captures outside any transaction
+// (captureDeposit), then the caller writes its final state, then the owner is
+// paid (payDepositCompensation). A crash after the capture leaves the intent:
+// the webhook or reconciliation links the charge and the retry job pays the
+// owner; a retried close-out or resolution gets the same capture back.
+
+export const DEPOSIT_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
+/** Inside the caller's locked transaction. A retry of the same decision passes
+ *  with the intent already there; a different amount is refused, since Stripe
+ *  may already have captured the first one. */
+export async function recordDepositCaptureIntent(
+  tx: Prisma.TransactionClient,
+  booking: { id: string; ownerId: string; depositCaptureCents: number | null },
+  amountCents: number,
+  actorId: string,
+  why: Record<string, string>
+) {
+  if (booking.depositCaptureCents !== null) {
+    if (booking.depositCaptureCents !== amountCents) throw depositChargeInProgress(booking.depositCaptureCents)
+    return
+  }
+  await tx.booking.update({ where: { id: booking.id }, data: { depositCaptureCents: amountCents } })
+  await tx.bookingEvent.create({
+    data: {
+      bookingId: booking.id,
+      actorId,
+      type: BookingEventType.DEPOSIT_CAPTURE_REQUESTED,
+      metadata: { amountCents, ownerId: booking.ownerId, ...why },
+    },
+  })
+}
+
+/** The 409 for any other action while a started deposit charge isn't finished. */
+export function depositChargeInProgress(cents: number) {
+  return new ConflictError(`A deposit charge of $${formatCents(cents)} was already started for this booking. Retry with that amount to finish it.`)
+}
+
+/** Captures the deposit (no transaction held) and returns the charge id. A
+ *  capture an earlier attempt already made is read back from Stripe. If the
+ *  hold is gone, the intent is cleared and the deposit marked released (400).
+ *  Any other failure keeps the intent: the outcome is unknown, and a retry
+ *  (same idempotency key) or the webhook settles it. */
+export async function captureDeposit(booking: { id: string; stripeDepositPaymentIntentId: string }, amountCents: number, db: typeof prisma = prisma) {
+  let intent: any
+  try {
+    intent = await paymentService.captureDepositPaymentIntent(booking, amountCents)
+  } catch (err: any) {
+    let current: any = null
+    try {
+      current = await paymentService.retrievePaymentIntent(booking.stripeDepositPaymentIntentId)
+    } catch {
+      // Unknown outcome; handled below as a failure that keeps the intent.
+    }
+    if (current?.status === 'succeeded') {
+      intent = current
+    } else if (current?.status === 'canceled') {
+      await db.booking.update({ where: { id: booking.id }, data: { depositCaptureCents: null, depositStatus: 'RELEASED' } })
+      throw new BadRequestError('The deposit hold has expired or was released, so it can no longer be charged.')
+    } else {
+      throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
+    }
+  }
+  return chargeIdOf(intent)
+}
+
+/** Transfers a captured deposit to the owner and records it on the booking
+ *  (stripeDepositTransferId), or records why it couldn't. Runs outside any
+ *  transaction and never throws: a failure is left for
+ *  cleanupJob.retryDepositCompensations. The idempotency key is the booking's,
+ *  so every attempt for one deposit is the same transfer; `checkExisting`
+ *  (the retry job) also looks the transfer up on Stripe, for attempts older
+ *  than the key's 24 h. Returns whether the owner is now recorded as paid. */
+export async function payDepositCompensation(
+  bookingId: string,
+  actorId: string | null,
+  opts: { checkExisting?: boolean } = {},
+  db: typeof prisma = prisma
+): Promise<boolean> {
+  const booking = await db.booking.findUniqueOrThrow({
+    where: { id: bookingId },
+    select: {
+      createdAt: true,
+      depositStatus: true,
+      depositCaptureCents: true,
+      stripeDepositChargeId: true,
+      stripeDepositTransferId: true,
+      owner: { select: { stripeAccountId: true } },
+    },
+  })
+  if (booking.stripeDepositTransferId) return true
+  if (booking.depositStatus !== 'CAPTURED' || !booking.stripeDepositChargeId) return false
+  // Rows captured before depositCaptureCents existed: the dispute that charged it.
+  const amountCents =
+    booking.depositCaptureCents ??
+    (
+      await db.dispute.findFirst({
+        where: { bookingId, status: DisputeStatus.RESOLVED_REFUND, refundAmountCents: { gt: 0 } },
+        orderBy: { resolvedAt: 'desc' },
+        select: { refundAmountCents: true },
+      })
+    )?.refundAmountCents
+  if (!amountCents) return false
+
+  const accountId = booking.owner.stripeAccountId
+  if (!accountId) {
+    await db.bookingEvent.create({
       data: {
         bookingId,
         actorId,
@@ -446,19 +565,28 @@ export async function payDepositCompensation(
   }
 
   try {
-    const transfer = await transferDepositCompensation({ id: bookingId }, owner.stripeAccountId, amountCents, disputeId, depositChargeId)
-    await tx.booking.update({ where: { id: bookingId }, data: { stripeDepositTransferId: transfer.id } })
-    await tx.bookingEvent.create({
-      data: {
-        bookingId,
-        actorId,
-        type: BookingEventType.PAYOUT_TRIGGERED,
-        metadata: { stripeTransferId: transfer.id, disputeId, purpose: 'deposit_compensation', amountCents },
-      },
+    const existing = opts.checkExisting ? await paymentService.findDepositCompensationTransfer(bookingId, accountId, booking.createdAt) : null
+    const transfer =
+      existing ?? (await paymentService.transferDepositCompensation({ id: bookingId }, accountId, amountCents, booking.stripeDepositChargeId))
+    // Two payers at once (an admin request and the job) send the same keyed
+    // transfer; only the first records it.
+    const { count } = await db.booking.updateMany({
+      where: { id: bookingId, stripeDepositTransferId: null },
+      data: { stripeDepositTransferId: transfer.id },
     })
+    if (count) {
+      await db.bookingEvent.create({
+        data: {
+          bookingId,
+          actorId,
+          type: BookingEventType.PAYOUT_TRIGGERED,
+          metadata: { stripeTransferId: transfer.id, purpose: 'deposit_compensation', amountCents },
+        },
+      })
+    }
     return true
   } catch (err) {
-    await tx.bookingEvent.create({
+    await db.bookingEvent.create({
       data: {
         bookingId,
         actorId,

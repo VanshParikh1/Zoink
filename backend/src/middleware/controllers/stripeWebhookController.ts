@@ -6,6 +6,7 @@ import { asyncHandler } from '../../utils/asyncHandler'
 import { BadRequestError, InternalServerError } from '../../utils/errors'
 import { Sentry } from '../../instrument'
 import { loggableError } from '../../utils/sentryScrub'
+import { chargeIdOf } from '../../services/paymentService'
 
 type StripeEvent = {
   id: string
@@ -112,6 +113,7 @@ const bookingEventSelect = {
   stripePaymentIntentId: true,
   stripeDepositPaymentIntentId: true,
   depositStatus: true,
+  stripeDepositChargeId: true,
   totalPrice: true,
   insuranceFee: true,
   hstAmount: true,
@@ -164,6 +166,11 @@ function changesFor(event: StripeEvent, booking: EventBooking) {
 
     if (event.type === 'payment_intent.succeeded' && canAdvance) {
       data.depositStatus = DepositStatus.CAPTURED
+    }
+    // P1-1: a capture whose DB write was lost is linked to its charge here, so
+    // cleanupJob.retryDepositCompensations pays the owner (once, keyed per booking).
+    if (event.type === 'payment_intent.succeeded' && !booking.stripeDepositChargeId && chargeIdOf(object)) {
+      data.stripeDepositChargeId = chargeIdOf(object)
     }
 
     if (event.type === 'payment_intent.canceled' && canAdvance) {

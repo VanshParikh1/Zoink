@@ -1,6 +1,6 @@
-import { BookingEventType, PaymentStatus } from '@prisma/client'
+import { BookingEventType, DepositStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { retrievePaymentIntent } from './paymentService'
+import { chargeIdOf, retrievePaymentIntent } from './paymentService'
 import { recordJobFailure } from './cleanupJob'
 
 // Hourly drift check between each in-flight booking's paymentStatus and its
@@ -113,4 +113,42 @@ export async function reconcileStripePayments() {
   }
 
   return { checked: bookings.length, mismatches, failed, missing }
+}
+
+/** P1-1: a deposit capture an admin started whose result never reached the DB
+ *  (the process died, or the final write failed) and whose webhook didn't land.
+ *  If Stripe shows it captured, the charge is linked to the booking, so
+ *  cleanupJob.retryDepositCompensations pays the owner, once. Run just before
+ *  that job. Changes nothing for a capture that hasn't happened. */
+export async function linkCapturedDeposits() {
+  const pending = await prisma.booking.findMany({
+    where: { depositCaptureCents: { not: null }, stripeDepositChargeId: null, stripeDepositPaymentIntentId: { not: null } },
+    select: { id: true, stripeDepositPaymentIntentId: true },
+  })
+  let linked = 0
+  let failed = 0
+  for (const booking of pending) {
+    try {
+      const intent = await retrievePaymentIntent(booking.stripeDepositPaymentIntentId!)
+      const chargeId = intent?.status === 'succeeded' ? chargeIdOf(intent) : null
+      if (!chargeId) continue
+      const { count } = await prisma.booking.updateMany({
+        where: { id: booking.id, stripeDepositChargeId: null },
+        data: { stripeDepositChargeId: chargeId, depositStatus: DepositStatus.CAPTURED },
+      })
+      if (!count) continue
+      linked += 1
+      await prisma.bookingEvent.create({
+        data: {
+          bookingId: booking.id,
+          type: BookingEventType.RECONCILIATION_MISMATCH,
+          metadata: { reason: 'deposit_capture_linked', stripePaymentIntentId: booking.stripeDepositPaymentIntentId, stripeChargeId: chargeId },
+        },
+      })
+    } catch (error) {
+      failed += 1
+      await recordJobFailure(booking.id, 'link_captured_deposit', error)
+    }
+  }
+  return { checked: pending.length, linked, failed }
 }

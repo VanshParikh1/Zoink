@@ -24,7 +24,7 @@ export type ReportReason = "SPAM" | "SCAM" | "INAPPROPRIATE" | "HARASSMENT" | "O
 
 export type ReportStatus = "OPEN" | "REVIEWED" | "DISMISSED";
 
-export type BookingEventType = "STATUS_CHANGE" | "PAYMENT_INTENT_CREATED" | "PAYMENT_CAPTURED" | "PAYMENT_REFUNDED" | "PAYOUT_TRIGGERED" | "ZOINK_TAP" | "UPLOAD_PHOTOS" | "DISPUTE_OPENED" | "DISPUTE_RESOLVED" | "WEBHOOK_RECEIVED" | "RECONCILIATION_MATCH" | "RECONCILIATION_MISMATCH" | "ERROR" | "RENTAL_OVERDUE";
+export type BookingEventType = "STATUS_CHANGE" | "PAYMENT_INTENT_CREATED" | "PAYMENT_CAPTURED" | "PAYMENT_REFUNDED" | "PAYOUT_TRIGGERED" | "ZOINK_TAP" | "UPLOAD_PHOTOS" | "DISPUTE_OPENED" | "DISPUTE_RESOLVED" | "WEBHOOK_RECEIVED" | "RECONCILIATION_MATCH" | "RECONCILIATION_MISMATCH" | "ERROR" | "RENTAL_OVERDUE" | "DEPOSIT_CAPTURE_REQUESTED";
 
 export type NotificationType = "BOOKING_REQUEST" | "BOOKING_ACCEPTED" | "BOOKING_DECLINED" | "BOOKING_CANCELLED" | "PAYMENT_RECEIVED" | "PAYOUT_SENT" | "REVIEW_RECEIVED" | "VERIFICATION_APPROVED" | "VERIFICATION_FAILED" | "MESSAGE_RECEIVED" | "DEPOSIT_RELEASED" | "RENTAL_OVERDUE" | "BOOKING_CLOSED_OUT";
 
@@ -148,6 +148,7 @@ export interface Booking {
   stripeTransferId: string | null;
   stripeDepositChargeId: string | null;
   stripeDepositTransferId: string | null;
+  depositCaptureCents: number | null;
   paidAt: string | null;
   refundedAt: string | null;
   refundedAmountCents: number;

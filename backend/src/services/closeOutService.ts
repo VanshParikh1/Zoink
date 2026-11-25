@@ -1,8 +1,8 @@
-import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
+import { Booking, BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus, Prisma } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { BadRequestError, InternalServerError, NotFoundError } from '../utils/errors'
-import { captureDepositPaymentIntent, chargeIdOf, toCents } from './paymentService'
-import { payDepositCompensation } from './disputeService'
+import { BadRequestError, NotFoundError } from '../utils/errors'
+import { toCents } from './paymentService'
+import { captureDeposit, DEPOSIT_TX_OPTIONS, depositChargeInProgress, payDepositCompensation, recordDepositCaptureIntent } from './disputeService'
 import { createReviewObligationsForCompletedBooking } from './bookingService'
 import { notifyUser } from './notificationService'
 import { formatDateTime, PAYOUT_HOLD_HOURS } from '@zoink/shared'
@@ -37,108 +37,127 @@ export function listOverdueBookings() {
 /**
  * Completes an ACTIVE / RETURN_PENDING booking on the admin's say-so. The
  * owner's payout then follows the normal schedule (PAYOUT_HOLD_HOURS after
- * this completion, held by any dispute filed in the window). With
- * `depositCaptureCents` the deposit is charged through the same capture and
- * owner-transfer path a dispute uses; that is recorded as a resolved
- * ITEM_NOT_RETURNED dispute so the transfer key, its retry job and the
- * "deposit already resolved" rule all apply unchanged. Without it the hold is
- * released by the deposit job after the window, as on any completion.
+ * this completion, held by any dispute filed in the window). Without
+ * `depositCaptureCents` the hold is released by the deposit job after the
+ * window, as on any completion, and everything happens in one transaction.
+ *
+ * With it (P1-1): (1) the decision to charge is committed, (2) Stripe captures
+ * with no transaction held, (3) the completion is written, recorded as a
+ * resolved ITEM_NOT_RETURNED dispute so the "deposit already resolved" rule
+ * applies, (4) the owner is paid under the booking's own transfer key. A
+ * retry after a crash at any point repeats the same decision and ends in the
+ * same state; see disputeService's P1-1 helpers.
  */
 export async function closeOutBooking(bookingId: string, adminId: string, notes: string, depositCaptureCents?: number) {
-  const { updated, booking, title } = await prisma.$transaction(
-    async (tx) => {
-      await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`
-      const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { listing: { select: { title: true } } } })
-      if (!booking) throw new NotFoundError('Booking not found.')
-      if (!CLOSE_OUT_STATUSES.includes(booking.status)) {
-        throw new BadRequestError('Only a rental that is out, or waiting on its return, can be closed out.')
+  const lockAndRead = async (tx: Prisma.TransactionClient) => {
+    await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`
+    const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { listing: { select: { title: true } } } })
+    if (!booking) throw new NotFoundError('Booking not found.')
+    if (!CLOSE_OUT_STATUSES.includes(booking.status)) {
+      throw new BadRequestError('Only a rental that is out, or waiting on its return, can be closed out.')
+    }
+    return booking
+  }
+  type Locked = Awaited<ReturnType<typeof lockAndRead>>
+
+  const complete = async (tx: Prisma.TransactionClient, booking: Locked, disputeId?: string) => {
+    const updated = await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.COMPLETED,
+        completedAt: new Date(),
+        // Same as a confirmed return (handoffService): the captured rent becomes payable.
+        ...(booking.paymentStatus === PaymentStatus.CAPTURED ? { paymentStatus: PaymentStatus.PAYOUT_PENDING } : {}),
+        version: { increment: 1 },
+      },
+    })
+    await createReviewObligationsForCompletedBooking(tx, booking)
+    await tx.bookingEvent.create({
+      data: {
+        bookingId,
+        actorId: adminId,
+        type: BookingEventType.STATUS_CHANGE,
+        metadata: {
+          from: booking.status,
+          to: BookingStatus.COMPLETED,
+          reason: 'admin_close_out',
+          notes,
+          depositCapturedCents: depositCaptureCents ?? 0,
+          ...(disputeId ? { disputeId } : {}),
+        },
+      },
+    })
+    return { updated, booking }
+  }
+
+  let result: { updated: Booking; booking: Locked }
+  if (depositCaptureCents === undefined) {
+    result = await prisma.$transaction(async (tx) => {
+      const booking = await lockAndRead(tx)
+      if (booking.depositCaptureCents !== null && booking.depositStatus !== DepositStatus.RELEASED) {
+        throw depositChargeInProgress(booking.depositCaptureCents)
       }
+      return complete(tx, booking)
+    }, DEPOSIT_TX_OPTIONS)
+  } else {
+    const cents = depositCaptureCents
+    // (1) The decision, committed before Stripe is called.
+    const ref = await prisma.$transaction(async (tx) => {
+      const booking = await lockAndRead(tx)
+      const retrying = booking.depositCaptureCents !== null
+      if (!booking.stripeDepositPaymentIntentId || (!retrying && booking.depositStatus !== DepositStatus.AUTHORIZED)) {
+        throw new BadRequestError('This booking has no deposit hold to charge.')
+      }
+      const capCents = toCents(booking.depositAmount)
+      if (cents > capCents) {
+        throw new BadRequestError(`The deposit charge can't be more than the deposit of $${(capCents / 100).toFixed(2)}.`)
+      }
+      const open = await tx.dispute.findFirst({
+        where: { bookingId, status: { in: [DisputeStatus.OPEN, DisputeStatus.UNDER_REVIEW] } },
+        select: { id: true },
+      })
+      if (open) {
+        throw new BadRequestError('This booking has an open dispute. Close it out without a deposit charge, then charge the deposit when resolving that dispute.')
+      }
+      await recordDepositCaptureIntent(tx, booking, cents, adminId, { reason: 'admin_close_out', notes })
+      return { id: booking.id, stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId }
+    }, DEPOSIT_TX_OPTIONS)
 
-      let disputeId: string | undefined
-      if (depositCaptureCents !== undefined) {
-        if (booking.depositStatus !== DepositStatus.AUTHORIZED || !booking.stripeDepositPaymentIntentId) {
-          throw new BadRequestError('This booking has no deposit hold to charge.')
-        }
-        const capCents = toCents(booking.depositAmount)
-        if (depositCaptureCents > capCents) {
-          throw new BadRequestError(`The deposit charge can't be more than the deposit of $${(capCents / 100).toFixed(2)}.`)
-        }
-        const open = await tx.dispute.findFirst({
-          where: { bookingId, status: { in: [DisputeStatus.OPEN, DisputeStatus.UNDER_REVIEW] } },
-          select: { id: true },
-        })
-        if (open) {
-          throw new BadRequestError('This booking has an open dispute. Close it out without a deposit charge, then charge the deposit when resolving that dispute.')
-        }
+    // (2) The capture, no transaction held.
+    const depositChargeId = await captureDeposit(ref, cents)
 
-        let depositChargeId: string | null
-        try {
-          depositChargeId = chargeIdOf(
-            await captureDepositPaymentIntent({ id: booking.id, stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId }, depositCaptureCents),
-          )
-        } catch (err: any) {
-          throw new InternalServerError(`Failed to capture the deposit via Stripe: ${err.message}`)
-        }
-
-        const now = new Date()
-        const dispute = await tx.dispute.create({
-          data: {
-            bookingId,
-            raisedByUserId: adminId,
-            reason: 'ITEM_NOT_RETURNED',
-            description: notes,
-            status: DisputeStatus.RESOLVED_REFUND,
-            resolutionNotes: notes,
-            resolvedByAdminId: adminId,
-            resolvedAt: now,
-            refundAmountCents: depositCaptureCents,
-          },
-        })
-        disputeId = dispute.id
-        await tx.booking.update({
-          where: { id: bookingId },
-          data: { depositStatus: DepositStatus.CAPTURED, stripeDepositChargeId: depositChargeId, disputeStatus: DisputeStatus.RESOLVED_REFUND },
-        })
-        await payDepositCompensation(tx, {
+    // (3) The completion. A concurrent close-out that finished first makes this a 400.
+    result = await prisma.$transaction(async (tx) => {
+      const booking = await lockAndRead(tx)
+      const dispute = await tx.dispute.create({
+        data: {
           bookingId,
-          ownerId: booking.ownerId,
-          disputeId,
-          amountCents: depositCaptureCents,
-          depositChargeId,
-          actorId: adminId,
-        })
-      }
-
-      const updated = await tx.booking.update({
+          raisedByUserId: adminId,
+          reason: 'ITEM_NOT_RETURNED',
+          description: notes,
+          status: DisputeStatus.RESOLVED_REFUND,
+          resolutionNotes: notes,
+          resolvedByAdminId: adminId,
+          resolvedAt: new Date(),
+          refundAmountCents: cents,
+        },
+      })
+      await tx.booking.update({
         where: { id: bookingId },
         data: {
-          status: BookingStatus.COMPLETED,
-          completedAt: new Date(),
-          // Same as a confirmed return (handoffService): the captured rent becomes payable.
-          ...(booking.paymentStatus === PaymentStatus.CAPTURED ? { paymentStatus: PaymentStatus.PAYOUT_PENDING } : {}),
-          version: { increment: 1 },
+          depositStatus: DepositStatus.CAPTURED,
+          stripeDepositChargeId: booking.stripeDepositChargeId ?? depositChargeId,
+          disputeStatus: DisputeStatus.RESOLVED_REFUND,
         },
       })
-      await createReviewObligationsForCompletedBooking(tx, booking)
-      await tx.bookingEvent.create({
-        data: {
-          bookingId,
-          actorId: adminId,
-          type: BookingEventType.STATUS_CHANGE,
-          metadata: {
-            from: booking.status,
-            to: BookingStatus.COMPLETED,
-            reason: 'admin_close_out',
-            notes,
-            depositCapturedCents: depositCaptureCents ?? 0,
-            ...(disputeId ? { disputeId } : {}),
-          },
-        },
-      })
-      return { updated, booking, title: booking.listing.title }
-    },
-    { timeout: 30_000, maxWait: 10_000 },
-  )
+      return complete(tx, booking, dispute.id)
+    }, DEPOSIT_TX_OPTIONS)
+
+    // (4) The owner's compensation; a failure is retried by the job.
+    await payDepositCompensation(bookingId, adminId)
+  }
+  const { updated, booking } = result
+  const title = booking.listing.title
 
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
   const depositCents = toCents(booking.depositAmount)

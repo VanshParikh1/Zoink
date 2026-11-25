@@ -53,7 +53,7 @@ import {
   purgeOldVerificationTokens,
   purgeUnverifiedAccounts,
 } from './services/cleanupJob'
-import { reconcileStripePayments } from './services/reconciliationJob'
+import { linkCapturedDeposits, reconcileStripePayments } from './services/reconciliationJob'
 import { errorHandler } from './middleware/errorHandler'
 import { globalLimiter, payoutStatusLimiter } from './middleware/rateLimiter'
 import { createShutdown, InFlight } from './utils/shutdown'
@@ -196,10 +196,11 @@ if (process.env.NODE_ENV !== 'test') {
       const noShows = await cancelNoShows()
       const expired = await expireUnconfirmedBookings()
       const overdue = await flagOverdueRentals()
+      const linkedDeposits = await linkCapturedDeposits()
       const depositCompensations = await retryDepositCompensations()
       const verificationCodes = await purgeOldVerificationTokens()
       const unverifiedAccounts = await purgeUnverifiedAccounts()
-      console.log('Cleanup job completed:', { handoffs, payouts, deposits, noShows, expired, overdue, depositCompensations, verificationCodes, unverifiedAccounts })
+      console.log('Cleanup job completed:', { handoffs, payouts, deposits, noShows, expired, overdue, linkedDeposits, depositCompensations, verificationCodes, unverifiedAccounts })
     } catch (error) {
       console.error('Cleanup job failed:', error)
     }

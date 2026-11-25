@@ -71,8 +71,8 @@ describe('deposit compensation', () => {
     await resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Damage confirmed.', 2000)
 
     assert.equal(transfer.mock.callCount(), 1)
-    const [, account, amount, disputeId, source] = transfer.mock.calls[0].arguments
-    assert.deepEqual([account, amount, disputeId, source], ['acct_test_compensation', 2000, dispute.id, 'ch_dep_1'])
+    const [ref, account, amount, source] = transfer.mock.calls[0].arguments
+    assert.deepEqual([ref, account, amount, source], [{ id: booking.id }, 'acct_test_compensation', 2000, 'ch_dep_1'])
     const after = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(after.stripeDepositChargeId, 'ch_dep_1')
     assert.equal(after.stripeDepositTransferId, 'tr_comp_1')
@@ -93,12 +93,13 @@ describe('deposit compensation', () => {
     assert.equal(owed.stripeDepositTransferId, null)
 
     fail = false
+    mock.method(paymentService, 'findDepositCompensationTransfer', async () => null)
     assert.equal((await retryDepositCompensations()).paid, 1)
     assert.equal((await retryDepositCompensations()).checked, 0, 'nothing is owed once it has been paid')
 
     assert.equal(transfer.mock.callCount(), 2)
     const retry = transfer.mock.calls[1].arguments
-    assert.deepEqual([retry[2], retry[3], retry[4]], [1500, dispute.id, 'ch_dep_2'], 'same amount, same dispute key, same charge')
+    assert.deepEqual([retry[0], retry[2], retry[3]], [{ id: booking.id }, 1500, 'ch_dep_2'], 'same booking (so the same key), amount and charge')
     const paid = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(paid.stripeDepositTransferId, 'tr_comp_retry')
   })

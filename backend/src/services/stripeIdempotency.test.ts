@@ -33,6 +33,12 @@ class RecordingStripe {
       return { id: 'cus_recorded' }
     },
   }
+  transfers = {
+    create: async (params: any, options: any) => {
+      calls.push({ method: 'transfers.create', params, options })
+      return { id: `tr_for_${options?.idempotencyKey}` }
+    },
+  }
   paymentIntents = {
     create: async (params: any, options: any) => {
       calls.push({ method: 'paymentIntents.create', params, options })
@@ -63,6 +69,7 @@ import {
   createConnectAccountLink,
   createDepositPaymentIntent,
   getOrCreateStripeCustomer,
+  transferDepositCompensation,
 } from './paymentService'
 import { Prisma } from '@prisma/client'
 
@@ -154,5 +161,16 @@ describe('Stripe client settings', () => {
     assert.equal(clientOptions.maxNetworkRetries, 2)
     // 3 attempts plus up to ~3 s of SDK backoff must stay under 30 s.
     assert.ok(clientOptions.timeout * 3 + 3_000 < 30_000, `timeout ${clientOptions.timeout} ms is too long`)
+  })
+})
+
+describe('deposit compensation transfer (P1-1)', () => {
+  test('is keyed on the booking alone, so every retry is the same transfer', async () => {
+    calls.length = 0
+    await transferDepositCompensation({ id: 'booking-9' }, 'acct_1', 2000, 'ch_1')
+    await transferDepositCompensation({ id: 'booking-9' }, 'acct_1', 2000, 'ch_1')
+    const keys = calls.filter((c) => c.method === 'transfers.create').map((c) => c.options.idempotencyKey)
+    assert.deepEqual(keys, ['deposit-comp-booking-9', 'deposit-comp-booking-9'])
+    assert.equal(calls[0].params.source_transaction, 'ch_1')
   })
 })

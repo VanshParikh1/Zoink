@@ -447,19 +447,14 @@ export async function transferPayout(
 }
 
 /** Transfers a captured deposit amount to the owner, in full — no commission
- *  cut, unlike the rental payout above. Used when a dispute is resolved as
- *  valid damage against the borrower (disputeService.resolveDispute's
- *  COMPLETED branch): the deposit was captured from the renter specifically
- *  to compensate the owner, so none of it belongs to the platform. Tracked
- *  with its own idempotency key (keyed on the dispute, which can only ever
- *  be resolved once) rather than reusing transferPayout's, since a booking's
- *  rental payout and its deposit compensation are two independent transfers
- *  that can happen at different times for the same booking/version. */
+ *  cut, unlike the rental payout above: the deposit was captured to
+ *  compensate the owner, so none of it belongs to the platform. A deposit is
+ *  captured once, so the key is the booking alone (P1-1): it never depends on
+ *  a row a retried close-out or resolution creates again. */
 export async function transferDepositCompensation(
   booking: Pick<Booking, 'id'>,
   stripeAccountId: string,
   amountCents: number,
-  disputeId: string,
   sourceChargeId: string | null
 ) {
   const stripe = getStripe()
@@ -478,10 +473,22 @@ export async function transferDepositCompensation(
       currency: process.env.STRIPE_CURRENCY ?? 'cad',
       destination: stripeAccountId,
       ...(sourceChargeId ? { source_transaction: sourceChargeId } : {}),
-      metadata: { bookingId: booking.id, disputeId, purpose: 'deposit_compensation' },
+      metadata: { bookingId: booking.id, purpose: 'deposit_compensation' },
     },
-    { idempotencyKey: `deposit-payout-${booking.id}-${disputeId}` }
+    { idempotencyKey: `deposit-comp-${booking.id}` }
   )
+}
+
+/** A deposit compensation already sent to this owner for this booking, found
+ *  by its metadata. Covers a transfer Stripe accepted but whose DB write was
+ *  lost after its idempotency key expired (24 h). Null in mock mode. */
+export async function findDepositCompensationTransfer(bookingId: string, stripeAccountId: string, since: Date) {
+  const stripe = getStripe()
+  if (!stripe) return null
+  for await (const transfer of stripe.transfers.list({ destination: stripeAccountId, created: { gte: Math.floor(since.getTime() / 1000) }, limit: 100 })) {
+    if (transfer.metadata?.bookingId === bookingId && transfer.metadata?.purpose === 'deposit_compensation') return transfer as { id: string }
+  }
+  return null
 }
 
 export async function createConnectAccountLink(accountId: string | null | undefined, userId: string) {

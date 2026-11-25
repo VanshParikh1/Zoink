@@ -237,6 +237,8 @@ export async function releaseDueDeposits() {
       // left to exclude here is a dispute that's still actually open, which
       // must hold the deposit until it's resolved one way or the other.
       disputeStatus: { notIn: ['OPEN', 'UNDER_REVIEW'] },
+      // P1-1: a deposit charge an admin started (maybe captured already) is never released.
+      depositCaptureCents: null,
     },
     select: {
       id: true,
@@ -263,10 +265,11 @@ export async function releaseDueDeposits() {
         await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`
         const current = await tx.booking.findUniqueOrThrow({
           where: { id: booking.id },
-          select: { depositStatus: true, disputeStatus: true, stripeDepositPaymentIntentId: true },
+          select: { depositStatus: true, disputeStatus: true, stripeDepositPaymentIntentId: true, depositCaptureCents: true },
         })
         if (
           current.depositStatus !== DepositStatus.AUTHORIZED ||
+          current.depositCaptureCents !== null ||
           current.disputeStatus === DisputeStatus.OPEN ||
           current.disputeStatus === DisputeStatus.UNDER_REVIEW ||
           current.stripeDepositPaymentIntentId !== depositPaymentIntentId
@@ -557,12 +560,13 @@ export async function flagOverdueRentals(now: Date = new Date()) {
   return { checked: candidates.length, flagged, failed }
 }
 
-/** Retries the owner's deposit compensation where the transfer made when the
- *  dispute was resolved didn't go through (Stripe refused it, or the owner had
- *  no connected account yet). Only bookings whose deposit capture recorded its
- *  charge (stripeDepositChargeId) are considered, so a compensation paid
- *  before that column existed is never sent again. The idempotency key is the
- *  dispute's, the same one the first attempt used. */
+/** Retries the owner's deposit compensation where the transfer made after the
+ *  capture didn't go through (Stripe refused it, the owner had no connected
+ *  account yet, or the process died first). Only bookings whose deposit
+ *  capture is linked to its charge (stripeDepositChargeId) are considered, so
+ *  a compensation paid before that column existed is never sent again. The
+ *  transfer key is the booking's (deposit-comp-<id>), the same every attempt
+ *  used, and a transfer older than the key is found on Stripe first. */
 export async function retryDepositCompensations() {
   const due = await prisma.booking.findMany({
     where: {
@@ -578,30 +582,7 @@ export async function retryDepositCompensations() {
   let failed = 0
   for (const { id } of due) {
     try {
-      const sent = await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${id} FOR UPDATE`
-        const booking = await tx.booking.findUniqueOrThrow({
-          where: { id },
-          select: { ownerId: true, stripeDepositChargeId: true, stripeDepositTransferId: true },
-        })
-        if (booking.stripeDepositTransferId) return false
-        // The one dispute that captured this deposit (a deposit is captured once).
-        const dispute = await tx.dispute.findFirst({
-          where: { bookingId: id, status: DisputeStatus.RESOLVED_REFUND, refundAmountCents: { gt: 0 } },
-          orderBy: { resolvedAt: 'desc' },
-          select: { id: true, refundAmountCents: true },
-        })
-        if (!dispute?.refundAmountCents) return false
-        return payDepositCompensation(tx, {
-          bookingId: id,
-          ownerId: booking.ownerId,
-          disputeId: dispute.id,
-          amountCents: dispute.refundAmountCents,
-          depositChargeId: booking.stripeDepositChargeId,
-          actorId: null,
-        })
-      }, STRIPE_JOB_TX_OPTIONS)
-      if (sent) paid += 1
+      if (await payDepositCompensation(id, null, { checkExisting: true })) paid += 1
       else failed += 1
     } catch (error) {
       failed += 1
