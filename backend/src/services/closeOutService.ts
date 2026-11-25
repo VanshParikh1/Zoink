@@ -2,7 +2,7 @@ import { Booking, BookingEventType, BookingStatus, DepositStatus, DisputeStatus,
 import prisma from '../utils/prisma'
 import { BadRequestError, NotFoundError } from '../utils/errors'
 import { toCents } from './paymentService'
-import { captureDeposit, DEPOSIT_TX_OPTIONS, depositChargeInProgress, payDepositCompensation, recordDepositCaptureIntent } from './disputeService'
+import { captureDeposit, BOOKING_LOCK_TX_OPTIONS, depositChargeInProgress, payDepositCompensation, recordDepositCaptureIntent } from './disputeService'
 import { createReviewObligationsForCompletedBooking } from './bookingService'
 import { notifyUser } from './notificationService'
 import { formatDateTime, PAYOUT_HOLD_HOURS } from '@zoink/shared'
@@ -98,7 +98,7 @@ export async function closeOutBooking(bookingId: string, adminId: string, notes:
         throw depositChargeInProgress(booking.depositCaptureCents)
       }
       return complete(tx, booking)
-    }, DEPOSIT_TX_OPTIONS)
+    }, BOOKING_LOCK_TX_OPTIONS)
   } else {
     const cents = depositCaptureCents
     // (1) The decision, committed before Stripe is called.
@@ -121,7 +121,7 @@ export async function closeOutBooking(bookingId: string, adminId: string, notes:
       }
       await recordDepositCaptureIntent(tx, booking, cents, adminId, { reason: 'admin_close_out', notes })
       return { id: booking.id, stripeDepositPaymentIntentId: booking.stripeDepositPaymentIntentId }
-    }, DEPOSIT_TX_OPTIONS)
+    }, BOOKING_LOCK_TX_OPTIONS)
 
     // (2) The capture, no transaction held.
     const depositChargeId = await captureDeposit(ref, cents)
@@ -151,7 +151,7 @@ export async function closeOutBooking(bookingId: string, adminId: string, notes:
         },
       })
       return complete(tx, booking, dispute.id)
-    }, DEPOSIT_TX_OPTIONS)
+    }, BOOKING_LOCK_TX_OPTIONS)
 
     // (4) The owner's compensation; a failure is retried by the job.
     await payDepositCompensation(bookingId, adminId)

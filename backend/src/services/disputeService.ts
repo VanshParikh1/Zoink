@@ -102,7 +102,7 @@ export async function createDispute(
     })
 
     return dispute
-  })
+  }, BOOKING_LOCK_TX_OPTIONS)
 }
 
 function formatCents(cents: number) {
@@ -142,7 +142,7 @@ export async function resolveDispute(
       if (b.depositStatus !== 'AUTHORIZED' && b.depositCaptureCents === null) return null
       await recordDepositCaptureIntent(tx, b, cents, adminId, { disputeId })
       return { id: b.id, stripeDepositPaymentIntentId: b.stripeDepositPaymentIntentId, cents }
-    }, DEPOSIT_TX_OPTIONS)
+    }, BOOKING_LOCK_TX_OPTIONS)
     if (toCapture) capturedDepositChargeId = await captureDeposit(toCapture, toCapture.cents, db)
   }
   let payOwner = false
@@ -428,7 +428,7 @@ export async function resolveDispute(
     })
 
     return { dispute: res, releasedDepositNotice }
-  })
+  }, BOOKING_LOCK_TX_OPTIONS)
 
   if (payOwner) await payDepositCompensation(initialDispute.bookingId, adminId, {}, db)
 
@@ -453,7 +453,10 @@ export async function resolveDispute(
 // the webhook or reconciliation links the charge and the retry job pays the
 // owner; a retried close-out or resolution gets the same capture back.
 
-export const DEPOSIT_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+// Every transaction that takes the booking row lock or calls Stripe: Pay and
+// Confirm hold that lock across a Stripe call for up to ~27 s (F-15), so the
+// 5 s Prisma default would time out a caller waiting behind them.
+export const BOOKING_LOCK_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 
 /** Inside the caller's locked transaction. A retry of the same decision passes
  *  with the intent already there; a different amount is refused, since Stripe

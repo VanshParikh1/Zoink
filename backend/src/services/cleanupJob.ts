@@ -532,7 +532,7 @@ export async function flagOverdueRentals(now: Date = new Date()) {
           data: { bookingId: id, type: BookingEventType.RENTAL_OVERDUE, metadata: { status: b.status, deadline: deadline.toISOString() } },
         })
         return b
-      })
+      }, STRIPE_JOB_TX_OPTIONS)
       if (!booking) continue
 
       flagged += 1

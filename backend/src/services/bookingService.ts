@@ -1146,7 +1146,7 @@ export async function transitionBookingStatus(
     })
 
     return { updated, autoRejected }
-  })
+  }, STRIPE_TX_OPTIONS)
 
   if (nextStatus === 'CANCELLED') {
     await handleCancellationPayment(booking, actorId)
