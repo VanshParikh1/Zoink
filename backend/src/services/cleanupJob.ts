@@ -579,18 +579,22 @@ export async function retryDepositCompensations() {
   })
 
   let paid = 0
+  let alreadySent = 0
   let failed = 0
   for (const { id } of due) {
     try {
-      if (await payDepositCompensation(id, null, { checkExisting: true })) paid += 1
-      else failed += 1
+      const outcome = await payDepositCompensation(id, null, { checkExisting: true })
+      // P3-8: one another payer recorded meanwhile is not a failure.
+      if (outcome === 'sent') paid += 1
+      else if (outcome === 'already_sent') alreadySent += 1
+      else if (outcome === 'failed') failed += 1
     } catch (error) {
       failed += 1
       await recordJobFailure(id, 'retry_deposit_compensation', error)
     }
   }
 
-  return { checked: due.length, paid, failed }
+  return { checked: due.length, paid, alreadySent, failed }
 }
 
 // ── Retention sweeps (privacy.md §7) ─────────────────────────────────────────

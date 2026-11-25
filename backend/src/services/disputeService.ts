@@ -4,7 +4,8 @@ import { BadRequestError, ConflictError, ForbiddenError, InternalServerError, No
 import { cancelDepositPaymentIntent, cancelPaymentIntent, chargeIdOf, getRentalAuthorizationAmount, refundPaymentIntent, toCents } from './paymentService'
 import * as paymentService from './paymentService'
 import { notifyUser } from './notificationService'
-import { loggableMessage } from '../utils/sentryScrub'
+// Circular with cleanupJob (it imports payDepositCompensation); only used at call time.
+import { recordJobFailure } from './cleanupJob'
 
 // Deposit resolution auto-releases 24h after return handoff completes (see
 // cleanupJob.releaseDueDeposits) — a dispute must be filed before then to
@@ -522,13 +523,14 @@ export async function captureDeposit(booking: { id: string; stripeDepositPayment
  *  cleanupJob.retryDepositCompensations. The idempotency key is the booking's,
  *  so every attempt for one deposit is the same transfer; `checkExisting`
  *  (the retry job) also looks the transfer up on Stripe, for attempts older
- *  than the key's 24 h. Returns whether the owner is now recorded as paid. */
+ *  than the key's 24 h. Failures go through recordJobFailure, so the same
+ *  failure every 15 minutes is recorded (and reported) once (P3-8). */
 export async function payDepositCompensation(
   bookingId: string,
   actorId: string | null,
   opts: { checkExisting?: boolean } = {},
   db: typeof prisma = prisma
-): Promise<boolean> {
+): Promise<CompensationOutcome> {
   const booking = await db.booking.findUniqueOrThrow({
     where: { id: bookingId },
     select: {
@@ -540,8 +542,8 @@ export async function payDepositCompensation(
       owner: { select: { stripeAccountId: true } },
     },
   })
-  if (booking.stripeDepositTransferId) return true
-  if (booking.depositStatus !== 'CAPTURED' || !booking.stripeDepositChargeId) return false
+  if (booking.stripeDepositTransferId) return 'already_sent'
+  if (booking.depositStatus !== 'CAPTURED' || !booking.stripeDepositChargeId) return 'not_owed'
   // Rows captured before depositCaptureCents existed: the dispute that charged it.
   const amountCents =
     booking.depositCaptureCents ??
@@ -552,19 +554,12 @@ export async function payDepositCompensation(
         select: { refundAmountCents: true },
       })
     )?.refundAmountCents
-  if (!amountCents) return false
+  if (!amountCents) return 'not_owed'
 
   const accountId = booking.owner.stripeAccountId
   if (!accountId) {
-    await db.bookingEvent.create({
-      data: {
-        bookingId,
-        actorId,
-        type: BookingEventType.ERROR,
-        metadata: { action: 'deposit_compensation_transfer_skipped', reason: 'owner has no connected Stripe account' },
-      },
-    })
-    return false
+    await recordJobFailure(bookingId, 'deposit_compensation_transfer_skipped', new Error('owner has no connected Stripe account'))
+    return 'failed'
   }
 
   try {
@@ -577,26 +572,22 @@ export async function payDepositCompensation(
       where: { id: bookingId, stripeDepositTransferId: null },
       data: { stripeDepositTransferId: transfer.id },
     })
-    if (count) {
-      await db.bookingEvent.create({
-        data: {
-          bookingId,
-          actorId,
-          type: BookingEventType.PAYOUT_TRIGGERED,
-          metadata: { stripeTransferId: transfer.id, purpose: 'deposit_compensation', amountCents },
-        },
-      })
-    }
-    return true
-  } catch (err) {
+    if (!count) return 'already_sent'
     await db.bookingEvent.create({
       data: {
         bookingId,
         actorId,
-        type: BookingEventType.ERROR,
-        metadata: { action: 'deposit_compensation_transfer_failed', message: loggableMessage(err) },
+        type: BookingEventType.PAYOUT_TRIGGERED,
+        metadata: { stripeTransferId: transfer.id, purpose: 'deposit_compensation', amountCents },
       },
     })
-    return false
+    return 'sent'
+  } catch (err) {
+    await recordJobFailure(bookingId, 'deposit_compensation_transfer_failed', err)
+    return 'failed'
   }
 }
+
+/** sent: transferred now. already_sent: recorded earlier, or by a concurrent
+ *  payer. not_owed: nothing captured to pay. failed: recorded, retried later. */
+export type CompensationOutcome = 'sent' | 'already_sent' | 'not_owed' | 'failed'

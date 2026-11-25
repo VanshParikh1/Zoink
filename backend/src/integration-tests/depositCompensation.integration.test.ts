@@ -103,4 +103,38 @@ describe('deposit compensation', () => {
     const paid = await getTestPrisma().booking.findUniqueOrThrow({ where: { id: booking.id } })
     assert.equal(paid.stripeDepositTransferId, 'tr_comp_retry')
   })
+
+  test('the same failure on every retry is recorded once (P3-8)', async () => {
+    mock.method(paymentService, 'captureDepositPaymentIntent', async () => ({ id: 'pi_dep_comp', status: 'succeeded', latest_charge: 'ch_dep_3' }))
+    mock.method(paymentService, 'transferDepositCompensation', async () => {
+      throw new Error('Insufficient funds in Stripe account.')
+    })
+    mock.method(paymentService, 'findDepositCompensationTransfer', async () => null)
+    const { booking, dispute } = await disputedCompletedBooking()
+    await resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Damage confirmed.', 1000)
+    for (let i = 0; i < 3; i++) assert.equal((await retryDepositCompensations()).failed, 1)
+    const errors = await getTestPrisma().bookingEvent.count({ where: { bookingId: booking.id, type: 'ERROR' } })
+    assert.equal(errors, 1, 'one ERROR for four identical failures')
+  })
+
+  test('a transfer another payer recorded meanwhile is not a failure (P3-8)', async () => {
+    mock.method(paymentService, 'captureDepositPaymentIntent', async () => ({ id: 'pi_dep_comp', status: 'succeeded', latest_charge: 'ch_dep_4' }))
+    let failFirst = true
+    mock.method(paymentService, 'transferDepositCompensation', async () => {
+      if (failFirst) {
+        failFirst = false
+        throw new Error('socket hang up')
+      }
+      return { id: 'tr_same' }
+    })
+    const { booking, dispute } = await disputedCompletedBooking()
+    await resolveDispute(dispute.id, admin.id, DisputeStatus.RESOLVED_REFUND, 'Damage confirmed.', 1000)
+    // While the job is on its way, the admin's own retry records the transfer.
+    mock.method(paymentService, 'findDepositCompensationTransfer', async () => {
+      await getTestPrisma().booking.update({ where: { id: booking.id }, data: { stripeDepositTransferId: 'tr_same' } })
+      return { id: 'tr_same' }
+    })
+    const result = await retryDepositCompensations()
+    assert.deepEqual([result.paid, result.alreadySent, result.failed], [0, 1, 0])
+  })
 })
