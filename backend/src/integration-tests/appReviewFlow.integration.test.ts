@@ -28,6 +28,7 @@ function daysFromNow(days: number) {
   return d.toISOString()
 }
 
+// No phone: App Review rejected build 1.0 (7) under 5.1.1(v) when it was required.
 async function registerAndVerify(email: string, firstName: string) {
   const app = getApp()
   const password = 'Str0ng-Passw0rd!'
@@ -36,7 +37,6 @@ async function registerAndVerify(email: string, firstName: string) {
     password,
     firstName,
     lastName: 'Tester',
-    phone: '(416) 555-0192',
     university: 'UOFT',
     acceptedTermsVersion: CURRENT_TERMS_VERSION,
     acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
@@ -46,6 +46,7 @@ async function registerAndVerify(email: string, firstName: string) {
 
   // The OTP normally arrives by email; read it straight from the DB here.
   const user = await getTestPrisma().user.findUniqueOrThrow({ where: { email } })
+  assert.equal(user.phone, null)
   const otp = await getTestPrisma().verificationToken.findFirstOrThrow({ where: { userId: user.id, usedAt: null } })
   const verify = await supertest(app)
     .post('/auth/verify-email')
@@ -128,6 +129,7 @@ test('register → login → list → book → report ×3 → block → delete a
 
   // Renter deletes their account
   assert.equal((await supertest(app).delete('/users/me').set(auth(renter))).status, 204)
+  assert.equal((await getTestPrisma().user.findUniqueOrThrow({ where: { id: renter.id } })).phone, null)
   const relogin = await supertest(app).post('/auth/login').send({ email: renter.email, password: renter.password })
   assert.equal(relogin.status, 401)
   assert.equal((await supertest(app).get('/users/me').set(auth(renter))).status, 401)

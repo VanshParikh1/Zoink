@@ -1,10 +1,8 @@
 import { z } from 'zod'
+import { optionalPhoneSchema } from './auth.schema'
 
 /**
  * User-domain request schemas.
- *
- * Phone format is checked in userService.updateMe (same rule as sign-up), so
- * the app gets a readable message; the schema only bounds its length.
  */
 
 // ── PATCH /users/me ───────────────────────────────────────────────────────────
@@ -13,7 +11,7 @@ export const UpdateMeSchema = z.object({
   body: z.object({
     firstName: z.string().trim().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.').optional(),
     lastName: z.string().trim().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.').optional(),
-    phone: z.string().max(30, 'phone cannot exceed 30 characters.').optional(),
+    phone: optionalPhoneSchema,
     bio: z.string().max(300, 'bio cannot exceed 300 characters.').optional(),
   }),
 })

@@ -45,20 +45,14 @@ function runValidate(body: Record<string, unknown>) {
   return { req, res, capturedError }
 }
 
-test('validate(RegisterSchema) rejects registration with a missing phone number', () => {
-  const { capturedError, req, res } = runValidate({
-    email: 'student@mail.utoronto.ca',
-    password: 'password123',
-    firstName: 'Ada',
-    lastName: 'Lovelace',
-  })
-
-  assert.ok(capturedError, 'ZodError should be passed to next()')
-  errorHandler(capturedError, req, res as any, () => {})
-
-  assert.equal(res.statusCode, 400)
-  const paths = (res.body as any).issues.map((i: any) => i.path)
-  assert.ok(paths.includes('body.phone'), 'should flag missing phone')
+test('validate(RegisterSchema) allows registration without a phone number', () => {
+  const base = { email: 'student@mail.utoronto.ca', password: 'password123', firstName: 'Ada', lastName: 'Lovelace' }
+  // App Review 5.1.1(v): phone is optional. Missing stays missing; blank or null is no phone.
+  for (const [body, expected] of [[base, undefined], [{ ...base, phone: '' }, null], [{ ...base, phone: '   ' }, null], [{ ...base, phone: null }, null]] as const) {
+    const { capturedError, req } = runValidate(body)
+    assert.ok(!capturedError, `${JSON.stringify(body)} should be accepted`)
+    assert.equal(req.body.phone, expected)
+  }
 })
 
 test('validate(RegisterSchema) rejects an invalid phone format', () => {

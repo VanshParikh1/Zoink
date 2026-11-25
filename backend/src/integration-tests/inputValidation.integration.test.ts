@@ -187,13 +187,25 @@ describe('bounds the app already keeps to', () => {
 
   test('a profile phone follows the sign-up rule and is stored the same way', async () => {
     const bad = await as(user.token).patch('/users/me').send({ phone: 'call me maybe' })
-    assert.equal(bad.status, 400)
-    assert.match(bad.body.error, /10-digit Canadian phone number/)
+    assertValidationError(bad)
+    assert.match(bad.body.issues[0].message, /10-digit Canadian phone number/)
     assertValidationError(await as(user.token).patch('/users/me').send({ phone: '4'.repeat(31) }))
 
+    const phoneOf = async () => (await getTestPrisma().user.findUniqueOrThrow({ where: { id: user.id } })).phone
     const ok = await as(user.token).patch('/users/me').send({ phone: '(416) 555-0199' })
     assert.equal(ok.status, 200, JSON.stringify(ok.body))
-    assert.equal((await getTestPrisma().user.findUniqueOrThrow({ where: { id: user.id } })).phone, '+14165550199')
+    assert.equal(await phoneOf(), '+14165550199')
+
+    // Leaving it out keeps it; null or blank clears it.
+    assert.equal((await as(user.token).patch('/users/me').send({ bio: 'hi' })).status, 200)
+    assert.equal(await phoneOf(), '+14165550199')
+    const cleared = await as(user.token).patch('/users/me').send({ phone: null })
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body))
+    assert.equal(cleared.body.phone, null)
+    assert.equal(await phoneOf(), null)
+    await as(user.token).patch('/users/me').send({ phone: '4165550199' })
+    assert.equal((await as(user.token).patch('/users/me').send({ phone: '' })).status, 200)
+    assert.equal(await phoneOf(), null)
   })
 
   test('passwords and browse filters are bounded', async () => {

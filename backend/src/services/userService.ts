@@ -3,7 +3,6 @@ import type { MyProfileResponse, NotificationPreferences, PublicProfileResponse 
 import prisma from '../utils/prisma'
 import { BookingStatus, DisputeStatus } from '@prisma/client'
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors'
-import { CANADIAN_PHONE_REGEX, normalizePhone, PHONE_FORMAT_MESSAGE } from '../schemas/auth.schema'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../config/legal'
 import { signJWT } from './authService'
 import { isBlockedBetween } from './blockService'
@@ -170,7 +169,7 @@ export async function deleteMe(userId: string): Promise<{ avatarUrl: string | nu
       data: {
         firstName: 'Deleted',
         lastName: 'User',
-        phone: '',
+        phone: null,
         avatarUrl: null,
         bio: null,
         // Tombstone address — unique, non-reusable, frees the original email
@@ -254,7 +253,8 @@ export async function getPublicProfile(userId: string, viewerId?: string): Promi
 type UpdateMeInput = {
   firstName?: string
   lastName?: string
-  phone?: string
+  // Validated and normalized by UpdateMeSchema; null clears it.
+  phone?: string | null
   bio?: string
 }
 
@@ -263,15 +263,6 @@ export async function updateMe(userId: string, data: UpdateMeInput) {
   const cleaned = Object.fromEntries(
     Object.entries(data).filter(([, v]) => v !== undefined)
   )
-
-  // Same rule as sign-up, stored the same way (+1 and ten digits). Checked here
-  // rather than in UpdateMeSchema so the app, which shows `error`, gets this
-  // message instead of "Validation failed.".
-  if (typeof cleaned.phone === 'string') {
-    const phone = cleaned.phone.trim()
-    if (!CANADIAN_PHONE_REGEX.test(phone)) throw new BadRequestError(PHONE_FORMAT_MESSAGE)
-    cleaned.phone = normalizePhone(phone)
-  }
 
   const user = await prisma.user.update({
     where: { id: userId },

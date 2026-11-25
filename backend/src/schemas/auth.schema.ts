@@ -25,6 +25,16 @@ export function normalizePhone(phone: string): string {
   return `+1${tenDigits}`
 }
 
+// Optional phone, shared by sign-up and PATCH /users/me so they can't drift:
+// missing = leave as is, "" or null = no phone (null), otherwise the format rule
+// above, stored as +1 and ten digits.
+export const optionalPhoneSchema = z
+  .preprocess(
+    (v) => (typeof v === 'string' ? v.trim() || null : v),
+    z.string().regex(CANADIAN_PHONE_REGEX, PHONE_FORMAT_MESSAGE).transform(normalizePhone).nullable(),
+  )
+  .optional()
+
 const UNIVERSITY_KEYS = Object.keys(UNIVERSITY_EMAIL_DOMAINS) as [University, ...University[]]
 
 export const RegisterSchema = z.object({
@@ -36,12 +46,7 @@ export const RegisterSchema = z.object({
       password: z.string().min(8, 'Password must be at least 8 characters.').max(128, 'Password cannot exceed 128 characters.'),
       firstName: z.string().trim().min(1, 'firstName is required.').max(50, 'firstName cannot exceed 50 characters.'),
       lastName: z.string().trim().min(1, 'lastName is required.').max(50, 'lastName cannot exceed 50 characters.'),
-      phone: z
-        .string()
-        .trim()
-        .min(1, 'Phone number is required.')
-        .regex(CANADIAN_PHONE_REGEX, PHONE_FORMAT_MESSAGE)
-        .transform(normalizePhone),
+      phone: optionalPhoneSchema,
       university: z.enum(UNIVERSITY_KEYS, { message: 'Select your university from the list.' }),
       acceptedTermsVersion: z.string().min(1),
       acceptedPrivacyVersion: z.string().min(1),
