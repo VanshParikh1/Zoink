@@ -20,7 +20,7 @@ model User {
   passwordHash        String
   firstName           String
   lastName            String
-  phone               String
+  phone               String?
   avatarUrl           String?
   bio                 String?
   verificationStatus  VerificationStatus  @default(PENDING)

@@ -38,7 +38,7 @@ export interface User {
   passwordHash: string;
   firstName: string;
   lastName: string;
-  phone: string;
+  phone: string | null;
   avatarUrl: string | null;
   bio: string | null;
   verificationStatus: VerificationStatus;
