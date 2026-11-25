@@ -157,6 +157,23 @@ describe('two people at once', () => {
     assert.equal(changes.filter((c) => c.from === 'PENDING').length, 1, 'one transition out of PENDING')
   })
 
+  test('two overlapping accepts at once answer 200 and 409, never a 500 (P3-5 deadlock)', async (t) => {
+    if (!stripeAvailable) return t.skip('Stripe unreachable')
+    // Each accept locks its own booking, then the listing, then auto-declines
+    // the other: two at once can deadlock. Repeated to make the race likely.
+    for (let i = 0; i < 6; i++) {
+      await getTestPrisma().booking.deleteMany({})
+      const [alice, bob] = await Promise.all([renter(`Alice${i}`), renter(`Bob${i}`)])
+      const a = await request(alice, 6, 3)
+      const b = await request(bob, 7, 3)
+      const results = await Promise.all([
+        http().patch(`/bookings/${a.id}/accept`).set('Authorization', `Bearer ${owner.token}`),
+        http().patch(`/bookings/${b.id}/accept`).set('Authorization', `Bearer ${owner.token}`),
+      ])
+      assert.deepEqual(results.map((r) => r.status).sort(), [200, 409], `round ${i}: ${results.map((r) => `${r.status} ${JSON.stringify(r.body)}`).join(' | ')}`)
+    }
+  })
+
   test('two overlapping requests accepted at once: one is accepted, the other declined, never both', async (t) => {
     if (!stripeAvailable) return t.skip('Stripe unreachable')
     const [alice, bob] = await Promise.all([renter('Alice'), renter('Bob')])

@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   assertDepositRentalLength,
@@ -7,6 +7,7 @@ import {
   getRentalDays,
   roundCurrency,
   MAX_RENTAL_DAYS,
+  retryOnceOnLockConflict,
 } from './bookingUtils'
 import { quoteRental, rentalDayCount } from '@zoink/shared'
 import { calculateCommission, calculateOwnerPayout } from './paymentService'
@@ -114,4 +115,39 @@ test('a booking with a deposit can be paid from 00:00 Toronto time on the day it
     assert.doesNotThrow(() => assertPaymentWindowOpen({ ...booking, depositAmount }, Date.parse('2026-11-11T04:59:59.000Z')))
     assert.throws(() => assertPaymentWindowOpen({ ...booking, depositAmount }, Date.parse('2026-11-11T05:00:00.000Z')), { statusCode: 400 })
   }
+})
+
+describe('retryOnceOnLockConflict (P3-5)', () => {
+  const deadlock = Object.assign(new Error('Raw query failed. Code: `40P01`. Message: `deadlock detected`'), { code: 'P2010' })
+
+  test('a deadlock is retried once and the retry result returned', async () => {
+    let calls = 0
+    const result = await retryOnceOnLockConflict(async () => {
+      calls += 1
+      if (calls === 1) throw deadlock
+      return 'ok'
+    })
+    assert.deepEqual([result, calls], ['ok', 2])
+  })
+
+  test('a second lock conflict is a 409, not a 500', async () => {
+    let calls = 0
+    await assert.rejects(
+      retryOnceOnLockConflict(async () => {
+        calls += 1
+        throw calls === 1 ? deadlock : Object.assign(new Error('write conflict'), { code: 'P2034' })
+      }),
+      (err: any) => err.statusCode === 409
+    )
+    assert.equal(calls, 2)
+  })
+
+  test('other errors are not retried', async () => {
+    let calls = 0
+    await assert.rejects(retryOnceOnLockConflict(async () => {
+      calls += 1
+      throw new Error('boom')
+    }), /boom/)
+    assert.equal(calls, 1)
+  })
 })

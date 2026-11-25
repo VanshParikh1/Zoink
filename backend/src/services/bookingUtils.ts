@@ -71,3 +71,27 @@ export function assertPaymentWindowOpen(
     throw new ConflictError(`You can pay from ${formatDateTime(opensAt)}.`)
   }
 }
+
+/** Postgres deadlock (40P01) or serialization failure (40001); Prisma's P2034. */
+export function isLockConflict(err: unknown) {
+  const e = err as { code?: unknown; message?: unknown; meta?: { code?: unknown } } | null
+  return e?.code === 'P2034' || e?.meta?.code === '40P01' || e?.meta?.code === '40001' || /\b(40P01|40001)\b/.test(String(e?.message ?? ''))
+}
+
+/** P3-5: two overlapping accepts at once each lock their own booking, then the
+ *  listing, then try to auto-decline the other: Postgres aborts one as a
+ *  deadlock. It is run once more (it then sees the other's result, usually a
+ *  409 from the version check); a second lock conflict is a 409, not a 500. */
+export async function retryOnceOnLockConflict<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (err) {
+    if (!isLockConflict(err)) throw err
+  }
+  try {
+    return await run()
+  } catch (err) {
+    if (isLockConflict(err)) throw new ConflictError('This booking was updated by someone else. Please refresh and try again.')
+    throw err
+  }
+}

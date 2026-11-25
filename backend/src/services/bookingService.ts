@@ -5,7 +5,7 @@ import prisma from '../utils/prisma'
 import { reviewerDemoEmails } from '../config/reviewerAccounts'
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from '../utils/errors'
 import { assertBookingTransition } from '../middleware/bookingStateMachine'
-import { assertDepositRentalLength, assertNotExpired, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays } from './bookingUtils'
+import { assertDepositRentalLength, assertNotExpired, assertPaymentWindowOpen, ensureValidBookingDates, getRentalDays, retryOnceOnLockConflict } from './bookingUtils'
 import { hasConflict, sortByStart, toDayInterval } from './intervalScheduling'
 import { notifyUser } from './notificationService'
 import { assertNotBlocked } from './blockService'
@@ -1084,7 +1084,7 @@ export async function transitionBookingStatus(
     }
   }
 
-  const { updated, autoRejected } = await prisma.$transaction(async (tx) => {
+  const runTransition = () => prisma.$transaction(async (tx) => {
     if (nextStatus === 'ACCEPTED') {
       // The expiry job's lock, taken before the listing's (Confirm's order).
       await tx.$queryRaw`SELECT id FROM bookings WHERE id = ${booking.id} FOR UPDATE`
@@ -1154,6 +1154,7 @@ export async function transitionBookingStatus(
 
     return { updated, autoRejected }
   }, STRIPE_TX_OPTIONS)
+  const { updated, autoRejected } = await retryOnceOnLockConflict(runTransition)
 
   if (nextStatus === 'CANCELLED') {
     await handleCancellationPayment(booking, actorId)
