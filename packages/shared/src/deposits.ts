@@ -41,11 +41,20 @@ export function depositPayableFrom(startDate: DateInput): Date | null {
   return start ? new Date(start.getTime() - DEPOSIT_PAY_WINDOW_HOURS * 60 * 60 * 1000) : null
 }
 
-/** Null when the booking can be paid now; otherwise the time it can be. A
- *  booking without a deposit can be paid any time. */
+/** How long before the rental starts a booking WITHOUT a deposit can be paid
+ *  (P2-4): the rent is a card authorization captured at pickup, and card
+ *  networks keep it about 7 days. 72 h before 00:00 Toronto on the start day
+ *  keeps it well inside that at pickup. */
+export const RENT_PAY_WINDOW_HOURS = 72
+
+/** Null when the booking can be paid now; otherwise the time it can be: from
+ *  00:00 Toronto on the start day with a deposit, RENT_PAY_WINDOW_HOURS
+ *  before that without one. */
 export function paymentOpensAt(booking: { depositAmount: number | string; startDate: DateInput }, now: DateInput = Date.now()): Date | null {
-  if (!(Number(booking.depositAmount) > 0)) return null
-  const opens = depositPayableFrom(booking.startDate)
+  const start = cancellationCutoff(booking.startDate)
+  if (!start) return null
+  const hours = Number(booking.depositAmount) > 0 ? DEPOSIT_PAY_WINDOW_HOURS : RENT_PAY_WINDOW_HOURS
+  const opens = new Date(start.getTime() - hours * 60 * 60 * 1000)
   const nowMs = new Date(now).getTime()
   return opens && nowMs < opens.getTime() ? opens : null
 }

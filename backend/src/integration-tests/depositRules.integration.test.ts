@@ -112,14 +112,36 @@ describe('deposit rentals', () => {
     assert.equal(row.stripePaymentIntentId, null, 'no PaymentIntent was created')
   })
 
-  test('it can be paid on its start day, and a booking without a deposit any time', async () => {
+  test('it can be paid on its start day', async () => {
     const today = await acceptedBooking(0, 60)
     const paid = await supertest(getApp()).post(`/bookings/${today.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
     assert.equal(paid.status, 200, JSON.stringify(paid.body))
     assert.ok(paid.body.stripePaymentIntentId)
+  })
 
-    const noDeposit = await acceptedBooking(5, 0)
-    const res = await supertest(getApp()).post(`/bookings/${noDeposit.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
+  test('a booking without a deposit can be paid from 72 h before its start day (P2-4)', async () => {
+    // Starting in 3 Toronto days: 72 h before its 00:00 is 00:00 today, so open now.
+    const inThree = await acceptedBooking(3, 0)
+    const ok = await supertest(getApp()).post(`/bookings/${inThree.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+
+    const inFour = await acceptedBooking(4, 0)
+    const early = await supertest(getApp()).post(`/bookings/${inFour.id}/payment-intent`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(early.status, 409)
+    // The sentence the store app already shows as-is (userMessage passes it through).
+    assert.match(early.body.error, /^You can pay from \w{3} \d{1,2}, 12:00\sAM\.$/)
+    const confirm = await supertest(getApp()).patch(`/bookings/${inFour.id}/confirm`).set('Authorization', `Bearer ${renter.token}`)
+    assert.equal(confirm.status, 409)
+    assert.equal((await getTestPrisma().booking.findUniqueOrThrow({ where: { id: inFour.id } })).stripePaymentIntentId, null)
+  })
+
+  test('App Review demo bookings can be paid early, with or without a deposit', async () => {
+    const reviewer = await createTestUser({ email: 'reviewer@zoink.app', firstName: 'App' })
+    for (const [day, deposit] of [[10, 0], [1, 60]] as const) {
+      const b = await acceptedBooking(day, deposit)
+      await getTestPrisma().booking.update({ where: { id: b.id }, data: { renterId: reviewer.id } })
+      const res = await supertest(getApp()).post(`/bookings/${b.id}/payment-intent`).set('Authorization', `Bearer ${reviewer.token}`)
+      assert.equal(res.status, 200, `${day} days ahead, deposit ${deposit}: ${JSON.stringify(res.body)}`)
+    }
   })
 })

@@ -41,6 +41,10 @@ test('paymentOpensAt: null when it can be paid now', () => {
   assert.equal(paymentOpensAt(booking, '2026-11-10T04:59:59.000Z')!.toISOString(), '2026-11-10T05:00:00.000Z')
   assert.equal(paymentOpensAt(booking, '2026-11-10T05:00:00.000Z'), null)
   assert.equal(paymentOpensAt(booking, '2026-11-10T12:00:00.000Z'), null)
-  // No deposit: any time.
-  assert.equal(paymentOpensAt({ ...booking, depositAmount: '0.00' }, '2026-10-01T00:00:00.000Z'), null)
+  // No deposit: from 72 h before 00:00 Toronto on the start day (P2-4).
+  const noDeposit = { ...booking, depositAmount: '0.00' }
+  assert.equal(paymentOpensAt(noDeposit, '2026-10-01T00:00:00.000Z')!.toISOString(), '2026-11-07T05:00:00.000Z')
+  assert.equal(paymentOpensAt(noDeposit, '2026-11-07T04:59:59.000Z')!.toISOString(), '2026-11-07T05:00:00.000Z')
+  assert.equal(paymentOpensAt(noDeposit, '2026-11-07T05:00:00.000Z'), null)
+  assert.equal(paymentOpensAt(noDeposit, '2026-11-10T12:00:00.000Z'), null)
 })

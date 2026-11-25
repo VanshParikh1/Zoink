@@ -163,8 +163,9 @@ function PayContent() {
   ]
   const banner = bannerFor(booking.status)
   const dateRange = `${formatRentalDate(booking.startDate, 'long')} – ${formatRentalDate(booking.endDate, 'long')}`
-  // A booking with a deposit can only be paid from 00:00 on its start day (the
-  // server refuses earlier), so the deposit hold lasts until the return.
+  // A booking with a deposit can only be paid from 00:00 on its start day, one
+  // without from 72 h before that (the server refuses earlier), so the holds
+  // last until they're captured.
   const opensAt = booking.status === 'ACCEPTED' ? paymentOpensAt(booking) : null
   const payLabel = opensAt
     ? `You can pay from ${formatDateTime(opensAt)}`

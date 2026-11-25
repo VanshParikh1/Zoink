@@ -52,7 +52,7 @@ after(async () => {
 })
 
 async function createAcceptedBooking() {
-  const { startDate, endDate } = futureDates(5, 2)
+  const { startDate, endDate } = futureDates(2, 2) // inside the 72 h pay window for a booking without a deposit (P2-4)
   return getTestPrisma().booking.create({
     data: {
       listingId,
