@@ -82,8 +82,7 @@ export function validateRegistration(form: {
   if (!form.university) errors.university = 'Choose your university.'
   if (blank(form.firstName)) errors.firstName = 'Enter your first name.'
   if (blank(form.lastName)) errors.lastName = 'Enter your last name.'
-  if (blank(form.phone)) errors.phone = 'Enter your phone number.'
-  else if (!CANADIAN_PHONE_REGEX.test(form.phone.trim())) errors.phone = 'Enter a 10-digit phone number.'
+  if (!blank(form.phone) && !CANADIAN_PHONE_REGEX.test(form.phone.trim())) errors.phone = 'Enter a 10-digit phone number.'
   if (!form.password) errors.password = 'Choose a password.'
   else if (form.password.length < PASSWORD_MIN) errors.password = `Use at least ${PASSWORD_MIN} characters.`
   else if (form.password.length > PASSWORD_MAX) errors.password = `Use ${PASSWORD_MAX} characters or fewer.`

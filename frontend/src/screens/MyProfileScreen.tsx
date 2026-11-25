@@ -211,7 +211,7 @@ export default function MyProfileScreen() {
       await updateMyProfile({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-        phone: form.phone.trim() || undefined,
+        phone: form.phone.trim() || null, // null clears it
         bio: form.bio.trim() || undefined,
       })
       await profileQuery.refetch()

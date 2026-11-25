@@ -28,6 +28,8 @@ type Props = Omit<TextInputProps, 'style'> & {
   /** Trailing element inside the field, e.g. a clear button. */
   rightAccessory?: React.ReactNode
   error?: string
+  /** Muted note in the message line, shown while there's no error. */
+  hint?: string
   /**
    * Reserves room under the field for its validation message (this many
    * lines), so a message appearing or clearing doesn't move the form.
@@ -42,7 +44,7 @@ type Props = Omit<TextInputProps, 'style'> & {
 const ERROR_LINE = type.caption.lineHeight
 
 const TextField = forwardRef<TextInput, Props>(function TextField(
-  { label, leftIcon, rightAccessory, error, validated, kind, variant = 'pill', style, ...inputProps },
+  { label, leftIcon, rightAccessory, error, hint, validated, kind, variant = 'pill', style, ...inputProps },
   ref
 ) {
   const boxed = variant === 'boxed'
@@ -65,11 +67,11 @@ const TextField = forwardRef<TextInput, Props>(function TextField(
         {rightAccessory}
       </View>
       {reservedLines > 0 ? (
-        <Text style={[styles.error, { minHeight: ERROR_LINE * reservedLines }]} numberOfLines={reservedLines}>
-          {error ?? ''}
+        <Text style={[styles.error, !error && styles.hint, { minHeight: ERROR_LINE * reservedLines }]} numberOfLines={reservedLines}>
+          {error ?? hint ?? ''}
         </Text>
-      ) : error ? (
-        <Text style={styles.error}>{error}</Text>
+      ) : error || hint ? (
+        <Text style={[styles.error, !error && styles.hint]}>{error ?? hint}</Text>
       ) : null}
     </View>
   )
@@ -132,5 +134,8 @@ const styles = StyleSheet.create({
   error: {
     ...type.caption,
     color: colors.danger,
+  },
+  hint: {
+    color: colors.mutedAlt,
   },
 })

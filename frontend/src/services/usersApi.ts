@@ -25,7 +25,7 @@ import { markBlocked, markUnblocked } from './blockedUsers'
 export type UpdateMyProfilePayload = {
   firstName?: string
   lastName?: string
-  phone?: string
+  phone?: string | null
   bio?: string
 }
 

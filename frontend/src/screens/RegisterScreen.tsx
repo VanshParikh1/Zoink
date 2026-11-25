@@ -166,8 +166,8 @@ export default function RegisterScreen() {
             </View>
 
             <TextField
-              label="Phone number"
-              placeholder="Phone number"
+              label="Phone (optional)"
+              placeholder="Phone (optional)"
               kind="phone"
               value={phone}
               onChangeText={(value) => {
@@ -175,7 +175,8 @@ export default function RegisterScreen() {
                 clearError('phone')
               }}
               error={errors.phone}
-              validated
+              hint="Only used to contact you if there's a problem with a rental."
+              validated={2}
             />
             <TextField
               label="Password"

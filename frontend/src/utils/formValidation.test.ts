@@ -43,7 +43,7 @@ describe('registration', () => {
 
   test('every empty field is named at once', () => {
     const errors = validateRegistration({ email: '', university: null, firstName: ' ', lastName: '', phone: '', password: '' })
-    assert.deepEqual(Object.keys(errors).sort(), ['email', 'firstName', 'lastName', 'password', 'phone', 'university'])
+    assert.deepEqual(Object.keys(errors).sort(), ['email', 'firstName', 'lastName', 'password', 'university'])
   })
 
   test("the email must be the chosen university's", () => {
