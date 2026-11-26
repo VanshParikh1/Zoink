@@ -262,7 +262,7 @@ async function makeConfirmedBooking(dailyPrice: number, durationDays: number) {
   const pricedListing = await createTestListing(owner.id, { dailyPrice, itemValue: 100 })
   await giveOwnerStripeAccount(owner.id)
 
-  const { startDate, endDate } = futureDates(3, durationDays)
+  const { startDate, endDate } = futureDates(2, durationDays) // inside the 72 h pay window at any hour (P2-4)
   const booking = await bookingService.createBooking(renter.id, {
     listingId: pricedListing.id,
     startDate: new Date(startDate),
