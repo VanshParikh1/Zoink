@@ -1,8 +1,8 @@
 /**
  * Integration Tests — no-show auto-cancel (F-04 / D-3)
  * ====================================================
- * A CONFIRMED or PICKUP_PENDING booking not picked up by the end of its start
- * day (Toronto) + 12 h is cancelled, both holds are released, no one is
+ * A CONFIRMED or PICKUP_PENDING booking not picked up by 12:00 Toronto wall
+ * clock on the day after its start day is cancelled, both holds are released, no one is
  * charged and both parties are notified. Stripe is mocked on the
  * paymentService module, as in jobRaces.
  */

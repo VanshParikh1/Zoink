@@ -317,8 +317,8 @@ export async function releaseDueDeposits() {
 
 const NO_SHOW_STATUSES: BookingStatus[] = [BookingStatus.CONFIRMED, BookingStatus.PICKUP_PENDING]
 
-/** D-3: a paid booking not picked up by noShowDeadline (end of the start day,
- *  Toronto, + 12 h) is cancelled, both holds are released and no one is
+/** D-3: a paid booking not picked up by noShowDeadline (12:00 Toronto wall
+ *  clock on the day after the start day) is cancelled, both holds are released and no one is
  *  charged. Each booking is re-checked under its row lock, the one pickup
  *  (handoffService) and the other jobs take, so an overlapping run or a pickup
  *  completing at the same moment can't both act. Stripe keys come from the

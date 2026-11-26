@@ -170,17 +170,23 @@ function torontoOffsetMs(date: Date): number {
  *  is 04:00 UTC in summer and 05:00 UTC in winter. Toronto changes clocks at
  *  2 AM, so midnight always exists and never repeats. */
 export function startOfTorontoDay(dayKey: string): Date {
+  return torontoWallTime(dayKey, 0)
+}
+
+/** The instant the Toronto wall clock reads `hour`:00 on a calendar day
+ *  (YYYY-MM-DD), whatever the clock did that night. */
+function torontoWallTime(dayKey: string, hour: number): Date {
   const [y, m, d] = dayKey.split('-').map(Number)
-  const utcMidnight = Date.UTC(y, m - 1, d)
+  const wallAsUtc = Date.UTC(y, m - 1, d, hour)
   try {
-    // First guess with the offset at UTC midnight, then once more with the
+    // First guess with the offset at that UTC time, then once more with the
     // offset at the guess, in case a clock change falls between the two.
-    const guess = utcMidnight - torontoOffsetMs(new Date(utcMidnight))
-    return new Date(utcMidnight - torontoOffsetMs(new Date(guess)))
+    const guess = wallAsUtc - torontoOffsetMs(new Date(wallAsUtc))
+    return new Date(wallAsUtc - torontoOffsetMs(new Date(guess)))
   } catch {
-    // No time-zone support: the device's own midnight (Toronto's for nearly
+    // No time-zone support: the device's own wall clock (Toronto's for nearly
     // every user).
-    return new Date(y, m - 1, d)
+    return new Date(y, m - 1, d, hour)
   }
 }
 
@@ -207,11 +213,14 @@ export function endOfRentalDay(day: DateInput): Date | null {
   return startOfTorontoDayAfter(day, 1)
 }
 
-/** D-3: a booking not picked up by the end of its start day (Toronto) plus
- *  12 hours is a no-show and is cancelled. */
+/** D-3: a booking not picked up by 12:00 Toronto wall-clock time on the day
+ *  after its start day is a no-show and is cancelled. Wall-clock (P3-11), so a
+ *  clock change that night doesn't move it to 11:00 or 13:00. */
 export function noShowDeadline(startDate: DateInput): Date | null {
-  const endOfStartDay = endOfRentalDay(startDate)
-  return endOfStartDay ? new Date(endOfStartDay.getTime() + 12 * 60 * 60 * 1000) : null
+  const key = rentalDayKey(startDate)
+  if (!key) return null
+  const [y, m, d] = key.split('-').map(Number)
+  return torontoWallTime(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10), 12)
 }
 
 /** D-1: a rental whose return isn't completed by the end of the day after its

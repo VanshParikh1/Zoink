@@ -136,6 +136,11 @@ test('noShowDeadline: 12 hours after the end of the start day, Toronto time (D-3
   // Summer time: 00:00 EDT is 04:00 UTC.
   assert.equal(noShowDeadline('2026-07-10T00:00:00.000Z')!.toISOString(), '2026-07-11T16:00:00.000Z')
   assert.equal(noShowDeadline('not a date'), null)
+  // P3-11: noon wall-clock on clock-change days, not 00:00 + 12 h.
+  // Spring forward 2026-03-08 (EST → EDT): noon EDT = 16:00 UTC (00:00 EST + 12 h was 17:00 UTC, 13:00 EDT).
+  assert.equal(noShowDeadline('2026-03-07T00:00:00.000Z')!.toISOString(), '2026-03-08T16:00:00.000Z')
+  // Fall back 2026-11-01 (EDT → EST): noon EST = 17:00 UTC (00:00 EDT + 12 h was 16:00 UTC, 11:00 EST).
+  assert.equal(noShowDeadline('2026-10-31T00:00:00.000Z')!.toISOString(), '2026-11-01T17:00:00.000Z')
 })
 
 test('overdueDeadline: end of the day after the last rental day, Toronto time (D-1)', () => {
