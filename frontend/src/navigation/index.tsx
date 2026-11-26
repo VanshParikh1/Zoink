@@ -60,6 +60,7 @@ export type RootStackParamList = {
   AdminDisputes: undefined
   AdminDisputeDetail: { disputeId: string }
   AdminOverdue: undefined
+  AdminBlockedPayouts: undefined
   AdminCloseOut: { bookingId: string; listingTitle?: string; depositAmount: string }
   FileReport: { targetType: import('../types').ReportTargetType; targetId: string; targetLabel?: string }
   AdminReports: undefined
@@ -154,6 +155,7 @@ function VerifiedAppStack() {
       <Stack.Screen name="AdminDisputes" getComponent={() => require('../screens/AdminDisputesScreen').default} />
       <Stack.Screen name="AdminDisputeDetail" getComponent={() => require('../screens/AdminDisputeDetailScreen').default} />
       <Stack.Screen name="AdminOverdue" getComponent={() => require('../screens/AdminOverdueScreen').default} />
+      <Stack.Screen name="AdminBlockedPayouts" getComponent={() => require('../screens/AdminBlockedPayoutsScreen').default} />
       <Stack.Screen name="AdminCloseOut" getComponent={() => require('../screens/AdminCloseOutScreen').default} />
       <Stack.Screen name="FileReport" getComponent={() => require('../screens/FileReportScreen').default} />
       <Stack.Screen name="AdminReports" getComponent={() => require('../screens/AdminReportsScreen').default} />

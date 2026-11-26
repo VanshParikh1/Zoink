@@ -109,6 +109,16 @@ export interface AdminOverdueBooking {
   owner: { id: string; firstName: string; email: string }
 }
 
+export interface AdminBlockedPayout {
+  id: string
+  payoutBlockedAt: string
+  ownerPayout: string
+  completedAt: string | null
+  listing: { id: string; title: string }
+  owner: { id: string; firstName: string; email: string }
+  blockedReason: string | null
+}
+
 export interface AdminDisputeDetail extends Omit<AdminDisputeListItem, 'booking'> {
   booking: {
     id: string

@@ -8,6 +8,7 @@ import prisma from '../../utils/prisma'
 import { DisputeStatus, ReportStatus } from '@prisma/client'
 import { createdAtAfter, createdAtKey, createdAtOrder, isPaged, LEGACY_LIST_CAP, pageSize, splitPage, type PageParams } from '../../utils/pagination'
 import * as closeOutService from '../../services/closeOutService'
+import * as blockedPayoutService from '../../services/blockedPayoutService'
 import { getAuthorizationExpiry } from '../../services/paymentService'
 
 interface AuthenticatedRequest extends Request {
@@ -157,4 +158,12 @@ export const suspendUser = asyncHandler(async (req: Request, res: Response) => {
 
 export const unsuspendUser = asyncHandler(async (req: Request, res: Response) => {
   res.json(await suspensionService.unsuspendUser(req.params.id as string))
+})
+
+export const listBlockedPayouts = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await blockedPayoutService.listBlockedPayouts())
+})
+
+export const unblockPayout = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  res.json(await blockedPayoutService.unblockPayout(req.params.id as string, req.userId!))
 })

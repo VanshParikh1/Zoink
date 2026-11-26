@@ -1,5 +1,5 @@
 import api from './api'
-import { AdminDisputeDetail, AdminDisputeListItem, AdminOverdueBooking, AdminReportListItem, BookingEvent, DisputeStatus, ReportStatus } from '../types'
+import { AdminBlockedPayout, AdminDisputeDetail, AdminDisputeListItem, AdminOverdueBooking, AdminReportListItem, BookingEvent, DisputeStatus, ReportStatus } from '../types'
 import type { Page } from '@zoink/shared'
 
 const PAGE_SIZE = 20
@@ -31,6 +31,18 @@ export async function resolveDispute(id: string, data: ResolveDisputePayload): P
 /** D-1: rentals flagged overdue that are still out, oldest first. */
 export async function listOverdueBookings(): Promise<AdminOverdueBooking[]> {
   const res = await api.get('/admin/bookings/overdue')
+  return res.data
+}
+
+/** Owner payouts Stripe refused permanently, oldest first, with Stripe's error. */
+export async function listBlockedPayouts(): Promise<AdminBlockedPayout[]> {
+  const res = await api.get('/admin/payouts/blocked')
+  return res.data
+}
+
+/** Clears a blocked payout and retries it now. */
+export async function unblockPayout(bookingId: string): Promise<{ bookingId: string; result: 'paid' | 'failed' | 'blocked' | 'not_due' }> {
+  const res = await api.post(`/admin/bookings/${bookingId}/payout/unblock`)
   return res.data
 }
 

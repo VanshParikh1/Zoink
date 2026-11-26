@@ -635,6 +635,7 @@ enum BookingEventType {
   ERROR
   RENTAL_OVERDUE
   DEPOSIT_CAPTURE_REQUESTED
+  PAYOUT_UNBLOCKED
 }
 
 enum NotificationType {

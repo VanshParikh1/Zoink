@@ -73,7 +73,8 @@ export async function cleanupStaleHandoffs() {
 // and webhooks bump in between runs.
 const STRIPE_JOB_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 
-export async function releaseDuePayouts() {
+/** `bookingId` limits the run to that booking (an admin's unblock-and-retry). */
+export async function releaseDuePayouts(opts: { bookingId?: string } = {}) {
   const holdHours = PAYOUT_HOLD_HOURS
   const dueBefore = new Date(Date.now() - holdHours * 60 * 60 * 1000)
 
@@ -86,6 +87,7 @@ export async function releaseDuePayouts() {
     payoutSentAt: null,
     // P3-12: Stripe refused this payout permanently; an admin has to act.
     payoutBlockedAt: null,
+    ...(opts.bookingId ? { id: opts.bookingId } : {}),
     OR: [
       // Never disputed, disputed with no money movement, or a dispute that
       // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —

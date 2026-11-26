@@ -25,6 +25,7 @@ export const queryKeys = {
   adminDisputes: (status?: DisputeStatus) => ['admin', 'disputes', status ?? 'all'] as const,
   adminDispute: (id: string) => ['admin', 'dispute', id] as const,
   adminOverdue: () => ['admin', 'overdue'] as const,
+  adminBlockedPayouts: () => ['admin', 'blocked-payouts'] as const,
   bookingEvents: (bookingId: string) => ['admin', 'events', bookingId] as const,
   adminReports: (status?: ReportStatus) => ['admin', 'reports', status ?? 'all'] as const,
 }
