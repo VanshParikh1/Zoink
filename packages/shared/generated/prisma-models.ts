@@ -149,6 +149,7 @@ export interface Booking {
   stripeDepositChargeId: string | null;
   stripeDepositTransferId: string | null;
   depositCaptureCents: number | null;
+  payoutBlockedAt: string | null;
   paidAt: string | null;
   refundedAt: string | null;
   refundedAmountCents: number;

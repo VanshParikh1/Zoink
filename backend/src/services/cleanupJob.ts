@@ -1,6 +1,6 @@
 import { BookingEventType, BookingStatus, DepositStatus, DisputeStatus, PaymentStatus } from '@prisma/client'
 import prisma from '../utils/prisma'
-import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, toCents, transferPayout } from './paymentService'
+import { cancelDepositPaymentIntent, cancelPaymentIntent, getPaymentIntentChargeId, getRentalAuthorizationAmount, isPermanentStripeError, toCents, transferPayout } from './paymentService'
 import { endOfRentalDay, noShowDeadline, overdueDeadline } from '@zoink/shared'
 import { excludingReviewerDemoBookings } from '../config/reviewerAccounts'
 import { payDepositCompensation } from './disputeService'
@@ -84,6 +84,8 @@ export async function releaseDuePayouts() {
     // marker — set both when a transfer is sent and when a fully-refunded
     // booking is closed out with nothing to send, so neither is reprocessed.
     payoutSentAt: null,
+    // P3-12: Stripe refused this payout permanently; an admin has to act.
+    payoutBlockedAt: null,
     OR: [
       // Never disputed, disputed with no money movement, or a dispute that
       // refunded the renter partially (paymentStatus stays PAYOUT_PENDING —
@@ -109,8 +111,18 @@ export async function releaseDuePayouts() {
 
   let paid = 0
   let failed = 0
+  let blocked = 0
   for (const { id } of bookings) {
     try {
+      // P3-12: the transfer names the rent's charge stored at capture. A
+      // booking from before that was recorded gets it looked up once and
+      // saved here, so every attempt sends the same source.
+      const stored = await prisma.booking.findUniqueOrThrow({ where: { id }, select: { stripeChargeId: true, stripePaymentIntentId: true } })
+      if (!stored.stripeChargeId && stored.stripePaymentIntentId) {
+        const chargeId = await getPaymentIntentChargeId(stored.stripePaymentIntentId).catch(() => null)
+        if (chargeId) await prisma.booking.updateMany({ where: { id, stripeChargeId: null }, data: { stripeChargeId: chargeId } })
+      }
+
       const outcome = await prisma.$transaction(async (tx) => {
         // Re-read under the booking's row lock (the one createDispute takes)
         // so a dispute filed at the last moment, or an overlapping run of this
@@ -170,16 +182,10 @@ export async function releaseDuePayouts() {
 
         if (!booking.owner.stripeAccountId) return 'skipped' as const
 
-        // The rent's charge, so the transfer doesn't depend on the platform's
-        // available balance. Normally recorded at pickup; read back from the
-        // PaymentIntent for a booking that predates that. If even that fails,
-        // the transfer goes out from the available balance, as it used to.
-        const sourceChargeId =
-          booking.stripeChargeId ??
-          (booking.stripePaymentIntentId
-            ? await getPaymentIntentChargeId(booking.stripePaymentIntentId).catch(() => null)
-            : null)
-        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents, sourceChargeId)
+        // The rent's charge (stored above), so the transfer doesn't depend on
+        // the platform's available balance. With none, the transfer goes out
+        // from the available balance, as it used to.
+        const transfer = await transferPayout(booking, booking.owner.stripeAccountId, remainingPayoutCents, booking.stripeChargeId)
         const isPartial = remainingPayoutCents !== fullOwnerPayoutCents
         await tx.booking.update({
           where: { id: booking.id },
@@ -211,10 +217,16 @@ export async function releaseDuePayouts() {
     } catch (error) {
       failed += 1
       await recordJobFailure(id, 'release_payout', error)
+      // Retrying a permanent refusal every 15 minutes changes nothing: park it
+      // for an admin. Network, server, rate-limit and balance errors retry.
+      if (isPermanentStripeError(error)) {
+        blocked += 1
+        await prisma.booking.update({ where: { id }, data: { payoutBlockedAt: new Date() } }).catch(() => {})
+      }
     }
   }
 
-  return { checked: bookings.length, paid, failed }
+  return { checked: bookings.length, paid, failed, blocked }
 }
 
 /** Auto-releases a booking's deposit once it's been held past the dispute

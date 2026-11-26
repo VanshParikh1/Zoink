@@ -82,7 +82,7 @@ describe('releaseDuePayouts', () => {
     })
 
     const result = await releaseDuePayouts()
-    assert.deepEqual(result, { checked: 2, paid: 1, failed: 1 })
+    assert.deepEqual(result, { checked: 2, paid: 1, failed: 1, blocked: 0 })
 
     const db = getTestPrisma()
     const paid = await db.booking.findUniqueOrThrow({ where: { id: healthy.id } })

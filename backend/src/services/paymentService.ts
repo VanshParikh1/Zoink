@@ -400,6 +400,16 @@ export async function getPaymentIntentChargeId(paymentIntentId: string): Promise
   return chargeIdOf(intent)
 }
 
+/** A Stripe refusal that the same request will keep getting (a restricted or
+ *  missing account, an invalid parameter), as opposed to a network, server,
+ *  rate-limit or balance problem that a later attempt can get past. */
+export function isPermanentStripeError(error: unknown): boolean {
+  const e = error as { type?: unknown; statusCode?: unknown; code?: unknown } | null
+  if (!e) return false
+  if (e.code === 'balance_insufficient' || e.type === 'StripeIdempotencyError') return false
+  return e.type === 'StripeInvalidRequestError' || e.type === 'StripePermissionError' || e.statusCode === 400 || e.statusCode === 403 || e.statusCode === 404
+}
+
 /** latest_charge as an id, whether Stripe returned it expanded or not. */
 export function chargeIdOf(intent: { latest_charge?: string | { id: string } | null } | null | undefined): string | null {
   const charge = intent?.latest_charge

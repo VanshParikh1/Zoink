@@ -195,6 +195,10 @@ model Booking {
   // Stripe capture. Set with no charge id = capture decided, not yet confirmed;
   // with a charge id = the amount captured and owed to the owner.
   depositCaptureCents          Int?
+  // P3-12: set when Stripe permanently refused the owner's payout (e.g. a
+  // restricted account). The payout job skips the booking until an admin
+  // clears it; the refusal is on the booking's ERROR events.
+  payoutBlockedAt              DateTime?
   paidAt                       DateTime?
   refundedAt                   DateTime?
   // Cumulative cents refunded to the renter from the RENTAL payment (never the
